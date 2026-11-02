@@ -49,6 +49,22 @@ describe('normalizeNamePart', () => {
   test('is empty when only invisible characters and whitespace are left', () => {
     expect(normalizeNamePart('​ ‌　')).toBe('')
   })
+
+  test('composes again after an invisible character is removed from between a letter and its accent', () => {
+    // e + combining grapheme joiner + combining acute: NFKC leaves it decomposed, removing the joiner then
+    // leaves e + acute, which must still equal the single é.
+    expect(normalizeNamePart('小鱼e\u034f\u0301')).toBe('小鱼\u00e9')
+    expect(normalizeNamePart('小鱼e\u034f\u0301')).toBe(normalizeNamePart('小鱼\u00e9'))
+  })
+
+  test('composes again after a control character is removed from between a letter and its accent', () => {
+    expect(normalizeNamePart('小鱼e\u0000\u0301')).toBe('小鱼\u00e9')
+  })
+
+  test('composes Hangul jamo that an invisible character kept apart', () => {
+    expect(normalizeNamePart('\u1100\u034f\u1161')).toBe('\uac00')
+    expect(normalizeNamePart('\u1100\u034f\u1161')).toBe(normalizeNamePart('\uac00'))
+  })
 })
 
 describe('displayName', () => {

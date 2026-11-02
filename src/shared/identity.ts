@@ -6,11 +6,17 @@ import type { Division, SchoolConfig, Slot } from './config.js'
 const CONTROL = /\p{Cc}/gu
 
 /**
- * NFKC, drop invisible and control characters, trim, then squeeze inner whitespace runs into one ASCII space.
- * Two names that look the same therefore compare equal, which the duplicate-name rule relies on.
+ * NFKC, drop invisible and control characters, NFKC again, trim, then squeeze inner whitespace runs into one ASCII
+ * space. Two names that look the same therefore compare equal, which the duplicate-name rule relies on. The second
+ * NFKC composes what the dropped characters kept apart: e + combining grapheme joiner + acute accent has to end up
+ * as the same é as the single character.
  */
 export function normalizeNamePart(raw: string): string {
-  return removeInvisible(raw.normalize('NFKC')).replace(CONTROL, '').trim().replace(/\s+/gu, ' ')
+  return removeInvisible(raw.normalize('NFKC'))
+    .replace(CONTROL, '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/gu, ' ')
 }
 
 export function displayName(ownerName: string, aiName: string): string {

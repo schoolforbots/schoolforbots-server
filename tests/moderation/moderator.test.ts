@@ -27,6 +27,28 @@ describe('normalizeForMatch', () => {
   })
 })
 
+describe('normalization after removing invisible characters', () => {
+  // e + combining grapheme joiner + combining acute: the joiner keeps NFKC from composing the pair, so the
+  // text has to be composed again once the joiner is gone.
+  test('normalizeForMatch composes a letter and its accent again', () => {
+    expect(normalizeForMatch('cafe\u034f\u0301违禁')).toBe('caf\u00e9违禁')
+  })
+
+  test('normalizeForPrivacy composes a letter and its accent again', () => {
+    expect(normalizeForPrivacy('CAFE\u034f\u0301 违禁')).toBe('caf\u00e9 违禁')
+  })
+
+  test('a blocked word is found when an invisible character kept its accent decomposed', () => {
+    const accented = createModerator({ blockedWords: ['caf\u00e9违禁'], injectionPatterns: [] })
+    expect(accented.check('caf\u00e9违禁')).toMatchObject({ verdict: 'blocked', category: 'sensitive' })
+    expect(accented.check('cafe\u034f\u0301违禁')).toEqual({
+      verdict: 'blocked',
+      category: 'sensitive',
+      matched: 'caf\u00e9违禁',
+    })
+  })
+})
+
 describe('normalizeForPrivacy', () => {
   test('drops default-ignorable characters and the Braille blank too, but keeps whitespace and newlines', () => {
     expect(normalizeForPrivacy('1\u034f2\ufe00 3\u3164\n4\u2800')).toBe('12 3\n4')

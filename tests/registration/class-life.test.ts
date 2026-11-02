@@ -373,6 +373,20 @@ describe('PATCH /v1/me/name', () => {
     expect(await studentRow(id)).toMatchObject({ lastRenamedAt: null })
   })
 
+  test('a classmate name is still taken when an invisible character keeps an accent decomposed', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const assignedAt = t.clock.now()
+    const { id, key } = await insertStudent(t.db, { status: 'active', classId, assignedAt })
+    // The classmate is 阿杰家的小鱼é (precomposed é); e + combining grapheme joiner + combining acute looks the same.
+    await insertStudent(t.db, { ownerName: '阿杰', aiName: '小鱼é', status: 'active', classId, assignedAt })
+
+    const res = await rename(key, { ownerName: '阿杰', aiName: '小鱼e͏́' })
+    expect(res.statusCode).toBe(409)
+    expect(errorOf(res).code).toBe('name_taken')
+    expect(await studentRow(id)).toMatchObject({ lastRenamedAt: null })
+    expect(await renameEvents()).toEqual([])
+  })
+
   test('the owner and AI parts are compared as the joined display name', async () => {
     const classId = await insertClass(t.db, { classNo: 1 })
     const assignedAt = t.clock.now()

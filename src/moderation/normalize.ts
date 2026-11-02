@@ -12,20 +12,28 @@ function canonical(text: string): string {
   return text.normalize('NFKC').toLowerCase()
 }
 
-/** Drops the characters that show as nothing (see INVISIBLE); whitespace stays. Apply it after NFKC. */
+// Dropping characters can bring two others together that NFKC had to leave apart: a letter and its combining
+// accent with a combining grapheme joiner between them, or two Hangul jamo with a filler between them. The
+// text is therefore composed once more after every drop, so it ends up the same as if the invisible
+// character had never been there.
+
+/**
+ * Drops the characters that show as nothing (see INVISIBLE); whitespace stays. Apply it after NFKC, and apply
+ * NFKC again to the result (see above).
+ */
 export function removeInvisible(text: string): string {
   return text.replace(INVISIBLE, '')
 }
 
-/** NFKC, lowercase, then drop all whitespace and invisible characters. */
+/** NFKC, lowercase, drop all whitespace and invisible characters, then NFKC again. */
 export function normalizeForMatch(text: string): string {
-  return canonical(text).replace(IGNORABLE, '')
+  return canonical(text).replace(IGNORABLE, '').normalize('NFKC')
 }
 
 /**
- * NFKC, lowercase, then drop invisible characters only. Whitespace and
+ * NFKC, lowercase, drop invisible characters only, then NFKC again. Whitespace and
  * newlines stay: privacy rules judge a pasted chat log line by line.
  */
 export function normalizeForPrivacy(text: string): string {
-  return removeInvisible(canonical(text))
+  return removeInvisible(canonical(text)).normalize('NFKC')
 }
