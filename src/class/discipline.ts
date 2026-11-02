@@ -161,11 +161,12 @@ export interface PenaltyReport {
 }
 
 /**
- * After the lesson, for each student who has a new record in it (and is still in the class): expels the student when
- * the school-rule breaks of the last `expulsion.windowDays` days reach `expulsion.schoolRuleCount`; otherwise suspends
- * the student at `suspension.schoolRuleCount`; and, whichever of those happened, records a parent notice when the class
- * rules broken in the last `parentNotice.windowDays` days reach `parentNotice.classRuleCount` and no notice has gone
- * out in that time. Records that were revoked never count. Everything is written in one transaction.
+ * After the lesson, for each student who has a new record in it (and is still in the class): when it broke the school
+ * rule in this lesson, expels the student when the school-rule breaks of the last `expulsion.windowDays` days reach
+ * `expulsion.schoolRuleCount`, otherwise suspends the student at `suspension.schoolRuleCount`; and, when it broke a
+ * class rule in this lesson, whichever of those happened, records a parent notice when the class rules broken in the
+ * last `parentNotice.windowDays` days reach `parentNotice.classRuleCount` and no notice has gone out in that time.
+ * Records that were revoked never count. Everything is written in one transaction.
  *
  * The penalties are keyed by the session: a student the lesson has already suspended or expelled is not suspended
  * or expelled again by it, nor does a suspension get longer, and a lesson that has sent a notice sends no second one.
@@ -198,17 +199,23 @@ export async function applyPenalties(
       return Number(total)
     }
 
-    const involved = await trx
+    // What each student broke in this lesson: only a school-rule break in it can bring a suspension or an expulsion,
+    // only a class-rule break in it a parent notice. Class rules never add up into a suspension.
+    const offences = await trx
       .selectFrom('disciplineRecords')
-      .select('studentId')
+      .select(['studentId', 'kind'])
       .distinct()
       .where('sessionId', '=', sessionId)
       .where('kind', 'in', [...OFFENCES])
       .where('revokedAt', 'is', null)
       .orderBy('studentId')
       .execute()
+    const involved = new Map<number, Set<DisciplineKind>>()
+    for (const { studentId, kind } of offences) {
+      involved.set(studentId, (involved.get(studentId) ?? new Set()).add(kind))
+    }
 
-    for (const { studentId } of involved) {
+    for (const [studentId, kinds] of involved) {
       // In student-number order, so two runs that overlap take the rows in the same order.
       const student = await trx
         .selectFrom('students')
@@ -226,7 +233,7 @@ export async function applyPenalties(
         .where('kind', 'in', ['suspension', 'expulsion'])
         .limit(1)
         .executeTakeFirst()
-      if (punished === undefined) {
+      if (kinds.has('school_rule') && punished === undefined) {
         if ((await count(studentId, ['school_rule'], expulsion.windowDays)) >= expulsion.schoolRuleCount) {
           const until = new Date(now.getTime() + expulsion.banDays * DAY_MS)
           await trx
@@ -268,6 +275,7 @@ export async function applyPenalties(
         }
       }
 
+      if (!kinds.has('initiations') && !kinds.has('rounds')) continue
       const classRules = await count(studentId, ['initiations', 'rounds'], parentNotice.windowDays)
       if (classRules >= parentNotice.classRuleCount) {
         const notified = await trx
