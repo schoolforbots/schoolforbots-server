@@ -32,6 +32,11 @@ export interface MemoryHub extends Hub {
    * connection by now: that one stays registered. True as well for a connection `disconnect` has already forgotten.
    */
   remove(connection: HubConnection): boolean
+  /**
+   * Sends every connection `message` (a `closing`) as its last message and closes it: the service is stopping. All
+   * are forgotten before the first is closed, so no student leaving finds a classmate left to tell.
+   */
+  disconnectAll(message: object): void
 }
 
 export function createHub(): MemoryHub {
@@ -65,6 +70,14 @@ export function createHub(): MemoryHub {
       const current = connections.get(connection.studentId)
       if (current === connection) connections.delete(connection.studentId)
       return current === undefined || current === connection
+    },
+    disconnectAll(message) {
+      const all = [...connections.values()]
+      connections.clear()
+      for (const c of all) {
+        c.send(message)
+        c.close()
+      }
     },
   }
 }

@@ -1,7 +1,8 @@
+import { once } from 'node:events'
 import { sql } from 'kysely'
 import Value from 'typebox/value'
 import { afterEach, describe, expect, test } from 'vitest'
-import type WebSocket from 'ws'
+import WebSocket from 'ws'
 import { markAttendance } from '../../src/class/attendance.js'
 import type { AckResult, MessageHandlers, Participant } from '../../src/class/connection.js'
 import { WS_ERROR_MESSAGES } from '../../src/class/ws-errors.js'
@@ -70,25 +71,15 @@ interface Client {
   sync(): Promise<void>
 }
 
-/** Opens a connection with `key` (none when null). Listeners are attached before the upgrade, so nothing is missed. */
-async function connect(key: string | null): Promise<Client> {
-  if (service === undefined) throw new Error('start() first')
+/** Reads what the server sends `ws`. Called before the socket opens, so nothing is missed. */
+function track(ws: WebSocket): Client {
   const received: Received[] = []
   let cursor = 0
   let closeCode: number | null = null
-  const ws = await service.app.injectWS(
-    '/v1/class',
-    { headers: key === null ? {} : { authorization: `Bearer ${key}` } },
-    {
-      onInit(socket) {
-        socket.on('message', (data) => void received.push(JSON.parse(String(data))))
-        socket.on('close', (code) => {
-          closeCode = code
-        })
-      },
-    },
-  )
-  sockets.push(ws)
+  ws.on('message', (data) => void received.push(JSON.parse(String(data))))
+  ws.on('close', (code) => {
+    closeCode = code
+  })
   const client: Client = {
     ws,
     received,
@@ -113,6 +104,46 @@ async function connect(key: string | null): Promise<Client> {
       }
     },
   }
+  return client
+}
+
+/** Opens a connection with `key` (none when null). Listeners are attached before the upgrade, so nothing is missed. */
+async function connect(key: string | null): Promise<Client> {
+  if (service === undefined) throw new Error('start() first')
+  let client: Client | undefined
+  const ws = await service.app.injectWS(
+    '/v1/class',
+    { headers: key === null ? {} : { authorization: `Bearer ${key}` } },
+    {
+      onInit(socket) {
+        client = track(socket)
+      },
+    },
+  )
+  sockets.push(ws)
+  if (client === undefined) throw new Error('The connection was never set up')
+  return client
+}
+
+/**
+ * Opens a connection over TCP to the service listening on a port of its own, for what an injected connection does
+ * not do: answer pings (unless `autoPong` is false), and close the way a real client does.
+ */
+async function connectOverTcp(key: string, options: { autoPong?: boolean } = {}): Promise<Client> {
+  if (service === undefined) throw new Error('start() first')
+  const { app } = service
+  if (!app.server.listening) await app.listen({ port: 0, host: '127.0.0.1' })
+  const address = app.server.address()
+  if (address === null || typeof address === 'string') throw new Error('The service is not listening on a port')
+  const ws = new WebSocket(`ws://127.0.0.1:${address.port}/v1/class`, {
+    headers: { authorization: `Bearer ${key}` },
+    autoPong: options.autoPong ?? true,
+  })
+  // A connection the server drops may end with a reset: that is the point, not a failure of the test.
+  ws.on('error', () => {})
+  const client = track(ws)
+  sockets.push(ws)
+  await once(ws, 'open')
   return client
 }
 
@@ -385,6 +416,72 @@ describe('frames before hello', () => {
   })
 })
 
+describe('the transport', () => {
+  const HELLO_TIMEOUT = { type: 'closing', reason: 'session_over', message: '连上以后没有及时收到 hello，连接已经断开。' }
+
+  test('a connection that sends no valid hello in time is told so and closed', async () => {
+    const s = await start({ helloTimeoutMs: 500 })
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:50'))
+
+    const client = await connectOverTcp(students[0]!.key)
+    // Neither another protocol's hello nor anything else counts.
+    client.send({ id: 'h0', ...HELLO, protocol: 'v2' })
+    expect(await client.next()).toMatchObject({ type: 'ack', id: 'h0', ok: false, error: { code: 'protocol_unsupported' } })
+    expect(await client.next()).toEqual(HELLO_TIMEOUT)
+    expect(await client.closed()).toBe(1000)
+    expect(await attendanceRows(s)).toEqual([])
+  })
+
+  test('the deadline does not close a connection whose hello came in time, however long the hello takes', async () => {
+    const s = await start({
+      helloTimeoutMs: 500,
+      handlers: {
+        // The welcome waits for this, long past the deadline.
+        join: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          return { initiationsLeft: 3 }
+        },
+      },
+    })
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:50'))
+
+    const client = await connectOverTcp(students[0]!.key)
+    await hello(client)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await client.sync()
+    expect(client.received.filter((m) => m.type === 'closing')).toEqual([])
+  })
+
+  test('a client that stops answering pings is dropped, and its classmates see it leave', async () => {
+    const s = await start({ pingIntervalMs: 500 })
+    const { classId, students } = await seedClass(s, 2)
+    const [a, b] = students
+    await tickAt(s, at('19:50'))
+
+    const ca = await connectOverTcp(a!.key)
+    await hello(ca)
+    const cb = await connectOverTcp(b!.key, { autoPong: false })
+    await hello(cb)
+    expect(await ca.next()).toEqual({ type: 'presence', joined: { studentId: b!.id, displayName: b!.displayName } })
+
+    // Dropped without a close frame: the connection is torn down.
+    expect(await cb.closed()).toBe(1006)
+    expect(await ca.next()).toEqual({ type: 'presence', left: { studentId: b!.id, displayName: b!.displayName } })
+    expect(s.disconnects).toEqual([b!.id])
+    expect(s.hub.online(classId)).toEqual([a!.id])
+    expect(s.logs.entries().filter((e) => e.msg === 'class connection stopped answering pings')).toMatchObject([
+      { studentId: b!.id },
+    ])
+
+    // The one that answers stays, ping after ping.
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await ca.sync()
+    expect(ca.received.filter((m) => m.type === 'closing')).toEqual([])
+  })
+})
+
 describe('joining the class', () => {
   test('welcome, then every event since the opening replayed, then the live ones', async () => {
     const s = await start()
@@ -579,6 +676,28 @@ describe('who is online', () => {
     ])
     expect(clients[1]!.received.filter((m) => m.type === 'presence')).toEqual([])
     expect(s.disconnects).toEqual(students.map((x) => x.id))
+    expect(s.hub.online(classId)).toEqual([])
+  })
+
+  test('shutting the service down tells everyone it is under maintenance, and nobody that a classmate left', async () => {
+    const s = await start()
+    const { classId, students } = await seedClass(s, 2)
+    await tickAt(s, at('19:50'))
+    const clients = []
+    for (const x of students) {
+      const client = await connect(x.key)
+      await hello(client)
+      clients.push(client)
+    }
+    expect(await clients[0]!.next()).toMatchObject({ type: 'presence', joined: { studentId: students[1]!.id } })
+
+    s.disconnectAll()
+    for (const client of clients) {
+      expect(await client.next()).toEqual({ type: 'closing', reason: 'session_over', message: '学校正在维护，请稍后重连。' })
+      expect(await client.closed()).toBe(1000)
+    }
+    expect(clients.flatMap((c) => c.received.filter((m) => m.type === 'presence' && 'left' in m))).toEqual([])
+    expect(s.disconnects.sort((x, y) => x - y)).toEqual(students.map((x) => x.id))
     expect(s.hub.online(classId)).toEqual([])
   })
 

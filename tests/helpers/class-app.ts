@@ -1,30 +1,30 @@
 import type { FastifyServerOptions } from 'fastify'
-import { buildClassApp } from '../../src/class/app.js'
-import { chatHandlers, createChatEngine } from '../../src/class/chat.js'
 import type { MessageHandlers } from '../../src/class/connection.js'
-import { disciplineRecorder } from '../../src/class/discipline.js'
-import { createLessonHooks, type LessonHooks } from '../../src/class/hooks.js'
-import { createHub } from '../../src/class/hub.js'
-import { questionHandlers, type QuestionsDeps } from '../../src/class/questions.js'
-import { createClassRuntime } from '../../src/class/runtime.js'
+import type { LessonHooks } from '../../src/class/hooks.js'
+import { createClassService } from '../../src/class/service.js'
 import { exampleConfig, exampleModerator, type ConfigOverrides } from './app.js'
 import { createTestClock } from './clock.js'
 import { createTestDb } from './db.js'
 
 /**
- * A class service on a fresh database: the example config and word lists, a controllable clock (by default Monday
- * 2 November 2026 at 19:00 in Beijing, before the evening doors), the real hub and the real lesson runtime. The
- * runtime only runs when a test calls `runtime.tick()`.
+ * A class service on a fresh database, assembled as the running service is (`createClassService`): the example
+ * config and word lists, a controllable clock (by default Monday 2 November 2026 at 19:00 in Beijing, before the
+ * evening doors), the real hub and the real lesson runtime. The runtime only runs when a test calls `runtime.tick()`
+ * (or `tick()`, which the running service calls on its interval).
  *
  * The lesson hooks are `createLessonHooks` (src/class/hooks.ts: whatever has been built so far, the rest no-ops) with
  * `overrides.hooks` on top; the same object goes to the runtime and to the app.
  *
  * One chat engine (`chat`) serves both: its hooks go into `createLessonHooks`, its handlers to the app, with
- * `overrides.handlers` on top. It ends overdue conversations only when a test calls `chat.tick()`. The questions and
- * the call-on (`questions`) are wired the same way; the teacher calls on the first student online unless `random`
- * says otherwise (see `callOnStep`).
+ * `overrides.handlers` on top. It ends overdue conversations only when a test calls `chat.tick()` (or `tick()`). The
+ * questions and the call-on (`questions`) are wired the same way; the teacher calls on the first student online
+ * unless `random` says otherwise (see `callOnStep`).
  * The hub goes into `createLessonHooks` too (it needs one), so a session that runs to its close writes the summaries
  * (and pushes them to whoever is online).
+ *
+ * The transport's timers run on real time with the service's defaults (10 s for hello, a ping every 30 s) unless
+ * `helloTimeoutMs` or `pingIntervalMs` shorten them. A connection made with `app.injectWS` does not answer pings, so
+ * it is dropped at its second ping (a minute in, by default): for pings, connect over TCP.
  */
 export async function buildTestClassApp(
   overrides: {
@@ -35,54 +35,28 @@ export async function buildTestClassApp(
     speed?: number
     random?: () => number
     logger?: FastifyServerOptions['logger']
+    helloTimeoutMs?: number
+    pingIntervalMs?: number
   } = {},
 ) {
   const { db, destroy: destroyDb } = await createTestDb()
 
   const config = exampleConfig(overrides.config)
-  const moderator = exampleModerator()
   const clock = createTestClock(overrides.now ?? new Date('2026-11-02T19:00:00+08:00'))
-  const hub = createHub()
-  const speed = overrides.speed ?? 1
-  const chat = createChatEngine({
+  const service = createClassService({
     db,
     config,
+    moderator: exampleModerator(),
     clock,
-    hub,
-    moderator,
-    discipline: disciplineRecorder,
-    speed,
-    // The app's logger: the engine only logs while the app is serving.
-    log: (obj, msg) => app.log.info(obj, msg),
-  })
-  const questions: QuestionsDeps = {
-    db,
-    config,
-    clock,
-    hub,
-    moderator,
-    discipline: disciplineRecorder,
-    random: overrides.random ?? (() => 0),
-    log: (obj, msg) => app.log.info(obj, msg),
-  }
-  const hooks: LessonHooks = {
-    ...createLessonHooks({ db, config, clock, chat, questions, hub, log: (obj, msg) => app.log.info(obj, msg) }),
-    ...overrides.hooks,
-  }
-  const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks })
-
-  const app = buildClassApp({
-    db,
-    config,
-    moderator,
-    clock,
-    runtime,
-    hub,
-    hooks,
-    // The two take different messages and seams (chat: `join`; questions: `resume`), so neither replaces the other's.
-    handlers: { ...chatHandlers(chat), ...questionHandlers(questions), ...overrides.handlers },
+    speed: overrides.speed ?? 1,
     logger: overrides.logger,
+    random: overrides.random ?? (() => 0),
+    hooks: overrides.hooks,
+    handlers: overrides.handlers,
+    helloTimeoutMs: overrides.helloTimeoutMs,
+    pingIntervalMs: overrides.pingIntervalMs,
   })
+  const { app, runtime, hub, chat, questions } = service
   try {
     await app.ready()
   } catch (err) {
@@ -99,6 +73,8 @@ export async function buildTestClassApp(
     chat,
     questions,
     config,
+    tick: service.tick,
+    disconnectAll: service.disconnectAll,
     async destroy() {
       await app.close()
       await destroyDb()

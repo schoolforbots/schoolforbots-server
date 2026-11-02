@@ -48,6 +48,13 @@ export interface ClassRuntimeDeps {
   log?: (obj: object, msg: string) => void
 }
 
+/**
+ * How late after a session's close its steps still run live, at real-time speed (the timeline speed divides it): any
+ * later, the service was down through the close, and the session is finished quietly. The service ticks well within
+ * it, so a close it was up for is never that late.
+ */
+export const LIVE_TOLERANCE_MS = 30_000
+
 const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
 const DIVISIONS: readonly Division[] = ['primary', 'junior', 'senior']
 
@@ -113,7 +120,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
   const openedSlots = new Set<Slot>()
   let running: Promise<void> = Promise.resolve()
   // How late after its close a session's step still runs live, so the close itself (a tick after it) stays live.
-  const liveToleranceMs = 30_000 / speed
+  const liveToleranceMs = LIVE_TOLERANCE_MS / speed
 
   const teacherName = (personaId: string): string =>
     config.teacherPersonas.find((p) => p.id === personaId)?.name ?? FALLBACK_TEACHER

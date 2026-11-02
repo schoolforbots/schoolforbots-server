@@ -33,6 +33,16 @@ export interface ClassDeps {
   hooks: Pick<LessonHooks, 'onDisconnect'>
   /** What the messages after hello do. A message whose handler is missing is answered `invalid_message`. */
   handlers?: Partial<MessageHandlers>
+  /**
+   * How long a connection has to send a valid hello before it is told so and closed, in real milliseconds (the
+   * lesson clock and the timeline speed have no say in it). Default `HELLO_TIMEOUT_MS`.
+   */
+  helloTimeoutMs?: number
+  /**
+   * How often every connection is pinged, in real milliseconds; one that has not answered the previous ping by the
+   * next is dropped. Default `PING_INTERVAL_MS`.
+   */
+  pingIntervalMs?: number
   /** Fastify logger options; unset means no logging. */
   logger?: FastifyServerOptions['logger']
 }

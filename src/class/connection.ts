@@ -26,9 +26,9 @@ import type { HubConnection } from './hub.js'
 import type { ActiveSession } from './runtime.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from './ws-errors.js'
 
-// One student's WebSocket connection to the class, from the upgrade to the close: the checks at the door, hello,
-// attendance, welcome, the replay of the class events missed and of what the student is still owed (an open call-on),
-// presence, and handing each later message to its handler.
+// One student's WebSocket connection to the class, from the upgrade to the close: the checks at the door, hello (and
+// its deadline), attendance, welcome, the replay of the class events missed and of what the student is still owed (an
+// open call-on), presence, handing each later message to its handler, and the pings that find a client gone.
 // Frames of one connection are handled one at a time, in the order they came.
 
 export type StudentRow = Selectable<Database['students']>
@@ -100,8 +100,15 @@ const MAX_ID = 64
  */
 export const MAX_FRAME_BYTES = 16 * 1024
 
+/** How long a connection has to send a valid hello, by default (see `ClassDeps.helloTimeoutMs`). */
+export const HELLO_TIMEOUT_MS = 10_000
+
+/** How often a connection is pinged, by default (see `ClassDeps.pingIntervalMs`). */
+export const PING_INTERVAL_MS = 30_000
+
 const closing = (reason: Closing['reason'], message: string): Closing => ({ type: 'closing', reason, message })
 const REPLACED = closing('replaced', '这个学号在别的地方连上了，这里的连接已经断开。')
+const HELLO_TIMEOUT = closing('session_over', '连上以后没有及时收到 hello，连接已经断开。')
 
 /** What a student with no class is told, by status. */
 function noClassMessage(status: StudentStatus): string {
@@ -158,6 +165,14 @@ export function serveConnection(
   // here, so that nothing pushed meanwhile comes before the welcome, goes missing or comes twice. A `closing` does not
   // wait: it is the last message, and the connection closes right after it.
   let pending: object[] | null = null
+  // The transport's timers, on real time (see `ClassDeps`): the deadline for hello, and the pings. Both stop when the
+  // connection is over.
+  let helloTimer: NodeJS.Timeout | undefined
+  let pingTimer: NodeJS.Timeout | undefined
+  const stopTimers = (): void => {
+    clearTimeout(helloTimer)
+    clearInterval(pingTimer)
+  }
 
   const write = (message: object): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
@@ -165,7 +180,14 @@ export function serveConnection(
   // The server closing the connection: the student is gone from this moment, not only once the client has answered
   // the close (which may take until `ws` gives up waiting, if the client has vanished).
   const closeSocket = (code: number): void => {
+    stopTimers()
     socket.close(code)
+    leave()
+  }
+  // A client that no longer answers is not waited for: the connection is torn down without a close handshake.
+  const dropSocket = (): void => {
+    stopTimers()
+    socket.terminate()
     leave()
   }
   const sendClosing = (message: Closing): void => {
@@ -207,6 +229,32 @@ export function serveConnection(
     return
   }
   const { classId } = door
+
+  // ---- The transport ----
+
+  // A connection that says nothing holds a socket for nothing. A valid hello stops this (see `onFrame`).
+  helloTimer = setTimeout(() => {
+    if (socket.readyState !== socket.OPEN) return
+    log.info({ studentId }, 'class connection sent no hello in time')
+    sendClosing(HELLO_TIMEOUT)
+  }, deps.helloTimeoutMs ?? HELLO_TIMEOUT_MS)
+
+  // A client gone without a close (a dead network, a frozen process) answers no pings: one that has not answered the
+  // previous ping by the next is dropped, and the student leaves as after any other close.
+  let answered = true
+  socket.on('pong', () => {
+    answered = true
+  })
+  pingTimer = setInterval(() => {
+    if (socket.readyState !== socket.OPEN) return
+    if (!answered) {
+      log.info({ studentId }, 'class connection stopped answering pings')
+      dropSocket()
+      return
+    }
+    answered = false
+    socket.ping()
+  }, deps.pingIntervalMs ?? PING_INTERVAL_MS)
 
   // ---- The connection as the hub sees it ----
 
@@ -409,6 +457,9 @@ export function serveConnection(
     const msg = frame
     if (msg.type === 'hello') {
       if (participant !== null) return reply(msg.id, fail('invalid_message'))
+      // In time: the deadline is met, however long the hello takes and whatever it leads to (the student joins, or is
+      // told why not and disconnected).
+      clearTimeout(helloTimer)
       return onHello(msg)
     }
     const me = participant
@@ -430,7 +481,10 @@ export function serveConnection(
       })
   })
 
-  socket.on('close', leave)
+  socket.on('close', () => {
+    stopTimers()
+    leave()
+  })
 
   /**
    * The connection is over, whoever closed it; runs once. Only the student going offline counts: a connection

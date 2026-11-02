@@ -78,6 +78,34 @@ describe('createHub', () => {
 
     expect(hub.remove(a.connection)).toBe(true)
   })
+
+  test('disconnectAll forgets everyone before it closes anyone, so a close finds nobody left to tell', () => {
+    const hub = createHub()
+    const seen: number[][] = []
+    const make = (studentId: number, classId: number) => {
+      const x = fakeConnection(studentId, classId)
+      // What a closing connection would find, as the connection layer does to tell the classmates.
+      const close = x.connection.close
+      x.connection.close = () => {
+        seen.push(hub.online(classId))
+        close()
+      }
+      return x
+    }
+    const all = [make(3, 1), make(1, 1), make(2, 9)]
+    for (const x of all) hub.add(x.connection)
+
+    hub.disconnectAll({ type: 'closing' })
+
+    for (const x of all) {
+      expect(x.sent).toEqual([{ type: 'closing' }])
+      expect(x.closed()).toBe(true)
+      expect(hub.remove(x.connection)).toBe(true)
+    }
+    expect(seen).toEqual([[], [], []])
+    expect(hub.online(1)).toEqual([])
+    expect(hub.online(9)).toEqual([])
+  })
 })
 
 describe('RecordingHub', () => {

@@ -943,4 +943,24 @@ describe('chat over the WebSocket', () => {
     const text = JSON.stringify(logged)
     for (const said of ['一起预习光的折射吗？', '好呀', BANNED, '下课前再问一个', '明天见']) expect(text).not.toContain(said)
   })
+
+  test("the service's tick ends a conversation nobody touches once its reply is overdue", async () => {
+    service = await buildTestClassApp()
+    const s = service
+    const { a, b } = await seedPair(s)
+    const ca = await connect(s, a.key)
+    await hello(ca, 5)
+    const cb = await connect(s, b.key)
+    await hello(cb, 5)
+
+    ca.send({ id: 's1', type: 'chat.start', to: b.id, text: '在吗？' })
+    const c = (await ca.next('ack')).result.conversationId
+    await cb.next('chat.incoming')
+
+    // b's reply was due two minutes after the line reached it (19:50).
+    s.clock.set(at('19:52'))
+    await s.tick()
+    expect(await ca.next('chat.ended')).toEqual({ type: 'chat.ended', conversationId: c, reason: 'timeout' })
+    expect(await cb.next('chat.ended')).toEqual({ type: 'chat.ended', conversationId: c, reason: 'timeout' })
+  })
 })
