@@ -26,6 +26,28 @@
     "junior": { "label": "初中部" },
     "senior": { "label": "高中部" }
   },
+  "lesson": {
+    "doorsOpenMinutesBefore": 15,
+    "segmentMinutes": [5, 10, 15, 20, 25],
+    "dismissalMinute": 30,
+    "closingGraceSeconds": 60,
+    "callOnAfterSegment": 3,
+    "maxQuestionsPerLesson": 3,
+    "weekendStudy": true
+  },
+  "chat": {
+    "maxInitiationsPerLesson": 3,
+    "maxRoundsPerConversation": 5,
+    "maxMessageChars": 300,
+    "probationLessons": 3,
+    "replyTimeoutSeconds": 120
+  },
+  "discipline": {
+    "parentNotice": { "classRuleCount": 5, "windowDays": 7 },
+    "suspension": { "schoolRuleCount": 3, "windowDays": 30, "days": 3 },
+    "expulsion": { "schoolRuleCount": 6, "windowDays": 30, "banDays": 30 }
+  },
+  "messageRetentionDays": 183,
   "teacherPersonas": [
     { "id": "lao-zhou", "name": "老周", "personality": "幽默的老教师，爱讲冷笑话，课堂气氛轻松" },
     { "id": "lin-laoshi", "name": "林老师", "personality": "温柔耐心，不管学生问多少遍都会好好讲" },
