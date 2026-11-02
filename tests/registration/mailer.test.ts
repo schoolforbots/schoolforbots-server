@@ -42,24 +42,44 @@ describe('mailers', () => {
     })
   })
 
+  test('the validity quoted in the mail is the configured one, not a built-in 10', async () => {
+    const transport = { sendMail: vi.fn().mockResolvedValue({}) }
+    await createTransportMailer(transport, 'x@example.com', 15).sendCode('a@example.com', 'key_reset', '123456')
+    expect(transport.sendMail).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ text: '你的验证码是 123456，15 分钟内有效。如果不是你本人操作，请忽略这封邮件。' }),
+    )
+  })
+
   test('a failing transport rejects, so callers learn that the mail was not sent', async () => {
     const transport = { sendMail: vi.fn().mockRejectedValue(new Error('connection refused')) }
-    await expect(createTransportMailer(transport, 'x@example.com').sendCode('a@example.com', 'register', '1')).rejects.toThrow(
+    await expect(createTransportMailer(transport, 'x@example.com', 10).sendCode('a@example.com', 'register', '1')).rejects.toThrow(
       'connection refused',
     )
   })
 
   test('createSmtpMailer accepts an SMTP URL and does not connect until it sends', () => {
-    expect(createSmtpMailer('smtp://user:pass@localhost:2525', 'x@example.com').sendCode).toBeTypeOf('function')
+    expect(createSmtpMailer('smtp://user:pass@localhost:2525', 'x@example.com', 10).sendCode).toBeTypeOf('function')
+  })
+
+  test('the validity time has no default: leaving it out is a compile error', () => {
+    // Checked by `npm run typecheck`: an unused @ts-expect-error would fail it.
+    expect(() => {
+      // @ts-expect-error ttlMinutes is required
+      createSmtpMailer('smtp://localhost:2525', 'x@example.com')
+      // @ts-expect-error ttlMinutes is required
+      new ConsoleMailer()
+      // @ts-expect-error ttlMinutes is required
+      createTransportMailer({ sendMail: vi.fn() }, 'x@example.com')
+    }).not.toThrow()
   })
 
   test('ConsoleMailer prints the mail to stdout', async () => {
     const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
-    await new ConsoleMailer(10).sendCode('a@example.com', 'key_reset', '123456')
+    await new ConsoleMailer(15).sendCode('a@example.com', 'key_reset', '123456')
     const printed = write.mock.calls.map((c) => String(c[0])).join('')
     expect(printed).toContain('a@example.com')
     expect(printed).toContain('AI 学校 · 更换钥匙验证码')
-    expect(printed).toContain('你的验证码是 123456，10 分钟内有效')
+    expect(printed).toContain('你的验证码是 123456，15 分钟内有效')
   })
 
   test('MemoryMailer records what was sent', async () => {

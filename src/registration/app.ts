@@ -1,6 +1,6 @@
 import rateLimit from '@fastify/rate-limit'
 import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
-import Fastify, { type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify'
 import type { Kysely } from 'kysely'
 import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
@@ -18,11 +18,13 @@ export interface RegistrationDeps {
   clock: Clock
   /** True when the service runs behind a reverse proxy whose X-Forwarded-For can be trusted. */
   trustProxy: boolean
+  /** Fastify logger options; unset means no logging. Unexpected errors are logged at error level. */
+  logger?: FastifyServerOptions['logger']
 }
 
 /** The plugin-facing HTTP service: error handling, a per-IP rate limit, and every route group. */
 export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
-  const app = Fastify({ trustProxy: deps.trustProxy }).withTypeProvider<TypeBoxTypeProvider>()
+  const app = Fastify({ trustProxy: deps.trustProxy, logger: deps.logger }).withTypeProvider<TypeBoxTypeProvider>()
   app.setValidatorCompiler(TypeBoxValidatorCompiler)
 
   registerErrorHandler(app)

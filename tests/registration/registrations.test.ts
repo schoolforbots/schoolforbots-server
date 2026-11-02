@@ -594,3 +594,42 @@ describe('global rate limit', () => {
     expect((await register({}, '203.0.113.50')).statusCode).toBe(400)
   })
 })
+
+describe('logging', () => {
+  function captureLogs() {
+    const lines: string[] = []
+    const entries = () => lines.flatMap((l) => l.split('\n')).filter((l) => l !== '').map((l) => JSON.parse(l) as Record<string, any>)
+    return { stream: { write: (line: string) => void lines.push(line) }, entries }
+  }
+
+  async function useLogger(stream: { write(line: string): void }) {
+    await t.destroy()
+    t = await buildTestApp({ logger: { level: 'info', stream } })
+  }
+
+  test('an unexpected error is logged at error level and the client gets 500 internal_error', async () => {
+    const logs = captureLogs()
+    await useLogger(logs.stream)
+    vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(new Error('smtp down'))
+
+    const res = await register(registrationBody())
+
+    expect(res.statusCode).toBe(500)
+    expect(errorOf(res).code).toBe('internal_error')
+    expect(res.body).not.toContain('smtp down')
+    const errors = logs.entries().filter((e) => e.level >= 50)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ err: { message: 'smtp down' }, msg: 'smtp down' })
+  })
+
+  test('client mistakes are not logged as errors', async () => {
+    const logs = captureLogs()
+    await useLogger(logs.stream)
+
+    expect((await register({})).statusCode).toBe(400)
+    expect((await register(registrationBody({ ownerName: '' }))).statusCode).toBe(400)
+    expect((await t.app.inject({ method: 'GET', url: '/v1/nope' })).statusCode).toBe(404)
+
+    expect(logs.entries().filter((e) => e.level >= 50)).toEqual([])
+  })
+})
