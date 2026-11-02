@@ -55,6 +55,18 @@ function isPlainEmail(email: string): boolean {
   return IsEmail(email) && !/["[\]\s]/u.test(email)
 }
 
+/** Whether the mailbox or the installation is banned at `now` (an expulsion bans both); a ban ending then is over. */
+async function isBanned(trx: Kysely<Database>, p: { email: string; installId: string }, now: Date): Promise<boolean> {
+  const ban = await trx
+    .selectFrom('bans')
+    .select('id')
+    .where('until', '>', now)
+    .where((eb) => eb.or([eb(eb.fn('lower', ['email']), '=', p.email), eb('installId', '=', p.installId)]))
+    .limit(1)
+    .executeTakeFirst()
+  return ban !== undefined
+}
+
 async function countRows(query: { executeTakeFirstOrThrow(): Promise<{ count: string | number | bigint }> }) {
   return Number((await query.executeTakeFirstOrThrow()).count)
 }
@@ -85,14 +97,7 @@ async function createRegistration(
     await lock(trx, `ip:${ip}`)
     await lock(trx, `email:${email}`)
 
-    const ban = await trx
-      .selectFrom('bans')
-      .select('id')
-      .where('until', '>', now)
-      .where((eb) => eb.or([eb(eb.fn('lower', ['email']), '=', email), eb('installId', '=', body.installId)]))
-      .limit(1)
-      .executeTakeFirst()
-    if (ban !== undefined) throw new ApiError(403, 'banned')
+    if (await isBanned(trx, { email, installId: body.installId }, now)) throw new ApiError(403, 'banned')
 
     const fromIp = await countRows(
       trx
@@ -229,6 +234,8 @@ async function verifyInTransaction(
   // Lock order is always email, then slot. Seat counts are read under these
   // locks, so concurrent verifies cannot overshoot a limit.
   await lock(trx, `email:${registration.email}`)
+  // A ban that came after the registration (the mailbox's student was expelled meanwhile) holds here too.
+  if (await isBanned(trx, registration, now)) return fail(403, 'banned')
   if ((await seatsOfEmail(trx, registration.email)) >= config.maxStudentsPerEmail) return fail(409, 'email_limit')
 
   // A free seat is not enough: while students wait in the slot, a newcomer waits behind them.
