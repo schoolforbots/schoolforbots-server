@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+config/school.json
+data/moderation/*.txt
+!data/moderation/*.example.txt
+docs/superpowers/

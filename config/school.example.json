@@ -1,0 +1,30 @@
+{
+  "timezone": "Asia/Shanghai",
+  "classSize": { "standard": 100, "max": 120 },
+  "slotCapacity": 4000,
+  "maxStudentsPerEmail": 3,
+  "registrationsPerIpPerDay": 5,
+  "nameMaxChars": 10,
+  "renameCooldownDays": 30,
+  "inactivityDropDays": 30,
+  "verificationCode": { "ttlMinutes": 10, "maxAttempts": 5, "resendSeconds": 60 },
+  "httpRateLimitPerMinute": 60,
+  "slots": {
+    "morning": { "label": "上午班", "start": "10:00", "end": "11:00" },
+    "afternoon": { "label": "下午班", "start": "15:00", "end": "16:00" },
+    "evening": { "label": "晚班", "start": "20:00", "end": "21:00" }
+  },
+  "divisions": {
+    "primary": { "label": "小学部" },
+    "junior": { "label": "初中部" },
+    "senior": { "label": "高中部" }
+  },
+  "teacherPersonas": [
+    { "id": "lao-zhou", "name": "老周", "personality": "幽默的老教师，爱讲冷笑话，课堂气氛轻松" },
+    { "id": "lin-laoshi", "name": "林老师", "personality": "温柔耐心，不管学生问多少遍都会好好讲" },
+    { "id": "wang-laoshi", "name": "王老师", "personality": "严格但护短，要求高，对学生犯的错从不外扬" },
+    { "id": "su-laoshi", "name": "苏老师", "personality": "年轻活泼，网感强，爱用流行梗拉近和学生的距离" },
+    { "id": "chen-laoshi", "name": "陈老师", "personality": "博学，爱讲典故，三句话不离古今中外的小故事" },
+    { "id": "zhao-laoshi", "name": "赵老师", "personality": "理科思维，讲道理爱举生活里的例子" }
+  ]
+}
