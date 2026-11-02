@@ -194,7 +194,9 @@ export async function writeSummaries(
         .where('studentId', 'in', online)
         .orderBy('studentId')
         .execute()
-      for (const { studentId, payload } of stored) hub.send(studentId, { type: 'summary', summary: payload as Summary })
+      for (const { studentId, payload } of stored) {
+        hub.send(studentId, { type: 'summary', sessionId, summary: payload as Summary })
+      }
     }
   }
   return written.length

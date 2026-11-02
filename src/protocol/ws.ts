@@ -19,7 +19,12 @@ const Count = Type.Integer({ minimum: 0 })
 
 // ---- Client to server ----
 
-/** Must be the first message after connecting. `lastSeq` is the last class event of this lesson the client has received. */
+/**
+ * Must be the first message after connecting. A client that reconnects sends the `sessionId` of the welcome it had and
+ * `lastSeq`, the last class event of that session it has received. The server replays the class events after
+ * `lastSeq` only when `sessionId` is the session going on now; when `sessionId` is missing or names another session
+ * (yesterday's, say), or `lastSeq` is past the last event of the session, it replays the session from its first event.
+ */
 export const HelloMessage = Type.Object({
   id: Id,
   type: Type.Literal('hello'),
@@ -29,6 +34,7 @@ export const HelloMessage = Type.Object({
     version: Type.String({ minLength: 1, maxLength: MAX_PLUGIN_FIELD }),
   }),
   maxRounds: Type.Integer({ minimum: 1, maximum: 50 }),
+  sessionId: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_PG_INTEGER })),
   lastSeq: Type.Optional(Type.Integer({ minimum: 0, maximum: MAX_PG_INTEGER })),
 })
 
@@ -204,8 +210,13 @@ export const CalledOnMessage = Type.Object({
   question: Type.String(),
 })
 
+/**
+ * The after-class summary, pushed at the close to the students still online. `sessionId` is the session it is of, as
+ * in `GET /v1/me/summaries`, so a plugin that also reads that list can tell it already has it.
+ */
 export const SummaryMessage = Type.Object({
   type: Type.Literal('summary'),
+  sessionId: Type.Integer({ minimum: 1 }),
   summary: Summary,
 })
 

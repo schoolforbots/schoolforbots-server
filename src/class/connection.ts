@@ -335,7 +335,12 @@ export function serveConnection(
     }
 
     const welcome = await buildWelcome(me, session, joined)
-    const events = await eventsAfter(db, sessionId, hello.lastSeq ?? 0)
+    // `lastSeq` counts the events of the session the client names. Of another session, or past this one's last event,
+    // it says nothing about what the client has of this one, which is then replayed whole.
+    const all = await eventsAfter(db, sessionId, 0)
+    const lastSeq = hello.sessionId === sessionId ? (hello.lastSeq ?? 0) : 0
+    const from = lastSeq <= (all.at(-1)?.seq ?? 0) ? lastSeq : 0
+    const events = all.filter((e) => e.seq > from)
     // After the replay is read, so it knows at least as much as the replay (see `MessageHandlers.resume`).
     const owed = (await deps.handlers?.resume?.(me)) ?? []
     // Closed meanwhile (by the client, or by the session's close): the close handler has done the rest.
@@ -343,7 +348,7 @@ export function serveConnection(
 
     write(ackMessage(hello.id, { ok: true }))
     write(welcome)
-    let seen = hello.lastSeq ?? 0
+    let seen = from
     for (const e of events) {
       write(classEventMessage(e, true))
       seen = Math.max(seen, e.seq)

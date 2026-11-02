@@ -472,8 +472,8 @@ describe('writeSummaries', () => {
       expect(await writeSummaries(deps(), session, { live: true })).toBe(3)
 
       expect(hub.messages).toEqual([
-        { to: 'student', studentId: online.id, message: { type: 'summary', summary: quiet() } },
-        { to: 'student', studentId: alsoOnline.id, message: { type: 'summary', summary: quiet() } },
+        { to: 'student', studentId: online.id, message: { type: 'summary', sessionId: session.sessionId, summary: quiet() } },
+        { to: 'student', studentId: alsoOnline.id, message: { type: 'summary', sessionId: session.sessionId, summary: quiet() } },
       ])
       for (const m of hub.messages) expect(Value.Check(ServerMessage, m.message), JSON.stringify(m.message)).toBe(true)
     })
@@ -514,7 +514,7 @@ describe('writeSummaries', () => {
 
       expect(await db.selectFrom('summaries').select('studentId').execute()).toHaveLength(2)
       expect(hub.messages).toEqual([
-        { to: 'student', studentId: online.id, message: { type: 'summary', summary: quiet() } },
+        { to: 'student', studentId: online.id, message: { type: 'summary', sessionId: session.sessionId, summary: quiet() } },
       ])
     })
 
@@ -569,7 +569,7 @@ describe('writeSummaries', () => {
       expect(hub.messages.map((m) => (m as { studentId: number }).studentId)).toEqual(students.map((s) => s.id))
       for (const m of hub.messages) {
         const { studentId, message } = m as { studentId: number; message: { summary: unknown } }
-        expect(message).toEqual({ type: 'summary', summary: quiet() })
+        expect(message).toEqual({ type: 'summary', sessionId: session.sessionId, summary: quiet() })
         expect(message.summary).toEqual(await stored(session, students.find((s) => s.id === studentId)!))
       }
     })
@@ -698,8 +698,8 @@ describe('after class, through the lesson hooks', () => {
     expect(JSON.stringify(rows)).not.toContain('13812345678')
 
     // The two online got theirs before the session closed on them; the one who dropped off has to ask.
-    expect(summariesOf(a.received)).toEqual([{ type: 'summary', summary: forA }])
-    expect(summariesOf(b.received)).toEqual([{ type: 'summary', summary: forB }])
+    expect(summariesOf(a.received)).toEqual([{ type: 'summary', sessionId: session.sessionId, summary: forA }])
+    expect(summariesOf(b.received)).toEqual([{ type: 'summary', sessionId: session.sessionId, summary: forB }])
     expect(summariesOf(c.received)).toEqual([])
     for (const m of [...a.received, ...b.received]) expect(Value.Check(ServerMessage, m), JSON.stringify(m)).toBe(true)
     expect(a.received.at(-1)).toMatchObject({ type: 'closing', reason: 'session_over' })

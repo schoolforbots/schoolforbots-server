@@ -13,6 +13,7 @@ describe('client messages', () => {
   test.each<Case>([
     ['hello', hello],
     ['hello with lastSeq', { ...hello, lastSeq: 0 }],
+    ['hello with sessionId and lastSeq', { ...hello, sessionId: 1, lastSeq: 4 }],
     ['hello with the largest maxRounds', { ...hello, maxRounds: 50 }],
     ['chat.start', { id: 'c2', type: 'chat.start', to: 7, text: '你好' }],
     ['chat.reply', { id: 'c3', type: 'chat.reply', conversationId: 'abc', text: '你好呀' }],
@@ -32,6 +33,8 @@ describe('client messages', () => {
     ['hello with maxRounds 51', { ...hello, maxRounds: 51 }],
     ['hello with a fractional maxRounds', { ...hello, maxRounds: 2.5 }],
     ['hello with a negative lastSeq', { ...hello, lastSeq: -1 }],
+    ['hello with sessionId 0', { ...hello, sessionId: 0, lastSeq: 4 }],
+    ['hello with a fractional sessionId', { ...hello, sessionId: 1.5 }],
     ['hello without plugin', { id: 'c1', type: 'hello', protocol: 'v1', maxRounds: 5 }],
     ['chat.start to a non-integer', { id: 'c2', type: 'chat.start', to: 'seven', text: 'hi' }],
     ['chat.start without text', { id: 'c2', type: 'chat.start', to: 7 }],
@@ -96,8 +99,8 @@ describe('server messages', () => {
     ),
     ['chat.closing', { type: 'chat.closing', conversationId: 'abc' }],
     ['called_on', { type: 'called_on', callId: 9, question: '春眠不觉晓的下一句？' }],
-    ['summary', { type: 'summary', summary }],
-    ['summary of a study hall', { type: 'summary', summary: { ...summary, kind: 'study', lesson: null, calledOn: null, weekTitles: ['春晓'] } }],
+    ['summary', { type: 'summary', sessionId: 3, summary }],
+    ['summary of a study hall', { type: 'summary', sessionId: 3, summary: { ...summary, kind: 'study', lesson: null, calledOn: null, weekTitles: ['春晓'] } }],
     ...['replaced', 'session_over', 'suspended', 'expelled'].map(
       (reason): Case => [`closing ${reason}`, { type: 'closing', reason, message: '再见。' }],
     ),
@@ -119,7 +122,8 @@ describe('server messages', () => {
     ['chat.incoming without lastLine', { type: 'chat.incoming', conversationId: 'abc', from: classmate, text: '你好', round: 1 }],
     ['closing with an unknown reason', { type: 'closing', reason: 'tired', message: '再见。' }],
     ['called_on with a string callId', { type: 'called_on', callId: 'x', question: '？' }],
-    ['summary with an unknown kind', { type: 'summary', summary: { ...summary, kind: 'party' } }],
+    ['summary with an unknown kind', { type: 'summary', sessionId: 3, summary: { ...summary, kind: 'party' } }],
+    ['summary without the sessionId', { type: 'summary', summary }],
   ])('rejects %s', (_name, message) => {
     expect(ok(ServerMessage, message)).toBe(false)
   })
