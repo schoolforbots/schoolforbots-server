@@ -70,12 +70,12 @@ test('after 0002 a key reset may have no student, but must say what it requested
   ).rejects.toThrow(/requested_email/)
 })
 
-test('0002 adds an index for looking up a student id by time', async () => {
+test('0002 adds an index for looking up a requested pair by time', async () => {
   const { rows } = await sql<{ indexdef: string }>`
-    select indexdef from pg_indexes where tablename = 'key_resets' and indexname = 'key_resets_requested_student_id_created_at'`.execute(
+    select indexdef from pg_indexes where tablename = 'key_resets' and indexname = 'key_resets_requested_pair_created_at'`.execute(
     t.db,
   )
-  expect(rows[0]?.indexdef).toMatch(/\(requested_student_id, created_at\)/)
+  expect(rows[0]?.indexdef).toMatch(/\(requested_student_id, requested_email, created_at\)/)
 })
 
 test('0002 can be undone: decoys go, real rows stay', async () => {

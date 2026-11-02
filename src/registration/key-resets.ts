@@ -17,7 +17,6 @@ const IdParams = Type.Object({ id: Type.String({ format: 'uuid' }) })
 
 /** What `requestKeyReset` leaves to do once the request has been answered. */
 interface PendingMail {
-  resetId: string
   email: string
   code: string
 }
@@ -65,9 +64,12 @@ export function keyResetRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebo
   }
 }
 
-/** One lock per student id, shared by requests and verifications, real and decoy alike. */
-function studentLock(studentId: number): string {
-  return `key-reset:${studentId}`
+/**
+ * One lock per requested pair, shared by requests and verifications. Real and decoy
+ * pairs are locked alike, so parallel calls cannot slip past the resend window or the daily cap.
+ */
+function pairLock(studentId: number, email: string): string {
+  return `key-reset:${studentId}:${email}`
 }
 
 async function requestKeyReset(
@@ -82,9 +84,9 @@ async function requestKeyReset(
   const expiresAt = new Date(now.getTime() + config.verificationCode.ttlMinutes * MINUTE_MS)
 
   return db.transaction().execute(async (trx) => {
-    // Serializes requests for one student id, so a burst of parallel requests
+    // Serializes requests for one pair, so a burst of parallel requests
     // cannot all get past the resend check below, whichever kind they are.
-    await lock(trx, studentLock(body.studentId))
+    await lock(trx, pairLock(body.studentId, email))
 
     // The window belongs to the pair that was asked for and counts decoys too.
     const recent = await trx
@@ -121,26 +123,23 @@ async function requestKeyReset(
 
     return {
       accepted: { resetId: row.id },
-      mail: student === undefined ? null : { resetId: row.id, email, code },
+      mail: student === undefined ? null : { email, code },
     }
   })
 }
 
 /**
  * Runs after the answer has gone out and never throws. If the mail cannot be sent
- * the error is logged and the reset is withdrawn, so it does not hold up a retry
- * with resend_too_soon.
+ * the error is only logged. The reset stays exactly as it is, so a failed real reset
+ * behaves like a decoy: it keeps its resend window (the owner asks again after
+ * `resendSeconds`) and whatever guesses are made at it still count toward the daily cap.
+ * Deleting it would let someone who holds the reset id start over during a mail outage.
  */
 async function sendResetMail(deps: RegistrationDeps, mail: PendingMail, log: FastifyBaseLogger): Promise<void> {
   try {
     await deps.mailer.sendCode(mail.email, 'key_reset', mail.code)
   } catch (err) {
     log.error(err, 'could not send the key reset code')
-    try {
-      await deps.db.deleteFrom('keyResets').where('id', '=', mail.resetId).execute()
-    } catch (deleteErr) {
-      log.error(deleteErr, 'could not withdraw the key reset whose code was not sent')
-    }
   }
 }
 
@@ -159,12 +158,23 @@ async function verifyKeyReset(
   return outcome.result
 }
 
-/** Failed guesses at any reset requested for this student id in the last 24 hours, decoys included. */
-async function recentFailures(trx: Kysely<Database>, requestedStudentId: number, now: Date): Promise<number> {
+/**
+ * Failed guesses at any reset requested for this pair in the last 24 hours. The cap is per
+ * pair, not per student id: otherwise anyone who knows a (sequential) student id could use
+ * up its cap with made-up emails and lock the owner out. Real resets only exist under the
+ * matching pair, so guessing real codes stays capped.
+ */
+async function recentFailures(
+  trx: Kysely<Database>,
+  requestedStudentId: number,
+  requestedEmail: string,
+  now: Date,
+): Promise<number> {
   const row = await trx
     .selectFrom('keyResets')
     .select((eb) => eb.fn.sum<string | null>('attempts').as('failures'))
     .where('requestedStudentId', '=', requestedStudentId)
+    .where('requestedEmail', '=', requestedEmail)
     .where('createdAt', '>', new Date(now.getTime() - DAY_MS))
     .executeTakeFirstOrThrow()
   return Number(row.failures ?? 0)
@@ -185,17 +195,16 @@ async function verifyInTransaction(
   // An unknown id and a used one look like a wrong code, so ids reveal nothing.
   if (reset === undefined || reset.usedAt !== null) return fail(400, 'code_invalid')
 
-  // The daily cap is summed over all resets of the student id, so guesses at
+  // The daily cap is summed over all resets of the pair, so guesses at
   // different resets of it must not read the sum at the same time.
-  await lock(trx, studentLock(reset.requestedStudentId))
+  await lock(trx, pairLock(reset.requestedStudentId, reset.requestedEmail))
 
   // Decoys and real resets take every branch below alike.
   if (reset.attempts >= verificationCode.maxAttempts) return fail(429, 'code_attempts_exceeded')
   if (now.getTime() >= reset.expiresAt.getTime()) return fail(410, 'code_expired')
   // Over the cap the code is not looked at, and nothing is counted.
-  if ((await recentFailures(trx, reset.requestedStudentId, now)) >= verificationCode.keyResetDailyFailureCap) {
-    return fail(429, 'code_attempts_exceeded')
-  }
+  const failures = await recentFailures(trx, reset.requestedStudentId, reset.requestedEmail, now)
+  if (failures >= verificationCode.keyResetDailyFailureCap) return fail(429, 'code_attempts_exceeded')
 
   // A decoy has no student to give a key to, so it fails like a wrong code whatever is sent.
   const matches = codeMatches(reset.codeHash, code)

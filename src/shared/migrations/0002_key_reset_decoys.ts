@@ -21,15 +21,16 @@ export async function up(db: Kysely<any>): Promise<void> {
   await db.schema.alterTable('key_resets').alterColumn('requested_email', (c) => c.setNotNull()).execute()
   await db.schema.alterTable('key_resets').alterColumn('student_id', (c) => c.dropNotNull()).execute()
 
+  // Serves both per-pair lookups by time: the resend window and the daily failure count.
   await db.schema
-    .createIndex('key_resets_requested_student_id_created_at')
+    .createIndex('key_resets_requested_pair_created_at')
     .on('key_resets')
-    .columns(['requested_student_id', 'created_at'])
+    .columns(['requested_student_id', 'requested_email', 'created_at'])
     .execute()
 }
 
 export async function down(db: Kysely<any>): Promise<void> {
-  await db.schema.dropIndex('key_resets_requested_student_id_created_at').execute()
+  await db.schema.dropIndex('key_resets_requested_pair_created_at').execute()
   await sql`delete from key_resets where student_id is null`.execute(db)
   await db.schema.alterTable('key_resets').alterColumn('student_id', (c) => c.setNotNull()).execute()
   await db.schema.alterTable('key_resets').dropColumn('requested_email').execute()

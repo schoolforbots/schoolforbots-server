@@ -302,7 +302,7 @@ describe('POST /v1/key-resets: the mail goes out after the reply', () => {
     }
   })
 
-  test('a mail that cannot be sent still gets 202, is logged, and the reset is withdrawn', async () => {
+  test('a mail that cannot be sent still gets 202 and is logged, and the reset stays like a decoy', async () => {
     const logs = captureLogs()
     await t.destroy()
     t = await buildTestApp({ logger: { level: 'info', stream: logs.stream } })
@@ -313,17 +313,21 @@ describe('POST /v1/key-resets: the mail goes out after the reply', () => {
     const res = await requestReset(body)
     expect(res.statusCode).toBe(202)
     expect(Value.Check(KeyResetAccepted, res.json())).toBe(true)
-
-    // The row goes once the background send has failed.
-    await vi.waitFor(async () => expect(await resetRows()).toEqual([]))
-    const errors = logs.entries().filter((e) => e.level >= 50)
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toMatchObject({ err: { message: 'smtp down' } })
     expect(res.body).not.toContain('smtp down')
 
-    // The owner can ask again at once.
+    await vi.waitFor(() => expect(logs.entries().filter((e) => e.level >= 50)).toHaveLength(1))
+    expect(logs.entries().filter((e) => e.level >= 50)[0]).toMatchObject({ err: { message: 'smtp down' } })
+
+    // A repeat gets the answer a decoy would get; only after the window can the owner ask again.
+    expect(seen(await requestReset(body))).toEqual([429, 'resend_too_soon'])
+    t.clock.advance(60_000)
     expect((await requestReset(body)).statusCode).toBe(202)
     expect(t.mailer.sent).toHaveLength(1)
+
+    // Closing waits for the background work to be completely over, so a late delete would show here.
+    await t.app.close()
+    expect(await resetRow(resetIdOf(res))).toMatchObject({ studentId: student.id, attempts: 0, usedAt: null })
+    expect(await resetRows()).toHaveLength(2)
   })
 
   test('closing the app waits for a mail that is still being sent', async () => {
@@ -542,7 +546,7 @@ describe('daily cap on failed key-reset guesses', () => {
     return { resetId: resetIdOf(res), code }
   }
 
-  test('failures add up across the reset requests of one student id; a day later the code works again', async () => {
+  test('failures add up across the reset requests of one pair; a day later the code works again', async () => {
     const student = await insertStudent(t.db, { email: 'owner@example.com' })
     const bystander = await insertStudent(t.db, { email: 'bystander@example.com' })
     const pair = { studentId: student.id, email: 'owner@example.com' }
@@ -563,7 +567,7 @@ describe('daily cap on failed key-reset guesses', () => {
     expect(await resetRow(sixth.resetId)).toMatchObject({ attempts: 0, usedAt: null })
     expect((await getMe(student.key)).statusCode).toBe(200)
 
-    // The cap is per student id: someone else is not affected.
+    // The cap is per pair: another student is not affected.
     const other = await guessAt({ studentId: bystander.id, email: 'bystander@example.com' }, 0)
     expect((await verifyReset(other.resetId, other.code)).statusCode).toBe(200)
 
@@ -581,34 +585,106 @@ describe('daily cap on failed key-reset guesses', () => {
     expect((await getMe(student.key)).statusCode).toBe(401)
   })
 
-  test('failures on decoys count like failures on real resets, and the answer is the same for both', async () => {
-    const student = await insertStudent(t.db, { email: 'owner@example.com' })
+  test('a decoy pair reaches the cap exactly like a real pair', async () => {
+    const real = await insertStudent(t.db, { email: 'owner@example.com' })
+    const other = await insertStudent(t.db, { email: 'other@example.com' })
 
-    // Four reset requests, two for the student's real email and two for emails that are not: CAP failures in all.
-    await guessAt({ studentId: student.id, email: 'guess1@example.com' }, 5)
-    await guessAt({ studentId: student.id, email: 'guess2@example.com' }, 5)
-    await guessAt({ studentId: student.id, email: 'owner@example.com' }, 5)
-    t.clock.advance(61_000)
-    await guessAt({ studentId: student.id, email: 'owner@example.com' }, 5)
+    /** CAP failures over four resets, then a fifth reset whose code is refused without being looked at. */
+    async function observe(pair: { studentId: number; email: string }): Promise<Seen[]> {
+      const steps: Seen[] = []
+      let right = '000000'
+      for (let round = 0; round <= CAP / 5; round++) {
+        const mailsBefore = t.mailer.sent.length
+        const res = await requestReset(pair)
+        steps.push(seen(res))
+        // A real pair got a code; for a decoy nobody did, so any code stands in for the right one.
+        right = t.mailer.sent.length > mailsBefore ? t.mailer.sent.at(-1)!.code : '000000'
+        if (round < CAP / 5) {
+          for (let i = 0; i < 5; i++) steps.push(seen(await verifyReset(resetIdOf(res), wrongCodeFor(right))))
+        } else {
+          steps.push(seen(await verifyReset(resetIdOf(res), right)))
+        }
+        t.clock.advance(61_000)
+      }
+      return steps
+    }
 
-    t.clock.advance(61_000)
-    const real = await guessAt({ studentId: student.id, email: 'owner@example.com' }, 0)
-    const decoy = await guessAt({ studentId: student.id, email: 'guess3@example.com' }, 0)
-    expect(seen(await verifyReset(real.resetId, real.code))).toEqual([429, 'code_attempts_exceeded'])
-    expect(seen(await verifyReset(decoy.resetId, '123456'))).toEqual([429, 'code_attempts_exceeded'])
-    expect((await resetRow(real.resetId)).usedAt).toBeNull()
+    const expected: Seen[] = []
+    for (let round = 0; round < CAP / 5; round++) {
+      expected.push([202, null], ...Array.from({ length: 5 }, (): Seen => [400, 'code_invalid']))
+    }
+    expected.push([202, null], [429, 'code_attempts_exceeded'])
+
+    expect(await observe({ studentId: real.id, email: 'owner@example.com' })).toEqual(expected)
+    // A wrong email for a real student, and a student that does not exist.
+    expect(await observe({ studentId: other.id, email: 'owner@example.com' })).toEqual(expected)
+    expect(await observe({ studentId: other.id + 1000, email: 'owner@example.com' })).toEqual(expected)
   })
 
-  test('concurrent guesses at different resets of one student id cannot get past the cap', async () => {
+  test('failures under a wrong email do not block the real owner or any other email', async () => {
     const student = await insertStudent(t.db, { email: 'owner@example.com' })
+    const burnt = { studentId: student.id, email: 'guess@example.com' }
+
+    // Someone who knows only the student id burns the cap for a made-up email.
+    for (let i = 0; i < CAP / 5; i++) {
+      await guessAt(burnt, 5)
+      t.clock.advance(61_000)
+    }
+    const again = await guessAt(burnt, 0)
+    expect(seen(await verifyReset(again.resetId, again.code))).toEqual([429, 'code_attempts_exceeded'])
+
+    // That pair is capped, but the student's real pair and every other email still work.
+    const owner = await guessAt({ studentId: student.id, email: 'owner@example.com' }, 0)
+    expect((await verifyReset(owner.resetId, owner.code)).statusCode).toBe(200)
+    const another = await guessAt({ studentId: student.id, email: 'another@example.com' }, 1)
+    expect(await resetRow(another.resetId)).toMatchObject({ attempts: 1 })
+  })
+
+  test('guesses at a reset whose mail failed still count, so a mail outage is no way around the cap', async () => {
+    const logs = captureLogs()
+    await t.destroy()
+    t = await buildTestApp({ config: { httpRateLimitPerMinute: 10_000 }, logger: { level: 'info', stream: logs.stream } })
+    const student = await insertStudent(t.db, { email: 'owner@example.com' })
+    const pair = { studentId: student.id, email: 'owner@example.com' }
+    const failedSends = () => logs.entries().filter((e) => e.level >= 50).length
+    let lastCode = ''
+    vi.spyOn(t.mailer, 'sendCode').mockImplementation(async (_to, _purpose, code) => {
+      lastCode = code
+      throw new Error('smtp down')
+    })
+
+    for (let round = 1; round <= CAP / 5; round++) {
+      const res = await requestReset(pair)
+      expect(res.statusCode).toBe(202)
+      await vi.waitFor(() => expect(failedSends()).toBe(round))
+      for (let i = 0; i < 5; i++) {
+        expect(seen(await verifyReset(resetIdOf(res), wrongCodeFor(lastCode)))).toEqual([400, 'code_invalid'])
+      }
+      t.clock.advance(61_000)
+    }
+
+    // Every failed reset is still there with its guesses, so the next one is over the cap.
+    expect((await resetRows()).map((r) => r.attempts)).toEqual([5, 5, 5, 5])
+    const next = await requestReset(pair)
+    expect(next.statusCode).toBe(202)
+    await vi.waitFor(() => expect(failedSends()).toBe(CAP / 5 + 1))
+    expect(seen(await verifyReset(resetIdOf(next), lastCode))).toEqual([429, 'code_attempts_exceeded'])
+  })
+
+  test('concurrent guesses at different resets of one pair cannot get past the cap', async () => {
+    const student = await insertStudent(t.db, { email: 'owner@example.com' })
+    const pair = { studentId: student.id, email: 'owner@example.com' }
     // Six resets of 5 guesses each would be 30 failures; only CAP may be let through.
     const resets = []
     for (let i = 0; i < 6; i++) {
-      resets.push(resetIdOf(await requestReset({ studentId: student.id, email: `guess${i}@example.com` })))
+      resets.push(await guessAt(pair, 0))
+      t.clock.advance(61_000)
     }
     await warmPool()
 
-    const results = await Promise.all(resets.flatMap((id) => Array.from({ length: 5 }, () => verifyReset(id, '123456'))))
+    const results = await Promise.all(
+      resets.flatMap(({ resetId, code }) => Array.from({ length: 5 }, () => verifyReset(resetId, wrongCodeFor(code)))),
+    )
 
     expect(results.filter((r) => r.statusCode === 400)).toHaveLength(CAP)
     expect(results.filter((r) => r.statusCode === 429)).toHaveLength(30 - CAP)
@@ -624,24 +700,21 @@ describe('daily cap on failed key-reset guesses', () => {
     ]
     const observed: Seen[][] = []
     for (const pair of pairs) {
-      // Burn the cap for this student id first, then look at a fresh reset that is live and one that has expired.
+      // Burn the cap for this pair first, then look at a reset that has since expired and a fresh one.
       for (let i = 0; i < CAP / 5; i++) {
         await guessAt(pair, 5)
         t.clock.advance(61_000)
       }
       const live = await guessAt(pair, 0)
-      const lapsed = await guessAt({ ...pair, email: `x${pair.studentId}@example.com` }, 0)
       t.clock.advance(11 * MINUTE)
       const fresh = await guessAt(pair, 0)
       observed.push([
-        seen(await verifyReset(fresh.resetId, fresh.code)), // cap
+        seen(await verifyReset(fresh.resetId, fresh.code)), // over the cap
         seen(await verifyReset(live.resetId, live.code)), // expired
-        seen(await verifyReset(lapsed.resetId, '123456')), // expired
       ])
     }
     expect(observed[0]).toEqual([
       [429, 'code_attempts_exceeded'],
-      [410, 'code_expired'],
       [410, 'code_expired'],
     ])
     expect(observed[1]).toEqual(observed[0])
