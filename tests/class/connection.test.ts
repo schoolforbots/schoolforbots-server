@@ -574,15 +574,16 @@ describe('joining the class', () => {
     ])
   })
 
-  test('lastSeq replays only the events after it', async () => {
+  test('lastSeq of the session the welcome named replays only the events after it', async () => {
     const s = await start()
-    const { students } = await seedClass(s, 2)
+    const { classId, students } = await seedClass(s, 2)
     const [a, b] = students
     await tickAt(s, at('19:45'))
     await tickAt(s, at('20:10'))
+    const sessionId = sessionIdOf(s, classId)
 
     const first = await connect(a!.key)
-    await hello(first, { lastSeq: 2 })
+    await hello(first, { sessionId, lastSeq: 2 })
     expect((await take(first, 2)).map((m) => [m.seq, m.replayed])).toEqual([
       [3, true],
       [4, true],
@@ -590,9 +591,62 @@ describe('joining the class', () => {
 
     // Caught up: nothing is replayed, so the next thing to arrive is the answer to the next frame.
     const second = await connect(b!.key)
-    await hello(second, { lastSeq: 4 })
+    await hello(second, { sessionId, lastSeq: 4 })
     second.send('sync')
     expect(await second.next()).toMatchObject({ type: 'ack', id: '', ok: false })
+  })
+
+  test('a lastSeq without the sessionId, or past the last event of the session, replays the whole session', async () => {
+    const s = await start()
+    const { classId, students } = await seedClass(s, 2)
+    const [a, b] = students
+    await tickAt(s, at('19:45'))
+    await tickAt(s, at('20:10'))
+    const sessionId = sessionIdOf(s, classId)
+
+    for (const [student, extra] of [
+      [a!, { lastSeq: 2 }],
+      [b!, { sessionId, lastSeq: 5 }],
+    ] as const) {
+      const client = await connect(student.key)
+      await hello(client, extra)
+      expect((await take(client, 4)).map((m) => [m.seq, m.replayed])).toEqual([
+        [1, true],
+        [2, true],
+        [3, true],
+        [4, true],
+      ])
+      await client.sync()
+    }
+  })
+
+  test("the next day, yesterday's sessionId and lastSeq replay the new session from the start", async () => {
+    const s = await start()
+    const { classId, students } = await seedClass(s, 1)
+    await tickAt(s, at('19:45'))
+    await tickAt(s, at('20:10'))
+    const monday = sessionIdOf(s, classId)
+    await tickAt(s, at('20:31'))
+
+    // Tuesday's study hall has fewer events so far than the plugin saw on Monday.
+    await tickAt(s, at('19:45', '2026-11-03'))
+    await tickAt(s, at('20:06', '2026-11-03'))
+    const tuesday = sessionIdOf(s, classId)
+    const events = await s.db
+      .selectFrom('classEvents')
+      .select('seq')
+      .where('sessionId', '=', tuesday)
+      .where('seq', '>', 0)
+      .orderBy('seq')
+      .execute()
+    expect(events.length).toBeGreaterThan(0)
+    expect(events.length).toBeLessThan(4)
+
+    const client = await connect(students[0]!.key)
+    const welcome = await hello(client, { sessionId: monday, lastSeq: 4 })
+    expect(welcome.session.sessionId).toBe(tuesday)
+    expect((await take(client, events.length)).map((m) => [m.seq, m.replayed])).toEqual(events.map((e) => [e.seq, true]))
+    await client.sync()
   })
 
   test('a study hall has no subject or title', async () => {

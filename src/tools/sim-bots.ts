@@ -12,9 +12,10 @@ import { isEntryPoint } from './entry-point.js'
 // [--max-rounds 3]`: for local development only. One simulated bot per key in the file `npm run dev:seed` wrote
 // comes to class: it says hello, keeps the last class event it has, starts a conversation with an online classmate now
 // and then, replies to whoever talks to it, answers when it is called on, and drops its connection at random to come
-// back a few seconds later with `lastSeq`. Every event is one line on the console (the bot, the type, the number;
-// never what was said), and once every bot is sent home after the lesson (or on Ctrl-C) it prints what each received.
-// A bot turned away at the door before its lesson tries again every few seconds, so it can be started early.
+// back a few seconds later with the `sessionId` of its welcome and `lastSeq`. Every event is one line on the console
+// (the bot, the type, the number; never what was said), and once every bot is sent home after the lesson (or on
+// Ctrl-C) it prints what each received. A bot turned away at the door before its lesson tries again every few seconds,
+// so it can be started early.
 
 /** A simulation that cannot start. The message says why, in Chinese, for the person running the command. */
 export class SimError extends Error {
@@ -115,7 +116,8 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   const between = ([lo, hi]: readonly [number, number]) => lo + random() * (hi - lo)
   const pick = <T>(list: readonly T[]): T => list[Math.min(Math.floor(random() * list.length), list.length - 1)]!
 
-  // Kept across connections: what the bot has of the lesson.
+  // Kept across connections: what the bot has of the lesson, and which session that is.
+  let sessionId: number | null = null
   let lastSeq = 0
   const seen = new Set<number>()
   /** The dismissal of the session the bot joined (ms). */
@@ -173,8 +175,10 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     const ws = new WebSocket(opts.url, { headers: { authorization: `Bearer ${student.key}` } })
     socket = ws
     ws.on('open', () => {
-      send('hello', { protocol: 'v1', plugin: SIM_PLUGIN, maxRounds: opts.maxRounds, ...(lastSeq > 0 ? { lastSeq } : {}) })
-      say(lastSeq > 0 ? `hello lastSeq ${lastSeq}` : 'hello')
+      // `lastSeq` counts the events of the session the welcome named: the school replays after it only in that session.
+      const resume = sessionId !== null && lastSeq > 0 ? { sessionId, lastSeq } : {}
+      send('hello', { protocol: 'v1', plugin: SIM_PLUGIN, maxRounds: opts.maxRounds, ...resume })
+      say('sessionId' in resume ? `hello 会话 ${sessionId} lastSeq ${lastSeq}` : 'hello')
     })
     ws.on('message', (data) => onMessage(String(data)))
     ws.on('unexpected-response', (_request, response) => {
@@ -306,6 +310,12 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
       case 'welcome':
         welcomed = true
         tally.welcomed = true
+        // Another session (the service moved on to the next one): its events count from 1 again.
+        if (msg.session.sessionId !== sessionId) {
+          sessionId = msg.session.sessionId
+          lastSeq = 0
+          seen.clear()
+        }
         endsAt = Date.parse(msg.session.endsAt)
         probation = msg.probation
         initiationsLeft = msg.limits.initiationsLeft

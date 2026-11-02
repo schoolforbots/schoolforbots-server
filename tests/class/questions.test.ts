@@ -595,8 +595,9 @@ describe('questions and the call-on over the WebSocket', () => {
     return client
   }
 
-  async function hello(client: Client, lastSeq?: number): Promise<Received> {
-    const extra = lastSeq === undefined ? {} : { lastSeq }
+  /** Says hello; a reconnect names the session of its welcome and the last class event it has (`resume`). */
+  async function hello(client: Client, resume?: { sessionId: number; lastSeq: number }): Promise<Received> {
+    const extra = resume ?? {}
     client.send({ id: 'h', type: 'hello', protocol: 'v1', plugin: { type: 'openclaw', version: '1.2.3' }, maxRounds: 5, ...extra })
     expect(await client.next()).toEqual({ type: 'ack', id: 'h', ok: true })
     return client.next('welcome')
@@ -611,10 +612,11 @@ describe('questions and the call-on over the WebSocket', () => {
     s.clock.set(at('19:50'))
     await s.runtime.tick()
     const ca = await connect(s, a.key)
-    await hello(ca)
+    const { session } = await hello(ca)
     const cb = await connect(s, b.key)
     await hello(cb)
-    return { classId, a: { ...a, name: '阿杰家的小鱼' }, b: { ...b, name: '阿美家的豆豆' }, ca, cb }
+    const sessionId: number = session.sessionId
+    return { classId, sessionId, a: { ...a, name: '阿杰家的小鱼' }, b: { ...b, name: '阿美家的豆豆' }, ca, cb }
   }
 
   async function tickAt(s: Service, time: string) {
@@ -628,7 +630,7 @@ describe('questions and the call-on over the WebSocket', () => {
 
   test('at its minute the teacher calls on one student; the answer goes to the class with 好，请坐。, and a reconnect replays it all', async () => {
     const s = await start(() => 0)
-    const { a, b, ca, cb } = await seed(s)
+    const { sessionId, a, b, ca, cb } = await seed(s)
     expect(a.id).toBeLessThan(b.id)
 
     await tickAt(s, '20:15') // through segment 3, then the call-on
@@ -679,7 +681,7 @@ describe('questions and the call-on over the WebSocket', () => {
     expect(replay.map(([seq]) => seq)).toEqual(Array.from({ length: replay.length }, (_, i) => i + 1))
     // The student who answered is owed nothing when they come back.
     const ca2 = await connect(s, a.key)
-    await hello(ca2, replay.at(-1)![0])
+    await hello(ca2, { sessionId, lastSeq: replay.at(-1)![0] })
     expect(await ca2.rest()).toEqual([])
   })
 
@@ -715,13 +717,13 @@ describe('questions and the call-on over the WebSocket', () => {
 
   test('a student called on who reconnects gets called_on again after the replay, and answers on the new connection', async () => {
     const s = await start(() => 0)
-    const { a, ca, cb } = await seed(s)
+    const { sessionId, a, ca, cb } = await seed(s)
     await tickAt(s, '20:15')
     const called = await ca.next('called_on')
     await cb.rest()
 
     const ca2 = await connect(s, a.key)
-    await hello(ca2, called.callId - 1)
+    await hello(ca2, { sessionId, lastSeq: called.callId - 1 })
     // The replay (from the teacher's line on), then the private message again.
     expect(await ca2.rest()).toEqual([
       { type: 'class.event', seq: called.callId, replayed: true, at: at('20:15').toISOString(), event: { kind: 'called_on', studentId: a.id, displayName: a.name } },
@@ -756,7 +758,7 @@ describe('questions and the call-on over the WebSocket', () => {
 
   test('what is owed comes right after the replay: once, though pushed during the hello too, and before what came after', async () => {
     const s = await start(() => 0)
-    const { classId, a, ca, cb } = await seed(s)
+    const { classId, sessionId, a, ca, cb } = await seed(s)
     await tickAt(s, '20:15')
     const called = await ca.next('called_on')
     await cb.rest()
@@ -772,7 +774,7 @@ describe('questions and the call-on over the WebSocket', () => {
       return replaced
     }
     const ca2 = await connect(s, a.key)
-    await hello(ca2, called.callId)
+    await hello(ca2, { sessionId, lastSeq: called.callId })
     s.hub.add = add
     expect(await ca2.rest()).toEqual([called, later])
   })

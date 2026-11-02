@@ -47,6 +47,11 @@
           "minimum": 1,
           "maximum": 50
         },
+        "sessionId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
         "lastSeq": {
           "type": "integer",
           "minimum": 0,
@@ -206,6 +211,11 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 50
+            },
+            "sessionId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
             },
             "lastSeq": {
               "type": "integer",
@@ -1101,12 +1111,17 @@
       "type": "object",
       "required": [
         "type",
+        "sessionId",
         "summary"
       ],
       "properties": {
         "type": {
           "type": "string",
           "const": "summary"
+        },
+        "sessionId": {
+          "type": "integer",
+          "minimum": 1
         },
         "summary": {
           "type": "object",
@@ -1934,12 +1949,17 @@
           "type": "object",
           "required": [
             "type",
+            "sessionId",
             "summary"
           ],
           "properties": {
             "type": {
               "type": "string",
               "const": "summary"
+            },
+            "sessionId": {
+              "type": "integer",
+              "minimum": 1
             },
             "summary": {
               "type": "object",
