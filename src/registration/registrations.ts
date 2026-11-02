@@ -13,14 +13,12 @@ import { SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js
 import { checkNames } from '../shared/identity.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
+import { isInstallSeatViolation, seatsOfEmail, slotOccupancy } from './capacity.js'
 import { ApiError } from './errors.js'
 import { codeMatches, fail, normalizeEmail, type Outcome } from './verification.js'
 
 const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * MINUTE_MS
-
-/** Statuses that count against a slot's capacity; waitlisted students wait outside it. */
-const CAPACITY_STATUSES = ['pending', 'active', 'suspended'] as const
 
 const IdParams = Type.Object({ id: Type.String({ format: 'uuid' }) })
 
@@ -56,16 +54,6 @@ function isPlainEmail(email: string): boolean {
 
 async function countRows(query: { executeTakeFirstOrThrow(): Promise<{ count: string | number | bigint }> }) {
   return Number((await query.executeTakeFirstOrThrow()).count)
-}
-
-function seatsOfEmail(db: Kysely<Database>, email: string): Promise<number> {
-  return countRows(
-    db
-      .selectFrom('students')
-      .select((eb) => eb.fn.countAll().as('count'))
-      .where('email', '=', email)
-      .where('status', 'in', [...SEAT_STATUSES]),
-  )
 }
 
 async function createRegistration(
@@ -176,15 +164,6 @@ async function createRegistration(
 
 type VerifyOutcome = Outcome<Static<typeof VerifyResult>>
 
-function isInstallSeatViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { code?: unknown }).code === '23505' &&
-    (err as { constraint?: unknown }).constraint === 'students_install_seat'
-  )
-}
-
 async function verifyRegistration(
   deps: RegistrationDeps,
   id: string,
@@ -238,14 +217,7 @@ async function verifyInTransaction(
   if ((await seatsOfEmail(trx, registration.email)) >= config.maxStudentsPerEmail) return fail(409, 'email_limit')
 
   await lock(trx, slotLockKey(registration.slot))
-  const occupied = await countRows(
-    trx
-      .selectFrom('students')
-      .select((eb) => eb.fn.countAll().as('count'))
-      .where('slot', '=', registration.slot)
-      .where('status', 'in', [...CAPACITY_STATUSES]),
-  )
-  const status = occupied >= config.slotCapacity ? 'waitlisted' : 'pending'
+  const status = (await slotOccupancy(trx, registration.slot)) >= config.slotCapacity ? 'waitlisted' : 'pending'
 
   // Only the hash of the key is stored; the key itself is returned once, here.
   const key = generateStudentKey()

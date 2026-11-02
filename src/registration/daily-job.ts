@@ -4,6 +4,7 @@ import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { displayName } from '../shared/identity.js'
 import { assignClasses, type ClassState } from './assignment.js'
+import { slotOccupancy } from './capacity.js'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -13,9 +14,6 @@ const DAILY_JOB_LOCK = 4242001
 // Fixed orders: slots are locked in this order, and classes are created in this order.
 const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
 const DIVISIONS: readonly Division[] = ['primary', 'junior', 'senior']
-
-/** Statuses that count against a slot's capacity (the same set as in verify); waitlisted students wait outside it. */
-const CAPACITY_STATUSES = ['pending', 'active', 'suspended'] as const
 
 export interface DailyJobReport {
   dropped: number
@@ -63,13 +61,7 @@ async function dropInactive(trx: Trx, config: SchoolConfig, now: Date): Promise<
 async function promoteWaitlist(trx: Trx, config: SchoolConfig): Promise<number> {
   let promoted = 0
   for (const slot of SLOTS) {
-    const { count } = await trx
-      .selectFrom('students')
-      .select((eb) => eb.fn.countAll().as('count'))
-      .where('slot', '=', slot)
-      .where('status', 'in', [...CAPACITY_STATUSES])
-      .executeTakeFirstOrThrow()
-    const free = config.slotCapacity - Number(count)
+    const free = config.slotCapacity - (await slotOccupancy(trx, slot))
     if (free <= 0) continue
 
     const result = await trx

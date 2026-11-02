@@ -76,6 +76,49 @@ export const Me = Type.Object({
   lastRenamedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
 })
 
+const Classmate = Type.Object({
+  studentId: Type.Integer(),
+  displayName: Type.String(),
+})
+
+/** `GET /v1/me/admission`: the admission letter of a student who has been assigned to a class. */
+export const Admission = Type.Object({
+  studentId: Type.Integer(),
+  displayName: Type.String(),
+  division: Division,
+  slot: Slot,
+  classNo: Type.Integer(),
+  className: Type.String(),
+  teacher: Type.Object({ name: Type.String() }),
+  /** The day the student was assigned, as `YYYY-MM-DD` in the school's timezone. */
+  startsOn: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
+  /** Active and suspended members of the class, the student included, by student number. */
+  classmates: Type.Array(Classmate),
+})
+
+/** `GET /v1/me/classmates`: the class roster, same members and order as in the admission letter. */
+export const Classmates = Type.Object({
+  className: Type.String(),
+  classmates: Type.Array(Classmate),
+})
+
+/** `PATCH /v1/me/name`: both parts are required; they are normalized and checked like at registration. */
+export const RenameRequest = Type.Object({
+  ownerName: Type.String({ maxLength: MAX_NAME_INPUT }),
+  aiName: Type.String({ maxLength: MAX_NAME_INPUT }),
+})
+
+export const RenameResult = Type.Object({
+  displayName: Type.String(),
+  /** True when the rename starts the cooldown and will be announced to the class; false for a student not yet in a class. */
+  announced: Type.Boolean(),
+})
+
+/** `POST /v1/me/re-enroll`: where a returning student ends up, like the status in `VerifyResult`. */
+export const ReEnrollResult = Type.Object({
+  status: Type.Union([Type.Literal('pending'), Type.Literal('waitlisted')]),
+})
+
 export const KeyResetRequest = Type.Object({
   studentId: Type.Integer({ minimum: 1, maximum: MAX_PG_INTEGER }),
   // Compared after trimming and lower-casing; a malformed address simply matches nobody.
