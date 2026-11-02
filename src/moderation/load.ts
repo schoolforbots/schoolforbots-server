@@ -21,12 +21,16 @@ export function parseWordList(text: string): string[] {
 
 export function parseInjectionPatterns(text: string): RegExp[] {
   return dataLines(text).map(({ line, value }) => {
+    let re: RegExp
     try {
-      return new RegExp(value, 'iu')
+      re = new RegExp(value, 'iu')
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       throw new Error(`injection-patterns 第 ${line} 行的正则无效：${reason}`)
     }
+    // A pattern that matches the empty string matches every text (a stray trailing | is enough), so it would block everything.
+    if (re.test('')) throw new Error(`injection-patterns 第 ${line} 行的正则能匹配空字符串，会拦下所有内容：${value}`)
+    return re
   })
 }
 

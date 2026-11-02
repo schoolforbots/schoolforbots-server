@@ -35,6 +35,13 @@ test('parseInjectionPatterns reports the file line number of a bad pattern', () 
   expect(() => parseInjectionPatterns('# 注释\n\nok\n[bad')).toThrow(/第 4 行|line 4/)
 })
 
+test('parseInjectionPatterns refuses a pattern that matches the empty string, which would block every text', () => {
+  // A stray trailing | adds an empty alternative.
+  expect(() => parseInjectionPatterns('ok\n# 注释\n忽略(之前|以上)的设定|')).toThrow(/第 3 行.*空/)
+  expect(() => parseInjectionPatterns('.*')).toThrow(/第 1 行/)
+  expect(() => parseInjectionPatterns('ok\n(主人)?')).toThrow(/第 2 行/)
+})
+
 test('loadModerationData falls back to the example files and warns on stderr', () => {
   writeFileSync(join(dir, 'blocked-words.example.txt'), '# 注释\n示例词\n')
   writeFileSync(join(dir, 'injection-patterns.example.txt'), '# 注释\n示例(话术)\n')
