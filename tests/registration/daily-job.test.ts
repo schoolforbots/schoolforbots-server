@@ -7,7 +7,7 @@ import { lock, slotLockKey } from '../../src/shared/db.js'
 import type { Database } from '../../src/shared/schema.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
-import { insertClass, insertStudent } from '../helpers/factories.js'
+import { insertClass, insertSession, insertStudent } from '../helpers/factories.js'
 
 const HOUR = 60 * 60_000
 const DAY = 24 * HOUR
@@ -66,17 +66,17 @@ test('spec five-day example through the database', async () => {
 
 test('running twice the same day changes nothing', async () => {
   await insertPending(130)
-  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 130, classesCreated: 2 })
+  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 130, classesCreated: 2, reinstated: 0, messagesPurged: 0 })
   const before = await classSizes('junior', 'evening')
 
-  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0 })
+  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
   expect(await classSizes('junior', 'evening')).toEqual(before)
 })
 
 test('divisions and slots are assigned separately', async () => {
   await insertPending(3, { division: 'junior', slot: 'evening' })
   await insertPending(2, { division: 'primary', slot: 'morning' })
-  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 5, classesCreated: 2 })
+  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 5, classesCreated: 2, reinstated: 0, messagesPurged: 0 })
 
   const classes = await db.selectFrom('classes').select(['division', 'slot', 'classNo']).orderBy('id').execute()
   expect(classes).toHaveLength(2)
@@ -104,20 +104,20 @@ describe('the local day', () => {
       lastAttendedAt: beijing('2026-10-04T05:00:00'),
     })
     for (let i = 0; i < 3; i++) await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-02T20:00:00') })
-    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 3, classesCreated: 0 })
+    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 3, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
     const sizes = await classSizes('junior', 'evening')
 
     clock.set(beijing('2026-11-03T09:00:00'))
     const morning: { id: number }[] = []
     for (let i = 0; i < 2; i++) morning.push(await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-03T08:00:00') }))
-    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0 })
+    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
     expect(await classSizes('junior', 'evening')).toEqual(sizes)
     expect(await statusOf(fading.id)).toMatchObject({ status: 'active', classId })
     for (const { id } of morning) expect(await statusOf(id)).toMatchObject({ status: 'pending', classId: null })
 
     // The next night places this morning's students and drops the one who stopped coming.
     clock.set(beijing('2026-11-04T00:00:05'))
-    expect(await job()).toEqual({ dropped: 1, promoted: 0, assigned: 2, classesCreated: 0 })
+    expect(await job()).toEqual({ dropped: 1, promoted: 0, assigned: 2, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
     expect(await statusOf(fading.id)).toMatchObject({ status: 'dropped', classId: null })
   })
 
@@ -275,7 +275,7 @@ describe('promoting the waitlist', () => {
       queuedAt: new Date(now.getTime() - 2 * DAY),
     })
 
-    expect(await job(config)).toEqual({ dropped: 1, promoted: 1, assigned: 1, classesCreated: 0 })
+    expect(await job(config)).toEqual({ dropped: 1, promoted: 1, assigned: 1, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
 
     expect(await statusOf(first.id)).toMatchObject({ status: 'active', classId, assignedAt: now })
     expect(await statusOf(second.id)).toMatchObject({ status: 'waitlisted', classId: null, assignedAt: null })
@@ -449,7 +449,7 @@ test('assigned students become active with assignedAt = now', async () => {
   const a = await insertStudent(db, { status: 'pending', createdAt: lastEvening() })
   const b = await insertStudent(db, { status: 'pending', createdAt: lastEvening(), division: 'senior', slot: 'morning' })
 
-  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 2, classesCreated: 2 })
+  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 2, classesCreated: 2, reinstated: 0, messagesPurged: 0 })
   const now = clock.now()
   for (const { id } of [a, b]) {
     const s = await statusOf(id)
@@ -487,7 +487,7 @@ describe('locking', () => {
   test.each(['morning', 'afternoon', 'evening'] as const)('the job waits for a verify holding the %s slot lock', async (slot) => {
     const { finishedWhileLocked, report } = await jobWaitsFor((trx) => lock(trx, slotLockKey(slot)))
     expect(finishedWhileLocked).toBe(false)
-    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0 })
+    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
   })
 
   test('the job waits for another job holding the job lock', async () => {
@@ -495,5 +495,136 @@ describe('locking', () => {
       await sql`select pg_advisory_xact_lock(4242001)`.execute(trx)
     })
     expect(finishedWhileLocked).toBe(false)
+  })
+})
+
+describe('reinstating suspended students', () => {
+  test('a suspension that has run out ends: the student is active again with no date left over', async () => {
+    const now = clock.now()
+    const classId = await insertClass(db, { classNo: 1 })
+    const member = (p: { status?: 'suspended' | 'active'; suspendedUntil: Date | null }) =>
+      insertStudent(db, { classId, assignedAt: now, lastAttendedAt: now, status: 'suspended', ...p })
+    const over = await member({ suspendedUntil: new Date(now.getTime() - 1) })
+    const justNow = await member({ suspendedUntil: now })
+    const longOver = await member({ suspendedUntil: new Date(now.getTime() - 10 * DAY) })
+    const stillOut = await member({ suspendedUntil: new Date(now.getTime() + 1) })
+    const noDate = await member({ suspendedUntil: null })
+    const active = await member({ status: 'active', suspendedUntil: null })
+
+    expect(await job()).toMatchObject({ reinstated: 3 })
+
+    const row = (id: number) =>
+      db.selectFrom('students').select(['status', 'classId', 'suspendedUntil']).where('id', '=', id).executeTakeFirstOrThrow()
+    for (const { id } of [over, justNow, longOver]) {
+      expect(await row(id)).toEqual({ status: 'active', classId, suspendedUntil: null })
+    }
+    expect(await row(stillOut.id)).toEqual({ status: 'suspended', classId, suspendedUntil: new Date(now.getTime() + 1) })
+    expect(await row(noDate.id)).toEqual({ status: 'suspended', classId, suspendedUntil: null })
+    expect(await row(active.id)).toEqual({ status: 'active', classId, suspendedUntil: null })
+  })
+
+  test('a suspension of three days ends at the first midnight after the third day, and running again changes nothing', async () => {
+    const classId = await insertClass(db, { classNo: 1 })
+    // Suspended after the lesson that closed on 2 November at 20:31 Beijing time, for three days.
+    const suspended = await insertStudent(db, {
+      status: 'suspended',
+      classId,
+      assignedAt: new Date('2026-10-20T00:00:00+08:00'),
+      lastAttendedAt: new Date('2026-11-02T20:00:00+08:00'),
+      suspendedUntil: new Date('2026-11-05T20:31:00+08:00'),
+    })
+
+    clock.set(new Date('2026-11-05T00:00:05+08:00'))
+    expect(await job()).toMatchObject({ reinstated: 0 })
+    expect(await statusOf(suspended.id)).toMatchObject({ status: 'suspended' })
+
+    clock.set(new Date('2026-11-06T00:00:05+08:00'))
+    expect(await job()).toMatchObject({ reinstated: 1 })
+    expect(await statusOf(suspended.id)).toMatchObject({ status: 'active', classId })
+    expect(await job()).toMatchObject({ reinstated: 0 })
+  })
+})
+
+describe('purging old messages', () => {
+  const beijing = (local: string) => new Date(`${local}+08:00`)
+
+  async function seedMessages(createdAts: Date[]): Promise<number[]> {
+    const classId = await insertClass(db, { classNo: 1 })
+    const sender = await insertStudent(db, { status: 'active', classId, assignedAt: new Date(), lastAttendedAt: new Date() })
+    const sessionId = await insertSession(db, {
+      classId,
+      date: '2026-04-01',
+      startsAt: beijing('2026-04-01T20:00:00'),
+      endsAt: beijing('2026-04-01T20:30:00'),
+    })
+    const ids: number[] = []
+    for (const createdAt of createdAts) {
+      const row = await db
+        .insertInto('messages')
+        .values({
+          sessionId,
+          classId,
+          kind: 'chat',
+          conversationId: null,
+          senderId: sender.id,
+          recipientId: null,
+          text: '你好',
+          moderation: null,
+          matchedTerm: null,
+          delivered: true,
+          ip: null,
+          pluginType: 'test',
+          pluginVersion: '0.0.0',
+          createdAt,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow()
+      ids.push(row.id)
+    }
+    return ids
+  }
+
+  const remaining = async () => (await db.selectFrom('messages').select('id').orderBy('id').execute()).map((m) => m.id)
+
+  test('messages from 184 days ago are deleted and from 182 days ago are kept', async () => {
+    const now = clock.now()
+    const [, recent, fresh] = await seedMessages([
+      new Date(now.getTime() - 184 * DAY),
+      new Date(now.getTime() - 182 * DAY),
+      new Date(now.getTime() - 1 * HOUR),
+    ])
+
+    expect(await job()).toMatchObject({ messagesPurged: 1 })
+    expect(await remaining()).toEqual([recent, fresh])
+  })
+
+  test('retention goes by local calendar days: a message of 4 May is kept through all of 3 November', async () => {
+    // Today is 3 November; 183 days before it is 4 May.
+    const [, midnight, afterMidnight] = await seedMessages([
+      beijing('2026-05-03T23:59:59.999'),
+      beijing('2026-05-04T00:00:00'),
+      beijing('2026-05-04T12:00:00'),
+    ])
+    clock.set(beijing('2026-11-03T00:00:05'))
+    expect(await job()).toMatchObject({ messagesPurged: 1 })
+    expect(await remaining()).toEqual([midnight, afterMidnight])
+
+    // A run later the same day goes by the same date: by 18:00 the message of 4 May at noon is more than 183 days old
+    // by the clock, but not by the calendar.
+    clock.set(beijing('2026-11-03T18:00:00'))
+    expect(await job()).toMatchObject({ messagesPurged: 0 })
+    expect(await remaining()).toEqual([midnight, afterMidnight])
+
+    clock.set(beijing('2026-11-04T00:00:05'))
+    expect(await job()).toMatchObject({ messagesPurged: 2 })
+    expect(await remaining()).toEqual([])
+  })
+
+  test('the number of days comes from the config', async () => {
+    const now = clock.now()
+    const [kept] = await seedMessages([new Date(now.getTime() - 5 * DAY), new Date(now.getTime() - 8 * DAY)])
+
+    expect(await job({ ...exampleConfig, messageRetentionDays: 7 })).toMatchObject({ messagesPurged: 1 })
+    expect(await remaining()).toEqual([kept])
   })
 })
