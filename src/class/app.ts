@@ -4,6 +4,7 @@ import type { Kysely } from 'kysely'
 import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
+import { inetAddress } from '../shared/net.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
 import {
@@ -108,7 +109,7 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
         try {
           if (student === undefined) throw new Error('The upgrade reached the handler without a student')
           // The peer's address: no proxy in front is trusted to name the client.
-          serveConnection(ctx, socket, { student, ip: request.ip ?? null, log: request.log })
+          serveConnection(ctx, socket, { student, ip: inetAddress(request.ip), log: request.log })
         } catch (err) {
           request.log.error({ err }, 'class connection failed')
           socket.close(1011)

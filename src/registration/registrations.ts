@@ -1,4 +1,3 @@
-import { isIP } from 'node:net'
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import type { Kysely } from 'kysely'
 import { Type, type Static } from 'typebox'
@@ -11,6 +10,7 @@ import {
 } from '../protocol/http.js'
 import { SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames } from '../shared/identity.js'
+import { inetAddress } from '../shared/net.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
 import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
@@ -81,8 +81,8 @@ async function createRegistration(
   // The schema stage: a mailbox address has to look like one once trimmed, and
   // the client address has to be something the inet column accepts.
   const email = normalizeEmail(body.email)
-  const ip = rawIp.split('%')[0] ?? rawIp // drop an IPv6 zone id
-  if (!isPlainEmail(email) || isIP(ip) === 0) throw new ApiError(400, 'invalid_request')
+  const ip = inetAddress(rawIp)
+  if (!isPlainEmail(email) || ip === null) throw new ApiError(400, 'invalid_request')
 
   const names = checkNames(body.ownerName, body.aiName, { maxChars: config.nameMaxChars, moderator })
   if (!names.ok) throw invalidNameError(names)

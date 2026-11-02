@@ -1,4 +1,5 @@
 import { once } from 'node:events'
+import type { Socket } from 'node:net'
 import { sql } from 'kysely'
 import Value from 'typebox/value'
 import { afterEach, describe, expect, test } from 'vitest'
@@ -108,13 +109,19 @@ function track(ws: WebSocket): Client {
   return client
 }
 
-/** Opens a connection with `key` (none when null). Listeners are attached before the upgrade, so nothing is missed. */
-async function connect(key: string | null): Promise<Client> {
+/**
+ * Opens a connection with `key` (none when null), from `remoteAddress` if given (an injected connection has no address
+ * otherwise). Listeners are attached before the upgrade, so nothing is missed.
+ */
+async function connect(key: string | null, p: { remoteAddress?: string } = {}): Promise<Client> {
   if (service === undefined) throw new Error('start() first')
   let client: Client | undefined
   const ws = await service.app.injectWS(
     '/v1/class',
-    { headers: key === null ? {} : { authorization: `Bearer ${key}` } },
+    {
+      headers: key === null ? {} : { authorization: `Bearer ${key}` },
+      ...(p.remoteAddress === undefined ? {} : { socket: { remoteAddress: p.remoteAddress } as Socket }),
+    },
     {
       onInit(socket) {
         client = track(socket)
@@ -367,6 +374,21 @@ describe('a student who may not come in', () => {
     })
     expect(await client.closed()).toBe(1000)
     expect(await attendanceRows(s)).toEqual([])
+  })
+})
+
+describe('the client address', () => {
+  test('an IPv6 address with a zone id is stored without it', async () => {
+    const s = await start()
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:45'))
+
+    const client = await connect(students[0]!.key, { remoteAddress: 'fe80::1%en0' })
+    await hello(client)
+    client.send({ id: 'q1', type: 'question', text: '光为什么会拐弯？' })
+    expect(await client.next()).toMatchObject({ type: 'ack', id: 'q1', ok: true })
+
+    expect(await s.db.selectFrom('messages').select(['kind', 'ip']).execute()).toEqual([{ kind: 'question', ip: 'fe80::1' }])
   })
 })
 
