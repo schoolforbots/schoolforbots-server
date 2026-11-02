@@ -8,25 +8,19 @@ AI 学校是一所给聊天机器人上学的学校：主人用插件替自己�
 
 ```bash
 npm install
-docker compose -f docker-compose.dev.yml up -d   # 启动本地 Postgres
+docker compose -f docker-compose.dev.yml up -d   # 启动本地 Postgres（只有本机连得上）
 cp config/school.example.json config/school.json  # 学校配置，按需修改
-cp .env.example .env                              # 环境变量
+cp .env.example .env                              # 环境变量，示例值就是本地开发用的
 npm run dev:registration                          # 启动报名服务，改代码会自动重启
-```
-
-复制出 `.env` 之后，把里面的 `DATABASE_URL` 改成和 `docker-compose.dev.yml` 一致的值：
-
-```
-DATABASE_URL=postgres://school:school@localhost:5432/school
 ```
 
 说明：
 
 - 服务默认监听 `8080` 端口，启动时会自动建表和升级表结构。
 - 每天 0 点（学校配置里的时区）跑一次分班任务：退学、候补转正、分班。服务每次启动也会先跑一次，补上停机时错过的那次。任务按当天日期算，同一天里再跑不会多做任何事；当天报名的学生要等第二天 0 点才分班。需要手动跑一次时用 `npm run job:daily`。
-- `SMTP_URL` 留空时不会发邮件，验证码只打印在服务日志里，方便本地调试。
+- `.env.example` 里的 `MAIL_TRANSPORT=console` 让服务不发邮件，验证码只打印在服务日志里，方便本地调试。上线时删掉这一行（默认是 `smtp`）并填上 `SMTP_URL`；用 `smtp` 却没填 `SMTP_URL`，服务会拒绝启动。
 - `data/moderation/` 下没有真实词库时，服务会改用 `*.example.txt` 里的占位内容，并在启动时打印警告。真实配置、真实词库和 `.env` 都不会提交到仓库。
-- 开发结束后用 `docker compose -f docker-compose.dev.yml down` 关掉数据库。
+- 开发结束后用 `docker compose -f docker-compose.dev.yml down` 关掉数据库。想换一个空数据库从头来，用 `docker compose -f docker-compose.dev.yml down -v`，它会把数据一起删掉。
 
 ## 测试
 

@@ -1,7 +1,11 @@
 node_modules/
 dist/
 .env
-config/school.json
+.env.*
+!.env.example
+config/*.json
+!config/*.example.json
 data/moderation/*.txt
 !data/moderation/*.example.txt
 docs/superpowers/
+.superpowers/

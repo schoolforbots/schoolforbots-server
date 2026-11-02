@@ -18,10 +18,10 @@ async function main(): Promise<void> {
   const moderator = createModerator(loadModerationData(env.moderationDataDir))
 
   let mailer: Mailer
-  if (env.smtpUrl !== undefined) {
-    mailer = createSmtpMailer(env.smtpUrl, env.mailFrom, config.verificationCode.ttlMinutes)
+  if (env.mail.transport === 'smtp') {
+    mailer = createSmtpMailer(env.mail.smtpUrl, env.mailFrom, config.verificationCode.ttlMinutes)
   } else {
-    console.warn('[mail] SMTP_URL 未设置：验证码只会打印在服务日志里，不会发邮件（仅限开发使用）')
+    console.warn('[mail] MAIL_TRANSPORT=console：验证码只会打印在服务日志里，不会发邮件（仅限本地开发使用）')
     mailer = new ConsoleMailer(config.verificationCode.ttlMinutes)
   }
 

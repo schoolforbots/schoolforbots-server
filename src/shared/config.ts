@@ -79,9 +79,12 @@ export function loadSchoolConfig(path: string): SchoolConfig {
   return config
 }
 
+/** How verification codes leave: by SMTP, or (development only) printed to the service log. */
+export type MailEnv = { transport: 'smtp'; smtpUrl: string } | { transport: 'console' }
+
 export interface Env {
   databaseUrl: string
-  smtpUrl?: string
+  mail: MailEnv
   mailFrom: string
   moderationDataDir: string
   configPath: string
@@ -96,6 +99,25 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
   const databaseUrl = get('DATABASE_URL')
   if (databaseUrl === undefined) throw new Error('Missing required environment variable DATABASE_URL')
 
+  // Codes are printed instead of mailed only when MAIL_TRANSPORT=console says so: a missing SMTP_URL must not
+  // quietly turn a deployment into one that mails nobody and writes the codes to its log.
+  const transport = get('MAIL_TRANSPORT') ?? 'smtp'
+  let mail: MailEnv
+  if (transport === 'console') {
+    mail = { transport }
+  } else if (transport === 'smtp') {
+    const smtpUrl = get('SMTP_URL')
+    if (smtpUrl === undefined) {
+      throw new Error(
+        'Missing SMTP_URL: verification codes are mailed by SMTP (MAIL_TRANSPORT=smtp, the default). ' +
+          'Set SMTP_URL, or set MAIL_TRANSPORT=console to print the codes to the log instead (local development only).',
+      )
+    }
+    mail = { transport, smtpUrl }
+  } else {
+    throw new Error(`Invalid MAIL_TRANSPORT: ${transport} (expected smtp or console)`)
+  }
+
   const portRaw = get('REGISTRATION_PORT')
   const registrationPort = portRaw === undefined ? 8080 : Number(portRaw)
   if (!Number.isInteger(registrationPort) || registrationPort < 1 || registrationPort > 65535) {
@@ -104,7 +126,7 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
 
   return {
     databaseUrl,
-    smtpUrl: get('SMTP_URL'),
+    mail,
     mailFrom: get('MAIL_FROM') ?? 'AI 学校 <no-reply@example.com>',
     moderationDataDir: get('MODERATION_DATA_DIR') ?? 'data/moderation',
     configPath: get('SCHOOL_CONFIG') ?? 'config/school.json',

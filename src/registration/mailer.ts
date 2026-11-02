@@ -44,7 +44,7 @@ export function createSmtpMailer(smtpUrl: string, from: string, ttlMinutes: numb
   return createTransportMailer(createTransport(smtpUrl), from, ttlMinutes)
 }
 
-/** Development fallback: prints the mail to stdout instead of sending it. */
+/** For local development only, chosen with MAIL_TRANSPORT=console: prints the mail to stdout instead of sending it. */
 export class ConsoleMailer implements Mailer {
   constructor(private readonly ttlMinutes: number) {}
 
