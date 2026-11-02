@@ -1,3 +1,4 @@
+import { toSkeleton } from '../moderation/confusables.js'
 import type { Moderator } from '../moderation/moderator.js'
 import { removeInvisible } from '../moderation/normalize.js'
 import type { Division, SchoolConfig, Slot } from './config.js'
@@ -48,6 +49,15 @@ function mixesScripts(name: string): boolean {
 
 export function displayName(ownerName: string, aiName: string): string {
   return `${ownerName}家的${aiName}`
+}
+
+/**
+ * What two display names are compared by: the name with its look-alike letters turned into Latin ones, case kept.
+ * Two names with the same key look the same to a classmate, so the rename check and the nightly class assignment
+ * treat them as one name. Pass a name that went through `normalizeNamePart` (every stored name did).
+ */
+export function nameKey(name: string): string {
+  return toSkeleton(name)
 }
 
 export type NameCheck =

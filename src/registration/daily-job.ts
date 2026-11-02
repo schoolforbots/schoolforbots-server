@@ -2,7 +2,7 @@ import { sql, type Kysely } from 'kysely'
 import type { Clock } from '../shared/clock.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
-import { displayName } from '../shared/identity.js'
+import { displayName, nameKey } from '../shared/identity.js'
 import { startOfLocalDay } from '../shared/local-time.js'
 import { assignClasses, type ClassState } from './assignment.js'
 import { slotOccupancy } from './capacity.js'
@@ -139,15 +139,17 @@ async function assignPending(
               .where('classId', 'in', classes.map((c) => c.id))
               .where('status', 'in', [...MEMBER_STATUSES])
               .execute()
+      // assignClasses compares the names it is given as plain strings, so it gets the name keys: a newcomer whose name
+      // only looks like a member's (Cyrillic о for Latin o) is kept out of that class too.
       const states: ClassState[] = classes.map((c) => ({
         classId: c.id,
         classNo: c.classNo,
-        memberNames: members.filter((m) => m.classId === c.id).map((m) => displayName(m.ownerName, m.aiName)),
+        memberNames: members.filter((m) => m.classId === c.id).map((m) => nameKey(displayName(m.ownerName, m.aiName))),
       }))
 
       const { placements, newClassCount } = assignClasses(
         states,
-        pending.map((s) => ({ studentId: s.id, displayName: displayName(s.ownerName, s.aiName) })),
+        pending.map((s) => ({ studentId: s.id, displayName: nameKey(displayName(s.ownerName, s.aiName)) })),
         config.classSize,
       )
 

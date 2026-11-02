@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest'
 import { parseInjectionPatterns } from '../../src/moderation/load.js'
 import { createModerator } from '../../src/moderation/moderator.js'
 import { loadSchoolConfig } from '../../src/shared/config.js'
-import { checkNames, className, displayName, normalizeNamePart } from '../../src/shared/identity.js'
+import { checkNames, className, displayName, nameKey, normalizeNamePart } from '../../src/shared/identity.js'
 
 const moderator = createModerator({
   blockedWords: ['示例违禁词'],
@@ -70,6 +70,34 @@ describe('normalizeNamePart', () => {
 describe('displayName', () => {
   test('joins the owner and the AI with 家的 and no space', () => {
     expect(displayName('阿杰', '小鱼')).toBe('阿杰家的小鱼')
+  })
+})
+
+describe('nameKey', () => {
+  test('is the same for display names that look alike', () => {
+    // 阿杰家的TOM with Cyrillic Т О М, Greek Τ Ο Μ, and the plain Latin spelling
+    expect(nameKey('阿杰家的\u0422\u041E\u041C')).toBe(nameKey('阿杰家的TOM'))
+    expect(nameKey('阿杰家的\u03A4\u039F\u039C')).toBe(nameKey('阿杰家的TOM'))
+    // 阿杰家的Tom with a Cyrillic Т and о next to a Latin m
+    expect(nameKey('阿杰家的\u0422\u043Em')).toBe(nameKey('阿杰家的Tom'))
+  })
+
+  test('is the look-alike skeleton, case kept', () => {
+    expect(nameKey('阿杰家的\u0422\u043Em')).toBe('阿杰家的Tom')
+    expect(nameKey(displayName('\u0410\u0412', '小鱼'))).toBe('AB家的小鱼')
+  })
+
+  test('tells different names apart, case included', () => {
+    expect(nameKey('阿杰家的Tom')).not.toBe(nameKey('阿杰家的tom'))
+    expect(nameKey('阿杰家的Tom')).not.toBe(nameKey('阿杰家的Tim'))
+    expect(nameKey('阿杰家的小鱼')).not.toBe(nameKey('阿杰家的小鱼儿'))
+    // Δ is not a look-alike of any Latin letter
+    expect(nameKey('阿杰家的\u0394')).not.toBe(nameKey('阿杰家的A'))
+  })
+
+  test('leaves names without look-alikes as they are', () => {
+    expect(nameKey('阿杰家的小鱼')).toBe('阿杰家的小鱼')
+    expect(nameKey('')).toBe('')
   })
 })
 

@@ -4,7 +4,7 @@ import type { Kysely } from 'kysely'
 import type { Static } from 'typebox'
 import { Admission, Classmates, Me, ReEnrollResult, RenameRequest, RenameResult } from '../protocol/http.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
-import { checkNames, className, displayName } from '../shared/identity.js'
+import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, type StudentRow } from './auth.js'
 import { isInstallSeatViolation, seatsOfEmail, slotOccupancy } from './capacity.js'
@@ -197,7 +197,9 @@ async function renameStudent(
       .where('id', '!=', studentId)
       .where('status', 'in', [...MEMBER_STATUSES])
       .execute()
-    if (classmates.some((m) => displayName(m.ownerName, m.aiName) === newDisplayName)) throw new ApiError(409, 'name_taken')
+    // Compared by look, not by letters: a Cyrillic spelling of a classmate's name is as taken as the name itself.
+    const newKey = nameKey(newDisplayName)
+    if (classmates.some((m) => nameKey(displayName(m.ownerName, m.aiName)) === newKey)) throw new ApiError(409, 'name_taken')
 
     await trx
       .updateTable('students')
