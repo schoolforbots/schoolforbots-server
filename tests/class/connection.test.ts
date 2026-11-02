@@ -686,6 +686,8 @@ describe('messages after hello', () => {
       chatStart: handler('chatStart', { ok: true, result: { conversationId: 'c-1' } }),
       question: handler('question', { ok: false, code: 'question_cap' }),
       answer: handler('answer', { ok: false, code: 'blocked', extra: { category: 'sensitive' } }),
+      // The test app's chat engine would take it otherwise.
+      chatReply: undefined,
     }
     const s = await start({ handlers })
     const { classId, students } = await seedClass(s, 2)
@@ -738,6 +740,7 @@ describe('messages after hello', () => {
       pluginType: 'openclaw',
       pluginVersion: '1.2.3',
       lessonsAttended: 5,
+      closeAt: at('20:31'),
     }
     expect(calls).toEqual([
       ['chatStart', participant, start1],

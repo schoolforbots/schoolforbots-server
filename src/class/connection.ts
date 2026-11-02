@@ -46,6 +46,8 @@ export interface Participant {
   readonly pluginVersion: string
   /** The lessons the student attended before this session (the probation baseline), whatever this hello recorded. */
   readonly lessonsAttended: number
+  /** The session's close, at the end of its closing grace: the student's conversations end then at the latest. */
+  readonly closeAt: Date
 }
 
 /** What a handler answers; the connection turns it into the `ack` and adds the Chinese `message` for a failure. */
@@ -57,6 +59,11 @@ export interface MessageHandlers {
   chatReply(p: Participant, msg: Static<typeof ChatReplyMessage>): Promise<AckResult>
   question(p: Participant, msg: Static<typeof QuestionMessage>): Promise<AckResult>
   answer(p: Participant, msg: Static<typeof AnswerMessage>): Promise<AckResult>
+  /**
+   * How many conversations the student may still start this session, for the welcome; missing, the whole allowance.
+   * Asked at every hello, right after the connection is registered, so the chat engine meets every student there.
+   */
+  initiationsLeft?(p: Participant): Promise<number>
 }
 
 /** What the connections of one app share. */
@@ -244,6 +251,7 @@ export function serveConnection(
       pluginType: hello.plugin.type,
       pluginVersion: hello.plugin.version,
       lessonsAttended,
+      closeAt: session.closeAt,
     }
     // The client may have gone while the attendance was written; a closed connection must never be registered.
     if (socket.readyState !== socket.OPEN) return
@@ -296,7 +304,7 @@ export function serveConnection(
 
   async function buildWelcome(me: Participant, session: ActiveSession): Promise<Static<typeof WelcomeMessage>> {
     const others = hub.online(classId).filter((id) => id !== studentId)
-    const [online, classRow, lesson] = await Promise.all([
+    const [online, classRow, lesson, initiationsLeft] = await Promise.all([
       others.length === 0
         ? []
         : db
@@ -316,6 +324,8 @@ export function serveConnection(
         .select(['l.subject', 'l.title'])
         .where('s.id', '=', session.sessionId)
         .executeTakeFirstOrThrow(),
+      // The chat engine counts the conversations already started this session.
+      deps.handlers?.initiationsLeft?.(me) ?? config.chat.maxInitiationsPerLesson,
     ])
     // As the runtime does: a teacher the config no longer lists is just 老师.
     const teacher = config.teacherPersonas.find((t) => t.id === classRow.teacherPersonaId)?.name ?? '老师'
@@ -338,7 +348,7 @@ export function serveConnection(
       online: online.map((s) => ({ studentId: s.id, displayName: displayName(s.ownerName, s.aiName) })),
       limits: {
         maxInitiationsPerLesson: config.chat.maxInitiationsPerLesson,
-        initiationsLeft: initiationsLeft(me),
+        initiationsLeft,
         maxRoundsPerConversation: config.chat.maxRoundsPerConversation,
         maxMessageChars: config.chat.maxMessageChars,
         maxQuestionsPerLesson: config.lesson.maxQuestionsPerLesson,
@@ -347,14 +357,6 @@ export function serveConnection(
       },
       probation: me.lessonsAttended < config.chat.probationLessons,
     }
-  }
-
-  /**
-   * How many conversations the student may still start this session. The seam for the chat engine: until it counts
-   * the ones already started, this is the whole allowance.
-   */
-  function initiationsLeft(_me: Participant): number {
-    return config.chat.maxInitiationsPerLesson
   }
 
   // ---- Every frame ----

@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/schema.js'
+import type { ChatEngine } from './chat.js'
 import { applyPenalties, calloutsForWindow } from './discipline.js'
 import type { ActiveSession } from './runtime.js'
 
@@ -54,17 +55,27 @@ export interface LessonHooksDeps {
   db: Kysely<Database>
   config: SchoolConfig
   clock: Clock
+  /** The chat engine the class app relays conversations through; without one, the chat hooks do nothing. */
+  chat?: Pick<ChatEngine, 'startClosing' | 'endAll' | 'onDisconnect'>
 }
 
 /**
  * The hooks of the running class service: `noopHooks` with each part's real hook put in its place as it is built.
- * So far: the teacher's discipline callouts and the penalties after class.
+ * So far: the teacher's discipline callouts, the conversations' closing grace and end, and the penalties after class.
  */
 export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
-  const { db, config, clock } = deps
+  const { db, config, clock, chat } = deps
   return {
     ...noopHooks,
     callouts: (session, from, to) => calloutsForWindow(db, session, from, to),
+    // All three are synchronous, as the runtime and the connection layer call them.
+    ...(chat === undefined
+      ? {}
+      : {
+          startClosing: (classId: number) => chat.startClosing(classId),
+          endAll: (classId: number) => chat.endAll(classId),
+          onDisconnect: (studentId: number) => chat.onDisconnect(studentId),
+        }),
     // Penalties only touch the database, so a session finished quietly gets them too.
     afterClass: async (session) => {
       await applyPenalties(db, config, clock, session)

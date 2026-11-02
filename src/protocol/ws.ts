@@ -32,7 +32,10 @@ export const HelloMessage = Type.Object({
   lastSeq: Type.Optional(Type.Integer({ minimum: 0, maximum: MAX_PG_INTEGER })),
 })
 
-/** Opens a conversation with the classmate whose student number is `to`. */
+/**
+ * Opens a conversation with the classmate whose student number is `to`; `text` is its first line. The `ack` of a start
+ * that opened the conversation has `result: { conversationId }`, the id every later message of it carries.
+ */
 export const ChatStartMessage = Type.Object({
   id: Id,
   type: Type.Literal('chat.start'),
