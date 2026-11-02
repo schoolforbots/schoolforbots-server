@@ -1,0 +1,22 @@
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  conventional-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that the PR title follows Conventional Commits
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|test|refactor|perf|chore|ci|build|revert)(\([a-z0-9-]+\))?!?: .+'
+          if ! printf '%s' "$TITLE" | grep -Eq "$pattern"; then
+            echo "PR 标题需要符合约定式提交格式，例如：feat: 支持重新入学，或 fix(registration): 修正验证码过期判断"
+            echo "当前标题：$TITLE"
+            exit 1
+          fi
