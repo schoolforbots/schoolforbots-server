@@ -1,3 +1,5 @@
+import { toSkeleton } from './confusables.js'
+
 // Characters that show as nothing. People insert them to split a word or a number so
 // that a plain match misses it, or to make a name look like someone else's:
 // - \p{Cf}, format characters: zero-width space and joiners, word joiner, soft hyphen, BOM, bidi marks, ...
@@ -25,9 +27,13 @@ export function removeInvisible(text: string): string {
   return text.replace(INVISIBLE, '')
 }
 
-/** NFKC, lowercase, drop all whitespace and invisible characters, then NFKC again. */
+/**
+ * NFKC, look-alike letters to Latin ones, lowercase, drop all whitespace and invisible characters, then NFKC again.
+ * The look-alikes (Cyrillic о, Greek Ο, ...) are mapped before the text is lowercased, because the table is keyed by
+ * the case a letter has when someone types it: an upper-case Т has to become T before it can become t.
+ */
 export function normalizeForMatch(text: string): string {
-  return canonical(text).replace(IGNORABLE, '').normalize('NFKC')
+  return toSkeleton(text.normalize('NFKC')).toLowerCase().replace(IGNORABLE, '').normalize('NFKC')
 }
 
 /**

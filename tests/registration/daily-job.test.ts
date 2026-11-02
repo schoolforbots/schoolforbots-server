@@ -410,6 +410,39 @@ describe('creating classes', () => {
     // The second 阿杰家的小鱼 cannot share the first one's class, so a second class is opened.
     expect(await classSizes('junior', 'evening')).toEqual([1, 1])
   })
+
+  test('a newcomer whose name only looks like a member\'s skips that class', async () => {
+    const now = clock.now()
+    const classId = await insertClass(db, { classNo: 1 })
+    const recent = new Date(now.getTime() - 1 * DAY)
+    await insertStudent(db, {
+      ownerName: '阿杰',
+      aiName: 'Tom',
+      status: 'active',
+      classId,
+      assignedAt: recent,
+      lastAttendedAt: recent,
+    })
+    // 阿杰家的Тоm: Т and о are Cyrillic, m is Latin. It reads as 阿杰家的Tom, so it cannot sit next to it. The next
+    // newcomer has another name and takes the free seat in class 1.
+    const lookAlike = await insertStudent(db, {
+      ownerName: '阿杰',
+      aiName: '\u0422\u043Em',
+      status: 'pending',
+      createdAt: lastEvening(),
+    })
+    const other = await insertStudent(db, {
+      ownerName: '阿杰',
+      aiName: 'Tim',
+      status: 'pending',
+      createdAt: new Date(lastEvening().getTime() + 1),
+    })
+
+    expect(await job()).toMatchObject({ assigned: 2, classesCreated: 1 })
+    expect((await statusOf(lookAlike.id)).classId).not.toBe(classId)
+    expect((await statusOf(other.id)).classId).toBe(classId)
+    expect(await classSizes('junior', 'evening')).toEqual([2, 1])
+  })
 })
 
 test('assigned students become active with assignedAt = now', async () => {

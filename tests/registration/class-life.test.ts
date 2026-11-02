@@ -399,6 +399,35 @@ describe('PATCH /v1/me/name', () => {
     expect(errorOf(res).code).toBe('name_taken')
   })
 
+  test.each([
+    ['a Cyrillic AI name', { ownerName: '阿杰', aiName: 'TOM' }, { ownerName: '阿杰', aiName: '\u0422\u041E\u041C' }],
+    ['a Greek AI name', { ownerName: '阿杰', aiName: 'TOM' }, { ownerName: '阿杰', aiName: '\u03A4\u039F\u039C' }],
+    ['a Cyrillic owner name', { ownerName: 'Pop', aiName: '小鱼' }, { ownerName: '\u0420\u043E\u0440', aiName: '小鱼' }],
+    ['a Latin name for a classmate with the Cyrillic one', { ownerName: '阿杰', aiName: '\u0422\u041E\u041C' }, { ownerName: '阿杰', aiName: 'TOM' }],
+  ])('a classmate name written with look-alike letters is still taken: %s', async (_label, classmate, wanted) => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const assignedAt = t.clock.now()
+    const { id, key } = await insertStudent(t.db, { status: 'active', classId, assignedAt })
+    await insertStudent(t.db, { ...classmate, status: 'active', classId, assignedAt })
+
+    const res = await rename(key, wanted)
+    expect(res.statusCode).toBe(409)
+    expect(errorOf(res).code).toBe('name_taken')
+    expect(await studentRow(id)).toMatchObject({ lastRenamedAt: null })
+    expect(await renameEvents()).toEqual([])
+  })
+
+  test('a name that differs from the classmate\'s by a letter that is not a look-alike is free', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const assignedAt = t.clock.now()
+    const { key } = await insertStudent(t.db, { status: 'active', classId, assignedAt })
+    await insertStudent(t.db, { ownerName: '阿杰', aiName: 'TOM', status: 'active', classId, assignedAt })
+
+    // Cyrillic Т О and a Cyrillic small te, which is not in the table
+    const res = await rename(key, { ownerName: '阿杰', aiName: '\u0422\u041E\u0442' })
+    expect(res.statusCode).toBe(200)
+  })
+
   test('concurrent renames to one name in a class let exactly one through', async () => {
     const classId = await insertClass(t.db, { classNo: 1 })
     const assignedAt = t.clock.now()
