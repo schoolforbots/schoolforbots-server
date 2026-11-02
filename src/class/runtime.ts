@@ -112,6 +112,8 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
   let openedDay: string | null = null
   const openedSlots = new Set<Slot>()
   let running: Promise<void> = Promise.resolve()
+  // How late after its close a session's step still runs live, so the close itself (a tick after it) stays live.
+  const liveToleranceMs = 30_000 / speed
 
   const teacherName = (personaId: string): string =>
     config.teacherPersonas.find((p) => p.id === personaId)?.name ?? FALLBACK_TEACHER
@@ -277,11 +279,13 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
   }
 
   /**
-   * A session is live while no later session of its class has opened. One left open from an earlier day (the service
-   * was down through its close) is finished quietly: its steps are written and its after-class work is done, but
-   * nothing is pushed to the class, which is in its next session by now.
+   * Whether a step of the session runs live: no later than its close plus a short tolerance (30 seconds of lesson
+   * time), and while no later session of its class has opened. A session caught up after that (the service was down
+   * through its close) is finished quietly: its steps are written and its after-class work is done, but nothing is
+   * pushed, nobody is disconnected or called on, and pending renames are left for the class's next opening.
    */
   function isLive(t: Tracked, now: Date): boolean {
+    if (now.getTime() > t.session.closeAt.getTime() + liveToleranceMs) return false
     for (const other of tracked.values()) {
       if (
         other.session.classId === t.session.classId &&
@@ -495,7 +499,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
 
     // close
     if (live) hooks.endAll(s.classId)
-    await hooks.afterClass(s)
+    await hooks.afterClass(s, { live })
     const closed = await db
       .updateTable('classSessions')
       .set({ dismissedAt: now })
