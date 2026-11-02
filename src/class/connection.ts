@@ -224,7 +224,8 @@ export function serveConnection(
       return { refusal: closing('suspended', message) }
     }
     if (student.classId === null || !(MEMBER_STATUSES as readonly StudentStatus[]).includes(student.status)) {
-      return { refusal: closing('session_over', noClassMessage(student.status)) }
+      const reason = student.status === 'expelled' ? 'expelled' : 'session_over'
+      return { refusal: closing(reason, noClassMessage(student.status)) }
     }
     if (runtime.currentSession(student.classId) === null) return { refusal: outsideSession() }
     return { classId: student.classId }

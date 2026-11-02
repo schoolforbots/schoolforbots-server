@@ -255,19 +255,19 @@ describe('a student who may not come in', () => {
     await hello(client)
   })
 
-  test.each<[StudentStatus, string]>([
-    ['pending', '你还没有分班，分到班级后才能来上课。'],
-    ['waitlisted', '你还没有分班，分到班级后才能来上课。'],
-    ['dropped', '你已经退学，不在任何班级里了，重新报名分班后才能来上课。'],
-    ['expelled', '你已经被开除，不在任何班级里了。'],
-  ])('a %s student without a class is told so and disconnected', async (status, message) => {
+  test.each<[StudentStatus, string, string]>([
+    ['pending', 'session_over', '你还没有分班，分到班级后才能来上课。'],
+    ['waitlisted', 'session_over', '你还没有分班，分到班级后才能来上课。'],
+    ['dropped', 'session_over', '你已经退学，不在任何班级里了，重新报名分班后才能来上课。'],
+    ['expelled', 'expelled', '你已经被开除，不在任何班级里了。'],
+  ])('a %s student without a class is told so (closing %s) and disconnected', async (status, reason, message) => {
     const s = await start()
     await seedClass(s, 1)
     await tickAt(s, at('19:50'))
     const outsider = await addStudent(s, null, { status })
 
     const client = await connect(outsider.key)
-    expect(await client.next()).toEqual({ type: 'closing', reason: 'session_over', message })
+    expect(await client.next()).toEqual({ type: 'closing', reason, message })
     expect(await client.closed()).toBe(1000)
   })
 
