@@ -62,6 +62,30 @@ export function startOfLocalDay(moment: Date, timeZone: string, daysBack = 0): D
   return new Date(Math.min(...starts))
 }
 
+/** The calendar date, `YYYY-MM-DD`, that a wall clock in `timeZone` reads at `moment`: the school day it falls on. */
+export function localDate(moment: Date, timeZone: string): string {
+  return new Date(wallClock(moment.getTime(), timeZone)).toISOString().slice(0, 10)
+}
+
+const TIME_OF_DAY = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+/**
+ * The instant a wall clock in `timeZone` reads `time` (`HH:MM`) on `date` (`YYYY-MM-DD`). On a day the clocks change,
+ * a time that comes twice is its first occurrence, and a time that is skipped reads as the same time after the jump
+ * (02:30 on a day that skips from 02:00 to 03:00 is 03:30).
+ */
+export function atLocalTime(date: string, time: string, timeZone: string): Date {
+  const match = TIME_OF_DAY.exec(time)
+  if (match === null) throw new Error(`Not a time of day (HH:MM): ${time}`)
+  const reading = requireDateText(date) + (Number(match[1]) * 60 + Number(match[2])) * 60_000
+
+  // As in startOfLocalDay: try the offsets in force a day before and a day after, and keep those that read right.
+  const candidates = [reading - DAY_MS, reading + DAY_MS].map((probe) => reading - offsetAt(probe, timeZone))
+  const exact = candidates.filter((instant) => wallClock(instant, timeZone) === reading)
+  // A skipped time: the offset from before the jump lands just as far past it.
+  return new Date(exact.length > 0 ? Math.min(...exact) : Math.max(...candidates))
+}
+
 // A school-calendar day is a `YYYY-MM-DD` text with no time zone, and the same date falls on the same weekday
 // everywhere. The helpers below do calendar arithmetic on it with UTC timestamps, never with a Date's local fields.
 
