@@ -61,3 +61,41 @@ export function startOfLocalDay(moment: Date, timeZone: string, daysBack = 0): D
   if (starts.length === 0) throw new Error(`No start of day for ${new Date(midnight).toISOString().slice(0, 10)} in ${timeZone}`)
   return new Date(Math.min(...starts))
 }
+
+// A school-calendar day is a `YYYY-MM-DD` text with no time zone, and the same date falls on the same weekday
+// everywhere. The helpers below do calendar arithmetic on it with UTC timestamps, never with a Date's local fields.
+
+const DATE_TEXT = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/** The UTC midnight of a `YYYY-MM-DD` date, or null when the text is not a real calendar date. */
+function parseDateText(text: string): number | null {
+  const match = DATE_TEXT.exec(text)
+  if (match === null) return null
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  const ms = Date.UTC(year, month - 1, day)
+  const back = new Date(ms)
+  // Date.UTC rolls 30 February over into March; a real date comes back as it went in.
+  const real = back.getUTCFullYear() === year && back.getUTCMonth() === month - 1 && back.getUTCDate() === day
+  return real ? ms : null
+}
+
+function requireDateText(text: string): number {
+  const ms = parseDateText(text)
+  if (ms === null) throw new Error(`Not a calendar date (YYYY-MM-DD): ${text}`)
+  return ms
+}
+
+/** Whether `text` is a real calendar date written `YYYY-MM-DD`. */
+export function isDateText(text: string): boolean {
+  return parseDateText(text) !== null
+}
+
+/** The weekday of a `YYYY-MM-DD` date: 1 is Monday, 7 is Sunday. */
+export function isoWeekday(date: string): number {
+  return new Date(requireDateText(date)).getUTCDay() || 7
+}
+
+/** The calendar date `days` days after `date` (before it, when negative). */
+export function addDaysToDate(date: string, days: number): string {
+  return new Date(requireDateText(date) + days * DAY_MS).toISOString().slice(0, 10)
+}
