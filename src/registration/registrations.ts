@@ -9,7 +9,7 @@ import {
   VerifyRequest,
   VerifyResult,
 } from '../protocol/http.js'
-import { SEAT_STATUSES, lock, type Database } from '../shared/db.js'
+import { SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames } from '../shared/identity.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
@@ -237,7 +237,7 @@ async function verifyInTransaction(
   await lock(trx, `email:${registration.email}`)
   if ((await seatsOfEmail(trx, registration.email)) >= config.maxStudentsPerEmail) return fail(409, 'email_limit')
 
-  await lock(trx, `slot:${registration.slot}`)
+  await lock(trx, slotLockKey(registration.slot))
   const occupied = await countRows(
     trx
       .selectFrom('students')

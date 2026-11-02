@@ -1,6 +1,7 @@
 import { CamelCasePlugin, Kysely, PostgresDialect, sql } from 'kysely'
 import { Migrator, type MigrationProvider } from 'kysely/migration'
 import pg from 'pg'
+import type { Slot } from './config.js'
 import * as m0001 from './migrations/0001_init.js'
 import * as m0002 from './migrations/0002_key_reset_decoys.js'
 import type { Database } from './schema.js'
@@ -31,4 +32,9 @@ export async function migrateToLatest(db: Kysely<Database>): Promise<void> {
 /** Takes a transaction-scoped advisory lock, so transactions touching the same key run one at a time. */
 export async function lock(trx: Kysely<Database>, key: string): Promise<void> {
   await sql`select pg_advisory_xact_lock(hashtext(${key}))`.execute(trx)
+}
+
+/** The lock key for a slot: verify takes it to read slot capacity, and the nightly job takes it to promote the waitlist. */
+export function slotLockKey(slot: Slot): string {
+  return `slot:${slot}`
 }
