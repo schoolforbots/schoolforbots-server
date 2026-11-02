@@ -7,7 +7,7 @@ import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, type StudentRow } from './auth.js'
-import { isInstallSeatViolation, seatsOfEmail, slotOccupancy } from './capacity.js'
+import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
 import { ApiError, invalidNameError } from './errors.js'
 
 const DAY_MS = 24 * 60 * 60_000
@@ -53,6 +53,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           status: student.status,
           className: assignedClass,
           lastRenamedAt: student.lastRenamedAt?.toISOString() ?? null,
+          suspendedUntil: student.suspendedUntil?.toISOString() ?? null,
         }
       },
     )
@@ -78,6 +79,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           teacher: { name: teacher?.name ?? row.teacherPersonaId },
           startsOn: dateIn(deps.config.timezone, student.assignedAt),
           classmates: await classmatesOf(deps.db, student.classId),
+          suspendedUntil: student.suspendedUntil?.toISOString() ?? null,
         }
       },
     )
@@ -245,7 +247,11 @@ async function reEnrollStudent(deps: RegistrationDeps, student: StudentRow): Pro
       // The seat they gave up may have been used since: by their email for another AI, or by their install for a new one.
       if ((await seatsOfEmail(trx, student.email)) >= config.maxStudentsPerEmail) throw new ApiError(409, 'email_limit')
 
-      const status = (await slotOccupancy(trx, student.slot)) >= config.slotCapacity ? 'waitlisted' : 'pending'
+      // Like a new registration, a returner waits behind the students already waiting in the slot, free seat or not.
+      const status =
+        (await slotHasWaitlist(trx, student.slot)) || (await slotOccupancy(trx, student.slot)) >= config.slotCapacity
+          ? 'waitlisted'
+          : 'pending'
       // Back of the queue: `created_at` stays the first registration, `queued_at` is what the nightly job goes by.
       await trx
         .updateTable('students')

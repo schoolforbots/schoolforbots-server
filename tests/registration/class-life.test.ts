@@ -126,8 +126,48 @@ describe('GET /v1/me/admission', () => {
         { studentId: me.id, displayName: '阿杰家的小鱼' },
         { studentId: other.id, displayName: '小明家的大黄' },
       ],
+      suspendedUntil: null,
     })
     expect(Value.Check(Admission, res.json())).toBe(true)
+  })
+
+  test('a suspended student is still in the class: the letter and the roster come with the end of the suspension', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const assignedAt = new Date('2026-10-01T00:00:00Z')
+    const suspendedUntil = new Date('2026-11-05T00:00:00+08:00')
+    const me = await insertStudent(t.db, {
+      ownerName: '阿杰',
+      aiName: '小鱼',
+      status: 'suspended',
+      classId,
+      assignedAt,
+      suspendedUntil,
+    })
+    const other = await insertStudent(t.db, { ownerName: '小明', aiName: '大黄', status: 'active', classId, assignedAt })
+
+    const res = await get('/v1/me/admission', me.key)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      studentId: me.id,
+      className: '初中部·晚班·1 班',
+      classmates: [
+        { studentId: me.id, displayName: '阿杰家的小鱼' },
+        { studentId: other.id, displayName: '小明家的大黄' },
+      ],
+      suspendedUntil: suspendedUntil.toISOString(),
+    })
+    expect(Value.Check(Admission, res.json())).toBe(true)
+
+    // The classmate who is not suspended sees null.
+    expect((await get('/v1/me/admission', other.key)).json()).toMatchObject({ suspendedUntil: null })
+  })
+
+  test('an expelled student has no class, so there is no letter → 409 not_assigned', async () => {
+    const { key } = await insertStudent(t.db, { status: 'expelled' })
+
+    const res = await get('/v1/me/admission', key)
+    expect(res.statusCode).toBe(409)
+    expect(errorOf(res).code).toBe('not_assigned')
   })
 
   test('startsOn is the assignment date in Beijing time, not in UTC', async () => {
@@ -779,6 +819,34 @@ describe('POST /v1/me/re-enroll', () => {
 
     expect((await reEnroll(wait.key)).json()).toEqual({ status: 'waitlisted' })
     expect((await reEnroll(morning.key)).json()).toEqual({ status: 'pending' })
+  })
+
+  test('a returner does not take a free seat ahead of students waiting in the slot', async () => {
+    await useConfig({ slotCapacity: 4 })
+    await insertStudent(t.db, { slot: 'evening', status: 'active' })
+    // The seat is free, but the nightly job has not yet promoted this one: the returner must not jump the queue.
+    await insertStudent(t.db, { slot: 'evening', status: 'waitlisted' })
+    const evening = await insertStudent(t.db, { slot: 'evening', status: 'dropped' })
+    // A waitlist in another slot holds nobody back here, and the other way round.
+    const morning = await insertStudent(t.db, { slot: 'morning', status: 'dropped' })
+
+    expect((await reEnroll(evening.key)).json()).toEqual({ status: 'waitlisted' })
+    expect(await studentRow(evening.id)).toMatchObject({ status: 'waitlisted', queuedAt: t.clock.now() })
+    expect((await reEnroll(morning.key)).json()).toEqual({ status: 'pending' })
+  })
+
+  test('once nobody waits in the slot, a returner gets a free seat again', async () => {
+    await useConfig({ slotCapacity: 4 })
+    const waiting = await insertStudent(t.db, { slot: 'evening', status: 'waitlisted' })
+    const first = await insertStudent(t.db, { slot: 'evening', status: 'dropped' })
+    const second = await insertStudent(t.db, { slot: 'evening', status: 'dropped' })
+
+    expect((await reEnroll(first.key)).json()).toEqual({ status: 'waitlisted' })
+
+    // The waiting students leave the waitlist (promoted or dropped); the free seat is then for the next arrival.
+    await t.db.updateTable('students').set({ status: 'dropped' }).where('slot', '=', 'evening').where('status', '=', 'waitlisted').execute()
+    expect(await studentRow(waiting.id)).toMatchObject({ status: 'dropped' })
+    expect((await reEnroll(second.key)).json()).toEqual({ status: 'pending' })
   })
 
   test('concurrent re-enrolls cannot overshoot the slot capacity', async () => {

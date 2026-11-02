@@ -21,6 +21,22 @@ export async function slotOccupancy(trx: Kysely<Database>, slot: Slot): Promise<
   return Number(count)
 }
 
+/**
+ * Whether anyone waits for a seat in the slot. A newcomer (verify, re-enroll) joins the waitlist when this is true,
+ * even if the slot has room: the nightly job promotes the waiting students first, so nobody jumps ahead of them.
+ * Like `slotOccupancy`, it is read after taking `lock(trx, slotLockKey(slot))`.
+ */
+export async function slotHasWaitlist(trx: Kysely<Database>, slot: Slot): Promise<boolean> {
+  const waiting = await trx
+    .selectFrom('students')
+    .select('id')
+    .where('slot', '=', slot)
+    .where('status', '=', 'waitlisted')
+    .limit(1)
+    .executeTakeFirst()
+  return waiting !== undefined
+}
+
 /** How many seats an email holds (waitlisted ones included), against `config.maxStudentsPerEmail`. */
 export async function seatsOfEmail(db: Kysely<Database>, email: string): Promise<number> {
   const { count } = await db
