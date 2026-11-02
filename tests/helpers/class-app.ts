@@ -5,6 +5,7 @@ import type { MessageHandlers } from '../../src/class/connection.js'
 import { disciplineRecorder } from '../../src/class/discipline.js'
 import { createLessonHooks, type LessonHooks } from '../../src/class/hooks.js'
 import { createHub } from '../../src/class/hub.js'
+import { questionHandlers, type QuestionsDeps } from '../../src/class/questions.js'
 import { createClassRuntime } from '../../src/class/runtime.js'
 import { exampleConfig, exampleModerator, type ConfigOverrides } from './app.js'
 import { createTestClock } from './clock.js'
@@ -19,7 +20,9 @@ import { createTestDb } from './db.js'
  * `overrides.hooks` on top; the same object goes to the runtime and to the app.
  *
  * One chat engine (`chat`) serves both: its hooks go into `createLessonHooks`, its handlers to the app, with
- * `overrides.handlers` on top. It ends overdue conversations only when a test calls `chat.tick()`.
+ * `overrides.handlers` on top. It ends overdue conversations only when a test calls `chat.tick()`. The questions and
+ * the call-on (`questions`) are wired the same way; the teacher calls on the first student online unless `random`
+ * says otherwise (see `callOnStep`).
  */
 export async function buildTestClassApp(
   overrides: {
@@ -28,6 +31,7 @@ export async function buildTestClassApp(
     handlers?: Partial<MessageHandlers>
     now?: Date
     speed?: number
+    random?: () => number
     logger?: FastifyServerOptions['logger']
   } = {},
 ) {
@@ -49,7 +53,17 @@ export async function buildTestClassApp(
     // The app's logger: the engine only logs while the app is serving.
     log: (obj, msg) => app.log.info(obj, msg),
   })
-  const hooks: LessonHooks = { ...createLessonHooks({ db, config, clock, chat }), ...overrides.hooks }
+  const questions: QuestionsDeps = {
+    db,
+    config,
+    clock,
+    hub,
+    moderator,
+    discipline: disciplineRecorder,
+    random: overrides.random ?? (() => 0),
+    log: (obj, msg) => app.log.info(obj, msg),
+  }
+  const hooks: LessonHooks = { ...createLessonHooks({ db, config, clock, chat, questions }), ...overrides.hooks }
   const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks })
 
   const app = buildClassApp({
@@ -60,7 +74,8 @@ export async function buildTestClassApp(
     runtime,
     hub,
     hooks,
-    handlers: { ...chatHandlers(chat), ...overrides.handlers },
+    // The two take different messages and seams (chat: `join`; questions: `resume`), so neither replaces the other's.
+    handlers: { ...chatHandlers(chat), ...questionHandlers(questions), ...overrides.handlers },
     logger: overrides.logger,
   })
   try {
@@ -77,6 +92,7 @@ export async function buildTestClassApp(
     runtime,
     hub,
     chat,
+    questions,
     config,
     async destroy() {
       await app.close()
