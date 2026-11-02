@@ -71,10 +71,10 @@ describe('the chat engine', () => {
     await destroy()
   })
 
-  /** An engine on the test database and hub; a new one is what the service has after a restart. */
-  function newEngine(p: { speed?: number } = {}): ChatEngine {
+  /** An engine on the test database (or `p.db`) and hub; a new one is what the service has after a restart. */
+  function newEngine(p: { speed?: number; db?: Kysely<Database> } = {}): ChatEngine {
     return createChatEngine({
-      db,
+      db: p.db ?? db,
       config,
       clock,
       hub,
@@ -108,12 +108,32 @@ describe('the chat engine', () => {
     }
   }
 
-  /** The students connect: they are online in the hub, and the welcome asks the engine how many starts they have left. */
+  /** The students connect: they are online in the hub, and their hello joins them to the engine. */
   async function join(...students: Participant[]): Promise<void> {
     for (const p of students) {
       hub.join(p.classId, p.studentId)
-      await engine.initiationsLeft(p)
+      await engine.join(p)
     }
+  }
+
+  /** The test database, through which the next insert into a table fails (once per `failNext`), as in an outage. */
+  function faultyDb() {
+    const failing: string[] = []
+    const squash = (table: string) => table.replaceAll('_', '').toLowerCase()
+    const faulty = db.withPlugin({
+      transformQuery({ node }) {
+        if (node.kind === 'InsertQueryNode' && node.into !== undefined) {
+          const i = failing.indexOf(squash(node.into.table.identifier.name))
+          if (i >= 0) {
+            failing.splice(i, 1)
+            throw new Error('The database is unreachable')
+          }
+        }
+        return node
+      },
+      transformResult: async ({ result }) => result,
+    })
+    return { db: faulty, failNext: (table: keyof Database) => void failing.push(squash(table)) }
   }
 
   async function joined(p: Parameters<typeof student>[0] = {}): Promise<Participant> {
@@ -451,16 +471,17 @@ describe('the chat engine', () => {
     })
 
     test('at the dismissal the side whose turn it is gets chat.closing; its last line is moderated and delivered, then dismissal', async () => {
-      clock.set(at('20:29:30'))
       const [a, b, c, d, e, f] = [await joined(), await joined(), await joined(), await joined(), await joined(), await joined()]
-      const ab = await open(a, b, '快下课了') // b's turn
+      clock.set(at('20:28:45'))
       const cd = await open(c, d, '在吗')
-      expect(await engine.reply(d, cd, '在')).toEqual({ ok: true }) // c's turn
+      expect(await engine.reply(d, cd, '在')).toEqual({ ok: true }) // c's turn, due 20:30:45
+      clock.set(at('20:29:30'))
+      const ab = await open(a, b, '快下课了') // b's turn
       sent()
 
       clock.set(at('20:30'))
       engine.startClosing(classId)
-      expect(sent()).toEqual([to(b, closing(ab)), to(c, closing(cd))])
+      expect(sent()).toEqual([to(c, closing(cd)), to(b, closing(ab))])
 
       // Nothing new starts after the dismissal, and trying uses no start.
       expect(await engine.start(e, f.studentId, '你好')).toEqual(failure('not_in_session'))
@@ -477,8 +498,9 @@ describe('the chat engine', () => {
         to(b, ended(ab, 'dismissal')),
       ])
 
-      // The grace does not time out; c stays silent until the close, where endAll ends what is left.
-      clock.set(at('20:30:59'))
+      // The grace does not time out: c's turn would have been due at 20:30:45, yet c may stay silent until the close,
+      // where endAll ends what is left.
+      clock.set(at('20:30:50'))
       engine.tick()
       expect(sent()).toEqual([])
       clock.set(CLOSE_AT)
@@ -617,6 +639,91 @@ describe('the chat engine', () => {
     })
   })
 
+  describe('Review Focus 3: a write the database fails', () => {
+    test('a first line the database cannot take opens nothing and uses no start', async () => {
+      const faulty = faultyDb()
+      engine = newEngine({ db: faulty.db })
+      const a = await joined()
+      const b = await joined()
+
+      faulty.failNext('messages')
+      await expect(engine.start(a, b.studentId, '你好')).rejects.toThrow('The database is unreachable')
+      expect(sent()).toEqual([])
+      expect(await messageRows()).toEqual([])
+      expect(await engine.initiationsLeft(a)).toBe(3)
+
+      // Neither of them is held in a conversation: the same start goes through now.
+      const c = await open(a, b)
+      expect(sent()).toEqual([to(b, incoming(c, a, '你好', 1))])
+      expect(await engine.initiationsLeft(a)).toBe(2)
+    })
+
+    test('a reply the database cannot take leaves the turn with its sender', async () => {
+      const faulty = faultyDb()
+      engine = newEngine({ db: faulty.db })
+      const a = await joined()
+      const b = await joined()
+      const c = await open(a, b)
+      sent()
+
+      faulty.failNext('messages')
+      await expect(engine.reply(b, c, '在')).rejects.toThrow('The database is unreachable')
+      expect(sent()).toEqual([])
+      expect(await engine.reply(a, c, '插一句')).toEqual(failure('not_your_turn'))
+      expect(await engine.reply(b, c, '在')).toEqual({ ok: true })
+      expect(sent()).toEqual([to(a, incoming(c, b, '在', 1))])
+    })
+
+    test('a last reply whose rounds records cannot be written is not forwarded, and none of it is kept', async () => {
+      const faulty = faultyDb()
+      engine = newEngine({ db: faulty.db })
+      const a = await joined({ maxRounds: 9 })
+      const b = await joined({ maxRounds: 9 })
+      const c = await open(a, b, '第1轮')
+      for (let round = 1; round < 5; round++) {
+        expect(await engine.reply(b, c, `回第${round}轮`)).toEqual({ ok: true })
+        expect(await engine.reply(a, c, `第${round + 1}轮`)).toEqual({ ok: true })
+      }
+      sent()
+
+      // The line and the two records go together: the records fail, so the line is not kept or forwarded either.
+      faulty.failNext('disciplineRecords')
+      await expect(engine.reply(b, c, '回第5轮')).rejects.toThrow('The database is unreachable')
+      expect(sent()).toEqual([])
+      expect(await records()).toEqual([])
+      expect((await messageRows()).map((r) => r.text)).not.toContain('回第5轮')
+
+      expect(await engine.reply(b, c, '回第5轮')).toEqual({ ok: true })
+      expect(sent()).toEqual([to(a, incoming(c, b, '回第5轮', 5)), to(a, ended(c, 'school_cap')), to(b, ended(c, 'school_cap'))])
+      expect((await records()).map((r) => [r.studentId, r.kind])).toEqual([
+        [a.studentId, 'rounds'],
+        [b.studentId, 'rounds'],
+      ])
+    })
+
+    test('a reply the database cannot take as the class is dismissed: its sender gets chat.closing then', async () => {
+      clock.set(at('20:29:50'))
+      const faulty = faultyDb()
+      engine = newEngine({ db: faulty.db })
+      const a = await joined()
+      const b = await joined()
+      const c = await open(a, b)
+      expect(await engine.reply(b, c, '在')).toEqual({ ok: true })
+      sent()
+
+      faulty.failNext('messages')
+      const pending = engine.reply(a, c, '下课前问一句') // taken at once; its write fails after the dismissal
+      clock.set(at('20:30'))
+      engine.startClosing(classId)
+      expect(sent()).toEqual([]) // a line on its way: its recipient would be told once it is forwarded
+      await expect(pending).rejects.toThrow('The database is unreachable')
+      expect(sent()).toEqual([to(a, closing(c))])
+
+      expect(await engine.reply(a, c, '那下次再说')).toEqual({ ok: true })
+      expect(sent()).toEqual([to(b, incoming(c, a, '那下次再说', 2)), to(a, ended(c, 'dismissal')), to(b, ended(c, 'dismissal'))])
+    })
+  })
+
   describe('lines the moderator stops', () => {
     test('a stopped reply is not forwarded and keeps the turn; ten in a lesson make one school_rule record', async () => {
       const a = await joined()
@@ -745,18 +852,36 @@ describe('chat over the WebSocket', () => {
     return client.next('welcome')
   }
 
-  test('a conversation from start to dismissal, the welcome counting the starts, and nothing said in the log', async () => {
-    const logs = captureLogs()
-    service = await buildTestClassApp({ logger: { level: 'info', stream: logs.stream } })
-    const s = service
+  /** Two classmates out of probation, 阿杰家的小鱼 and 阿美家的豆豆, with the doors of the evening session open. */
+  async function seedPair(s: Service) {
     const classId = await insertClass(s.db, { classNo: 1 })
     const a = await insertStudent(s.db, { classId, status: 'active', ownerName: '阿杰', aiName: '小鱼' })
     const b = await insertStudent(s.db, { classId, status: 'active', ownerName: '阿美', aiName: '豆豆' })
     await s.db.updateTable('students').set({ lessonsAttended: 5 }).execute()
-    const asA = { studentId: a.id, displayName: '阿杰家的小鱼' }
-    const asB = { studentId: b.id, displayName: '阿美家的豆豆' }
     s.clock.set(at('19:50'))
     await s.runtime.tick()
+    return { a, b, asA: { studentId: a.id, displayName: '阿杰家的小鱼' }, asB: { studentId: b.id, displayName: '阿美家的豆豆' } }
+  }
+
+  test('the hello joins the student to the engine: a classmate holding one round gets the first line as the last round', async () => {
+    service = await buildTestClassApp()
+    const s = service
+    const { a, b, asA } = await seedPair(s)
+    const ca = await connect(s, a.key)
+    expect((await hello(ca, 5)).limits.initiationsLeft).toBe(3)
+    const cb = await connect(s, b.key)
+    await hello(cb, 1) // b has said nothing yet: only its hello tells the engine its plugin holds one round
+
+    ca.send({ id: 's1', type: 'chat.start', to: b.id, text: '只聊一轮吗？' })
+    expect((await ca.next('ack')).ok).toBe(true)
+    expect(await cb.next('chat.incoming')).toMatchObject({ from: asA, text: '只聊一轮吗？', round: 1, lastLine: true })
+  })
+
+  test('a conversation from start to dismissal, the welcome counting the starts, and nothing said in the log', async () => {
+    const logs = captureLogs()
+    service = await buildTestClassApp({ logger: { level: 'info', stream: logs.stream } })
+    const s = service
+    const { a, b, asA, asB } = await seedPair(s)
 
     const ca = await connect(s, a.key)
     expect((await hello(ca, 1)).limits.initiationsLeft).toBe(3)
