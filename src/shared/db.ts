@@ -1,7 +1,7 @@
 import { CamelCasePlugin, Kysely, PostgresDialect, sql } from 'kysely'
 import { Migrator, type MigrationProvider } from 'kysely/migration'
 import pg from 'pg'
-import type { Slot } from './config.js'
+import type { Division, Slot } from './config.js'
 import * as m0001 from './migrations/0001_init.js'
 import * as m0002 from './migrations/0002_key_reset_decoys.js'
 import * as m0003 from './migrations/0003_student_queue_time.js'
@@ -57,4 +57,12 @@ export async function lock(trx: Kysely<Database>, key: string): Promise<void> {
 /** The lock key for a slot: verify takes it to read slot capacity, and the nightly job takes it to promote the waitlist. */
 export function slotLockKey(slot: Slot): string {
   return `slot:${slot}`
+}
+
+/**
+ * The lock key for one day's lesson of a division: the importer takes it to write the lesson, and the class runtime
+ * takes it to start teaching one, so a lesson is never turned back into a draft while a class begins it.
+ */
+export function lessonLockKey(date: string, division: Division): string {
+  return `lesson:${date}:${division}`
 }

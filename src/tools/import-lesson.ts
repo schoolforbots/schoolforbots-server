@@ -4,7 +4,7 @@ import type { Kysely } from 'kysely'
 import { subjectForDate } from '../class/planning.js'
 import { systemClock, type Clock } from '../shared/clock.js'
 import { loadEnv, loadSchoolConfig, type Division, type SchoolConfig } from '../shared/config.js'
-import { createDb, lock } from '../shared/db.js'
+import { createDb, lessonLockKey, lock } from '../shared/db.js'
 import { isDateText } from '../shared/local-time.js'
 import { loadModerationData } from '../moderation/load.js'
 import { createModerator, type ModerationCategory, type Moderator } from '../moderation/moderator.js'
@@ -123,11 +123,6 @@ function blockedPlaces(moderator: Moderator, lesson: ParsedLesson): string[] {
     if (result.verdict === 'blocked') blocked.push(`${place}（${CATEGORY_NAMES[result.category]}）`)
   }
   return blocked
-}
-
-/** One import at a time per day and division. */
-function lessonLockKey(date: string, division: Division): string {
-  return `lesson:${date}:${division}`
 }
 
 /**

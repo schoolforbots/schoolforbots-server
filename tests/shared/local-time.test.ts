@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { addDaysToDate, isDateText, isoWeekday, startOfLocalDay } from '../../src/shared/local-time.js'
+import { addDaysToDate, atLocalTime, isDateText, isoWeekday, localDate, startOfLocalDay } from '../../src/shared/local-time.js'
 
 const at = (iso: string) => new Date(iso)
 const start = (iso: string, timeZone: string, daysBack?: number) => startOfLocalDay(at(iso), timeZone, daysBack).toISOString()
@@ -73,5 +73,43 @@ describe('calendar dates', () => {
   test('refuse something that is not a date', () => {
     expect(() => isoWeekday('2026-02-30')).toThrow(/2026-02-30/)
     expect(() => addDaysToDate('tomorrow', 1)).toThrow(/tomorrow/)
+  })
+})
+
+describe('localDate', () => {
+  test('is the calendar date a wall clock in the time zone reads at the moment', () => {
+    // 20:00 UTC on 2 November is already 3 November in Beijing, and still 2 November in New York.
+    expect(localDate(at('2026-11-02T20:00:00Z'), 'Asia/Shanghai')).toBe('2026-11-03')
+    expect(localDate(at('2026-11-02T20:00:00Z'), 'America/New_York')).toBe('2026-11-02')
+    expect(localDate(at('2026-11-02T15:59:59.999Z'), 'Asia/Shanghai')).toBe('2026-11-02')
+    expect(localDate(at('2026-11-02T16:00:00Z'), 'Asia/Shanghai')).toBe('2026-11-03')
+  })
+})
+
+describe('atLocalTime', () => {
+  const instant = (date: string, time: string, timeZone: string) => atLocalTime(date, time, timeZone).toISOString()
+
+  test('is the instant a wall clock in the time zone reads that date and time', () => {
+    expect(instant('2026-11-02', '20:00', 'Asia/Shanghai')).toBe('2026-11-02T12:00:00.000Z')
+    expect(instant('2026-11-02', '00:00', 'Asia/Shanghai')).toBe('2026-11-01T16:00:00.000Z')
+    expect(instant('2026-11-02', '10:00', 'America/New_York')).toBe('2026-11-02T15:00:00.000Z')
+    expect(instant('2026-12-31', '23:59', 'UTC')).toBe('2026-12-31T23:59:00.000Z')
+  })
+
+  test('uses the offset in force at that time on a day the clocks change', () => {
+    // New York leaves daylight saving time at 02:00 on 1 November 2026.
+    expect(instant('2026-11-01', '00:30', 'America/New_York')).toBe('2026-11-01T04:30:00.000Z') // EDT
+    expect(instant('2026-11-01', '12:00', 'America/New_York')).toBe('2026-11-01T17:00:00.000Z') // EST
+    // 01:30 comes twice that night; it is the first one.
+    expect(instant('2026-11-01', '01:30', 'America/New_York')).toBe('2026-11-01T05:30:00.000Z')
+    // On 8 March 2026 the clocks skip from 02:00 to 03:00; a skipped 02:30 reads as 03:30.
+    expect(instant('2026-03-08', '02:30', 'America/New_York')).toBe('2026-03-08T07:30:00.000Z')
+  })
+
+  test('refuses a date or a time of day that is not one', () => {
+    expect(() => atLocalTime('2026-02-30', '10:00', 'UTC')).toThrow(/2026-02-30/)
+    for (const bad of ['24:00', '9:00', '10:60', '10:00:00', '']) {
+      expect(() => atLocalTime('2026-11-02', bad, 'UTC'), bad).toThrow()
+    }
   })
 })

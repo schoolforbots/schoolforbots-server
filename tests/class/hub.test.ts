@@ -1,0 +1,94 @@
+import { describe, expect, test } from 'vitest'
+import { createHub, RecordingHub, type HubConnection } from '../../src/class/hub.js'
+
+function fakeConnection(studentId: number, classId: number) {
+  const sent: object[] = []
+  let closed = false
+  const connection: HubConnection = {
+    studentId,
+    classId,
+    send: (message) => void sent.push(message),
+    close: () => {
+      closed = true
+    },
+  }
+  return { connection, sent, closed: () => closed }
+}
+
+describe('createHub', () => {
+  test('sends to one student, broadcasts to a class and lists who is online', () => {
+    const hub = createHub()
+    const a = fakeConnection(3, 1)
+    const b = fakeConnection(1, 1)
+    const c = fakeConnection(2, 9)
+    for (const x of [a, b, c]) hub.add(x.connection)
+
+    hub.send(3, { type: 'one' })
+    hub.broadcast(1, { type: 'all' })
+    hub.send(404, { type: 'nobody' })
+
+    expect(a.sent).toEqual([{ type: 'one' }, { type: 'all' }])
+    expect(b.sent).toEqual([{ type: 'all' }])
+    expect(c.sent).toEqual([])
+    expect(hub.online(1)).toEqual([1, 3])
+    expect(hub.online(9)).toEqual([2])
+    expect(hub.online(5)).toEqual([])
+  })
+
+  test('disconnect sends the last message, closes the connection and forgets it', () => {
+    const hub = createHub()
+    const a = fakeConnection(3, 1)
+    hub.add(a.connection)
+
+    hub.disconnect(3, { type: 'closing' })
+
+    expect(a.sent).toEqual([{ type: 'closing' }])
+    expect(a.closed()).toBe(true)
+    expect(hub.online(1)).toEqual([])
+    hub.disconnect(3, { type: 'closing' }) // already gone: nothing happens
+    expect(a.sent).toHaveLength(1)
+  })
+
+  test('a newer connection of the same student takes the place of the old one', () => {
+    const hub = createHub()
+    const old = fakeConnection(3, 1)
+    const fresh = fakeConnection(3, 1)
+    hub.add(old.connection)
+    hub.add(fresh.connection)
+
+    // The old connection closing late must not unregister the new one.
+    hub.remove(old.connection)
+    hub.send(3, { type: 'hi' })
+
+    expect(old.sent).toEqual([])
+    expect(fresh.sent).toEqual([{ type: 'hi' }])
+    expect(hub.online(1)).toEqual([3])
+
+    hub.remove(fresh.connection)
+    expect(hub.online(1)).toEqual([])
+  })
+})
+
+describe('RecordingHub', () => {
+  test('records every message in order and keeps its own list of who is online', () => {
+    const hub = new RecordingHub()
+    hub.join(1, 5)
+    hub.join(1, 2)
+    hub.join(7, 9)
+
+    hub.broadcast(1, { type: 'all' })
+    hub.send(5, { type: 'one' })
+    hub.disconnect(2, { type: 'closing' })
+
+    expect(hub.messages).toEqual([
+      { to: 'class', classId: 1, message: { type: 'all' } },
+      { to: 'student', studentId: 5, message: { type: 'one' } },
+      { to: 'disconnect', studentId: 2, message: { type: 'closing' } },
+    ])
+    expect(hub.online(1)).toEqual([5])
+    expect(hub.online(7)).toEqual([9])
+
+    hub.leave(5)
+    expect(hub.online(1)).toEqual([])
+  })
+})
