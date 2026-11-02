@@ -82,7 +82,15 @@ const calledOnMessage = (callId: number, question: string): Static<typeof Called
 
 const isOpen = (call: Call) => !call.answered && !call.timeUp
 
-/** The session's call-on, or null when nobody has been called on. */
+/** The call-on events of a session are not what `callOnStep` writes. */
+export class MalformedCallError extends Error {
+  constructor(sessionId: number) {
+    super(`The call-on of session ${sessionId} is malformed`)
+    this.name = 'MalformedCallError'
+  }
+}
+
+/** The session's call-on, or null when nobody has been called on. Throws `MalformedCallError` for events it cannot read. */
 export async function callOf(db: Kysely<Database>, sessionId: number): Promise<Call | null> {
   const rows = await db
     .selectFrom('classEvents')
@@ -96,7 +104,7 @@ export async function callOf(db: Kysely<Database>, sessionId: number): Promise<C
   const { studentId, displayName } = called.payload
   const question = of(CALL_ON)?.payload.text
   if (typeof studentId !== 'number' || typeof displayName !== 'string' || typeof question !== 'string') {
-    throw new Error(`The call-on of session ${sessionId} is malformed`)
+    throw new MalformedCallError(sessionId)
   }
   const said = of(ANSWER)?.payload.text
   return {

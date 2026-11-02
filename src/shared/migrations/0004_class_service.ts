@@ -128,6 +128,12 @@ export async function up(db: Kysely<any>): Promise<void> {
     .addColumn('created_at', 'timestamptz', (c) => c.notNull())
     .addPrimaryKeyConstraint('summaries_pkey', ['session_id', 'student_id'])
     .execute()
+  // The owner reads their own summaries newest first; the primary key leads with the session, so it cannot find them.
+  await db.schema
+    .createIndex('summaries_student_id_session_id')
+    .on('summaries')
+    .columns(['student_id', 'session_id'])
+    .execute()
 }
 
 export async function down(db: Kysely<any>): Promise<void> {

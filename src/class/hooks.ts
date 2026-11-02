@@ -62,8 +62,10 @@ export interface LessonHooksDeps {
   chat?: Pick<ChatEngine, 'startClosing' | 'endAll' | 'onDisconnect'>
   /** What the call-on is built from, as the class app's question handlers are; without it, nobody is called on. */
   questions?: QuestionsDeps
-  /** The hub the take-home summaries are pushed through; without one, no summaries are written. */
-  hub?: Hub
+  /** The hub the take-home summaries are pushed through (to whoever is online, when the session ends live). */
+  hub: Hub
+  /** A program log line: numbers and categories only, never what anyone said. */
+  log?: (obj: object, msg: string) => void
 }
 
 /**
@@ -72,7 +74,7 @@ export interface LessonHooksDeps {
  * the penalties and the take-home summaries after class.
  */
 export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
-  const { db, config, clock, chat, questions, hub } = deps
+  const { db, config, clock, chat, questions, hub, log } = deps
   return {
     ...noopHooks,
     callouts: (session, from, to) => calloutsForWindow(db, session, from, to),
@@ -91,11 +93,13 @@ export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
           endAll: (classId: number) => chat.endAll(classId),
           onDisconnect: (studentId: number) => chat.onDisconnect(studentId),
         }),
-    // Penalties only touch the database, so a session finished quietly gets them too, and the summaries after them (a
-    // quiet session's are written and not pushed). Both are keyed by the session, so a second run changes nothing.
+    // Penalties and summaries only touch the database, so a session finished quietly gets them too; of the two, only
+    // the push of the summaries waits for `live`. Run again after a crash, neither writes a thing twice: penalties are
+    // keyed by the session, summaries by session and student (so a student who has none yet, say one who attended
+    // late, gets theirs). A live rerun sends the stored summaries again.
     afterClass: async (session, { live }) => {
       await applyPenalties(db, config, clock, session)
-      if (hub !== undefined) await writeSummaries({ db, config, clock, hub }, session, { live })
+      await writeSummaries({ db, config, clock, hub, log }, session, { live })
     },
   }
 }
