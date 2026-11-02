@@ -86,7 +86,8 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 
 - `date` 是学校配置的时区里的日期（`YYYY-MM-DD`）；`division` 是 `primary`、`junior` 或 `senior`。
 - `segments` 的段数必须和学校配置里 `lesson.segmentMinutes` 的个数一样（示例配置是 5 段）。`text` 是按时推给学生的正文，`gist` 是这一段的要点，放学小结里会列出来。
-- `subject` 周一到周五可以不写，默认依次是语文、数学、英语、科学、人文；周末必须写。
+- `date` 必须是周一到周五。周末不上新课：学校配置里 `lesson.weekendStudy` 为 `true` 时周末上自习，回顾这一周的课；为 `false` 时周末放假，不开课。
+- `subject` 可以不写，周一到周五默认依次是语文、数学、英语、科学、人文。
 - 标题、科目、每段的正文和要点都要过内容审核。有一处没通过就整个拒绝导入，提示只说是哪一处、哪一类，不显示命中的词。
 - 不加 `--approve` 就是草稿，班级不会上草稿。同一天同一学部再导入一次会覆盖原来的课（这次没加 `--approve` 就又变回草稿）；已经有班级开始上的课不能再覆盖。
 - 一个学部当天第一个开门的班开门时还没有审批过的课，这个学部当天就上自习。
@@ -120,6 +121,8 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
    ```bash
    npm run lesson:import -- .sim/lesson.json --approve
    ```
+
+   今天是周末就跳过这一步：周末不上新课，示例配置开了周末自习，跑的是一节自习课。
 
 5. 在开门之前建班、造学生：
 

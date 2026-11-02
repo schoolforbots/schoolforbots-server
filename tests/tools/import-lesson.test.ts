@@ -22,6 +22,7 @@ const moderator = createModerator({
 // Wednesday 4 November 2026; the example config has five segments.
 const WED = '2026-11-04'
 const SAT = '2026-11-07'
+const SUN = '2026-11-08'
 
 let db: Kysely<Database>
 let destroy: () => Promise<void>
@@ -93,10 +94,14 @@ describe('importLesson', () => {
     expect((await lessonRows())[0]?.subject).toBe('美术')
   })
 
-  test('a weekend lesson needs a subject of its own', async () => {
-    expect(await refusal(lessonFile({ date: SAT }))).toMatch(/周末.*subject/)
-    await run(lessonFile({ date: SAT, subject: '科学' }))
-    expect((await lessonRows())[0]).toMatchObject({ date: SAT, subject: '科学' })
+  test('refuses a Saturday or a Sunday, with or without a subject: the weekend has no lessons', async () => {
+    for (const date of [SAT, SUN]) {
+      for (const over of [{}, { subject: '科学' }]) {
+        const message = await refusal(lessonFile({ date, ...over }))
+        expect(message).toContain(`${date} 是周末`)
+        expect(message).toContain('周一到周五')
+      }
+    }
   })
 
   test('keeps the text as written, apart from the spaces around it', async () => {

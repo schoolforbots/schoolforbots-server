@@ -9,7 +9,7 @@ import type { Database, LessonSegment, SessionKind, SessionMember } from '../sha
 import { appendClassEvent, classEventMessage, NOOP, stepWritten } from './events.js'
 import type { LessonHooks } from './hooks.js'
 import type { Hub } from './hub.js'
-import { planSession } from './planning.js'
+import { isSchoolDay, planSession } from './planning.js'
 import * as teacher from './teacher.js'
 import { lessonSteps, type StepName } from './timeline.js'
 
@@ -106,10 +106,10 @@ const keyed = (base: string, said: Said[]): PendingEvent[] =>
 const before = (a: Date, b: Date) => a.getTime() < b.getTime()
 
 /**
- * Runs the class sessions from the clock: at the doors of a slot it opens a session for every class that has
- * members, and then runs each step of each session once, in order, when it is due. A step writes its events, commits,
- * and only then pushes them to whoever is online. Steps are recorded in the database, so a runtime started after a
- * restart, or a tick that comes late, runs the steps it missed in order and never one that already ran.
+ * Runs the class sessions from the clock: at the doors of a slot of a school day it opens a session for every class
+ * that has members, and then runs each step of each session once, in order, when it is due. A step writes its events,
+ * commits, and only then pushes them to whoever is online. Steps are recorded in the database, so a runtime started
+ * after a restart, or a tick that comes late, runs the steps it missed in order and never one that already ran.
  */
 export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
   const { db, config, clock, hub, hooks, speed } = deps
@@ -263,13 +263,14 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     })
   }
 
-  /** Opens today's slots whose doors have opened and whose close has not come yet, each once. */
+  /** Opens today's slots whose doors have opened and whose close has not come yet, each once; none on a holiday. */
   async function openDueSlots(now: Date): Promise<void> {
     const today = localDate(now, config.timezone)
     if (openedDay !== today) {
       openedDay = today
       openedSlots.clear()
     }
+    if (!isSchoolDay(today, config)) return
     for (const slot of SLOTS) {
       if (openedSlots.has(slot)) continue
       const startsAt = atLocalTime(today, config.slots[slot].start, config.timezone)
