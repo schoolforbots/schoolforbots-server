@@ -60,7 +60,7 @@ describe('server messages', () => {
     online: [classmate],
     limits: {
       maxInitiationsPerLesson: 3, initiationsLeft: 3, maxRoundsPerConversation: 5, maxMessageChars: 300,
-      maxQuestionsPerLesson: 3,
+      maxQuestionsPerLesson: 3, closingGraceSeconds: 60,
     },
     probation: false,
   }
@@ -79,6 +79,8 @@ describe('server messages', () => {
     ['ack error with extra fields', { type: 'ack', id: 'c1', ok: false, error: { code: 'blocked', message: '被拦下了。', category: 'sensitive' } }],
     ['welcome', welcome],
     ['welcome of a study hall', { ...welcome, session: { ...welcome.session, kind: 'study', subject: null, title: null } }],
+    // A compressed development timeline gives a grace period of a fraction of a second.
+    ['welcome with a fractional closing grace', { ...welcome, limits: { ...welcome.limits, closingGraceSeconds: 0.1 } }],
     ['class.event teacher', classEvent({ kind: 'teacher', text: '同学们好' })],
     ['class.event segment', classEvent({ kind: 'segment', index: 1, text: '第一段' })],
     ['class.event rename', classEvent({ kind: 'rename', studentId: 12, oldName: 'A', newName: 'B' })],
@@ -108,6 +110,8 @@ describe('server messages', () => {
     ['ack with ok false but no error', { type: 'ack', id: 'c1', ok: false }],
     ['ack error without a message', { type: 'ack', id: 'c1', ok: false, error: { code: 'peer_busy' } }],
     ['welcome without limits', { ...welcome, limits: undefined }],
+    ['welcome without the closing grace', { ...welcome, limits: { ...welcome.limits, closingGraceSeconds: undefined } }],
+    ['welcome with a negative closing grace', { ...welcome, limits: { ...welcome.limits, closingGraceSeconds: -1 } }],
     ['class.event with an unknown kind', classEvent({ kind: 'party' })],
     ['class.event segment without index', classEvent({ kind: 'segment', text: '第一段' })],
     ['class.event without replayed', { type: 'class.event', seq: 1, at: '2026-11-02T12:00:00.000Z', event: { kind: 'dismissal' } }],

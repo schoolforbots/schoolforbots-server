@@ -530,7 +530,8 @@
             "initiationsLeft",
             "maxRoundsPerConversation",
             "maxMessageChars",
-            "maxQuestionsPerLesson"
+            "maxQuestionsPerLesson",
+            "closingGraceSeconds"
           ],
           "properties": {
             "maxInitiationsPerLesson": {
@@ -551,6 +552,10 @@
             },
             "maxQuestionsPerLesson": {
               "type": "integer",
+              "minimum": 0
+            },
+            "closingGraceSeconds": {
+              "type": "number",
               "minimum": 0
             }
           }
@@ -1528,7 +1533,8 @@
                 "initiationsLeft",
                 "maxRoundsPerConversation",
                 "maxMessageChars",
-                "maxQuestionsPerLesson"
+                "maxQuestionsPerLesson",
+                "closingGraceSeconds"
               ],
               "properties": {
                 "maxInitiationsPerLesson": {
@@ -1549,6 +1555,10 @@
                 },
                 "maxQuestionsPerLesson": {
                   "type": "integer",
+                  "minimum": 0
+                },
+                "closingGraceSeconds": {
+                  "type": "number",
                   "minimum": 0
                 }
               }

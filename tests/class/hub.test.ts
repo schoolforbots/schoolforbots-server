@@ -53,19 +53,30 @@ describe('createHub', () => {
     const hub = createHub()
     const old = fakeConnection(3, 1)
     const fresh = fakeConnection(3, 1)
-    hub.add(old.connection)
-    hub.add(fresh.connection)
+    expect(hub.add(old.connection)).toBeUndefined()
+    // The one it replaces comes back, still open: closing it is the caller's job.
+    expect(hub.add(fresh.connection)).toBe(old.connection)
+    expect(old.closed()).toBe(false)
 
-    // The old connection closing late must not unregister the new one.
-    hub.remove(old.connection)
+    // The old connection closing late must not unregister the new one: the student is still online.
+    expect(hub.remove(old.connection)).toBe(false)
     hub.send(3, { type: 'hi' })
 
     expect(old.sent).toEqual([])
     expect(fresh.sent).toEqual([{ type: 'hi' }])
     expect(hub.online(1)).toEqual([3])
 
-    hub.remove(fresh.connection)
+    expect(hub.remove(fresh.connection)).toBe(true)
     expect(hub.online(1)).toEqual([])
+  })
+
+  test('remove says the student is offline for a connection the hub has already disconnected', () => {
+    const hub = createHub()
+    const a = fakeConnection(3, 1)
+    hub.add(a.connection)
+    hub.disconnect(3, { type: 'closing' })
+
+    expect(hub.remove(a.connection)).toBe(true)
   })
 })
 

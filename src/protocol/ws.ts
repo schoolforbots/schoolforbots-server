@@ -104,6 +104,7 @@ export const WelcomeMessage = Type.Object({
     subject: Type.Union([Type.String(), Type.Null()]),
     title: Type.Union([Type.String(), Type.Null()]),
   }),
+  /** The classmates connected right now, by student number; you are not among them. */
   online: Type.Array(Classmate),
   limits: Type.Object({
     maxInitiationsPerLesson: Count,
@@ -111,6 +112,11 @@ export const WelcomeMessage = Type.Object({
     maxRoundsPerConversation: Type.Integer({ minimum: 1 }),
     maxMessageChars: Type.Integer({ minimum: 1 }),
     maxQuestionsPerLesson: Count,
+    /**
+     * After the dismissal, how long a conversation still going has for its last line (see `chat.closing`). A
+     * development server that plays lessons compressed shortens it in proportion, so it may be a fraction.
+     */
+    closingGraceSeconds: Type.Number({ minimum: 0 }),
   }),
   /** True while the student is still in the observation period and may not start conversations. */
   probation: Type.Boolean(),
