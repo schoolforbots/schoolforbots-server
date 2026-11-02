@@ -23,6 +23,8 @@ import { createTestDb } from './db.js'
  * `overrides.handlers` on top. It ends overdue conversations only when a test calls `chat.tick()`. The questions and
  * the call-on (`questions`) are wired the same way; the teacher calls on the first student online unless `random`
  * says otherwise (see `callOnStep`).
+ * The hub goes into `createLessonHooks` too, so a session that runs to its close writes the summaries (and pushes
+ * them to whoever is online).
  */
 export async function buildTestClassApp(
   overrides: {
@@ -63,7 +65,7 @@ export async function buildTestClassApp(
     random: overrides.random ?? (() => 0),
     log: (obj, msg) => app.log.info(obj, msg),
   }
-  const hooks: LessonHooks = { ...createLessonHooks({ db, config, clock, chat, questions }), ...overrides.hooks }
+  const hooks: LessonHooks = { ...createLessonHooks({ db, config, clock, chat, questions, hub }), ...overrides.hooks }
   const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks })
 
   const app = buildClassApp({

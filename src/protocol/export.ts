@@ -14,10 +14,13 @@ const PUBLISHED = [
   'KeyResetVerifyRequest',
   'Me',
   'ReEnrollResult',
+  'RecordsResult',
   'RegistrationAccepted',
   'RegistrationRequest',
   'RenameRequest',
   'RenameResult',
+  'SummariesResult',
+  'Summary',
   'VerifyRequest',
   'VerifyResult',
 ] as const satisfies readonly (keyof typeof http)[]

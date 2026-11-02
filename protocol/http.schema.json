@@ -417,6 +417,115 @@
         }
       }
     },
+    "RecordsResult": {
+      "type": "object",
+      "required": [
+        "status",
+        "suspendedUntil",
+        "records"
+      ],
+      "properties": {
+        "status": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "pending"
+            },
+            {
+              "type": "string",
+              "const": "waitlisted"
+            },
+            {
+              "type": "string",
+              "const": "active"
+            },
+            {
+              "type": "string",
+              "const": "suspended"
+            },
+            {
+              "type": "string",
+              "const": "dropped"
+            },
+            {
+              "type": "string",
+              "const": "expelled"
+            }
+          ]
+        },
+        "suspendedUntil": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "at",
+              "text",
+              "revoked"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "initiations"
+                  },
+                  {
+                    "type": "string",
+                    "const": "rounds"
+                  },
+                  {
+                    "type": "string",
+                    "const": "school_rule"
+                  },
+                  {
+                    "type": "string",
+                    "const": "privacy_block"
+                  },
+                  {
+                    "type": "string",
+                    "const": "parent_notice"
+                  },
+                  {
+                    "type": "string",
+                    "const": "suspension"
+                  },
+                  {
+                    "type": "string",
+                    "const": "expulsion"
+                  }
+                ]
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "text": {
+                "type": "string"
+              },
+              "revoked": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
     "RegistrationAccepted": {
       "type": "object",
       "required": [
@@ -550,6 +659,371 @@
         },
         "announced": {
           "type": "boolean"
+        }
+      }
+    },
+    "SummariesResult": {
+      "type": "object",
+      "required": [
+        "summaries"
+      ],
+      "properties": {
+        "summaries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "sessionId",
+              "date",
+              "kind",
+              "className",
+              "teacher",
+              "lesson",
+              "weekTitles",
+              "calledOn",
+              "chattedWith",
+              "criticisms"
+            ],
+            "properties": {
+              "sessionId": {
+                "type": "integer"
+              },
+              "date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "lesson"
+                  },
+                  {
+                    "type": "string",
+                    "const": "study"
+                  }
+                ]
+              },
+              "className": {
+                "type": "string"
+              },
+              "teacher": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              },
+              "lesson": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "subject",
+                      "title",
+                      "segments"
+                    ],
+                    "properties": {
+                      "subject": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "segments": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "index",
+                            "gist"
+                          ],
+                          "properties": {
+                            "index": {
+                              "type": "integer"
+                            },
+                            "gist": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "weekTitles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "calledOn": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "question",
+                      "answer"
+                    ],
+                    "properties": {
+                      "question": {
+                        "type": "string"
+                      },
+                      "answer": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "chattedWith": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "studentId",
+                    "displayName"
+                  ],
+                  "properties": {
+                    "studentId": {
+                      "type": "integer"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "criticisms": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "text"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "initiations"
+                        },
+                        {
+                          "type": "string",
+                          "const": "rounds"
+                        },
+                        {
+                          "type": "string",
+                          "const": "school_rule"
+                        },
+                        {
+                          "type": "string",
+                          "const": "privacy_block"
+                        }
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Summary": {
+      "type": "object",
+      "required": [
+        "date",
+        "kind",
+        "className",
+        "teacher",
+        "lesson",
+        "weekTitles",
+        "calledOn",
+        "chattedWith",
+        "criticisms"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "lesson"
+            },
+            {
+              "type": "string",
+              "const": "study"
+            }
+          ]
+        },
+        "className": {
+          "type": "string"
+        },
+        "teacher": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        "lesson": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "subject",
+                "title",
+                "segments"
+              ],
+              "properties": {
+                "subject": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "segments": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "index",
+                      "gist"
+                    ],
+                    "properties": {
+                      "index": {
+                        "type": "integer"
+                      },
+                      "gist": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "weekTitles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "calledOn": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "question",
+                "answer"
+              ],
+              "properties": {
+                "question": {
+                  "type": "string"
+                },
+                "answer": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "chattedWith": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "studentId",
+              "displayName"
+            ],
+            "properties": {
+              "studentId": {
+                "type": "integer"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "criticisms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "text"
+            ],
+            "properties": {
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "initiations"
+                  },
+                  {
+                    "type": "string",
+                    "const": "rounds"
+                  },
+                  {
+                    "type": "string",
+                    "const": "school_rule"
+                  },
+                  {
+                    "type": "string",
+                    "const": "privacy_block"
+                  }
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },

@@ -4,8 +4,10 @@ import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/schema.js'
 import type { ChatEngine } from './chat.js'
 import { applyPenalties, calloutsForWindow } from './discipline.js'
+import type { Hub } from './hub.js'
 import { callOnCloseStep, callOnStep, type QuestionsDeps } from './questions.js'
 import type { ActiveSession } from './runtime.js'
+import { writeSummaries } from './summaries.js'
 
 /**
  * What the lesson runtime leaves to the other parts of the class service. The runtime calls each hook at its step;
@@ -60,15 +62,17 @@ export interface LessonHooksDeps {
   chat?: Pick<ChatEngine, 'startClosing' | 'endAll' | 'onDisconnect'>
   /** What the call-on is built from, as the class app's question handlers are; without it, nobody is called on. */
   questions?: QuestionsDeps
+  /** The hub the take-home summaries are pushed through; without one, no summaries are written. */
+  hub?: Hub
 }
 
 /**
  * The hooks of the running class service: `noopHooks` with each part's real hook put in its place as it is built.
  * So far: the teacher's discipline callouts, the call-on and its close, the conversations' closing grace and end, and
- * the penalties after class.
+ * the penalties and the take-home summaries after class.
  */
 export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
-  const { db, config, clock, chat, questions } = deps
+  const { db, config, clock, chat, questions, hub } = deps
   return {
     ...noopHooks,
     callouts: (session, from, to) => calloutsForWindow(db, session, from, to),
@@ -87,9 +91,11 @@ export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
           endAll: (classId: number) => chat.endAll(classId),
           onDisconnect: (studentId: number) => chat.onDisconnect(studentId),
         }),
-    // Penalties only touch the database, so a session finished quietly gets them too.
-    afterClass: async (session) => {
+    // Penalties only touch the database, so a session finished quietly gets them too, and the summaries after them (a
+    // quiet session's are written and not pushed). Both are keyed by the session, so a second run changes nothing.
+    afterClass: async (session, { live }) => {
       await applyPenalties(db, config, clock, session)
+      if (hub !== undefined) await writeSummaries({ db, config, clock, hub }, session, { live })
     },
   }
 }

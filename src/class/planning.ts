@@ -36,13 +36,25 @@ async function weekTitles(db: Kysely<Database>, p: { date: string; division: Div
   return rows.map((r) => r.title)
 }
 
+/**
+ * What a study hall on `date` looks back on: the lesson titles of its week at the weekend (when the config has it so),
+ * none on other days.
+ */
+export async function studyWeekTitles(
+  db: Kysely<Database>,
+  config: SchoolConfig,
+  p: { date: string; division: Division },
+): Promise<string[]> {
+  const weekend = isoWeekday(p.date) >= 6
+  return weekend && config.lesson.weekendStudy ? weekTitles(db, p) : []
+}
+
 async function studyPlan(
   db: Kysely<Database>,
   config: SchoolConfig,
   p: { date: string; division: Division },
 ): Promise<SessionPlan> {
-  const weekend = isoWeekday(p.date) >= 6
-  return { kind: 'study', weekTitles: weekend && config.lesson.weekendStudy ? await weekTitles(db, p) : [] }
+  return { kind: 'study', weekTitles: await studyWeekTitles(db, config, p) }
 }
 
 /**

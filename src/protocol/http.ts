@@ -204,3 +204,38 @@ export const Summary = Type.Object({
     }),
   ),
 })
+
+/**
+ * `GET /v1/me/summaries?limit=7`: the student's after-school summaries, the newest lesson first, each with the session
+ * it is of. `limit` is a whole number from 1 to 30.
+ */
+export const SummariesResult = Type.Object({
+  summaries: Type.Array(Type.Object({ sessionId: Type.Integer(), ...Summary.properties })),
+})
+
+/**
+ * `GET /v1/me/records?days=30`: what the school has on record about the student over the last `days` days (a whole
+ * number from 1 to 90), newest first. `text` says it as the owner should read it; a revoked record is listed too, with
+ * `revoked` set. `suspendedUntil` is the end of the suspension of a suspended student, null for everyone else.
+ */
+export const RecordsResult = Type.Object({
+  status: StudentStatus,
+  suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+  records: Type.Array(
+    Type.Object({
+      id: Type.Integer(),
+      kind: Type.Union([
+        Type.Literal('initiations'),
+        Type.Literal('rounds'),
+        Type.Literal('school_rule'),
+        Type.Literal('privacy_block'),
+        Type.Literal('parent_notice'),
+        Type.Literal('suspension'),
+        Type.Literal('expulsion'),
+      ]),
+      at: Type.String({ format: 'date-time' }),
+      text: Type.String(),
+      revoked: Type.Boolean(),
+    }),
+  ),
+})

@@ -50,13 +50,15 @@ export interface QuestionsDeps {
 }
 
 /** The session's call-on, as its class events tell it. */
-interface Call {
+export interface Call {
   callId: number
   studentId: number
   /** The name the teacher called the student by. */
   displayName: string
   /** The teacher's line, which the private `called_on` carries. */
   question: string
+  /** What the student answered; null until they have. */
+  answer: string | null
   answered: boolean
   /** The `call-on-close` step has run, with the teacher's line or with the runtime's marker. */
   timeUp: boolean
@@ -81,7 +83,7 @@ const calledOnMessage = (callId: number, question: string): Static<typeof Called
 const isOpen = (call: Call) => !call.answered && !call.timeUp
 
 /** The session's call-on, or null when nobody has been called on. */
-async function callOf(db: Kysely<Database>, sessionId: number): Promise<Call | null> {
+export async function callOf(db: Kysely<Database>, sessionId: number): Promise<Call | null> {
   const rows = await db
     .selectFrom('classEvents')
     .select(['seq', 'step', 'payload'])
@@ -96,8 +98,16 @@ async function callOf(db: Kysely<Database>, sessionId: number): Promise<Call | n
   if (typeof studentId !== 'number' || typeof displayName !== 'string' || typeof question !== 'string') {
     throw new Error(`The call-on of session ${sessionId} is malformed`)
   }
-  const answered = of(ANSWER) !== undefined
-  return { callId: called.seq, studentId, displayName, question, answered, timeUp: of(CLOSE) !== undefined }
+  const said = of(ANSWER)?.payload.text
+  return {
+    callId: called.seq,
+    studentId,
+    displayName,
+    question,
+    answer: typeof said === 'string' ? said : null,
+    answered: of(ANSWER) !== undefined,
+    timeUp: of(CLOSE) !== undefined,
+  }
 }
 
 /** Writes one event of a step whose transaction has checked the step is not written yet. */
