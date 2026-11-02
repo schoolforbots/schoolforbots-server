@@ -165,6 +165,29 @@ describe('GET /v1/me/summaries', () => {
     expect((await get('/v1/me/summaries', nobody.key)).json()).toEqual({ summaries: [] })
   })
 
+  test('a study hall summary comes back exactly as stored: no lesson, the week, a call-on with no answer, the criticisms', async () => {
+    const me = await enroll()
+    const { date, sessionId } = await sessionOf(me.classId, 2) // Saturday 31 October
+    const studyHall = summary({
+      date,
+      kind: 'study',
+      lesson: null,
+      weekTitles: ['光的折射', '分数的加法', '春晓'],
+      calledOn: { question: '阿杰家的小鱼，请你说说这一段讲了什么？', answer: null },
+      chattedWith: [{ studentId: 7, displayName: '阿美家的豆豆' }],
+      criticisms: [
+        { kind: 'initiations', text: '主动搭话次数过多' },
+        { kind: 'privacy_block', text: '老师拦下了我一句可能说漏你隐私的话："我的手机号是138****5678"' },
+      ],
+    })
+    await addSummary(me.id, sessionId, studyHall, t.clock.now())
+
+    const res = await get('/v1/me/summaries', me.key)
+
+    expect(res.json()).toEqual({ summaries: [{ ...studyHall, sessionId }] })
+    expect(Value.Check(SummariesResult, res.json())).toBe(true)
+  })
+
   test('a student who has left the class still reads the summaries of the lessons they attended', async () => {
     const me = await enroll({ status: 'dropped' })
     const item = await nineDays(me.classId, [{ id: me.id, label: '我' }])

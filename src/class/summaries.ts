@@ -9,7 +9,7 @@ import type { Database, DisciplineKind } from '../shared/schema.js'
 import { namesOf } from './discipline.js'
 import type { Hub } from './hub.js'
 import { studyWeekTitles } from './planning.js'
-import { callOf } from './questions.js'
+import { callOf, MalformedCallError, type Call } from './questions.js'
 import type { ActiveSession } from './runtime.js'
 
 // The after-school summary: for each student who attended a session, what the owner is told about it. It is written
@@ -23,6 +23,8 @@ export interface SummaryDeps {
   config: SchoolConfig
   clock: Clock
   hub: Hub
+  /** A program log line: numbers only, never what anyone said. */
+  log?: (obj: object, msg: string) => void
 }
 
 /** The records a summary lists as the student's own criticisms: what they did, and what the teacher stopped. */
@@ -32,6 +34,20 @@ const CRITICISM_KINDS = [
   'school_rule',
   'privacy_block',
 ] as const satisfies readonly DisciplineKind[]
+
+/**
+ * The session's call-on. One whose events cannot be read is left out of the summaries (nobody is shown as called on)
+ * rather than failing them: a failure would keep the session from ever closing. Only the session's number is logged.
+ */
+async function callOfSession(deps: SummaryDeps, sessionId: number): Promise<Call | null> {
+  try {
+    return await callOf(deps.db, sessionId)
+  } catch (err) {
+    if (!(err instanceof MalformedCallError)) throw err
+    deps.log?.({ sessionId }, 'call-on events unreadable, summaries written without it')
+    return null
+  }
+}
 
 /** Everything the summaries of a session have in common, and what differs from student to student. */
 async function summariesOf(
@@ -96,7 +112,7 @@ async function summariesOf(
     .orderBy('id')
     .execute()
 
-  const call = await callOf(db, sessionId)
+  const call = await callOfSession(deps, sessionId)
 
   return new Map(
     studentIds.map((studentId) => {
@@ -133,8 +149,9 @@ async function summariesOf(
  * student and session: a student who has one already is left as they are, so this can be run again for the same
  * session (after a crash) and writes only what is missing.
  *
- * When `live`, each attending student who is online is sent theirs; a session finished quietly pushes nothing, as
- * nobody there is in it any more. A student who was not online (or dropped off before the end) reads it afterwards.
+ * When `live`, each attending student who is online is sent theirs, as stored (a run again sends what the owner will
+ * read, not a fresh build); a session finished quietly pushes nothing, as nobody there is in it any more. A student who
+ * was not online (or dropped off before the end) reads it afterwards.
  */
 export async function writeSummaries(
   deps: SummaryDeps,
@@ -168,9 +185,16 @@ export async function writeSummaries(
     .execute()
 
   if (opts.live) {
-    const online = new Set(hub.online(classId))
-    for (const [studentId, summary] of summaries) {
-      if (online.has(studentId)) hub.send(studentId, { type: 'summary', summary })
+    const online = hub.online(classId).filter((studentId) => summaries.has(studentId))
+    if (online.length > 0) {
+      const stored = await db
+        .selectFrom('summaries')
+        .select(['studentId', 'payload'])
+        .where('sessionId', '=', sessionId)
+        .where('studentId', 'in', online)
+        .orderBy('studentId')
+        .execute()
+      for (const { studentId, payload } of stored) hub.send(studentId, { type: 'summary', summary: payload as Summary })
     }
   }
   return written.length

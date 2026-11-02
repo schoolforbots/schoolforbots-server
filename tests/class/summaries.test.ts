@@ -5,6 +5,7 @@ import { markAttendance } from '../../src/class/attendance.js'
 import { answer } from '../../src/class/questions.js'
 import { disciplineRecorder } from '../../src/class/discipline.js'
 import { appendClassEvent } from '../../src/class/events.js'
+import { createLessonHooks } from '../../src/class/hooks.js'
 import { RecordingHub } from '../../src/class/hub.js'
 import type { Participant } from '../../src/class/connection.js'
 import type { ActiveSession } from '../../src/class/runtime.js'
@@ -44,19 +45,22 @@ describe('writeSummaries', () => {
   let hub: RecordingHub
   let classNo = 0
   let counter = 0
+  let logged: object[]
 
   beforeEach(async () => {
     ;({ db, destroy } = await createTestDb())
     clock = createTestClock(at('20:31'))
     hub = new RecordingHub()
     classNo = 0
+    logged = []
   })
 
   afterEach(async () => {
     await destroy()
   })
 
-  const deps = (): SummaryDeps => ({ db, config, clock, hub })
+  const log = (obj: object, msg: string) => void logged.push({ ...obj, msg })
+  const deps = (): SummaryDeps => ({ db, config, clock, hub, log })
   const classmate = (s: Student) => ({ studentId: s.id, displayName: s.name })
 
   /**
@@ -455,6 +459,49 @@ describe('writeSummaries', () => {
     })
   })
 
+  describe('the afterClass hook', () => {
+    const hooks = () => createLessonHooks({ db, config, clock, hub, log })
+
+    test('a session finished quietly gets its summaries written and pushes nothing', async () => {
+      const { session, students } = await room()
+      await attend(session, students, { online: true })
+
+      await hooks().afterClass(session, { live: false })
+
+      const rows = await db.selectFrom('summaries').select('studentId').orderBy('studentId').execute()
+      expect(rows.map((r) => r.studentId)).toEqual(students.map((s) => s.id))
+      expect(await stored(session, students[0]!)).toEqual(quiet())
+      expect(hub.messages).toEqual([])
+    })
+
+    test('a live session writes them and pushes them to whoever is online', async () => {
+      const { session, students } = await room()
+      const [online, offline] = students as [Student, Student, Student]
+      await attend(session, [online], { online: true })
+      await attend(session, [offline], { online: false })
+
+      await hooks().afterClass(session, { live: true })
+
+      expect(await db.selectFrom('summaries').select('studentId').execute()).toHaveLength(2)
+      expect(hub.messages).toEqual([
+        { to: 'student', studentId: online.id, message: { type: 'summary', summary: quiet() } },
+      ])
+    })
+
+    test('a call-on whose events cannot be read is left out, so the session can still close; only its number is logged', async () => {
+      const { session, students } = await room()
+      await attend(session, students)
+      await event(session, 'call-on', { kind: 'teacher', text: '这是不该进日志的问题' })
+      await event(session, 'call-on#2', { kind: 'called_on', studentId: '不是学号', displayName: students[0]!.name })
+
+      await hooks().afterClass(session, { live: false })
+
+      for (const s of students) expect(await stored(session, s)).toEqual(quiet())
+      expect(logged).toEqual([{ sessionId: session.sessionId, msg: expect.any(String) }])
+      expect(JSON.stringify(logged)).not.toContain('这是不该进日志的问题')
+    })
+  })
+
   describe('run again', () => {
     test('writes nothing new, whatever has changed since, and still gives a student who came late theirs', async () => {
       const { session, students } = await room({ students: 3 })
@@ -475,6 +522,26 @@ describe('writeSummaries', () => {
       expect(await stored(session, a)).toEqual(first)
       const row = await db.selectFrom('summaries').select('createdAt').where('studentId', '=', a.id).executeTakeFirst()
       expect(row?.createdAt).toEqual(at('20:31'))
+    })
+
+    test('a live run again pushes what is stored, which is what the owner will read, not a fresh build', async () => {
+      const { session, students } = await room()
+      const [a, b] = students as [Student, Student, Student]
+      await attend(session, students, { online: true })
+      await writeSummaries(deps(), session, { live: false })
+      expect(hub.messages).toEqual([])
+
+      // The lesson has changed since: a chat and a record that the stored summaries do not have.
+      await say(session, a, b, '写完以后才说的话')
+      await record(session, a, 'initiations', { cap: 3 }, '20:20')
+      expect(await writeSummaries(deps(), session, { live: true })).toBe(0)
+
+      expect(hub.messages.map((m) => (m as { studentId: number }).studentId)).toEqual(students.map((s) => s.id))
+      for (const m of hub.messages) {
+        const { studentId, message } = m as { studentId: number; message: { summary: unknown } }
+        expect(message).toEqual({ type: 'summary', summary: quiet() })
+        expect(message.summary).toEqual(await stored(session, students.find((s) => s.id === studentId)!))
+      }
     })
   })
 })

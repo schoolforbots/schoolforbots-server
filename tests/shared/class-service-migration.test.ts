@@ -241,6 +241,14 @@ describe('class service tables', () => {
       const stored = await db.selectFrom('summaries').select('payload').where('sessionId', '=', sessionId).executeTakeFirstOrThrow()
       expect(stored.payload).toEqual({ lines: ['今天学了加法'] })
     })
+
+    test("the student's summaries have an index with the student first, as the primary key leads with the session", async () => {
+      const { rows } = await sql<{ indexdef: string }>`
+        select indexdef from pg_indexes where tablename = 'summaries' and indexname = 'summaries_student_id_session_id'`.execute(
+        db,
+      )
+      expect(rows[0]?.indexdef).toMatch(/\(student_id, session_id\)/)
+    })
   })
 
   describe('messages', () => {
