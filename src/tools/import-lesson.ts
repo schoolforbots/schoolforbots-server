@@ -4,7 +4,7 @@ import { subjectForDate } from '../class/planning.js'
 import { systemClock, type Clock } from '../shared/clock.js'
 import { loadEnv, loadSchoolConfig, type Division, type SchoolConfig } from '../shared/config.js'
 import { createDb, lessonLockKey, lock } from '../shared/db.js'
-import { isDateText } from '../shared/local-time.js'
+import { isDateText, isoWeekday } from '../shared/local-time.js'
 import { loadModerationData } from '../moderation/load.js'
 import { createModerator, type ModerationCategory, type Moderator } from '../moderation/moderator.js'
 import type { Database, LessonSegment } from '../shared/schema.js'
@@ -12,7 +12,8 @@ import { isEntryPoint } from './entry-point.js'
 
 // `npm run lesson:import -- <file.json> [--approve]`: reads one lesson from a JSON file and stores it for its day and
 // division. The file is `{ "date": "2026-11-04", "division": "junior", "title": "...", "subject": "...",
-// "segments": [{ "text": "...", "gist": "..." }, ...] }`; `subject` may be left out on a weekday.
+// "segments": [{ "text": "...", "gist": "..." }, ...] }`. The date is a weekday (the weekend has study halls at most);
+// `subject` may be left out.
 
 /** An import that was refused. The message says why, in Chinese, for the person running the command. */
 export class LessonImportError extends Error {
@@ -64,6 +65,10 @@ function parseLesson(config: SchoolConfig, input: unknown): ParsedLesson {
   if (typeof date !== 'string' || !isDateText(date)) {
     throw new LessonImportError('date 必须是真实存在的日期，写成 YYYY-MM-DD，例如 2026-11-04')
   }
+  // A weekend is a study hall looking back on the week, or a holiday: a lesson for it would never be taught.
+  if (isoWeekday(date) >= 6) {
+    throw new LessonImportError(`${date} 是周末，周末不上新课（只上自习，回顾这一周的课），请换成周一到周五的日期`)
+  }
   const divisions = Object.keys(config.divisions)
   if (typeof division !== 'string' || !Object.hasOwn(config.divisions, division)) {
     throw new LessonImportError(`division 必须是 ${divisions.join('、')} 之一`)
@@ -73,12 +78,9 @@ function parseLesson(config: SchoolConfig, input: unknown): ParsedLesson {
   if (title === null) throw new LessonImportError('title 必须是不为空的文字')
 
   const subjectGiven = input.subject !== undefined
+  // Every weekday has a default subject.
   const subject = subjectGiven ? nonBlank(input.subject) : subjectForDate(date, config.timezone)
-  if (subject === null) {
-    throw new LessonImportError(
-      subjectGiven ? 'subject 必须是不为空的文字' : `${date} 是周末，没有默认科目，请在文件里写 subject`,
-    )
-  }
+  if (subject === null) throw new LessonImportError('subject 必须是不为空的文字')
 
   const expected = config.lesson.segmentMinutes.length
   const raw = input.segments

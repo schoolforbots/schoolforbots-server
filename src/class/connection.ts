@@ -23,6 +23,7 @@ import type { ClassDeps } from './app.js'
 import { lessonsAttendedBefore, markAttendance } from './attendance.js'
 import { classEventMessage, eventsAfter } from './events.js'
 import type { HubConnection } from './hub.js'
+import { isSchoolDay } from './planning.js'
 import type { ActiveSession } from './runtime.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from './ws-errors.js'
 
@@ -197,14 +198,17 @@ export function serveConnection(
     closeSocket(1000)
   }
 
-  /** Outside a session: the next starts at today's start of the student's slot if that is to come, else tomorrow's. */
+  /**
+   * Outside a session: the next starts at the start of the student's slot on the next school day, today if that start
+   * is to come (a weekend with no study halls is skipped).
+   */
   const outsideSession = (): Closing => {
     const now = clock.now()
     const { start } = config.slots[student.slot]
-    const today = localDate(now, config.timezone)
-    const todays = atLocalTime(today, start, config.timezone)
-    const next =
-      todays.getTime() > now.getTime() ? todays : atLocalTime(addDaysToDate(today, 1), start, config.timezone)
+    let day = localDate(now, config.timezone)
+    if (atLocalTime(day, start, config.timezone).getTime() <= now.getTime()) day = addDaysToDate(day, 1)
+    while (!isSchoolDay(day, config)) day = addDaysToDate(day, 1)
+    const next = atLocalTime(day, start, config.timezone)
     return closing('session_over', `现在不在上课时间，下一节课在 ${localMoment(next, config.timezone)} 开始。`)
   }
 

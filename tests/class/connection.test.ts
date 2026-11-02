@@ -8,6 +8,7 @@ import type { AckResult, MessageHandlers, Participant } from '../../src/class/co
 import { WS_ERROR_MESSAGES } from '../../src/class/ws-errors.js'
 import { ServerMessage } from '../../src/protocol/ws.js'
 import type { StudentStatus } from '../../src/shared/schema.js'
+import { exampleConfig } from '../helpers/app.js'
 import { buildTestClassApp } from '../helpers/class-app.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
 import { captureLogs } from '../helpers/logs.js'
@@ -297,6 +298,26 @@ describe('a student who may not come in', () => {
       message: '现在不在上课时间，下一节课在 11月3日 20:00 开始。',
     })
     expect(await client.closed()).toBe(1000)
+  })
+
+  test('with weekend study switched off, the next lesson after Friday is on Monday', async () => {
+    const FRI = '2026-11-06'
+    const s = await start({ config: { lesson: { ...exampleConfig().lesson, weekendStudy: false } }, now: at('19:00', FRI) })
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:45', FRI))
+    await tickAt(s, at('20:31', FRI))
+
+    // After Friday's close, on Saturday, and on Sunday when a weekday's doors would be open.
+    for (const time of [at('20:31', FRI), at('12:00', '2026-11-07'), at('19:50', '2026-11-08')]) {
+      await tickAt(s, time)
+      const client = await connect(students[0]!.key)
+      expect(await client.next()).toEqual({
+        type: 'closing',
+        reason: 'session_over',
+        message: '现在不在上课时间，下一节课在 11月9日 20:00 开始。',
+      })
+      expect(await client.closed()).toBe(1000)
+    }
   })
 
   test('a hello during which the session closes registers nothing and is answered the same way', async () => {

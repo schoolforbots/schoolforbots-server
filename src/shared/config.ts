@@ -55,7 +55,7 @@ export const SchoolConfigSchema = Type.Object({
     // The teacher calls on a student after this segment (1-based); the next segment is the answer deadline.
     callOnAfterSegment: PositiveInt,
     maxQuestionsPerLesson: NonNegativeInt,
-    // Whether lessons are held on Saturdays and Sundays too.
+    // Whether Saturdays and Sundays have study halls that look back on the week; without them the weekend is a holiday.
     weekendStudy: Type.Boolean(),
   }),
   chat: Type.Object({

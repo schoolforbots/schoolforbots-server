@@ -15,7 +15,7 @@ import {
 } from '../../src/class/teacher.js'
 import { createModerator } from '../../src/moderation/moderator.js'
 import type { ClassEventMessage, ClosingMessage } from '../../src/protocol/ws.js'
-import type { Division, Slot } from '../../src/shared/config.js'
+import type { Division, SchoolConfig, Slot } from '../../src/shared/config.js'
 import { loadSchoolConfig } from '../../src/shared/config.js'
 import { lessonLockKey, lock } from '../../src/shared/db.js'
 import { displayName } from '../../src/shared/identity.js'
@@ -172,10 +172,17 @@ async function seedClass(p: { division?: Division; slot?: Slot; classNo?: number
   return { classId, members }
 }
 
-function newRuntime(p: { clock: ReturnType<typeof createTestClock>; hub: RecordingHub; hooks?: LessonHooks; speed?: number; logs?: [object, string][] }) {
+function newRuntime(p: {
+  clock: ReturnType<typeof createTestClock>
+  hub: RecordingHub
+  hooks?: LessonHooks
+  speed?: number
+  logs?: [object, string][]
+  config?: SchoolConfig
+}) {
   return createClassRuntime({
     db,
-    config,
+    config: p.config ?? config,
     clock: p.clock,
     hub: p.hub,
     moderator,
@@ -754,6 +761,27 @@ describe('the day plan', () => {
     await runtime.tick()
 
     expect(hub.messages.map(show)).toEqual([`teacher ${openingWeekend('老周', titles)}`])
+  })
+
+  test('with weekend study switched off nothing opens on Saturday or Sunday, by the days of the school time zone', async () => {
+    const { classId } = await seedClass({ members: 1 })
+    // In Los Angeles a Friday evening is already Saturday in UTC, and a Sunday evening already Monday.
+    const holiday: SchoolConfig = {
+      ...config,
+      timezone: 'America/Los_Angeles',
+      lesson: { ...config.lesson, weekendStudy: false },
+    }
+    const la = (date: string) => new Date(`${date}T19:50:00-08:00`)
+    const clock = createTestClock(la('2026-11-06'))
+    const runtime = newRuntime({ clock, hub: new RecordingHub(), config: holiday })
+
+    for (const date of ['2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09']) {
+      clock.set(la(date))
+      await runtime.tick()
+    }
+
+    expect((await sessionRows()).map((r) => r.date)).toEqual(['2026-11-06', '2026-11-09'])
+    expect(runtime.currentSession(classId)).toMatchObject({ startsAt: new Date('2026-11-09T20:00:00-08:00') })
   })
 })
 

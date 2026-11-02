@@ -21,6 +21,14 @@ export function subjectForDate(date: string, timezone: string): string | null {
   return WEEKDAY_SUBJECTS[isoWeekday(date) - 1] ?? null
 }
 
+/**
+ * Whether the school holds sessions on `date` (a day of the school's calendar, in its time zone): every weekday, and
+ * Saturday and Sunday too when the config has weekend study halls; without them the weekend is a holiday.
+ */
+export function isSchoolDay(date: string, config: SchoolConfig): boolean {
+  return isoWeekday(date) <= 5 || config.lesson.weekendStudy
+}
+
 /** The titles of the lessons approved from Monday to Friday of the week `date` is in, in date order. */
 async function weekTitles(db: Kysely<Database>, p: { date: string; division: Division }): Promise<string[]> {
   const monday = addDaysToDate(p.date, 1 - isoWeekday(p.date))
