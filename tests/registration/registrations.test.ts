@@ -554,6 +554,25 @@ describe('POST /v1/registrations/:id/verify', () => {
     expect(await t.db.selectFrom('students').select('id').where('email', '=', 'a@example.com').execute()).toHaveLength(3)
   })
 
+  test.each(['email', 'installId'] as const)('a ban on the %s that came after the registration refuses the verify', async (kind) => {
+    const installId = randomUUID()
+    const { registrationId, code } = await registerOk({ installId })
+    // Expelled meanwhile, say: the ban is written between the registration and its verify.
+    const target = kind === 'email' ? { email: 'A@EXAMPLE.com' } : { installId }
+    await ban({ ...target, until: new Date(t.clock.now().getTime() + 5 * MINUTE) })
+
+    const res = await verify(registrationId, code)
+    expect(res.statusCode).toBe(403)
+    expect(errorOf(res).code).toBe('banned')
+    expect(await t.db.selectFrom('students').select('id').execute()).toEqual([])
+    const row = await t.db.selectFrom('registrations').select('verifiedAt').where('id', '=', registrationId).executeTakeFirstOrThrow()
+    expect(row.verifiedAt).toBeNull()
+
+    // A ban that ends exactly now is over, as at the registration; the code is still good.
+    t.clock.advance(5 * MINUTE)
+    expect((await verify(registrationId, code)).statusCode).toBe(201)
+  })
+
   test('an install id that took a seat meanwhile gets install_has_seat', async () => {
     const installId = randomUUID()
     const { registrationId, code } = await registerOk({ installId })
