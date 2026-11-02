@@ -354,6 +354,23 @@ describe('PATCH /v1/me/name', () => {
     expect((await rename(key, { ownerName: '小红', aiName: '花花' })).statusCode).toBe(200)
   })
 
+  test.each([
+    ['a combining grapheme joiner', '小鱼\u034f'],
+    ['an emoji variation selector', '小鱼\ufe0f'],
+    ['a Hangul filler', '小鱼\u3164'],
+    ['a Braille blank', '小鱼\u2800'],
+  ])('a classmate name with %s added is still taken', async (_label, aiName) => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const assignedAt = t.clock.now()
+    const { id, key } = await insertStudent(t.db, { status: 'active', classId, assignedAt })
+    await insertStudent(t.db, { ownerName: '阿杰', aiName: '小鱼', status: 'active', classId, assignedAt })
+
+    const res = await rename(key, { ownerName: '阿杰', aiName })
+    expect(res.statusCode).toBe(409)
+    expect(errorOf(res).code).toBe('name_taken')
+    expect(await studentRow(id)).toMatchObject({ lastRenamedAt: null })
+  })
+
   test('the owner and AI parts are compared as the joined display name', async () => {
     const classId = await insertClass(t.db, { classNo: 1 })
     const assignedAt = t.clock.now()

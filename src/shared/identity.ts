@@ -1,13 +1,16 @@
 import type { Moderator } from '../moderation/moderator.js'
+import { removeInvisible } from '../moderation/normalize.js'
 import type { Division, SchoolConfig, Slot } from './config.js'
 
-// Unicode format characters (zero-width space and joiners, BOM, bidi marks, ...)
-// and control characters: invisible, so they are dropped from names.
-const INVISIBLE = /[\p{Cf}\p{Cc}]/gu
+// Control characters have no business in a name either.
+const CONTROL = /\p{Cc}/gu
 
-/** NFKC, drop invisible characters, trim, then squeeze inner whitespace runs into one ASCII space. */
+/**
+ * NFKC, drop invisible and control characters, trim, then squeeze inner whitespace runs into one ASCII space.
+ * Two names that look the same therefore compare equal, which the duplicate-name rule relies on.
+ */
 export function normalizeNamePart(raw: string): string {
-  return raw.normalize('NFKC').replace(INVISIBLE, '').trim().replace(/\s+/gu, ' ')
+  return removeInvisible(raw.normalize('NFKC')).replace(CONTROL, '').trim().replace(/\s+/gu, ' ')
 }
 
 export function displayName(ownerName: string, aiName: string): string {
