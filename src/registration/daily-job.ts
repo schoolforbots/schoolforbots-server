@@ -19,17 +19,23 @@ export interface DailyJobReport {
   promoted: number
   assigned: number
   classesCreated: number
+  /** Suspended students whose suspension has ended and who are active again. */
+  reinstated: number
+  /** Chat messages deleted for being older than `messageRetentionDays`. */
+  messagesPurged: number
 }
 
 type Trx = Kysely<Database>
 
 /**
  * The nightly job, in one transaction: drop students who stopped coming, promote the waitlist into the freed
- * seats, and put the pending students who joined the queue before today into a class.
+ * seats, put the pending students who joined the queue before today into a class, bring back the suspended
+ * students whose suspension is over, and delete the chat messages past their retention.
  *
- * Both rules go by today's date in the school's timezone, not by the time of the run: a run that starts late, or
- * one that makes up for a missed midnight, does what the midnight run would have done, and running it again later
- * the same day changes nothing more. Students who join the queue today wait for tomorrow's run (报名当天待分班).
+ * The rules that count days go by today's date in the school's timezone, not by the time of the run: a run that
+ * starts late, or one that makes up for a missed midnight, does what the midnight run would have done, and running
+ * it again later the same day changes nothing more. Students who join the queue today wait for tomorrow's run
+ * (报名当天待分班).
  */
 export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolConfig; clock: Clock }): Promise<DailyJobReport> {
   const { db, config, clock } = deps
@@ -45,7 +51,9 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
     const dropped = await dropInactive(trx, startOfLocalDay(now, config.timezone, config.inactivityDropDays))
     const promoted = await promoteWaitlist(trx, config)
     const { assigned, classesCreated } = await assignPending(trx, config, now, today)
-    return { dropped, promoted, assigned, classesCreated }
+    const reinstated = await reinstateSuspended(trx, now)
+    const messagesPurged = await purgeMessages(trx, startOfLocalDay(now, config.timezone, config.messageRetentionDays))
+    return { dropped, promoted, assigned, classesCreated, reinstated, messagesPurged }
   })
 }
 
@@ -182,4 +190,24 @@ async function assignPending(
     }
   }
   return { assigned, classesCreated }
+}
+
+/**
+ * Suspended students whose `suspended_until` has come are active again, with no date left over. A suspended student
+ * with no date is left as it is.
+ */
+async function reinstateSuspended(trx: Trx, now: Date): Promise<number> {
+  const result = await trx
+    .updateTable('students')
+    .set({ status: 'active', suspendedUntil: null })
+    .where('status', '=', 'suspended')
+    .where('suspendedUntil', '<=', now)
+    .executeTakeFirstOrThrow()
+  return Number(result.numUpdatedRows)
+}
+
+/** Deletes the chat messages written before `cutoff`, the start of the local day `messageRetentionDays` days ago. */
+async function purgeMessages(trx: Trx, cutoff: Date): Promise<number> {
+  const result = await trx.deleteFrom('messages').where('createdAt', '<', cutoff).executeTakeFirstOrThrow()
+  return Number(result.numDeletedRows)
 }

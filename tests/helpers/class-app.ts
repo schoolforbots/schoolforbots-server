@@ -1,7 +1,7 @@
 import type { FastifyServerOptions } from 'fastify'
 import { buildClassApp } from '../../src/class/app.js'
 import type { MessageHandlers } from '../../src/class/connection.js'
-import { noopHooks, type LessonHooks } from '../../src/class/hooks.js'
+import { createLessonHooks, type LessonHooks } from '../../src/class/hooks.js'
 import { createHub } from '../../src/class/hub.js'
 import { createClassRuntime } from '../../src/class/runtime.js'
 import { exampleConfig, exampleModerator, type ConfigOverrides } from './app.js'
@@ -13,8 +13,8 @@ import { createTestDb } from './db.js'
  * 2 November 2026 at 19:00 in Beijing, before the evening doors), the real hub and the real lesson runtime. The
  * runtime only runs when a test calls `runtime.tick()`.
  *
- * The lesson hooks are `noopHooks` for now with `overrides.hooks` on top; the same object goes to the runtime and to
- * the app. Tasks 10 to 13 put `createLessonHooks` (src/class/hooks.ts) in its place as they fill it in.
+ * The lesson hooks are `createLessonHooks` (src/class/hooks.ts: whatever has been built so far, the rest no-ops) with
+ * `overrides.hooks` on top; the same object goes to the runtime and to the app.
  */
 export async function buildTestClassApp(
   overrides: {
@@ -32,7 +32,7 @@ export async function buildTestClassApp(
   const moderator = exampleModerator()
   const clock = createTestClock(overrides.now ?? new Date('2026-11-02T19:00:00+08:00'))
   const hub = createHub()
-  const hooks: LessonHooks = { ...noopHooks, ...overrides.hooks }
+  const hooks: LessonHooks = { ...createLessonHooks({ db, config, clock }), ...overrides.hooks }
   const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed: overrides.speed ?? 1, hooks })
 
   const app = buildClassApp({
