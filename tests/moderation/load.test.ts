@@ -8,7 +8,7 @@ let dir: string
 let stderr: MockInstance<typeof process.stderr.write>
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'ai-school-moderation-'))
+  dir = mkdtempSync(join(tmpdir(), 'schoolforbots-moderation-'))
   stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 })
 
