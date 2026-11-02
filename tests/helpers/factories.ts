@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Kysely } from 'kysely'
 import type { Division, Slot } from '../../src/shared/config.js'
-import type { Database, StudentStatus } from '../../src/shared/schema.js'
+import type { Database, LessonSegment, SessionKind, SessionMember, StudentStatus } from '../../src/shared/schema.js'
 import { generateStudentKey, hashSecret } from '../../src/shared/secrets.js'
 
 let studentCounter = 0
@@ -70,4 +70,75 @@ export async function insertStudent(
     .returning('id')
     .executeTakeFirstOrThrow()
   return { id: row.id, key }
+}
+
+let lessonCounter = 0
+
+/**
+ * Inserts a lesson and returns its id. By default it is a junior-division lesson, already approved, with five
+ * placeholder segments (the number `config.lesson.segmentMinutes` has by default).
+ */
+export async function insertLesson(
+  db: Kysely<Database>,
+  p: {
+    /** The school day, `YYYY-MM-DD`. */
+    date: string
+    division?: Division
+    title?: string
+    segments?: LessonSegment[]
+    /** Defaults to a moment on the lesson's day; pass `null` for a draft that is not yet approved. */
+    approvedAt?: Date | null
+    subject?: string
+  },
+): Promise<number> {
+  const n = ++lessonCounter
+  const row = await db
+    .insertInto('lessons')
+    .values({
+      date: p.date,
+      division: p.division ?? 'junior',
+      subject: p.subject ?? '科学',
+      title: p.title ?? `第${n}课`,
+      segments: JSON.stringify(
+        p.segments ??
+          Array.from({ length: 5 }, (_, i) => ({ text: `第${n}课第${i + 1}段正文`, gist: `第${i + 1}段要点` })),
+      ),
+      approvedAt: p.approvedAt === undefined ? new Date(`${p.date}T00:00:00Z`) : p.approvedAt,
+      createdAt: new Date(`${p.date}T00:00:00Z`),
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow()
+  return row.id
+}
+
+/** Inserts a class session and returns its id. By default: an evening lesson session with no members or lesson. */
+export async function insertSession(
+  db: Kysely<Database>,
+  p: {
+    classId: number
+    /** The school day, `YYYY-MM-DD`. */
+    date: string
+    slot?: Slot
+    kind?: SessionKind
+    lessonId?: number | null
+    startsAt: Date
+    endsAt: Date
+    members?: SessionMember[]
+  },
+): Promise<number> {
+  const row = await db
+    .insertInto('classSessions')
+    .values({
+      classId: p.classId,
+      date: p.date,
+      slot: p.slot ?? 'evening',
+      kind: p.kind ?? 'lesson',
+      lessonId: p.lessonId ?? null,
+      startsAt: p.startsAt,
+      endsAt: p.endsAt,
+      members: JSON.stringify(p.members ?? []),
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow()
+  return row.id
 }

@@ -5,14 +5,22 @@ import type { Slot } from './config.js'
 import * as m0001 from './migrations/0001_init.js'
 import * as m0002 from './migrations/0002_key_reset_decoys.js'
 import * as m0003 from './migrations/0003_student_queue_time.js'
+import * as m0004 from './migrations/0004_class_service.js'
 import type { Database } from './schema.js'
 
 export type { Database, StudentStatus } from './schema.js'
 export { MEMBER_STATUSES, SEAT_STATUSES } from './schema.js'
 
+// pg turns a `date` into a Date at local midnight, which names a different day in other time zones. The school
+// calendar has days, not instants, so dates are read as the `YYYY-MM-DD` text Postgres sends (and written as text).
+const types: pg.CustomTypesConfig = {
+  getTypeParser: (oid, format) =>
+    oid === pg.types.builtins.DATE ? (text: string) => text : pg.types.getTypeParser(oid, format),
+}
+
 /** Kysely over Postgres. TypeScript names are camelCase; tables and columns are snake_case. */
 export function createDb(databaseUrl: string): Kysely<Database> {
-  const pool = new pg.Pool({ connectionString: databaseUrl })
+  const pool = new pg.Pool({ connectionString: databaseUrl, types })
   // An idle client whose connection drops (say, the database restarts) emits 'error' on the pool.
   // Unhandled, that is an uncaught exception that crashes the process; the pool discards the dead client by itself.
   pool.on('error', (err) => console.error('Idle database connection failed', err))
@@ -25,7 +33,12 @@ export function createDb(databaseUrl: string): Kysely<Database> {
 // Listed in code (not read from a directory) so it works unchanged from src, tsx and a bundle.
 const provider: MigrationProvider = {
   async getMigrations() {
-    return { '0001_init': m0001, '0002_key_reset_decoys': m0002, '0003_student_queue_time': m0003 }
+    return {
+      '0001_init': m0001,
+      '0002_key_reset_decoys': m0002,
+      '0003_student_queue_time': m0003,
+      '0004_class_service': m0004,
+    }
   },
 }
 
