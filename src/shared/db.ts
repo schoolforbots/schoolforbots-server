@@ -12,8 +12,12 @@ export { MEMBER_STATUSES, SEAT_STATUSES } from './schema.js'
 
 /** Kysely over Postgres. TypeScript names are camelCase; tables and columns are snake_case. */
 export function createDb(databaseUrl: string): Kysely<Database> {
+  const pool = new pg.Pool({ connectionString: databaseUrl })
+  // An idle client whose connection drops (say, the database restarts) emits 'error' on the pool.
+  // Unhandled, that is an uncaught exception that crashes the process; the pool discards the dead client by itself.
+  pool.on('error', (err) => console.error('Idle database connection failed', err))
   return new Kysely<Database>({
-    dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: databaseUrl }) }),
+    dialect: new PostgresDialect({ pool }),
     plugins: [new CamelCasePlugin()],
   })
 }

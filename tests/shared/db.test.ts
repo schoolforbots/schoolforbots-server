@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import type { Kysely } from 'kysely'
-import { afterAll, beforeAll, describe, expect, test } from 'vitest'
+import { sql, type Kysely } from 'kysely'
+import pg from 'pg'
+import { afterAll, afterEach, beforeAll, describe, expect, inject, test, vi } from 'vitest'
 import type { Database } from '../../src/shared/schema.js'
 import { migrateToLatest } from '../../src/shared/db.js'
 import { hashSecret } from '../../src/shared/secrets.js'
@@ -61,5 +62,36 @@ describe('database schema', () => {
     expect(row.keyHash).toBe(hashSecret(key))
     expect(row).toMatchObject({ division: 'junior', slot: 'evening', status: 'active', classId, lessonsAttended: 0 })
     expect(row.createdAt).toBeInstanceOf(Date)
+  })
+})
+
+describe('connection pool', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  test('a connection dropped while idle is logged, not thrown', async () => {
+    const { db, destroy } = await createTestDb()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      // Leave one idle client in the pool, then kill it from the server side, like a database restart does.
+      const { rows } = await sql<{ name: string }>`select current_database() as name`.execute(db)
+      const name = rows[0]!.name
+      const admin = new pg.Client({ connectionString: inject('pgUrl') })
+      await admin.connect()
+      try {
+        await admin.query('select pg_terminate_backend(pid) from pg_stat_activity where datname = $1', [name])
+      } finally {
+        await admin.end()
+      }
+
+      // Without a pool error listener the idle client's error is an uncaught exception that crashes the process.
+      await vi.waitFor(() => expect(logged).toHaveBeenCalledWith(expect.any(String), expect.any(Error)))
+
+      // The pool replaces the dead client, so the next query still works.
+      await expect(sql`select 1 as ok`.execute(db)).resolves.toBeTruthy()
+    } finally {
+      await destroy()
+    }
   })
 })
