@@ -48,6 +48,8 @@ export interface BotTally {
   /** Refused messages, by error code. */
   refusals: Map<string, number>
   drops: number
+  /** Whether the bot was ever welcomed to class. */
+  welcomed: boolean
   summary: boolean
   /** Messages that do not follow the protocol: there should be none. */
   invalid: number
@@ -104,6 +106,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     delivered: 0,
     refusals: new Map(),
     drops: 0,
+    welcomed: false,
     summary: false,
     invalid: 0,
     ended: null,
@@ -302,6 +305,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
         return onAck(msg)
       case 'welcome':
         welcomed = true
+        tally.welcomed = true
         endsAt = Date.parse(msg.session.endsAt)
         probation = msg.probation
         initiationsLeft = msg.limits.initiationsLeft
@@ -379,7 +383,7 @@ function refusalsText(refusals: Map<string, number>): string {
   return `被拒 ${total} 次（${[...refusals].map(([code, n]) => `${code} ${n}`).join('、')}）`
 }
 
-function countsText(t: Omit<BotTally, 'summary' | 'ended'>): string {
+function countsText(t: Omit<BotTally, 'welcomed' | 'summary' | 'ended'>): string {
   const invalid = t.invalid > 0 ? `，不合协议的消息 ${t.invalid} 条` : ''
   return (
     `正文 ${t.segments} 段，补发 ${t.replayed} 条，重复 ${t.duplicates} 条，送达 ${t.delivered} 条消息，` +
@@ -390,7 +394,7 @@ function countsText(t: Omit<BotTally, 'summary' | 'ended'>): string {
 /** The totals printed at the end: one line per bot, then the sum. */
 export function totalsText(bots: readonly Bot[]): string {
   const lines = ['—— 汇总 ——']
-  const sum: Omit<BotTally, 'summary' | 'ended'> = {
+  const sum: Omit<BotTally, 'welcomed' | 'summary' | 'ended'> = {
     segments: 0,
     replayed: 0,
     duplicates: 0,
@@ -471,7 +475,10 @@ export function parseSimArgs(argv: string[]): (SimOptions & { keys: string }) | 
   return { keys, url, chatEvery, dropRate, maxRounds }
 }
 
-/** Runs the bots until every one is sent home (exit code 0) or Ctrl-C (130); 1 when it cannot start. */
+/**
+ * Runs the bots until every one is sent home (exit code 0) or Ctrl-C (130). 1 when it cannot start, or when every bot
+ * stopped without ever getting into class (the keys are all wrong, say).
+ */
 async function main(argv: string[]): Promise<number> {
   const args = parseSimArgs(argv)
   if (args === null) {
@@ -495,6 +502,11 @@ async function main(argv: string[]): Promise<number> {
       done = true
       for (const bot of bots) bot.stop()
       console.log(totalsText(bots))
+      if (code === 0 && !bots.some((b) => b.tally.welcomed)) {
+        console.error('模拟失败：没有一个机器人进得了教室')
+        resolve(1)
+        return
+      }
       resolve(code)
     }
     const bots: Bot[] = students.map((student) =>

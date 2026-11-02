@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
@@ -16,8 +16,7 @@ describe('the local database check', () => {
     'postgres://school:school@localhost:5432/school',
     'postgresql://u:p@127.0.0.1:55432/db',
     'postgres://localhost/school',
-    // pg connects to the host a `host` parameter names, whatever comes before it.
-    'postgres://u:p@db.example.com:5432/school?host=localhost',
+    'postgres://u:p@localhost:5432/school?host=127.0.0.1&host=localhost',
   ])('lets the tool run on %s', (url) => {
     expect(isLocalDatabaseUrl(url)).toBe(true)
   })
@@ -29,6 +28,12 @@ describe('the local database check', () => {
     'postgres://u:p@10.0.0.5:5432/school',
     'postgres://u:p@[::1]:5432/school',
     'postgres://u:p@localhost:5432/school?host=db.example.com',
+    // pg goes by the last `host` parameter; every one of them has to be local, and so does the URL's own host.
+    'postgres://u:p@localhost:5432/school?host=localhost&host=db.example.com',
+    'postgres://u:p@localhost:5432/school?host=db.example.com&host=localhost',
+    'postgres://u:p@db.example.com:5432/school?host=localhost',
+    // `localhost` here is the user name.
+    'postgres://localhost@db.example.com/school',
     // No host at all: pg would go by PGHOST, or a local socket.
     'postgres:///school',
     '/var/run/postgresql school',
@@ -132,6 +137,28 @@ describe('seedClass', () => {
     expect(seeded.students).toHaveLength(3)
   })
 
+  test('writes the key file before the seeding commits, and seeds nothing when it cannot be written', async () => {
+    service = await buildTestClassApp()
+    const { db, config, clock } = service
+    const dir = mkdtempSync(join(tmpdir(), 'dev-seed-'))
+    try {
+      // A directory where the file should be: it cannot be written.
+      const unwritable = join(dir, 'keys.json')
+      mkdirSync(unwritable)
+      await expect(
+        seedClass(db, config, { division: 'junior', slot: 'evening', students: 2, clock, keysFile: unwritable }),
+      ).rejects.toThrow()
+      expect(await db.selectFrom('classes').select('id').execute()).toEqual([])
+      expect(await db.selectFrom('students').select('id').execute()).toEqual([])
+
+      const path = join(dir, '.sim', 'keys.json')
+      const seeded = await seedClass(db, config, { division: 'junior', slot: 'evening', students: 2, clock, keysFile: path })
+      expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(seeded.students)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test('seeded students connect with their key and are welcomed to the class', async () => {
     // Monday 19:00, before the evening doors.
     service = await buildTestClassApp()
@@ -201,6 +228,16 @@ describe('writeKeysFile', () => {
     writeKeysFile(path, students)
 
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(students)
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
+
+  test('tightens a file that was already there to the owner only', () => {
+    dir = mkdtempSync(join(tmpdir(), 'dev-seed-'))
+    const path = join(dir, 'keys.json')
+    writeFileSync(path, '[]', { mode: 0o644 })
+
+    writeKeysFile(path, [{ studentId: 7, key: 'ais_a', displayName: '模拟主人1家的机器人1' }])
+
     expect(statSync(path).mode & 0o777).toBe(0o600)
   })
 })

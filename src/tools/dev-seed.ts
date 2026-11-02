@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { Kysely } from 'kysely'
@@ -28,24 +28,40 @@ export class DevSeedError extends Error {
 /** The plugin the seeded students registered with, as the simulator's hello names it too. */
 export const SIM_PLUGIN = { type: 'sim', version: '0.0.0' } as const
 
-/** The host pg connects to for this URL: a `host` parameter takes the place of the one before it. Null if none. */
-function databaseHost(databaseUrl: string): string | null {
+const LOCAL_HOSTS: readonly string[] = ['localhost', '127.0.0.1']
+
+/**
+ * Every host the URL names: its own and each `host` parameter (pg connects to the last parameter, or to the URL's
+ * host when there is none). Null when it is not a URL.
+ */
+function databaseHosts(databaseUrl: string): string[] | null {
   let url: URL
   try {
     url = new URL(databaseUrl)
   } catch {
     return null
   }
-  return url.searchParams.get('host') || url.hostname || null
+  return [url.hostname, ...url.searchParams.getAll('host')]
 }
 
 /**
- * Whether the URL names a database on this machine: its host is exactly `localhost` or `127.0.0.1`. Anything else
- * (another host, no host at all, a socket path, something that is not a URL) is not.
+ * Whether the URL names a database on this machine: every host it names is exactly `localhost` or `127.0.0.1`, so
+ * whichever one pg goes by is local. Anything else (another host, no host at all, a socket path, something that is
+ * not a URL) is not.
  */
 export function isLocalDatabaseUrl(databaseUrl: string): boolean {
-  const host = databaseHost(databaseUrl)
-  return host === 'localhost' || host === '127.0.0.1'
+  const hosts = databaseHosts(databaseUrl)
+  return hosts !== null && hosts.every((host) => LOCAL_HOSTS.includes(host))
+}
+
+/** The hosts of the URL that are not local, for the refusal: only the hosts, as the URL carries the password. */
+function foreignHosts(databaseUrl: string): string {
+  const hosts = databaseHosts(databaseUrl)
+  if (hosts === null) return '（不是合法的连接串）'
+  return hosts
+    .filter((host) => !LOCAL_HOSTS.includes(host))
+    .map((host) => (host === '' ? '（没有主机）' : host))
+    .join('、')
 }
 
 export interface SeedOptions {
@@ -55,6 +71,11 @@ export interface SeedOptions {
   students: number
   /** The source of every timestamp written. */
   clock: Clock
+  /**
+   * Where to write the students' keys (see `writeKeysFile`). It is written before the seeding commits: when it cannot
+   * be written, nothing is seeded, so no student is left whose key nobody has.
+   */
+  keysFile?: string
 }
 
 /** One seeded student, as the output file lists them. */
@@ -142,6 +163,7 @@ export async function seedClass(db: Kysely<Database>, config: SchoolConfig, opts
       seeded.push({ studentId: id, key, displayName: displayName(ownerName, aiName) })
     }
 
+    if (opts.keysFile !== undefined) writeKeysFile(opts.keysFile, seeded)
     return { classId, className: className(division, slot, classNo, config), teacher: persona.name, students: seeded }
   })
 }
@@ -149,8 +171,10 @@ export async function seedClass(db: Kysely<Database>, config: SchoolConfig, opts
 /** Writes the students as a JSON list of `{ studentId, key, displayName }`, making its directory if need be. */
 export function writeKeysFile(path: string, students: SeededStudent[]): void {
   mkdirSync(dirname(path), { recursive: true })
-  // The keys let anyone into class as these students: the file is for its owner alone.
+  // The keys let anyone into class as these students: the file is for its owner alone. The mode given to the write
+  // only applies to a new file, so one that was already there is tightened after.
   writeFileSync(path, `${JSON.stringify(students, null, 2)}\n`, { mode: 0o600 })
+  chmodSync(path, 0o600)
 }
 
 const USAGE =
@@ -204,14 +228,13 @@ async function main(argv: string[]): Promise<number> {
     if (!isLocalDatabaseUrl(env.databaseUrl)) {
       // Only the host: the URL carries the password.
       throw new DevSeedError(
-        `只能往本机的数据库里造数据：DATABASE_URL 的主机必须是 localhost 或 127.0.0.1，现在是 ${databaseHost(env.databaseUrl) ?? '（没有主机）'}`,
+        `只能往本机的数据库里造数据：DATABASE_URL 里的主机都必须是 localhost 或 127.0.0.1，现在有 ${foreignHosts(env.databaseUrl)}`,
       )
     }
     const config = loadSchoolConfig(env.configPath)
     const db = createDb(env.databaseUrl)
     try {
-      const result = await seedClass(db, config, { ...args, clock: systemClock })
-      writeKeysFile(args.out, result.students)
+      const result = await seedClass(db, config, { ...args, clock: systemClock, keysFile: args.out })
       const first = result.students[0]?.studentId
       const last = result.students.at(-1)?.studentId
       console.log(
