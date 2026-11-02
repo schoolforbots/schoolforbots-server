@@ -7,8 +7,11 @@ import type { ActiveSession } from './runtime.js'
  * `callOn` and `callOnClose` may write class events of their own step: the first under the step's name (`call-on`,
  * `call-on-close`), any more as `<step>#2`, `<step>#3` ... (see events.ts), and push them after committing. When
  * the hook wrote none, the runtime records the step with a `noop` marker after it returns. A step that has run is not
- * run again after a restart, and a session the service finishes late, after its class has opened a newer one, calls
- * neither them nor `startClosing` and `endAll`.
+ * run again after a restart.
+ *
+ * A session the service catches up after its close (it was down through it), or after its class has opened a newer
+ * one, is finished quietly: `callOn`, `callOnClose`, `startClosing` and `endAll` are not called, `callouts` is (its
+ * lines are recorded, not pushed), and `afterClass` is called with `live: false`.
  */
 export interface LessonHooks {
   /** The teacher's discipline callouts for what was recorded in [from, to); empty when there is nothing to say. */
@@ -23,8 +26,11 @@ export interface LessonHooks {
   endAll(classId: number): void
   /** A student's connection closed. */
   onDisconnect(studentId: number): void
-  /** After class, before the session is marked dismissed: the penalties, then the take-home summaries. */
-  afterClass(session: ActiveSession): Promise<void>
+  /**
+   * After class, before the session is marked dismissed: the penalties, then the take-home summaries. `live` is false
+   * for a session finished quietly, whose students are no longer connected to it: nothing is pushed to anyone then.
+   */
+  afterClass(session: ActiveSession, opts: { live: boolean }): Promise<void>
 }
 
 /** Hooks that do nothing: a lesson with only the template teacher. */

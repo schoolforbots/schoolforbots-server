@@ -31,6 +31,7 @@ const moderator = createModerator({ blockedWords: [], injectionPatterns: [] })
 const MON = '2026-11-02'
 const SUN = '2026-11-01'
 const SAT = '2026-11-07'
+const TUE = '2026-11-03'
 const MINUTE = 60_000
 
 /** A wall-clock time in Beijing (the example config's timezone) on `date`. */
@@ -112,9 +113,9 @@ function recordingHooks(trace: string[], lines: (from: Date, to: Date) => string
     onDisconnect(studentId) {
       trace.push(`hook onDisconnect ${studentId}`)
     },
-    async afterClass(session) {
+    async afterClass(session, { live }) {
       sessions.push(session)
-      trace.push(`hook afterClass ${session.sessionId}`)
+      trace.push(`hook afterClass ${session.sessionId} ${live ? 'live' : 'quiet'}`)
     },
   }
 }
@@ -314,7 +315,7 @@ describe('a lesson day', () => {
       '20:30 dismissal',
       `20:30 hook startClosing ${classId}`,
       `20:31 hook endAll ${classId}`,
-      `20:31 hook afterClass ${sessionId}`,
+      `20:31 hook afterClass ${sessionId} live`,
       `20:31 closing ${members[0]!.id} session_over`,
     ])
     // Same instant: the callouts for segment 2, then the next segment, then the call-on that follows it.
@@ -533,6 +534,93 @@ describe('a restart (Review Focus 2)', () => {
     ])
   })
 
+  test('a session caught up after its close finishes quietly and leaves its renames for the next opening', async () => {
+    await insertLesson(db, { date: MON, title: '光的折射', subject: '科学', segments: SEGMENTS })
+    const { classId, members } = await seedClass({ members: 1 })
+    const student = members[0]!
+    const clock = createTestClock(at('19:45'))
+    const first = newRuntime({ clock, hub: new RecordingHub() })
+    await first.tick()
+    const monday = first.currentSession(classId)!.sessionId
+    clock.set(at('20:10'))
+    await first.tick()
+
+    // The service crashes at 20:10 and is down until Tuesday 09:00, before Tuesday's doors; a rename comes in meanwhile.
+    await db
+      .insertInto('renameEvents')
+      .values({
+        studentId: student.id,
+        classId,
+        oldDisplayName: student.name,
+        newDisplayName: '阿杰家的小鱼',
+        createdAt: at('20:12'),
+        announcedAt: null,
+      })
+      .execute()
+    const trace: string[] = []
+    const hub = new TracingHub(trace)
+    hub.join(classId, student.id)
+    clock.set(at('09:00', TUE))
+    const second = newRuntime({ clock, hub, hooks: recordingHooks(trace) })
+    await second.tick()
+
+    expect(trace).toEqual([
+      'hook callouts 20:10-20:15',
+      'hook callouts 20:15-20:20',
+      'hook callouts 20:20-20:25',
+      'hook callouts 20:25-20:30',
+      `hook afterClass ${monday} quiet`,
+    ])
+    expect(hub.messages).toEqual([])
+    expect(await sessionRows()).toMatchObject([{ id: monday, dismissedAt: at('09:00', TUE) }])
+    const mondaySteps = await db.selectFrom('classEvents').select('step').where('sessionId', '=', monday).execute()
+    expect(mondaySteps.map((e) => e.step)).toEqual(expect.arrayContaining(['segment-5', 'call-on', 'call-on-close', 'dismissal']))
+    expect(mondaySteps.some((e) => e.step.startsWith('rename'))).toBe(false)
+    expect(await db.selectFrom('renameEvents').select('announcedAt').execute()).toEqual([{ announcedAt: null }])
+
+    // Tuesday's opening, live, announces it once.
+    clock.set(at('19:45', TUE))
+    await second.tick()
+    clock.set(at('20:00', TUE))
+    await second.tick()
+    expect(hub.messages.map(show)).toEqual([
+      `teacher ${openingStudy('老周')}`,
+      `rename ${student.id} ${student.name} -> 阿杰家的小鱼`,
+      `teacher ${renameAnnouncement(student.name, '阿杰家的小鱼')}`,
+    ])
+    expect(await db.selectFrom('renameEvents').select('announcedAt').execute()).toEqual([{ announcedAt: at('20:00', TUE) }])
+    const renames = await db.selectFrom('classEvents').select('step').where('step', 'like', 'rename-%').execute()
+    expect(renames).toHaveLength(2) // the rename event and the teacher's line, both in Tuesday's session
+  })
+
+  test.each([
+    ['20:31:30', true],
+    ['20:31:31', false],
+  ])('a close run at %s is live: %s (up to 30 seconds late)', async (time, live) => {
+    await insertLesson(db, { date: MON, segments: SEGMENTS })
+    const { classId, members } = await seedClass({ members: 1 })
+    const trace: string[] = []
+    const clock = createTestClock(at('19:45'))
+    const hub = new TracingHub(trace)
+    hub.join(classId, members[0]!.id)
+    const runtime = newRuntime({ clock, hub, hooks: recordingHooks(trace) })
+    await runtime.tick()
+    const sessionId = runtime.currentSession(classId)!.sessionId
+    clock.set(at('20:30'))
+    await runtime.tick()
+    const before = trace.length
+
+    clock.set(at(time))
+    await runtime.tick()
+
+    expect(trace.slice(before)).toEqual(
+      live
+        ? [`hook endAll ${classId}`, `hook afterClass ${sessionId} live`, `closing ${members[0]!.id} session_over`]
+        : [`hook afterClass ${sessionId} quiet`],
+    )
+    expect((await sessionRows())[0]!.dismissedAt).toEqual(at(time))
+  })
+
   test('a session left open from an earlier day is finished quietly once the class has a newer one', async () => {
     const { classId, members } = await seedClass({ members: 1 })
     const stale = await insertSession(db, {
@@ -558,7 +646,7 @@ describe('a restart (Review Focus 2)', () => {
       'hook callouts 20:15-20:20',
       'hook callouts 20:20-20:25',
       'hook callouts 20:25-20:30',
-      `hook afterClass ${stale}`,
+      `hook afterClass ${stale} quiet`,
     ])
     expect(hub.messages).toEqual([])
     const rows = await sessionRows()
