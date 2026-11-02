@@ -22,10 +22,16 @@ export interface HubConnection {
 
 /** The hub of the running service: connections live in memory, one per student. */
 export interface MemoryHub extends Hub {
-  /** Registers a connection. One the student already had is forgotten, not closed: closing it is the caller's job. */
-  add(connection: HubConnection): void
-  /** Forgets a connection that closed. Does nothing when the student has a newer one by now. */
-  remove(connection: HubConnection): void
+  /**
+   * Registers a connection and returns the one the student had until now, if any. That one is forgotten, not closed:
+   * closing it is the caller's job.
+   */
+  add(connection: HubConnection): HubConnection | undefined
+  /**
+   * Forgets a connection that closed and says whether the student is offline now. False when the student has a newer
+   * connection by now: that one stays registered. True as well for a connection `disconnect` has already forgotten.
+   */
+  remove(connection: HubConnection): boolean
 }
 
 export function createHub(): MemoryHub {
@@ -51,10 +57,14 @@ export function createHub(): MemoryHub {
       c.close()
     },
     add(connection) {
+      const previous = connections.get(connection.studentId)
       connections.set(connection.studentId, connection)
+      return previous
     },
     remove(connection) {
-      if (connections.get(connection.studentId) === connection) connections.delete(connection.studentId)
+      const current = connections.get(connection.studentId)
+      if (current === connection) connections.delete(connection.studentId)
+      return current === undefined || current === connection
     },
   }
 }

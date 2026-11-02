@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import type { FastifyServerOptions } from 'fastify'
 import { buildRegistrationApp } from '../../src/registration/app.js'
 import { MemoryMailer } from '../../src/registration/mailer.js'
-import { createModerator } from '../../src/moderation/moderator.js'
+import { createModerator, type Moderator } from '../../src/moderation/moderator.js'
 import { parseInjectionPatterns, parseWordList } from '../../src/moderation/load.js'
 import { loadSchoolConfig, type SchoolConfig } from '../../src/shared/config.js'
 import { createTestClock } from './clock.js'
@@ -17,22 +17,32 @@ export type ConfigOverrides = Omit<Partial<SchoolConfig>, 'verificationCode'> & 
   verificationCode?: Partial<SchoolConfig['verificationCode']>
 }
 
-/** A registration service on a fresh database, with the example config and word lists and a controllable clock. */
-export async function buildTestApp(overrides: { config?: ConfigOverrides; logger?: FastifyServerOptions['logger'] } = {}) {
-  const { db, destroy: destroyDb } = await createTestDb()
-
+/** The example school config with `overrides` applied. */
+export function exampleConfig(overrides: ConfigOverrides = {}): SchoolConfig {
   const example = loadSchoolConfig(fromRoot('config/school.example.json'))
-  const config: SchoolConfig = {
+  return {
     ...example,
-    ...overrides.config,
-    verificationCode: { ...example.verificationCode, ...overrides.config?.verificationCode },
+    ...overrides,
+    verificationCode: { ...example.verificationCode, ...overrides.verificationCode },
   }
-  const moderator = createModerator({
+}
+
+/** A moderator with the example word lists. */
+export function exampleModerator(): Moderator {
+  return createModerator({
     blockedWords: parseWordList(readFileSync(fromRoot('data/moderation/blocked-words.example.txt'), 'utf8')),
     injectionPatterns: parseInjectionPatterns(
       readFileSync(fromRoot('data/moderation/injection-patterns.example.txt'), 'utf8'),
     ),
   })
+}
+
+/** A registration service on a fresh database, with the example config and word lists and a controllable clock. */
+export async function buildTestApp(overrides: { config?: ConfigOverrides; logger?: FastifyServerOptions['logger'] } = {}) {
+  const { db, destroy: destroyDb } = await createTestDb()
+
+  const config = exampleConfig(overrides.config)
+  const moderator = exampleModerator()
   const mailer = new MemoryMailer()
   const clock = createTestClock(new Date('2026-11-02T12:00:00+08:00'))
 
