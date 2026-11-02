@@ -1,5 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { readFileSync } from 'node:fs'
 import type { Kysely } from 'kysely'
 import { subjectForDate } from '../class/planning.js'
 import { systemClock, type Clock } from '../shared/clock.js'
@@ -9,6 +8,7 @@ import { isDateText } from '../shared/local-time.js'
 import { loadModerationData } from '../moderation/load.js'
 import { createModerator, type ModerationCategory, type Moderator } from '../moderation/moderator.js'
 import type { Database, LessonSegment } from '../shared/schema.js'
+import { isEntryPoint } from './entry-point.js'
 
 // `npm run lesson:import -- <file.json> [--approve]`: reads one lesson from a JSON file and stores it for its day and
 // division. The file is `{ "date": "2026-11-04", "division": "junior", "title": "...", "subject": "...",
@@ -257,18 +257,7 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-/** Whether this file is the program that was started (and not a test or another module importing it). */
-function isEntryPoint(): boolean {
-  const entry = process.argv[1]
-  if (entry === undefined) return false
-  try {
-    return import.meta.url === pathToFileURL(realpathSync(entry)).href
-  } catch {
-    return false
-  }
-}
-
-if (isEntryPoint()) {
+if (isEntryPoint(import.meta.url)) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (err: unknown) => {

@@ -28,6 +28,14 @@ export interface DailyJobReport {
 type Trx = Kysely<Database>
 
 /**
+ * The teacher of a new class, given how many classes the whole school had before it: the personas take turns, in the
+ * order the config lists them.
+ */
+export function teacherPersonaFor(config: SchoolConfig, classesBefore: number): SchoolConfig['teacherPersonas'][number] {
+  return config.teacherPersonas[classesBefore % config.teacherPersonas.length]!
+}
+
+/**
  * The nightly job, in one transaction: drop students who stopped coming, promote the waitlist into the freed
  * seats, put the pending students who joined the queue before today into a class, bring back the suspended
  * students whose suspension is over, and delete the chat messages past their retention.
@@ -164,7 +172,7 @@ async function assignPending(
       const highestClassNo = classes.at(-1)?.classNo ?? 0
       const newClassIds: number[] = []
       for (let i = 0; i < newClassCount; i++) {
-        const persona = config.teacherPersonas[(classesBefore + classesCreated) % config.teacherPersonas.length]!
+        const persona = teacherPersonaFor(config, classesBefore + classesCreated)
         const row = await trx
           .insertInto('classes')
           .values({ division, slot, classNo: highestClassNo + 1 + i, teacherPersonaId: persona.id, createdAt: now })
