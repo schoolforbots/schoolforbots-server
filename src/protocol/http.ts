@@ -94,6 +94,8 @@ export const Me = Type.Object({
   status: StudentStatus,
   className: Type.Union([Type.String(), Type.Null()]),
   lastRenamedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+  /** When the suspension of a suspended student ends; null for everyone else. */
+  suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
 })
 
 const Classmate = Type.Object({
@@ -114,6 +116,8 @@ export const Admission = Type.Object({
   startsOn: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
   /** Active and suspended members of the class, the student included, by student number. */
   classmates: Type.Array(Classmate),
+  /** When the suspension of a suspended student ends; null for an active one. A suspended student stays in the class. */
+  suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
 })
 
 /** `GET /v1/me/classmates`: the class roster, same members and order as in the admission letter. */

@@ -601,9 +601,10 @@ describe('POST /v1/registrations/:id/verify', () => {
     await insertStudent(t.db, { slot: 'evening', status: 'active' })
     await insertStudent(t.db, { slot: 'evening', status: 'pending' })
     await insertStudent(t.db, { slot: 'evening', status: 'suspended' })
-    // Neither of these holds a counted seat, and morning students are another slot altogether.
-    await insertStudent(t.db, { slot: 'evening', status: 'waitlisted' })
+    // None of these holds a counted seat, and morning students are another slot altogether. (A waitlisted student
+    // holds none either; the test below covers what a waitlist does to newcomers.)
     await insertStudent(t.db, { slot: 'evening', status: 'dropped' })
+    await insertStudent(t.db, { slot: 'evening', status: 'expelled' })
     await insertStudent(t.db, { slot: 'morning', status: 'active' })
     await insertStudent(t.db, { slot: 'morning', status: 'active' })
 
@@ -615,6 +616,53 @@ describe('POST /v1/registrations/:id/verify', () => {
 
     const morning = await registerOk({ email: 'three@example.com', slot: 'morning' })
     expect(await verify(morning.registrationId, morning.code).then((r) => r.json())).toMatchObject({ status: 'pending' })
+  })
+
+  test('a newcomer does not take a free seat ahead of students waiting in the slot', async () => {
+    await useConfig({ slotCapacity: 4 })
+    await insertStudent(t.db, { slot: 'evening', status: 'active' })
+    // The slot has room, but the nightly job has not yet promoted this student: the newcomer queues behind them.
+    await insertStudent(t.db, { slot: 'evening', status: 'waitlisted' })
+
+    const evening = await registerOk({ email: 'one@example.com', slot: 'evening' })
+    const res = await verify(evening.registrationId, evening.code)
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ status: 'waitlisted' })
+    const student = await t.db
+      .selectFrom('students')
+      .select(['status', 'queuedAt'])
+      .where('id', '=', res.json<{ studentId: number }>().studentId)
+      .executeTakeFirstOrThrow()
+    expect(student).toEqual({ status: 'waitlisted', queuedAt: t.clock.now() })
+
+    // Another slot has no waitlist, so its newcomers still get a seat.
+    const morning = await registerOk({ email: 'two@example.com', slot: 'morning' })
+    expect(await verify(morning.registrationId, morning.code).then((r) => r.json())).toMatchObject({ status: 'pending' })
+  })
+
+  test('a newcomer gets a free seat again once nobody waits in the slot', async () => {
+    await useConfig({ slotCapacity: 4 })
+    const waiting = await insertStudent(t.db, { slot: 'evening', status: 'waitlisted' })
+    const first = await registerOk({ email: 'one@example.com', slot: 'evening' })
+    expect(await verify(first.registrationId, first.code).then((r) => r.json())).toMatchObject({ status: 'waitlisted' })
+
+    // The earlier arrivals leave the waitlist for a seat (as the nightly job would promote them).
+    await t.db.updateTable('students').set({ status: 'active' }).where('slot', '=', 'evening').where('status', '=', 'waitlisted').execute()
+    expect((await t.db.selectFrom('students').select('status').where('id', '=', waiting.id).executeTakeFirstOrThrow()).status).toBe('active')
+
+    const second = await registerOk({ email: 'two@example.com', slot: 'evening' })
+    expect(await verify(second.registrationId, second.code).then((r) => r.json())).toMatchObject({ status: 'pending' })
+  })
+
+  test('concurrent verifies behind a waitlist all wait, whatever the free seats', async () => {
+    await useConfig({ slotCapacity: 10 })
+    await insertStudent(t.db, { slot: 'evening', status: 'waitlisted' })
+    const pending = []
+    for (let i = 0; i < 4; i++) pending.push(await registerOk({ email: `w${i}@example.com`, slot: 'evening' }))
+
+    const results = await Promise.all(pending.map((p) => verify(p.registrationId, p.code)))
+    expect(results.map((r) => r.statusCode)).toEqual([201, 201, 201, 201])
+    expect(results.map((r) => r.json<{ status: string }>().status)).toEqual(['waitlisted', 'waitlisted', 'waitlisted', 'waitlisted'])
   })
 
   test('concurrent verifies for one install id yield one seat', async () => {

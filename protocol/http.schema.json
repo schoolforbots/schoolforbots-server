@@ -12,7 +12,8 @@
         "className",
         "teacher",
         "startsOn",
-        "classmates"
+        "classmates",
+        "suspendedUntil"
       ],
       "properties": {
         "studentId": {
@@ -91,6 +92,17 @@
               }
             }
           }
+        },
+        "suspendedUntil": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -275,7 +287,8 @@
         "slot",
         "status",
         "className",
-        "lastRenamedAt"
+        "lastRenamedAt",
+        "suspendedUntil"
       ],
       "properties": {
         "studentId": {
@@ -361,6 +374,17 @@
           ]
         },
         "lastRenamedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "suspendedUntil": {
           "anyOf": [
             {
               "type": "string",

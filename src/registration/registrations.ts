@@ -13,7 +13,7 @@ import { SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js
 import { checkNames } from '../shared/identity.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
-import { isInstallSeatViolation, seatsOfEmail, slotOccupancy } from './capacity.js'
+import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
 import { ApiError, invalidNameError } from './errors.js'
 import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
@@ -231,8 +231,12 @@ async function verifyInTransaction(
   await lock(trx, `email:${registration.email}`)
   if ((await seatsOfEmail(trx, registration.email)) >= config.maxStudentsPerEmail) return fail(409, 'email_limit')
 
+  // A free seat is not enough: while students wait in the slot, a newcomer waits behind them.
   await lock(trx, slotLockKey(registration.slot))
-  const status = (await slotOccupancy(trx, registration.slot)) >= config.slotCapacity ? 'waitlisted' : 'pending'
+  const status =
+    (await slotHasWaitlist(trx, registration.slot)) || (await slotOccupancy(trx, registration.slot)) >= config.slotCapacity
+      ? 'waitlisted'
+      : 'pending'
 
   // Only the hash of the key is stored; the key itself is returned once, here.
   const key = generateStudentKey()

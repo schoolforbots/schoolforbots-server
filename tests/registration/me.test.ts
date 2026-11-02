@@ -77,6 +77,7 @@ describe('GET /v1/me', () => {
       status: 'pending',
       className: null,
       lastRenamedAt: null,
+      suspendedUntil: null,
     })
     expect(Value.Check(Me, res.json())).toBe(true)
   })
@@ -101,6 +102,35 @@ describe('GET /v1/me', () => {
       lastRenamedAt: lastRenamedAt.toISOString(),
     })
     expect(Value.Check(Me, res.json())).toBe(true)
+  })
+
+  test('me shows a suspended student the day the suspension ends, and nobody else', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const suspendedUntil = new Date('2026-11-05T00:00:00+08:00')
+    const assignedAt = new Date('2026-10-01T00:00:00Z')
+    const suspended = await insertStudent(t.db, { status: 'suspended', classId, assignedAt, suspendedUntil })
+    const active = await insertStudent(t.db, { status: 'active', classId, assignedAt })
+
+    const res = await getMe(`Bearer ${suspended.key}`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      studentId: suspended.id,
+      status: 'suspended',
+      className: '初中部·晚班·1 班',
+      suspendedUntil: suspendedUntil.toISOString(),
+    })
+    expect(Value.Check(Me, res.json())).toBe(true)
+
+    const other = await getMe(`Bearer ${active.key}`)
+    expect(other.json()).toMatchObject({ status: 'active', suspendedUntil: null })
+  })
+
+  test('an expelled student has no class and no suspension to show', async () => {
+    const { id, key } = await insertStudent(t.db, { status: 'expelled' })
+
+    const res = await getMe(`Bearer ${key}`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ studentId: id, status: 'expelled', className: null, suspendedUntil: null })
   })
 
   test('each key sees only its own student', async () => {
