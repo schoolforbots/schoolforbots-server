@@ -566,7 +566,6 @@ describe('a restart (Review Focus 2)', () => {
       .execute()
     const trace: string[] = []
     const hub = new TracingHub(trace)
-    hub.join(classId, student.id)
     clock.set(at('09:00', TUE))
     const second = newRuntime({ clock, hub, hooks: recordingHooks(trace) })
     await second.tick()
@@ -588,6 +587,7 @@ describe('a restart (Review Focus 2)', () => {
     // Tuesday's opening, live, announces it once.
     clock.set(at('19:45', TUE))
     await second.tick()
+    hub.join(classId, student.id)
     clock.set(at('20:00', TUE))
     await second.tick()
     expect(hub.messages.map(show)).toEqual([
@@ -620,12 +620,48 @@ describe('a restart (Review Focus 2)', () => {
     clock.set(at(time))
     await runtime.tick()
 
+    // Late or not, whoever is still connected is let go: no newer session of the class has opened.
     expect(trace.slice(before)).toEqual(
       live
         ? [`hook endAll ${classId}`, `hook afterClass ${sessionId} live`, `closing ${members[0]!.id} session_over`]
-        : [`hook afterClass ${sessionId} quiet`],
+        : [`hook afterClass ${sessionId} quiet`, `closing ${members[0]!.id} session_over`],
     )
     expect((await sessionRows())[0]!.dismissedAt).toEqual(at(time))
+  })
+
+  test('a close that runs quiet because the after-class work failed and was retried late still lets everyone go', async () => {
+    const { classId, members } = await seedClass({ members: 1 })
+    const trace: string[] = []
+    const clock = createTestClock(at('19:45'))
+    const hub = new TracingHub(trace)
+    hub.join(classId, members[0]!.id)
+    const hooks = recordingHooks(trace)
+    let failing = true
+    const runtime = newRuntime({
+      clock,
+      hub,
+      hooks: {
+        ...hooks,
+        async afterClass(session, opts) {
+          await hooks.afterClass(session, opts)
+          if (failing) throw new Error('The database is unreachable')
+        },
+      },
+    })
+    await runtime.tick()
+    const sessionId = runtime.currentSession(classId)!.sessionId
+    clock.set(at('20:31'))
+    await expect(runtime.tick()).rejects.toThrow()
+    expect(hub.online(classId)).toEqual([members[0]!.id])
+    const before = trace.length
+
+    // The next tick that gets through is a minute later, past the tolerance: the close runs quiet.
+    failing = false
+    clock.set(at('20:32'))
+    await runtime.tick()
+
+    expect(trace.slice(before)).toEqual([`hook afterClass ${sessionId} quiet`, `closing ${members[0]!.id} session_over`])
+    expect(hub.online(classId)).toEqual([])
   })
 
   test('a session left open from an earlier day is finished quietly once the class has a newer one', async () => {

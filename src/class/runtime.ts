@@ -286,11 +286,23 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     }
   }
 
+  /** The class's session from its doors until its close at `now`, the latest one if two overlap; or null. */
+  function currentOf(classId: number, now: Date): ActiveSession | null {
+    let found: ActiveSession | null = null
+    for (const t of tracked.values()) {
+      const s = t.session
+      if (s.classId !== classId || before(now, t.doorsAt) || !before(now, s.closeAt)) continue
+      if (found === null || before(found.startsAt, s.startsAt)) found = s
+    }
+    return found
+  }
+
   /**
    * Whether a step of the session runs live: no later than its close plus a short tolerance (30 seconds of lesson
    * time), and while no later session of its class has opened. A session caught up after that (the service was down
    * through its close) is finished quietly: its steps are written and its after-class work is done, but nothing is
-   * pushed, nobody is disconnected or called on, and pending renames are left for the class's next opening.
+   * pushed, nobody is called on, and pending renames are left for the class's next opening. Nobody is disconnected
+   * either, except at its close those still connected when no newer session of the class is on (see the close step).
    */
   function isLive(t: Tracked, now: Date): boolean {
     if (now.getTime() > t.session.closeAt.getTime() + liveToleranceMs) return false
@@ -514,7 +526,12 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
       .where('id', '=', s.sessionId)
       .where('dismissedAt', 'is', null)
       .executeTakeFirst()
-    if (live) for (const studentId of hub.online(s.classId)) hub.disconnect(studentId, SESSION_OVER)
+    // Whoever is still connected goes. At a quiet close too, unless a newer session of the class is on, which they may
+    // be in: the service stayed up through a close that ran late (its after-class work failed and was retried), and a
+    // connection left in the hub would get the class's next session without a welcome.
+    if (live || currentOf(s.classId, now) === null) {
+      for (const studentId of hub.online(s.classId)) hub.disconnect(studentId, SESSION_OVER)
+    }
     return closed.numUpdatedRows > 0n ? [] : null
   }
 
@@ -573,14 +590,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     },
 
     currentSession(classId) {
-      const now = clock.now()
-      let found: ActiveSession | null = null
-      for (const t of tracked.values()) {
-        const s = t.session
-        if (s.classId !== classId || before(now, t.doorsAt) || !before(now, s.closeAt)) continue
-        if (found === null || before(found.startsAt, s.startsAt)) found = s
-      }
-      return found
+      return currentOf(classId, clock.now())
     },
   }
 }
