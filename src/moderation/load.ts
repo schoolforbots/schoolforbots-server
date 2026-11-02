@@ -6,7 +6,7 @@ import type { ModerationData } from './moderator.js'
 function dataLines(text: string): { line: number; value: string }[] {
   const out: { line: number; value: string }[] = []
   text
-    .replace(/^﻿/, '')
+    .replace(/^\ufeff/, '')
     .split(/\r?\n/)
     .forEach((raw, i) => {
       const value = raw.trim()

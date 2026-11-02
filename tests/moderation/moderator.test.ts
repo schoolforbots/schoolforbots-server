@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import { parseInjectionPatterns } from '../../src/moderation/load.js'
 import { createModerator } from '../../src/moderation/moderator.js'
-import { normalizeForMatch } from '../../src/moderation/normalize.js'
+import { normalizeForMatch, normalizeForPrivacy } from '../../src/moderation/normalize.js'
 import { findPrivacyLeak } from '../../src/moderation/privacy.js'
 
 const mod = createModerator({
@@ -14,7 +14,17 @@ const mod = createModerator({
 
 describe('normalizeForMatch', () => {
   test('applies NFKC, lowercases, and drops whitespace and zero-width characters', () => {
-    expect(normalizeForMatch('ＡＢＣ 违​禁‌‍﻿ \t\n词')).toBe('abc违禁词')
+    expect(normalizeForMatch('ＡＢＣ 违\u200b禁\u200c\u200d\ufeff \t\n词')).toBe('abc违禁词')
+  })
+
+  test('drops every Unicode format character, not only the zero-width ones', () => {
+    expect(normalizeForMatch('示例\u2060违\u00ad禁\u200e词\u200f')).toBe('示例违禁词')
+  })
+})
+
+describe('normalizeForPrivacy', () => {
+  test('applies NFKC and lowercase and drops format characters, but keeps whitespace and newlines', () => {
+    expect(normalizeForPrivacy('ＱＱ 1\u200b2\n3\u2060 4\u00ad')).toBe('qq 12\n3 4')
   })
 })
 
@@ -29,8 +39,17 @@ describe('createModerator', () => {
       category: 'sensitive',
       matched: '示例违禁词',
     })
-    expect(mod.check('示例 违禁​词')).toMatchObject({ category: 'sensitive' })
+    expect(mod.check('示例 违禁\u200b词')).toMatchObject({ category: 'sensitive' })
     expect(mod.check('ＡＢＣ违禁')).toMatchObject({ category: 'sensitive' })
+  })
+
+  test('blocks a sensitive word split by any invisible format character', () => {
+    expect(mod.check('示例\u2060违禁词')).toEqual({
+      verdict: 'blocked',
+      category: 'sensitive',
+      matched: '示例违禁词',
+    })
+    expect(mod.check('示例\u00ad违禁\u200e词')).toMatchObject({ category: 'sensitive' })
   })
 
   test('blocks prompt-injection phrases', () => {
@@ -59,9 +78,48 @@ describe('createModerator', () => {
     })
   })
 
+  test.each([
+    ['phone with spaces', '138 1234 5678'],
+    ['phone with dashes', '138-1234-5678'],
+    ['phone with a Unicode hyphen', '138\u20101234\u20105678'],
+    ['phone with a zero-width space', '1381234\u200b5678'],
+    ['phone with a word joiner', '1381234\u20605678'],
+    ['phone in full-width digits and spaces', '１３８\u3000１２３４\u3000５６７８'],
+    ['QQ with spaced digit groups', 'qq 123 456 789'],
+    ['QQ with dashed digit groups', 'QQ：123-456-789'],
+    ['QQ with a zero-width space', '扣扣 123\u200b45678'],
+    ['ID card with spaced groups', '身份证 110105 19491231 002X'],
+    ['ID card with dashed groups', '110105-19491231-002x'],
+    ['ID card with a zero-width space', '11010519491231\u200b002X'],
+  ])('blocks a privacy leak hidden by formatting: %s', (_name, text) => {
+    expect(mod.check(text)).toMatchObject({ verdict: 'blocked', category: 'privacy' })
+  })
+
   test('does not mistake ordinary numbers for privacy leaks', () => {
     expect(mod.check('12345678 × 2 = 24691356')).toEqual({ verdict: 'pass' })
     expect(mod.check('圆周率是 3.14159265358979')).toEqual({ verdict: 'pass' })
+    expect(mod.check('圆周率是 3.14159 26535 89793')).toEqual({ verdict: 'pass' })
+    expect(mod.check('2026-11-02 开学')).toEqual({ verdict: 'pass' })
+    expect(mod.check('电话 138 1234 567')).toEqual({ verdict: 'pass' })
+    expect(mod.check('编号 1381234 56789')).toEqual({ verdict: 'pass' })
+    expect(mod.check('qq 12 34')).toEqual({ verdict: 'pass' })
+  })
+
+  test.each([
+    ['letters', 'a'.repeat(100_000)],
+    ['digits', '1'.repeat(100_000)],
+    ['at signs', 'a@'.repeat(50_000)],
+    ['one long domain after an at sign', `${'a'.repeat(64)}@${'a'.repeat(100_000)}`],
+    ['dotted domain labels', `a@${'a.'.repeat(50_000)}`],
+    ['QQ context words', 'qq 1'.repeat(25_000)],
+    ['spaced digits', '1 '.repeat(50_000)],
+    ['dashed digits', '13-'.repeat(33_000)],
+    ['newlines', '\n'.repeat(100_000)],
+    ['injection prefixes', '主人的'.repeat(30_000)],
+  ])('stays fast on a very long input: %s', (_name, text) => {
+    const start = performance.now()
+    mod.check(text)
+    expect(performance.now() - start).toBeLessThan(500)
   })
 
   test('checks sensitive first, then injection, then privacy', () => {
@@ -83,6 +141,9 @@ describe('findPrivacyLeak', () => {
     expect(findPrivacyLeak('身份证11010519491231002x')).toBe('11010519491231002x')
     expect(findPrivacyLeak('我的qq是 12345678')).toBe('qq是 12345678')
     expect(findPrivacyLeak('加我微信 abc_12345')).toBe('微信 abc_12345')
+    expect(findPrivacyLeak('打 138 1234 5678 找我')).toBe('138 1234 5678')
+    expect(findPrivacyLeak('qq 123-456 789 找我')).toBe('qq 123-456 789')
+    expect(findPrivacyLeak('110105 19491231 002x')).toBe('110105 19491231 002x')
   })
 
   test('returns null for clean text', () => {
@@ -94,6 +155,12 @@ describe('findPrivacyLeak', () => {
     expect(findPrivacyLeak('12812345678')).toBeNull()
     expect(findPrivacyLeak('138123456789')).toBeNull()
     expect(findPrivacyLeak('9138123456')).toBeNull()
+    expect(findPrivacyLeak('138 1234 56789')).toBeNull()
+    expect(findPrivacyLeak('138  1234 5678')).toBeNull()
+  })
+
+  test('the fragment stays short even for an enormous run after the at sign', () => {
+    expect(findPrivacyLeak(`me@example.${'a'.repeat(10_000)}`)?.length).toBeLessThanOrEqual(64 + 1 + 253 + 1 + 63)
   })
 
   test('QQ and WeChat numbers need their context word', () => {

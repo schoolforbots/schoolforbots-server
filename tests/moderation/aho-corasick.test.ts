@@ -30,5 +30,5 @@ test('words are normalized at construction', () => {
 })
 
 test('empty words never match', () => {
-  expect(new AhoCorasick(['', ' ', '​']).findFirst('anything')).toBeNull()
+  expect(new AhoCorasick(['', ' ', '\u200b']).findFirst('anything')).toBeNull()
 })

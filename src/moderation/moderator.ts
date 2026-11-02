@@ -1,5 +1,5 @@
 import { AhoCorasick } from './aho-corasick.js'
-import { normalizeForMatch } from './normalize.js'
+import { normalizeForMatch, normalizeForPrivacy } from './normalize.js'
 import { findPrivacyLeak } from './privacy.js'
 
 export type ModerationCategory = 'sensitive' | 'injection' | 'privacy'
@@ -23,7 +23,7 @@ export function createModerator(data: ModerationData): Moderator {
   return {
     check(text) {
       // Sensitive words and injection phrases are matched with whitespace and
-      // zero-width characters removed, so spacing tricks do not hide them.
+      // Unicode format characters removed, so spacing tricks do not hide them.
       const squashed = normalizeForMatch(text)
 
       const word = blockedWords.findFirst(squashed)
@@ -35,8 +35,9 @@ export function createModerator(data: ModerationData): Moderator {
         if (hit !== null) return { verdict: 'blocked', category: 'injection', matched: hit[0] }
       }
 
-      // Privacy rules keep whitespace: a pasted chat log is judged line by line.
-      const leak = findPrivacyLeak(text.normalize('NFKC').toLowerCase())
+      // Privacy rules also lose the format characters but keep whitespace and
+      // newlines: a pasted chat log is judged line by line.
+      const leak = findPrivacyLeak(normalizeForPrivacy(text))
       if (leak !== null) return { verdict: 'blocked', category: 'privacy', matched: leak }
 
       return { verdict: 'pass' }

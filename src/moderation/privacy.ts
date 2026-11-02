@@ -1,14 +1,21 @@
-// Input must already be NFKC-normalized and lowercased, with whitespace kept.
+// Input must already be normalized with `normalizeForPrivacy`: NFKC, lowercase,
+// format characters removed, whitespace kept.
 
+// An optional single separator between digit groups: a space, a hyphen-minus or
+// a Unicode dash (U+2010..U+2015). "138 1234 5678" and "138-1234-5678" are leaks too.
+const SEP = String.raw`[ \-\u2010-\u2015]?`
+
+// Every quantifier below is bounded, so matching stays linear in the input length
+// (an unbounded `+` in front of the `@` rescans a long run at every start position).
 const PRIVACY_RULES: readonly RegExp[] = [
   // mobile phone number
-  /(?<!\d)1[3-9]\d{9}(?!\d)/,
-  // e-mail address
-  /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/,
+  new RegExp(String.raw`(?<!\d)1[3-9]\d${SEP}\d{4}${SEP}\d{4}(?!\d)`),
+  // e-mail address (local part <= 64, domain <= 253, top-level label <= 63)
+  /[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}/,
   // national ID number (the check digit may be x)
-  /(?<!\d)\d{17}[\dx](?!\d)/,
-  // QQ number, only with a context word
-  /(qq|扣扣|企鹅)[^\d]{0,4}\d{5,11}/,
+  new RegExp(String.raw`(?<!\d)\d{6}${SEP}\d{8}${SEP}\d{3}[\dx](?!\d)`),
+  // QQ number (5 to 11 digits), only with a context word
+  new RegExp(String.raw`(qq|扣扣|企鹅)[^\d]{0,4}\d(?:${SEP}\d){4,10}`),
   // WeChat id, only with a context word
   /(微信|weixin|vx|wx|v信)[^a-z0-9]{0,4}[a-z][-_a-z0-9]{5,19}/,
 ]

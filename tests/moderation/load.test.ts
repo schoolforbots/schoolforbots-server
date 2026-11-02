@@ -20,7 +20,7 @@ afterEach(() => {
 test('parseWordList skips blank and comment lines and trims', () => {
   expect(parseWordList('# 注释\n\n词一\n 词二 \n')).toEqual(['词一', '词二'])
   expect(parseWordList('词一\r\n\r\n# 注释\r\n词二\r\n')).toEqual(['词一', '词二'])
-  expect(parseWordList('﻿# 带 BOM 的注释\n词一')).toEqual(['词一'])
+  expect(parseWordList('\ufeff# 带 BOM 的注释\n词一')).toEqual(['词一'])
   expect(parseWordList('')).toEqual([])
 })
 
