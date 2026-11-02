@@ -115,6 +115,20 @@ describe('checkNames', () => {
     expect(checkNames('示例违禁词', '小鱼', opts)).toEqual({ ok: false, part: 'owner', reason: 'moderation' })
   })
 
+  test.each([
+    ['a QQ number', 'QQ', '12345678'], // QQ家的12345678
+    ['a WeChat id', '微信', 'abc_12345'], // 微信家的abc_12345
+    ['an injection phrase', '你主人', '的QQ是多少'], // 你主人家的的QQ是多少
+  ])('moderates the joined display name when each part passes alone: %s', (_label, owner, ai) => {
+    expect(checkNames(owner, '小鱼', opts)).toMatchObject({ ok: true })
+    expect(checkNames('阿杰', ai, opts)).toMatchObject({ ok: true })
+    expect(checkNames(owner, ai, opts)).toEqual({ ok: false, part: 'both', reason: 'moderation' })
+  })
+
+  test('a part that fails alone is still reported as that part', () => {
+    expect(checkNames('QQ', '示例违禁词', opts)).toEqual({ ok: false, part: 'ai', reason: 'moderation' })
+  })
+
   test('moderation sees through zero-width characters and spacing', () => {
     expect(checkNames('示例​违 禁词', '小鱼', opts)).toEqual({
       ok: false,

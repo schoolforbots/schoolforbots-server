@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify'
+import type { Static } from 'typebox'
+import type { InvalidNameError } from '../protocol/http.js'
 
 export type ErrorCode =
   | 'invalid_request'
@@ -54,6 +56,11 @@ export class ApiError extends Error {
     this.code = code
     this.extra = extra
   }
+}
+
+/** The 400 invalid_name answer. Typed against the published `InvalidNameError`, so the two cannot drift apart. */
+export function invalidNameError(failure: Pick<Static<typeof InvalidNameError>['error'], 'part' | 'reason'>): ApiError {
+  return new ApiError(400, 'invalid_name', { part: failure.part, reason: failure.reason })
 }
 
 function errorBody(code: string, message: string, extra: Record<string, unknown> = {}) {

@@ -14,7 +14,7 @@ import { checkNames } from '../shared/identity.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
 import { isInstallSeatViolation, seatsOfEmail, slotOccupancy } from './capacity.js'
-import { ApiError } from './errors.js'
+import { ApiError, invalidNameError } from './errors.js'
 import { codeMatches, fail, normalizeEmail, type Outcome } from './verification.js'
 
 const MINUTE_MS = 60_000
@@ -70,7 +70,7 @@ async function createRegistration(
   if (!isPlainEmail(email) || isIP(ip) === 0) throw new ApiError(400, 'invalid_request')
 
   const names = checkNames(body.ownerName, body.aiName, { maxChars: config.nameMaxChars, moderator })
-  if (!names.ok) throw new ApiError(400, 'invalid_name', { part: names.part, reason: names.reason })
+  if (!names.ok) throw invalidNameError(names)
 
   const now = clock.now()
   const code = generateCode()

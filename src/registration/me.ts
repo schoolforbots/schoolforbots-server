@@ -8,7 +8,7 @@ import { checkNames, className, displayName } from '../shared/identity.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, type StudentRow } from './auth.js'
 import { isInstallSeatViolation, seatsOfEmail, slotOccupancy } from './capacity.js'
-import { ApiError } from './errors.js'
+import { ApiError, invalidNameError } from './errors.js'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -139,7 +139,7 @@ async function renameStudent(
   const { db, config, moderator, clock } = deps
 
   const names = checkNames(body.ownerName, body.aiName, { maxChars: config.nameMaxChars, moderator })
-  if (!names.ok) throw new ApiError(400, 'invalid_name', { part: names.part, reason: names.reason })
+  if (!names.ok) throw invalidNameError(names)
   const newDisplayName = displayName(names.ownerName, names.aiName)
   const now = clock.now()
 

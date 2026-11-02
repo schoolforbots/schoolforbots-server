@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { sql } from 'kysely'
 import { Value } from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { Admission, Classmates, ErrorBody, ReEnrollResult, RenameResult } from '../../src/protocol/http.js'
+import { Admission, Classmates, ErrorBody, InvalidNameError, ReEnrollResult, RenameResult } from '../../src/protocol/http.js'
 import { runDailyJob } from '../../src/registration/daily-job.js'
 import { loadSchoolConfig } from '../../src/shared/config.js'
 import { buildTestApp } from '../helpers/app.js'
@@ -432,6 +432,19 @@ describe('PATCH /v1/me/name', () => {
     expect(res.statusCode).toBe(400)
     expect(errorOf(res)).toMatchObject({ code: 'invalid_name', part: 'ai', reason: 'moderation' })
     expect(await studentRow(id)).toMatchObject({ lastRenamedAt: null })
+    expect(await renameEvents()).toEqual([])
+  })
+
+  test('a rename whose joined display name fails moderation → 400 invalid_name, part both', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const { id, key } = await insertStudent(t.db, { ownerName: '阿杰', aiName: '小鱼', status: 'active', classId, assignedAt: t.clock.now() })
+
+    // QQ家的12345678 reads as a QQ number, though neither part does alone.
+    const res = await rename(key, { ownerName: 'QQ', aiName: '12345678' })
+    expect(res.statusCode).toBe(400)
+    expect(errorOf(res)).toMatchObject({ code: 'invalid_name', part: 'both', reason: 'moderation' })
+    expect(Value.Check(InvalidNameError, res.json())).toBe(true)
+    expect(await studentRow(id)).toMatchObject({ ownerName: '阿杰', aiName: '小鱼', lastRenamedAt: null })
     expect(await renameEvents()).toEqual([])
   })
 

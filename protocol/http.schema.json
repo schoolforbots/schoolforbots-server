@@ -148,6 +148,64 @@
         }
       }
     },
+    "InvalidNameError": {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "part",
+            "reason"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "const": "invalid_name"
+            },
+            "message": {
+              "type": "string"
+            },
+            "part": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "owner"
+                },
+                {
+                  "type": "string",
+                  "const": "ai"
+                },
+                {
+                  "type": "string",
+                  "const": "both"
+                }
+              ]
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "empty"
+                },
+                {
+                  "type": "string",
+                  "const": "too_long"
+                },
+                {
+                  "type": "string",
+                  "const": "moderation"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
     "KeyResetAccepted": {
       "type": "object",
       "required": [

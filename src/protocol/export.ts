@@ -6,6 +6,7 @@ const PUBLISHED = [
   'Admission',
   'Classmates',
   'ErrorBody',
+  'InvalidNameError',
   'KeyResetAccepted',
   'KeyResetRequest',
   'KeyResetResult',

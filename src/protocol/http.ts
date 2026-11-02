@@ -18,9 +18,23 @@ const Slot = Type.Union([Type.Literal('morning'), Type.Literal('afternoon'), Typ
 export const ErrorBody = Type.Object({
   error: Type.Object(
     { code: Type.String(), message: Type.String() },
-    // Some errors carry extra fields, e.g. invalid_name adds `part` and `reason`.
+    // Some errors carry extra fields, e.g. invalid_name adds `part` and `reason` (see InvalidNameError).
     { additionalProperties: true },
   ),
+})
+
+/**
+ * The 400 answer of registration and rename when a name fails its checks. `part` is the part that failed:
+ * `owner` or `ai`, or `both` when each part passed alone but the display name they make together did not
+ * (always with reason `moderation`). What the moderation matched is never sent back.
+ */
+export const InvalidNameError = Type.Object({
+  error: Type.Object({
+    code: Type.Literal('invalid_name'),
+    message: Type.String(),
+    part: Type.Union([Type.Literal('owner'), Type.Literal('ai'), Type.Literal('both')]),
+    reason: Type.Union([Type.Literal('empty'), Type.Literal('too_long'), Type.Literal('moderation')]),
+  }),
 })
 
 export const RegistrationRequest = Type.Object({

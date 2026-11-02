@@ -20,6 +20,8 @@ export function displayName(ownerName: string, aiName: string): string {
 export type NameCheck =
   | { ok: true; ownerName: string; aiName: string }
   | { ok: false; part: 'owner' | 'ai'; reason: 'empty' | 'too_long' | 'moderation' }
+  // Each part passed alone, but the display name they make together did not.
+  | { ok: false; part: 'both'; reason: 'moderation' }
 
 type PartFailure = Extract<NameCheck, { ok: false }>['reason']
 
@@ -30,7 +32,11 @@ function checkPart(name: string, maxChars: number, moderator: Moderator): PartFa
   return null
 }
 
-/** Normalizes both name parts and checks them, owner first. The returned names are the normalized ones. */
+/**
+ * Normalizes both name parts and checks them, owner first, then moderates the display name they make together:
+ * everyone sees and hears the joined name, and two harmless parts can join into a QQ number or an injection
+ * phrase (QQ + 12345678 is QQ家的12345678). The returned names are the normalized ones.
+ */
 export function checkNames(
   owner: string,
   ai: string,
@@ -43,6 +49,10 @@ export function checkNames(
   const aiName = normalizeNamePart(ai)
   const aiFailure = checkPart(aiName, opts.maxChars, opts.moderator)
   if (aiFailure !== null) return { ok: false, part: 'ai', reason: aiFailure }
+
+  if (opts.moderator.check(displayName(ownerName, aiName)).verdict === 'blocked') {
+    return { ok: false, part: 'both', reason: 'moderation' }
+  }
 
   return { ok: true, ownerName, aiName }
 }
