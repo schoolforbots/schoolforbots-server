@@ -100,7 +100,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
     app.patch(
       '/v1/me/name',
       { preHandler: requireStudent(deps), schema: { body: RenameRequest, response: { 200: RenameResult } } },
-      async (request) => renameStudent(deps, studentOf(request).id, request.body),
+      async (request) => renameStudent(deps, studentOf(request), request.body),
     )
 
     app.post(
@@ -133,10 +133,11 @@ async function classmatesOf(db: Kysely<Database>, classId: number): Promise<Clas
 
 async function renameStudent(
   deps: RegistrationDeps,
-  studentId: number,
+  current: StudentRow,
   body: Static<typeof RenameRequest>,
 ): Promise<Static<typeof RenameResult>> {
   const { db, config, moderator, clock } = deps
+  const studentId = current.id
 
   const names = checkNames(body.ownerName, body.aiName, { maxChars: config.nameMaxChars, moderator })
   if (!names.ok) throw invalidNameError(names)
@@ -144,6 +145,11 @@ async function renameStudent(
   const now = clock.now()
 
   return db.transaction().execute(async (trx) => {
+    // The slot lock comes first (a student's slot never changes). The nightly job holds it while it reads the names
+    // in each class and places newcomers by them, so a rename cannot slip a clashing name in between. Lock order is
+    // slot, then student row, then class row, the same as re-enroll's slot, then student row.
+    await lock(trx, slotLockKey(current.slot))
+
     // The student is read again under a row lock. The nightly job may have admitted or dropped them since the key
     // was checked, and two renames by one student must not both pass the cooldown.
     const student = await trx
@@ -167,8 +173,7 @@ async function renameStudent(
     const classId = student.classId
 
     // The class row is locked before the name check and held until commit, so two renames in one class cannot both
-    // find the name free. Student row first, class row second: the nightly job also updates students before it
-    // links any of them to a class, so the two cannot wait on each other.
+    // find the name free.
     await trx.selectFrom('classes').select('id').where('id', '=', classId).forUpdate().executeTakeFirstOrThrow()
 
     if (student.lastRenamedAt !== null) {

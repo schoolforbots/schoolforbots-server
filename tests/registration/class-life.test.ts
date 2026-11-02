@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { sql } from 'kysely'
 import { Value } from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { Admission, Classmates, ErrorBody, InvalidNameError, ReEnrollResult, RenameResult } from '../../src/protocol/http.js'
 import { runDailyJob } from '../../src/registration/daily-job.js'
-import { loadSchoolConfig } from '../../src/shared/config.js'
+import { loadSchoolConfig, type Slot } from '../../src/shared/config.js'
+import { lock, slotLockKey } from '../../src/shared/db.js'
 import { buildTestApp } from '../helpers/app.js'
 import { insertClass, insertStudent } from '../helpers/factories.js'
 
@@ -395,6 +397,58 @@ describe('PATCH /v1/me/name', () => {
     expect(await renameEvents()).toHaveLength(1)
     const named = await t.db.selectFrom('students').select('id').where('ownerName', '=', '抢注').execute()
     expect(named).toHaveLength(1)
+  })
+
+  /** Holds the lock of `slot` in an open transaction until `release` is called. */
+  async function holdSlotLock(slot: Slot) {
+    let release!: () => void
+    const released = new Promise<void>((resolve) => (release = resolve))
+    let locked!: () => void
+    const isLocked = new Promise<void>((resolve) => (locked = resolve))
+    const holder = t.db.transaction().execute(async (trx) => {
+      await lock(trx, slotLockKey(slot))
+      locked()
+      await released
+    })
+    await isLocked
+    return {
+      async release() {
+        release()
+        await holder
+      },
+    }
+  }
+
+  test.each(['pending', 'active'] as const)(
+    'rename of a student who is %s waits for the slot lock, which the nightly job holds while it reads names',
+    async (status) => {
+      const classId = status === 'active' ? await insertClass(t.db, { classNo: 1 }) : null
+      const { key } = await insertStudent(t.db, { status, slot: 'evening', classId, assignedAt: classId === null ? null : t.clock.now() })
+      const held = await holdSlotLock('evening')
+
+      let finished = false
+      const renaming = rename(key, { ownerName: '甲', aiName: '一号' }).then((res) => {
+        finished = true
+        return res
+      })
+      await sleep(300)
+      const finishedWhileLocked = finished
+      await held.release()
+
+      expect(finishedWhileLocked).toBe(false)
+      expect((await renaming).statusCode).toBe(200)
+    },
+  )
+
+  test('another slot\'s lock does not hold a rename up', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const { key } = await insertStudent(t.db, { status: 'active', slot: 'evening', classId, assignedAt: t.clock.now() })
+    const held = await holdSlotLock('morning')
+    try {
+      expect((await rename(key, { ownerName: '甲', aiName: '一号' })).statusCode).toBe(200)
+    } finally {
+      await held.release()
+    }
   })
 
   test('concurrent renames by one student start the cooldown once', async () => {
