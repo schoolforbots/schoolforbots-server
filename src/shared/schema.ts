@@ -64,7 +64,12 @@ export interface StudentsTable {
 
 export interface KeyResetsTable {
   id: Generated<string>
-  studentId: number
+  /** The student the code was mailed to; null for a decoy, a request whose student id and email did not match. */
+  studentId: number | null
+  /** What the request named. It is kept for decoys too, so every request is treated alike. */
+  requestedStudentId: number
+  /** The requested email, trimmed and lower-cased. */
+  requestedEmail: string
   codeHash: string
   attempts: Generated<number>
   expiresAt: Date

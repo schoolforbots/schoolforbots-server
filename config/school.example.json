@@ -7,7 +7,7 @@
   "nameMaxChars": 10,
   "renameCooldownDays": 30,
   "inactivityDropDays": 30,
-  "verificationCode": { "ttlMinutes": 10, "maxAttempts": 5, "resendSeconds": 60 },
+  "verificationCode": { "ttlMinutes": 10, "maxAttempts": 5, "resendSeconds": 60, "keyResetDailyFailureCap": 20 },
   "httpRateLimitPerMinute": 60,
   "slots": {
     "morning": { "label": "上午班", "start": "10:00", "end": "11:00" },

@@ -32,7 +32,12 @@ test('example config loads with spec defaults', () => {
   expect(c.nameMaxChars).toBe(10)
   expect(c.renameCooldownDays).toBe(30)
   expect(c.inactivityDropDays).toBe(30)
-  expect(c.verificationCode).toEqual({ ttlMinutes: 10, maxAttempts: 5, resendSeconds: 60 })
+  expect(c.verificationCode).toEqual({
+    ttlMinutes: 10,
+    maxAttempts: 5,
+    resendSeconds: 60,
+    keyResetDailyFailureCap: 20,
+  })
   expect(c.httpRateLimitPerMinute).toBe(60)
   expect(c.slots.morning).toEqual({ label: '上午班', start: '10:00', end: '11:00' })
   expect(c.slots.afternoon).toEqual({ label: '下午班', start: '15:00', end: '16:00' })
@@ -74,4 +79,17 @@ test('loadEnv reads overrides', () => {
     moderationDataDir: '/m', configPath: '/c.json', registrationPort: 9090, trustProxy: true,
   })
   expect(loadEnv({ DATABASE_URL: 'postgres://x', TRUST_PROXY: '0' }).trustProxy).toBe(false)
+})
+
+test('the key-reset failure cap must be a positive integer', () => {
+  for (const cap of [0, -1, 1.5, '20']) {
+    const tmpPath = writeTmpConfig((c) => {
+      c.verificationCode = { ttlMinutes: 10, maxAttempts: 5, resendSeconds: 60, keyResetDailyFailureCap: cap }
+    })
+    expect(() => loadSchoolConfig(tmpPath), String(cap)).toThrow(/keyResetDailyFailureCap/)
+  }
+  const missing = writeTmpConfig((c) => {
+    c.verificationCode = { ttlMinutes: 10, maxAttempts: 5, resendSeconds: 60 }
+  })
+  expect(() => loadSchoolConfig(missing)).toThrow(/keyResetDailyFailureCap/)
 })

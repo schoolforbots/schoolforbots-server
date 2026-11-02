@@ -1,30 +1,59 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
+import type { FastifyBaseLogger } from 'fastify'
 import type { Kysely } from 'kysely'
 import { Type, type Static } from 'typebox'
 import { KeyResetAccepted, KeyResetRequest, KeyResetResult, KeyResetVerifyRequest } from '../protocol/http.js'
-import type { Database } from '../shared/db.js'
+import { lock, type Database } from '../shared/db.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
 import { ApiError } from './errors.js'
 import { codeMatches, fail, normalizeEmail, type Outcome } from './verification.js'
 
 const MINUTE_MS = 60_000
+const DAY_MS = 24 * 60 * MINUTE_MS
 
 const IdParams = Type.Object({ id: Type.String({ format: 'uuid' }) })
+
+/** What `requestKeyReset` leaves to do once the request has been answered. */
+interface PendingMail {
+  resetId: string
+  email: string
+  code: string
+}
 
 /**
  * A student who lost the key asks for a new one by student id and registration
  * email; a code goes to that mailbox, and entering it replaces the key.
+ *
+ * Anyone can call this, so nothing in the answers may tell whether a student id
+ * and email belong together. A request that matches no student is stored as a
+ * decoy (`student_id` null) that gets the same resend window, attempt limits and
+ * expiry as a real one; only the mail, and the chance of success, are missing.
  */
 export function keyResetRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
   return async (app) => {
+    // Mails still being sent after their request was answered. Closing the app waits for them.
+    const pendingMails = new Set<Promise<void>>()
+    app.addHook('onClose', async () => {
+      await Promise.all(pendingMails)
+    })
+
     app.post(
       '/v1/key-resets',
       { schema: { body: KeyResetRequest, response: { 202: KeyResetAccepted } } },
       async (request, reply) => {
-        const accepted = await requestKeyReset(deps, request.body)
-        return reply.status(202).send(accepted)
+        const { accepted, mail } = await requestKeyReset(deps, request.body)
+        reply.status(202).send(accepted)
+
+        // The mail is not awaited: waiting for the mail server would make a real
+        // request slower than a decoy, and a mail failure would show in the answer.
+        if (mail !== null) {
+          const sending = sendResetMail(deps, mail, request.log)
+          pendingMails.add(sending)
+          void sending.finally(() => pendingMails.delete(sending))
+        }
+        return reply
       },
     )
 
@@ -36,60 +65,83 @@ export function keyResetRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebo
   }
 }
 
+/** One lock per student id, shared by requests and verifications, real and decoy alike. */
+function studentLock(studentId: number): string {
+  return `key-reset:${studentId}`
+}
+
 async function requestKeyReset(
   deps: RegistrationDeps,
   body: Static<typeof KeyResetRequest>,
-): Promise<Static<typeof KeyResetAccepted>> {
-  const { db, config, mailer, clock } = deps
+): Promise<{ accepted: Static<typeof KeyResetAccepted>; mail: PendingMail | null }> {
+  const { db, config, clock } = deps
 
   const email = normalizeEmail(body.email)
   const now = clock.now()
   const code = generateCode()
   const expiresAt = new Date(now.getTime() + config.verificationCode.ttlMinutes * MINUTE_MS)
 
-  const resetId = await db.transaction().execute(async (trx): Promise<string | null> => {
-    // The row lock serializes requests for one student, so a burst of parallel
-    // requests cannot all get past the resend check below.
-    const student = await trx
-      .selectFrom('students')
-      .select('id')
-      .where('id', '=', body.studentId)
-      .where('email', '=', email)
-      .forNoKeyUpdate()
-      .executeTakeFirst()
-    if (student === undefined) return null
+  return db.transaction().execute(async (trx) => {
+    // Serializes requests for one student id, so a burst of parallel requests
+    // cannot all get past the resend check below, whichever kind they are.
+    await lock(trx, studentLock(body.studentId))
 
+    // The window belongs to the pair that was asked for and counts decoys too.
     const recent = await trx
       .selectFrom('keyResets')
       .select('id')
-      .where('studentId', '=', student.id)
+      .where('requestedStudentId', '=', body.studentId)
+      .where('requestedEmail', '=', email)
       .where('createdAt', '>', new Date(now.getTime() - config.verificationCode.resendSeconds * 1000))
       .limit(1)
       .executeTakeFirst()
     if (recent !== undefined) throw new ApiError(429, 'resend_too_soon')
 
+    const student = await trx
+      .selectFrom('students')
+      .select('id')
+      .where('id', '=', body.studentId)
+      .where('email', '=', email)
+      .executeTakeFirst()
+
+    // A decoy holds the hash of a random string: nobody is sent it, and no six-digit code matches it.
     const row = await trx
       .insertInto('keyResets')
-      .values({ studentId: student.id, codeHash: hashSecret(code), expiresAt, createdAt: now, usedAt: null })
+      .values({
+        studentId: student?.id ?? null,
+        requestedStudentId: body.studentId,
+        requestedEmail: email,
+        codeHash: hashSecret(student === undefined ? randomUUID() : code),
+        expiresAt,
+        createdAt: now,
+        usedAt: null,
+      })
       .returning('id')
       .executeTakeFirstOrThrow()
-    return row.id
+
+    return {
+      accepted: { resetId: row.id },
+      mail: student === undefined ? null : { resetId: row.id, email, code },
+    }
   })
+}
 
-  // Anyone can ask, so a request that matches no student gets the same answer as
-  // one that does: a made-up id that nothing is stored under, and no mail.
-  if (resetId === null) return { resetId: randomUUID() }
-
-  // Mail goes out after the commit, never while holding a connection and locks.
-  // If it cannot be sent, the reset is withdrawn so it does not block a retry with resend_too_soon.
+/**
+ * Runs after the answer has gone out and never throws. If the mail cannot be sent
+ * the error is logged and the reset is withdrawn, so it does not hold up a retry
+ * with resend_too_soon.
+ */
+async function sendResetMail(deps: RegistrationDeps, mail: PendingMail, log: FastifyBaseLogger): Promise<void> {
   try {
-    await mailer.sendCode(email, 'key_reset', code)
+    await deps.mailer.sendCode(mail.email, 'key_reset', mail.code)
   } catch (err) {
-    await db.deleteFrom('keyResets').where('id', '=', resetId).execute()
-    throw err
+    log.error(err, 'could not send the key reset code')
+    try {
+      await deps.db.deleteFrom('keyResets').where('id', '=', mail.resetId).execute()
+    } catch (deleteErr) {
+      log.error(deleteErr, 'could not withdraw the key reset whose code was not sent')
+    }
   }
-
-  return { resetId }
 }
 
 async function verifyKeyReset(
@@ -107,6 +159,17 @@ async function verifyKeyReset(
   return outcome.result
 }
 
+/** Failed guesses at any reset requested for this student id in the last 24 hours, decoys included. */
+async function recentFailures(trx: Kysely<Database>, requestedStudentId: number, now: Date): Promise<number> {
+  const row = await trx
+    .selectFrom('keyResets')
+    .select((eb) => eb.fn.sum<string | null>('attempts').as('failures'))
+    .where('requestedStudentId', '=', requestedStudentId)
+    .where('createdAt', '>', new Date(now.getTime() - DAY_MS))
+    .executeTakeFirstOrThrow()
+  return Number(row.failures ?? 0)
+}
+
 async function verifyInTransaction(
   trx: Kysely<Database>,
   deps: RegistrationDeps,
@@ -114,15 +177,29 @@ async function verifyInTransaction(
   code: string,
   now: Date,
 ): Promise<Outcome<Static<typeof KeyResetResult>>> {
+  const { verificationCode } = deps.config
+
   // The row lock serializes every guess at this reset, so parallel requests
   // cannot read the same attempt count and get more guesses than allowed.
   const reset = await trx.selectFrom('keyResets').selectAll().where('id', '=', id).forUpdate().executeTakeFirst()
   // An unknown id and a used one look like a wrong code, so ids reveal nothing.
   if (reset === undefined || reset.usedAt !== null) return fail(400, 'code_invalid')
-  if (reset.attempts >= deps.config.verificationCode.maxAttempts) return fail(429, 'code_attempts_exceeded')
-  if (now.getTime() >= reset.expiresAt.getTime()) return fail(410, 'code_expired')
 
-  if (!codeMatches(reset.codeHash, code)) {
+  // The daily cap is summed over all resets of the student id, so guesses at
+  // different resets of it must not read the sum at the same time.
+  await lock(trx, studentLock(reset.requestedStudentId))
+
+  // Decoys and real resets take every branch below alike.
+  if (reset.attempts >= verificationCode.maxAttempts) return fail(429, 'code_attempts_exceeded')
+  if (now.getTime() >= reset.expiresAt.getTime()) return fail(410, 'code_expired')
+  // Over the cap the code is not looked at, and nothing is counted.
+  if ((await recentFailures(trx, reset.requestedStudentId, now)) >= verificationCode.keyResetDailyFailureCap) {
+    return fail(429, 'code_attempts_exceeded')
+  }
+
+  // A decoy has no student to give a key to, so it fails like a wrong code whatever is sent.
+  const matches = codeMatches(reset.codeHash, code)
+  if (reset.studentId === null || !matches) {
     await trx
       .updateTable('keyResets')
       .set((eb) => ({ attempts: eb('attempts', '+', 1) }))

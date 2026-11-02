@@ -23,6 +23,8 @@ export const SchoolConfigSchema = Type.Object({
     ttlMinutes: PositiveInt,
     maxAttempts: PositiveInt,
     resendSeconds: Type.Integer({ minimum: 0 }),
+    // Failed key-reset guesses allowed per student id in any 24 hours, summed over all its reset requests.
+    keyResetDailyFailureCap: PositiveInt,
   }),
   httpRateLimitPerMinute: PositiveInt,
   slots: Type.Object({ morning: SlotConfig, afternoon: SlotConfig, evening: SlotConfig }),

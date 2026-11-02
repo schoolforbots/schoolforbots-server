@@ -1,6 +1,6 @@
 import { isIP } from 'node:net'
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
-import { sql, type Kysely } from 'kysely'
+import type { Kysely } from 'kysely'
 import { Type, type Static } from 'typebox'
 import { IsEmail } from 'typebox/format'
 import {
@@ -9,7 +9,7 @@ import {
   VerifyRequest,
   VerifyResult,
 } from '../protocol/http.js'
-import { SEAT_STATUSES, type Database } from '../shared/db.js'
+import { SEAT_STATUSES, lock, type Database } from '../shared/db.js'
 import { checkNames } from '../shared/identity.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
@@ -52,11 +52,6 @@ export function registrationRoutes(deps: RegistrationDeps): FastifyPluginAsyncTy
  */
 function isPlainEmail(email: string): boolean {
   return IsEmail(email) && !/["[\]\s]/u.test(email)
-}
-
-/** Takes a transaction-scoped advisory lock, so transactions touching the same key run one at a time. */
-async function lock(trx: Kysely<Database>, key: string): Promise<void> {
-  await sql`select pg_advisory_xact_lock(hashtext(${key}))`.execute(trx)
 }
 
 async function countRows(query: { executeTakeFirstOrThrow(): Promise<{ count: string | number | bigint }> }) {

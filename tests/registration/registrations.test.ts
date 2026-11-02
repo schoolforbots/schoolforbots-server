@@ -5,6 +5,7 @@ import { ErrorBody, RegistrationAccepted, VerifyResult } from '../../src/protoco
 import { hashSecret } from '../../src/shared/secrets.js'
 import { buildTestApp } from '../helpers/app.js'
 import { insertStudent } from '../helpers/factories.js'
+import { captureLogs } from '../helpers/logs.js'
 
 type TestApp = Awaited<ReturnType<typeof buildTestApp>>
 
@@ -453,6 +454,8 @@ describe('POST /v1/registrations/:id/verify', () => {
     const res = await verify(registrationId, code)
     expect(res.statusCode).toBe(429)
     expect(errorOf(res).code).toBe('code_attempts_exceeded')
+    // The wording is shared with the key-reset flow, so it must not tell anyone to register again.
+    expect(errorOf(res).message).toBe('验证码错得太多次了，请重新获取。')
     expect(await t.db.selectFrom('students').selectAll().execute()).toEqual([])
   })
 
@@ -462,6 +465,7 @@ describe('POST /v1/registrations/:id/verify', () => {
     const res = await verify(registrationId, code)
     expect(res.statusCode).toBe(410)
     expect(errorOf(res).code).toBe('code_expired')
+    expect(errorOf(res).message).toBe('验证码已经过期，请重新获取。')
   })
 
   test('the code is still good just before it expires and dead at the expiry time', async () => {
@@ -596,12 +600,6 @@ describe('global rate limit', () => {
 })
 
 describe('logging', () => {
-  function captureLogs() {
-    const lines: string[] = []
-    const entries = () => lines.flatMap((l) => l.split('\n')).filter((l) => l !== '').map((l) => JSON.parse(l) as Record<string, any>)
-    return { stream: { write: (line: string) => void lines.push(line) }, entries }
-  }
-
   async function useLogger(stream: { write(line: string): void }) {
     await t.destroy()
     t = await buildTestApp({ logger: { level: 'info', stream } })
