@@ -52,4 +52,4 @@ TODO：第二期补正文。
 
 ## 开源协议
 
-本项目以 [AGPL-3.0](LICENSE) 协议开源。
+本项目以 [GNU Affero 通用公共许可证（AGPL）第 3 版](LICENSE)开源；你也可以选择该许可证的任何更新版本（SPDX：`AGPL-3.0-or-later`）。
