@@ -3,6 +3,7 @@ import { createModerator } from '../moderation/moderator.js'
 import { systemClock } from '../shared/clock.js'
 import { loadEnv, loadSchoolConfig } from '../shared/config.js'
 import { createDb, migrateToLatest } from '../shared/db.js'
+import { createShutdown } from '../shared/shutdown.js'
 import { buildRegistrationApp } from './app.js'
 import { runDailyJob } from './daily-job.js'
 import { ConsoleMailer, createSmtpMailer, type Mailer } from './mailer.js'
@@ -55,23 +56,14 @@ async function main(): Promise<void> {
 
   const dailyJob = startDailyJob(() => runAndLog('midnight'), config.timezone)
 
-  let shuttingDown = false
-  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
-    if (shuttingDown) return
-    shuttingDown = true
+  const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
-    try {
-      dailyJob.stop()
-      await app.close() // waits for requests and key-reset mails still in flight
-      await db.destroy()
-      process.exit(0)
-    } catch (err) {
-      console.error('Shutdown failed', err)
-      process.exit(1)
-    }
-  }
-  process.on('SIGTERM', (signal) => void shutdown(signal))
-  process.on('SIGINT', (signal) => void shutdown(signal))
+    dailyJob.stop()
+    await app.close() // waits for requests and key-reset mails still in flight
+    await db.destroy()
+  })
+  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', shutdown)
 }
 
 main().catch((err) => {

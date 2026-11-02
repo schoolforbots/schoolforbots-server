@@ -1,9 +1,14 @@
+import { once } from 'node:events'
+import type { AddressInfo } from 'node:net'
 import { sql } from 'kysely'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { tickIntervalMs } from '../../src/class/service.js'
-import { startTicker } from '../../src/class/ticker.js'
+import WebSocket from 'ws'
+import { startClassService, tickIntervalMs } from '../../src/class/service.js'
+import { startTicker, type Ticker } from '../../src/class/ticker.js'
 import { assertMigrationsUpToDate } from '../../src/shared/db.js'
+import { buildTestClassApp } from '../helpers/class-app.js'
 import { createTestDb } from '../helpers/db.js'
+import { insertClass, insertLesson, insertStudent } from '../helpers/factories.js'
 
 // The parts of the class service's entry point (src/class/main.ts) that can be tested without starting it.
 
@@ -161,5 +166,58 @@ describe('the tick interval', () => {
     [600, 20],
   ])('at timeline speed %i is %i ms', (speed, ms) => {
     expect(tickIntervalMs(speed)).toBe(ms)
+  })
+})
+
+describe('starting the class service', () => {
+  let service: Awaited<ReturnType<typeof buildTestClassApp>> | undefined
+  let ticker: Ticker | undefined
+  const sockets: WebSocket[] = []
+
+  afterEach(async () => {
+    await ticker?.stop()
+    ticker = undefined
+    for (const ws of sockets.splice(0)) ws.terminate()
+    await service?.destroy()
+    service = undefined
+  })
+
+  /** Connects over TCP, says hello and returns the first message after the ack. */
+  async function helloOverTcp(key: string): Promise<Record<string, any>> {
+    const { port } = service!.app.server.address() as AddressInfo
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/class`, { headers: { authorization: `Bearer ${key}` } })
+    sockets.push(ws)
+    const received: Record<string, any>[] = []
+    ws.on('message', (data) => void received.push(JSON.parse(String(data))))
+    await once(ws, 'open')
+    ws.send(JSON.stringify({ id: 'h', type: 'hello', protocol: 'v1', plugin: { type: 'openclaw', version: '1.2.3' }, maxRounds: 3 }))
+    for (let waited = 0; received.length < 1 || (received[0]!.type === 'ack' && received.length < 2); waited += 5) {
+      if (waited > 5000) throw new Error('Timed out waiting for the answer to hello')
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    return received[0]!.type === 'ack' ? received[1]! : received[0]!
+  }
+
+  test('ticks before it listens, so a student back right after a restart in the middle of a lesson is let in', async () => {
+    // The service starts at 20:10, ten minutes into the evening lesson, as after a restart.
+    service = await buildTestClassApp({ now: new Date('2026-11-02T20:10:00+08:00') })
+    await insertLesson(service.db, { date: '2026-11-02', subject: '科学', title: '光的折射' })
+    const classId = await insertClass(service.db, { classNo: 1 })
+    const { key } = await insertStudent(service.db, { classId, status: 'active' })
+
+    ticker = await startClassService(service, { port: 0, host: '127.0.0.1', speed: 1 })
+
+    const welcome = await helloOverTcp(key)
+    expect(welcome).toMatchObject({ type: 'welcome', session: { kind: 'lesson', title: '光的折射' } })
+  })
+
+  test('a failed first tick fails the start, and nothing listens', async () => {
+    service = await buildTestClassApp()
+    const failure = new Error('the database is down')
+
+    await expect(
+      startClassService({ app: service.app, tick: () => Promise.reject(failure) }, { port: 0, host: '127.0.0.1', speed: 1 }),
+    ).rejects.toBe(failure)
+    expect(service.app.server.listening).toBe(false)
   })
 })

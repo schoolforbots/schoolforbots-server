@@ -1,8 +1,8 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, expect, test } from 'vitest'
-import { loadEnv, loadSchoolConfig } from '../../src/shared/config.js'
+import { afterAll, beforeAll, describe, expect, test } from 'vitest'
+import { loadClassEnv, loadEnv, loadSchoolConfig } from '../../src/shared/config.js'
 
 let tmpDir: string
 
@@ -300,4 +300,48 @@ test('CLASS_TIMELINE_SPEED must be a number from 1 to 600', () => {
       raw,
     ).toBe(value)
   }
+})
+
+describe('loadClassEnv', () => {
+  test('reads only what the class service uses: it needs no mail settings', () => {
+    expect(() => loadClassEnv({})).toThrow(/DATABASE_URL/)
+    expect(loadClassEnv({ DATABASE_URL: 'postgres://x' })).toEqual({
+      databaseUrl: 'postgres://x',
+      moderationDataDir: 'data/moderation',
+      configPath: 'config/school.json',
+      classPort: 8081,
+      classTimelineSpeed: 1,
+    })
+    // Mail settings that would stop the registration service are none of its business.
+    for (const mail of [{ MAIL_TRANSPORT: 'smtp' }, { MAIL_TRANSPORT: 'sendmail' }, { SMTP_URL: '' }]) {
+      expect(loadClassEnv({ DATABASE_URL: 'postgres://x', ...mail }).databaseUrl, JSON.stringify(mail)).toBe('postgres://x')
+    }
+  })
+
+  test('reads overrides, and empty values count as unset', () => {
+    expect(
+      loadClassEnv({
+        DATABASE_URL: 'postgres://x',
+        MODERATION_DATA_DIR: '/m',
+        SCHOOL_CONFIG: '/c.json',
+        CLASS_PORT: '9091',
+        CLASS_TIMELINE_SPEED: '60',
+      }),
+    ).toEqual({ databaseUrl: 'postgres://x', moderationDataDir: '/m', configPath: '/c.json', classPort: 9091, classTimelineSpeed: 60 })
+    expect(loadClassEnv({ DATABASE_URL: 'postgres://x', CLASS_PORT: '', CLASS_TIMELINE_SPEED: '' })).toMatchObject({
+      classPort: 8081,
+      classTimelineSpeed: 1,
+    })
+  })
+
+  test('rejects an invalid CLASS_PORT or CLASS_TIMELINE_SPEED as loadEnv does', () => {
+    for (const port of ['0', '65536', '-1', '80.5', 'abc']) {
+      expect(() => loadClassEnv({ DATABASE_URL: 'postgres://x', CLASS_PORT: port }), port).toThrow(/CLASS_PORT/)
+    }
+    for (const speed of ['0', '0.5', '601', '-3', 'fast', 'NaN', 'Infinity']) {
+      expect(() => loadClassEnv({ DATABASE_URL: 'postgres://x', CLASS_TIMELINE_SPEED: speed }), speed).toThrow(
+        /CLASS_TIMELINE_SPEED/,
+      )
+    }
+  })
 })

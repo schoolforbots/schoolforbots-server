@@ -455,7 +455,7 @@ describe('the transport', () => {
   })
 
   test('a client that stops answering pings is dropped, and its classmates see it leave', async () => {
-    const s = await start({ pingIntervalMs: 500 })
+    const s = await start({ pingIntervalMs: 1000 })
     const { classId, students } = await seedClass(s, 2)
     const [a, b] = students
     await tickAt(s, at('19:50'))
@@ -476,7 +476,7 @@ describe('the transport', () => {
     ])
 
     // The one that answers stays, ping after ping.
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await new Promise((resolve) => setTimeout(resolve, 2500))
     await ca.sync()
     expect(ca.received.filter((m) => m.type === 'closing')).toEqual([])
   })
@@ -699,6 +699,38 @@ describe('who is online', () => {
     expect(clients.flatMap((c) => c.received.filter((m) => m.type === 'presence' && 'left' in m))).toEqual([])
     expect(s.disconnects.sort((x, y) => x - y)).toEqual(students.map((x) => x.id))
     expect(s.hub.online(classId)).toEqual([])
+  })
+
+  test('a hello still going when the service shuts down registers nothing and is told the same; so is anyone later', async () => {
+    const s = await start()
+    const { classId, students } = await seedClass(s, 2)
+    await tickAt(s, at('19:50'))
+    const client = await connect(students[0]!.key)
+
+    // Hold the hello inside its attendance write, shut down meanwhile, then let the hello go on.
+    await s.db.transaction().execute(async (trx) => {
+      await sql`lock table attendance in share mode`.execute(trx)
+      client.send({ id: 'h1', ...HELLO })
+      await waitUntilAsync(async () => {
+        const { rows } = await sql<{ n: number }>`
+          select count(*)::int as n from pg_locks l join pg_class c on c.oid = l.relation
+          where c.relname = 'attendance' and not l.granted`.execute(s.db)
+        return rows[0]!.n > 0
+      }, 'the hello to wait on the attendance table')
+      s.disconnectAll()
+    })
+
+    const maintenance = { type: 'closing', reason: 'session_over', message: '学校正在维护，请稍后重连。' }
+    expect(await client.next()).toEqual(maintenance)
+    expect(await client.closed()).toBe(1000)
+    expect(client.received.map((m) => m.type)).toEqual(['closing'])
+    expect(s.hub.online(classId)).toEqual([])
+    expect(s.disconnects).toEqual([])
+
+    // Anyone coming in now is turned away at the door.
+    const later = await connect(students[1]!.key)
+    expect(await later.next()).toEqual(maintenance)
+    expect(await later.closed()).toBe(1000)
   })
 
   test('what the hub pushes while a student joins waits for the welcome and the replay, without doubles', async () => {
