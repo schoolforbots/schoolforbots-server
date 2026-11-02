@@ -49,6 +49,21 @@ export async function migrateToLatest(db: Kysely<Database>): Promise<void> {
   if (error) throw error
 }
 
+/**
+ * Throws, naming them, when there are migrations the database has not run. For a service that does not migrate the
+ * database itself (the class service: the registration service runs the migrations).
+ */
+export async function assertMigrationsUpToDate(db: Kysely<Database>): Promise<void> {
+  const migrations = await new Migrator({ db, provider }).getMigrations()
+  const pending = migrations.filter((m) => m.executedAt === undefined).map((m) => m.name)
+  if (pending.length > 0) {
+    throw new Error(
+      `The database is not migrated to the latest version (pending: ${pending.join(', ')}). ` +
+        'Start the registration service first: it runs the migrations.',
+    )
+  }
+}
+
 /** Takes a transaction-scoped advisory lock, so transactions touching the same key run one at a time. */
 export async function lock(trx: Kysely<Database>, key: string): Promise<void> {
   await sql`select pg_advisory_xact_lock(hashtext(${key}))`.execute(trx)

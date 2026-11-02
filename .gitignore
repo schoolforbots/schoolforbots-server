@@ -9,3 +9,4 @@ data/moderation/*.txt
 !data/moderation/*.example.txt
 docs/superpowers/
 .superpowers/
+.sim/
