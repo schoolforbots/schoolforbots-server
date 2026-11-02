@@ -6,7 +6,13 @@ import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
-import { serveConnection, type ConnectionContext, type MessageHandlers, type StudentRow } from './connection.js'
+import {
+  MAX_FRAME_BYTES,
+  serveConnection,
+  type ConnectionContext,
+  type MessageHandlers,
+  type StudentRow,
+} from './connection.js'
 import type { LessonHooks } from './hooks.js'
 import type { MemoryHub } from './hub.js'
 import type { ClassRuntime } from './runtime.js'
@@ -31,8 +37,11 @@ export interface ClassDeps {
   logger?: FastifyServerOptions['logger']
 }
 
-/** The most a frame may carry, as the protocol says; a bigger one closes the connection with 1009. */
-const MAX_FRAME_BYTES = 16 * 1024
+/**
+ * The hard ceiling on a frame, well above the protocol's `MAX_FRAME_BYTES`: a frame between the two is answered
+ * `invalid_message`, and one past this closes the connection with 1009 before it is read into memory whole.
+ */
+const WS_MAX_PAYLOAD = 4 * MAX_FRAME_BYTES
 
 // As in the registration service: the scheme is case-insensitive, and one or more spaces separate it from the key.
 const BEARER = /^Bearer\s+(\S+)$/i
@@ -49,7 +58,7 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
   const students = new WeakMap<FastifyRequest, StudentRow>()
 
   app.register(websocket, {
-    options: { maxPayload: MAX_FRAME_BYTES },
+    options: { maxPayload: WS_MAX_PAYLOAD },
     // Errors of an open connection (a frame too big, a client gone uncleanly): `ws` closes the connection itself.
     errorHandler(error, socket, request) {
       request.log.warn({ err: error }, 'class connection error')
