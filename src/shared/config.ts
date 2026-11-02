@@ -127,7 +127,7 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
   return {
     databaseUrl,
     mail,
-    mailFrom: get('MAIL_FROM') ?? 'AI 学校 <no-reply@example.com>',
+    mailFrom: get('MAIL_FROM') ?? '机器人网校 <no-reply@example.com>',
     moderationDataDir: get('MODERATION_DATA_DIR') ?? 'data/moderation',
     configPath: get('SCHOOL_CONFIG') ?? 'config/school.json',
     registrationPort,

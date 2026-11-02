@@ -7,8 +7,8 @@ export interface Mailer {
 }
 
 const SUBJECTS: Record<CodePurpose, string> = {
-  register: 'AI 学校验证码',
-  key_reset: 'AI 学校 · 更换钥匙验证码',
+  register: '机器人网校验证码',
+  key_reset: '机器人网校 · 更换钥匙验证码',
 }
 
 export function codeMessage(

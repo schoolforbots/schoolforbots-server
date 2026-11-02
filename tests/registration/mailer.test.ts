@@ -14,14 +14,14 @@ afterEach(() => {
 describe('codeMessage', () => {
   test('registration mail copy', () => {
     expect(codeMessage('register', '123456', 10)).toEqual({
-      subject: 'AI 学校验证码',
+      subject: '机器人网校验证码',
       text: '你的验证码是 123456，10 分钟内有效。如果不是你本人操作，请忽略这封邮件。',
     })
   })
 
   test('key reset mail has its own subject and the same body', () => {
     expect(codeMessage('key_reset', '654321', 15)).toEqual({
-      subject: 'AI 学校 · 更换钥匙验证码',
+      subject: '机器人网校 · 更换钥匙验证码',
       text: '你的验证码是 654321，15 分钟内有效。如果不是你本人操作，请忽略这封邮件。',
     })
   })
@@ -30,14 +30,14 @@ describe('codeMessage', () => {
 describe('mailers', () => {
   test('the transport mailer sends the copy from the configured address', async () => {
     const transport = { sendMail: vi.fn().mockResolvedValue({}) }
-    const mailer = createTransportMailer(transport, 'AI 学校 <no-reply@example.com>', 10)
+    const mailer = createTransportMailer(transport, '机器人网校 <no-reply@example.com>', 10)
 
     await mailer.sendCode('a@example.com', 'register', '123456')
 
     expect(transport.sendMail).toHaveBeenCalledExactlyOnceWith({
-      from: 'AI 学校 <no-reply@example.com>',
+      from: '机器人网校 <no-reply@example.com>',
       to: 'a@example.com',
-      subject: 'AI 学校验证码',
+      subject: '机器人网校验证码',
       text: '你的验证码是 123456，10 分钟内有效。如果不是你本人操作，请忽略这封邮件。',
     })
   })
@@ -78,7 +78,7 @@ describe('mailers', () => {
     await new ConsoleMailer(15).sendCode('a@example.com', 'key_reset', '123456')
     const printed = write.mock.calls.map((c) => String(c[0])).join('')
     expect(printed).toContain('a@example.com')
-    expect(printed).toContain('AI 学校 · 更换钥匙验证码')
+    expect(printed).toContain('机器人网校 · 更换钥匙验证码')
     expect(printed).toContain('你的验证码是 123456，15 分钟内有效')
   })
 

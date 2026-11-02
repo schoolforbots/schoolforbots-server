@@ -7,7 +7,7 @@ import { loadEnv, loadSchoolConfig } from '../../src/shared/config.js'
 let tmpDir: string
 
 beforeAll(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), 'ai-school-config-'))
+  tmpDir = mkdtempSync(join(tmpdir(), 'schoolforbots-config-'))
 })
 
 afterAll(() => {
@@ -67,7 +67,7 @@ test('loadEnv requires DATABASE_URL and fills defaults', () => {
   expect(() => loadEnv({ SMTP_URL: 'smtp://mail:25' })).toThrow(/DATABASE_URL/)
   expect(loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25' })).toEqual({
     databaseUrl: 'postgres://x', mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' },
-    mailFrom: 'AI 学校 <no-reply@example.com>', moderationDataDir: 'data/moderation',
+    mailFrom: '机器人网校 <no-reply@example.com>', moderationDataDir: 'data/moderation',
     configPath: 'config/school.json', registrationPort: 8080, trustProxy: false,
   })
 })
