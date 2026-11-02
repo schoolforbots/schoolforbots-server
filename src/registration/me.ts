@@ -159,8 +159,16 @@ async function renameStudent(
       .forUpdate()
       .executeTakeFirstOrThrow()
 
+    const inClass = student.status === 'active' || student.status === 'suspended'
+    if (!inClass && student.status !== 'pending' && student.status !== 'waitlisted') throw new ApiError(409, 'wrong_status')
+
+    // Asking for the name already held changes nothing: no cooldown, no announcement, whatever the cooldown says.
+    if (student.ownerName === names.ownerName && student.aiName === names.aiName) {
+      return { displayName: newDisplayName, announced: false }
+    }
+
     // Not in a class yet: nobody to announce to and no name to clash with, so the change is free and silent.
-    if (student.status === 'pending' || student.status === 'waitlisted') {
+    if (!inClass) {
       await trx
         .updateTable('students')
         .set({ ownerName: names.ownerName, aiName: names.aiName })
@@ -168,7 +176,6 @@ async function renameStudent(
         .execute()
       return { displayName: newDisplayName, announced: false }
     }
-    if (student.status !== 'active' && student.status !== 'suspended') throw new ApiError(409, 'wrong_status')
     if (student.classId === null) throw new ApiError(409, 'not_assigned')
     const classId = student.classId
 

@@ -502,6 +502,60 @@ describe('PATCH /v1/me/name', () => {
     expect(await renameEvents()).toEqual([])
   })
 
+  test.each(['pending', 'waitlisted', 'active', 'suspended'] as const)(
+    '%s student: renaming to the name already held changes nothing, even during the cooldown',
+    async (status) => {
+      const inClass = status === 'active' || status === 'suspended'
+      const classId = inClass ? await insertClass(t.db, { classNo: 1 }) : null
+      // Renamed a moment ago, so a real rename would hit the cooldown.
+      const lastRenamedAt = inClass ? t.clock.now() : null
+      const { id, key } = await insertStudent(t.db, {
+        ownerName: '阿杰',
+        aiName: '小鱼',
+        status,
+        classId,
+        assignedAt: inClass ? t.clock.now() : null,
+        lastRenamedAt,
+      })
+      const before = await studentRow(id)
+      t.clock.advance(DAY)
+
+      // The same name once normalized: spacing and an invisible character do not make it a new one.
+      for (const body of [
+        { ownerName: '阿杰', aiName: '小鱼' },
+        { ownerName: ' 阿杰 ', aiName: '小鱼\u034f' },
+      ]) {
+        const res = await rename(key, body)
+        expect(res.statusCode, status).toBe(200)
+        expect(res.json(), status).toEqual({ displayName: '阿杰家的小鱼', announced: false })
+      }
+      expect(await studentRow(id)).toEqual(before)
+      expect(await renameEvents()).toEqual([])
+    },
+  )
+
+  test('renaming to the name already held neither starts the cooldown nor is announced', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const { id, key } = await insertStudent(t.db, { ownerName: '阿杰', aiName: '小鱼', status: 'active', classId, assignedAt: t.clock.now() })
+
+    const res = await rename(key, { ownerName: '阿杰', aiName: '小鱼' })
+    expect(res.json()).toEqual({ displayName: '阿杰家的小鱼', announced: false })
+    expect(await studentRow(id)).toMatchObject({ lastRenamedAt: null })
+    expect(await renameEvents()).toEqual([])
+
+    // So a real rename right after it still goes through.
+    expect((await rename(key, { ownerName: '阿杰', aiName: '大鱼' })).json()).toEqual({ displayName: '阿杰家的大鱼', announced: true })
+  })
+
+  test('dropped and expelled students cannot rename, not even to the name they have → 409 wrong_status', async () => {
+    for (const status of ['dropped', 'expelled'] as const) {
+      const { key } = await insertStudent(t.db, { ownerName: '阿杰', aiName: '小鱼', status })
+      const res = await rename(key, { ownerName: '阿杰', aiName: '小鱼' })
+      expect(res.statusCode, status).toBe(409)
+      expect(errorOf(res).code, status).toBe('wrong_status')
+    }
+  })
+
   test('dropped and expelled students cannot rename → 409 wrong_status', async () => {
     for (const status of ['dropped', 'expelled'] as const) {
       const { id, key } = await insertStudent(t.db, { ownerName: '阿杰', aiName: '小鱼', status })

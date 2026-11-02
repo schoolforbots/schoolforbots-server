@@ -124,7 +124,10 @@ export const RenameRequest = Type.Object({
 
 export const RenameResult = Type.Object({
   displayName: Type.String(),
-  /** True when the rename starts the cooldown and will be announced to the class; false for a student not yet in a class. */
+  /**
+   * True when the rename starts the cooldown and will be announced to the class; false for a student not yet in a
+   * class, and for a "rename" to the name the student already has, which changes nothing.
+   */
   announced: Type.Boolean(),
 })
 
