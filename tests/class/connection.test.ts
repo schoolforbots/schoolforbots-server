@@ -1,3 +1,4 @@
+import { sql } from 'kysely'
 import Value from 'typebox/value'
 import { afterEach, describe, expect, test } from 'vitest'
 import type WebSocket from 'ws'
@@ -47,7 +48,11 @@ async function start(overrides: Parameters<typeof buildTestClassApp>[0] = {}) {
 }
 
 async function waitUntil(check: () => boolean, what: string): Promise<void> {
-  for (let waited = 0; !check(); waited += 5) {
+  await waitUntilAsync(async () => check(), what)
+}
+
+async function waitUntilAsync(check: () => Promise<boolean>, what: string): Promise<void> {
+  for (let waited = 0; !(await check()); waited += 5) {
     if (waited > 5000) throw new Error(`Timed out waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
@@ -263,6 +268,37 @@ describe('a student who may not come in', () => {
     expect(await client.closed()).toBe(1000)
   })
 
+  test('a hello during which the session closes registers nothing and is answered the same way', async () => {
+    const s = await start()
+    const { classId, students } = await seedClass(s, 1)
+    await tickAt(s, at('19:50'))
+    const client = await connect(students[0]!.key)
+
+    // Hold the hello inside its attendance write, close the session meanwhile, then let the hello go on.
+    await s.db.transaction().execute(async (trx) => {
+      await sql`lock table attendance in share mode`.execute(trx)
+      client.send({ id: 'h1', ...HELLO })
+      await waitUntilAsync(async () => {
+        const { rows } = await sql<{ n: number }>`
+          select count(*)::int as n from pg_locks l join pg_class c on c.oid = l.relation
+          where c.relname = 'attendance' and not l.granted`.execute(s.db)
+        return rows[0]!.n > 0
+      }, 'the hello to wait on the attendance table')
+      await tickAt(s, at('20:31')) // the close step runs while nobody is registered
+      expect(s.runtime.currentSession(classId)).toBeNull()
+    })
+
+    expect(await client.next()).toEqual({
+      type: 'closing',
+      reason: 'session_over',
+      message: '现在不在上课时间，下一节课在 11月3日 20:00 开始。',
+    })
+    expect(await client.closed()).toBe(1000)
+    expect(client.received.map((m) => m.type)).toEqual(['closing'])
+    expect(s.hub.online(classId)).toEqual([])
+    expect(s.disconnects).toEqual([])
+  })
+
   test('a hello that comes after the session closed is answered the same way', async () => {
     const s = await start()
     const { students } = await seedClass(s, 1)
@@ -318,13 +354,33 @@ describe('frames before hello', () => {
     await hello(client)
   })
 
-  test('a frame over 16 KB closes the connection', async () => {
+  test('a frame over 16 KiB is refused and the connection stays usable', async () => {
     const s = await start()
     const { students } = await seedClass(s, 1)
     await tickAt(s, at('19:50'))
     const client = await connect(students[0]!.key)
 
-    client.send({ id: 'q1', type: 'question', text: 'x'.repeat(16 * 1024) })
+    // Counted in bytes: 5,600 CJK characters are 16,800 bytes of UTF-8 (the limit is 16,384).
+    client.send({ id: 'q1', type: 'question', text: '字'.repeat(5600) })
+    expect(await client.next()).toEqual({
+      type: 'ack',
+      id: '',
+      ok: false,
+      error: { code: 'invalid_message', message: WS_ERROR_MESSAGES.invalid_message },
+    })
+    client.send({ id: 'h1', ...HELLO, padding: 'x'.repeat(17 * 1024) })
+    expect((await client.next()).error.code).toBe('invalid_message')
+
+    await hello(client)
+  })
+
+  test('a frame over 64 KiB closes the connection', async () => {
+    const s = await start()
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:50'))
+    const client = await connect(students[0]!.key)
+
+    client.send({ id: 'q1', type: 'question', text: 'x'.repeat(64 * 1024) })
     expect(await client.closed()).toBe(1009)
   })
 })

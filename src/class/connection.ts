@@ -76,6 +76,12 @@ type Classmate = Static<typeof WelcomeMessage>['student']
 /** The longest id an ack echoes (the protocol's limit); a frame without a valid id is answered with an empty one. */
 const MAX_ID = 64
 
+/**
+ * The most a frame may carry, in bytes, as the protocol says. A bigger one is answered `invalid_message` and the
+ * connection stays open; `ws` closes the connection only past its own, higher ceiling (see app.ts).
+ */
+export const MAX_FRAME_BYTES = 16 * 1024
+
 const closing = (reason: Closing['reason'], message: string): Closing => ({ type: 'closing', reason, message })
 const REPLACED = closing('replaced', '这个学号在别的地方连上了，这里的连接已经断开。')
 
@@ -104,6 +110,11 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const typeOf = (message: object): unknown => (message as { type?: unknown }).type
+
+function frameBytes(data: RawData): number {
+  if (Array.isArray(data)) return data.reduce((n, chunk) => n + chunk.length, 0)
+  return Buffer.isBuffer(data) ? data.length : data.byteLength
+}
 
 function frameText(data: RawData): string {
   if (Array.isArray(data)) return Buffer.concat(data).toString('utf8')
@@ -236,6 +247,13 @@ export function serveConnection(
     }
     // The client may have gone while the attendance was written; a closed connection must never be registered.
     if (socket.readyState !== socket.OPEN) return
+    // Nor may one join a session that closed meanwhile: its close may already have disconnected everyone it found in
+    // the hub, so a connection registered now would stay behind it. Checked right before registering, with no await in
+    // between, so a close that comes later finds this connection and disconnects it.
+    if (runtime.currentSession(classId)?.sessionId !== sessionId) {
+      sendClosing(outsideSession())
+      return
+    }
 
     pending = []
     const replaced = hub.add(connection)
@@ -363,6 +381,7 @@ export function serveConnection(
     if (socket.readyState !== socket.OPEN) return
     const reply = (id: string, r: AckResult) => write(ackMessage(id, r))
 
+    if (frameBytes(data) > MAX_FRAME_BYTES) return reply('', fail('invalid_message'))
     let frame: unknown
     try {
       frame = JSON.parse(frameText(data))
