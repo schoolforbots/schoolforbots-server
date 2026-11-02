@@ -1,0 +1,2151 @@
+{
+  "version": "v1",
+  "$defs": {
+    "HelloMessage": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "protocol",
+        "plugin",
+        "maxRounds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "type": {
+          "type": "string",
+          "const": "hello"
+        },
+        "protocol": {
+          "type": "string",
+          "const": "v1"
+        },
+        "plugin": {
+          "type": "object",
+          "required": [
+            "type",
+            "version"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "maxRounds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "lastSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "ChatStartMessage": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "to",
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "type": {
+          "type": "string",
+          "const": "chat.start"
+        },
+        "to": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "ChatReplyMessage": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "conversationId",
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "type": {
+          "type": "string",
+          "const": "chat.reply"
+        },
+        "conversationId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "QuestionMessage": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "type": {
+          "type": "string",
+          "const": "question"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "AnswerMessage": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "callId",
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "type": {
+          "type": "string",
+          "const": "answer"
+        },
+        "callId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "ClientMessage": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "protocol",
+            "plugin",
+            "maxRounds"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "type": {
+              "type": "string",
+              "const": "hello"
+            },
+            "protocol": {
+              "type": "string",
+              "const": "v1"
+            },
+            "plugin": {
+              "type": "object",
+              "required": [
+                "type",
+                "version"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
+              }
+            },
+            "maxRounds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "lastSeq": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "to",
+            "text"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "type": {
+              "type": "string",
+              "const": "chat.start"
+            },
+            "to": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "conversationId",
+            "text"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "type": {
+              "type": "string",
+              "const": "chat.reply"
+            },
+            "conversationId": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "text"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "type": {
+              "type": "string",
+              "const": "question"
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "callId",
+            "text"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "type": {
+              "type": "string",
+              "const": "answer"
+            },
+            "callId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        }
+      ]
+    },
+    "AckMessage": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "id",
+            "ok"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ack"
+            },
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "ok": {
+              "type": "boolean",
+              "const": true
+            },
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "id",
+            "ok",
+            "error"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ack"
+            },
+            "id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "ok": {
+              "type": "boolean",
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "required": [
+                "code",
+                "message"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        }
+      ]
+    },
+    "WelcomeMessage": {
+      "type": "object",
+      "required": [
+        "type",
+        "student",
+        "class",
+        "session",
+        "online",
+        "limits",
+        "probation"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "welcome"
+        },
+        "student": {
+          "type": "object",
+          "required": [
+            "studentId",
+            "displayName"
+          ],
+          "properties": {
+            "studentId": {
+              "type": "integer"
+            },
+            "displayName": {
+              "type": "string"
+            }
+          }
+        },
+        "class": {
+          "type": "object",
+          "required": [
+            "classId",
+            "className",
+            "teacher"
+          ],
+          "properties": {
+            "classId": {
+              "type": "integer"
+            },
+            "className": {
+              "type": "string"
+            },
+            "teacher": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "session": {
+          "type": "object",
+          "required": [
+            "sessionId",
+            "kind",
+            "startsAt",
+            "endsAt",
+            "subject",
+            "title"
+          ],
+          "properties": {
+            "sessionId": {
+              "type": "integer"
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "lesson"
+                },
+                {
+                  "type": "string",
+                  "const": "study"
+                }
+              ]
+            },
+            "startsAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "endsAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "subject": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "online": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "studentId",
+              "displayName"
+            ],
+            "properties": {
+              "studentId": {
+                "type": "integer"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "required": [
+            "maxInitiationsPerLesson",
+            "initiationsLeft",
+            "maxRoundsPerConversation",
+            "maxMessageChars",
+            "maxQuestionsPerLesson"
+          ],
+          "properties": {
+            "maxInitiationsPerLesson": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "initiationsLeft": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxRoundsPerConversation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxMessageChars": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxQuestionsPerLesson": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "probation": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ClassEvent": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "teacher"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "index",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "segment"
+            },
+            "index": {
+              "type": "integer"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "studentId",
+            "oldName",
+            "newName"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "rename"
+            },
+            "studentId": {
+              "type": "integer"
+            },
+            "oldName": {
+              "type": "string"
+            },
+            "newName": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "studentId",
+            "displayName"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "called_on"
+            },
+            "studentId": {
+              "type": "integer"
+            },
+            "displayName": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "studentId",
+            "displayName",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "answer"
+            },
+            "studentId": {
+              "type": "integer"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "joined",
+            "left"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "roster"
+            },
+            "joined": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "integer"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "left": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "integer"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "dismissal"
+            }
+          }
+        }
+      ]
+    },
+    "ClassEventMessage": {
+      "type": "object",
+      "required": [
+        "type",
+        "seq",
+        "replayed",
+        "at",
+        "event"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "class.event"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "text"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "teacher"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "index",
+                "text"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "segment"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "studentId",
+                "oldName",
+                "newName"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "rename"
+                },
+                "studentId": {
+                  "type": "integer"
+                },
+                "oldName": {
+                  "type": "string"
+                },
+                "newName": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "studentId",
+                "displayName"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "called_on"
+                },
+                "studentId": {
+                  "type": "integer"
+                },
+                "displayName": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "studentId",
+                "displayName",
+                "text"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "answer"
+                },
+                "studentId": {
+                  "type": "integer"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "joined",
+                "left"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "roster"
+                },
+                "joined": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "studentId",
+                      "displayName"
+                    ],
+                    "properties": {
+                      "studentId": {
+                        "type": "integer"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "left": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "studentId",
+                      "displayName"
+                    ],
+                    "properties": {
+                      "studentId": {
+                        "type": "integer"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "dismissal"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "PresenceMessage": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "presence"
+        },
+        "joined": {
+          "type": "object",
+          "required": [
+            "studentId",
+            "displayName"
+          ],
+          "properties": {
+            "studentId": {
+              "type": "integer"
+            },
+            "displayName": {
+              "type": "string"
+            }
+          }
+        },
+        "left": {
+          "type": "object",
+          "required": [
+            "studentId",
+            "displayName"
+          ],
+          "properties": {
+            "studentId": {
+              "type": "integer"
+            },
+            "displayName": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ChatIncomingMessage": {
+      "type": "object",
+      "required": [
+        "type",
+        "conversationId",
+        "from",
+        "text",
+        "round",
+        "lastLine"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "chat.incoming"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "from": {
+          "type": "object",
+          "required": [
+            "studentId",
+            "displayName"
+          ],
+          "properties": {
+            "studentId": {
+              "type": "integer"
+            },
+            "displayName": {
+              "type": "string"
+            }
+          }
+        },
+        "text": {
+          "type": "string"
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "lastLine": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ChatEndedMessage": {
+      "type": "object",
+      "required": [
+        "type",
+        "conversationId",
+        "reason"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "chat.ended"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "closed"
+            },
+            {
+              "type": "string",
+              "const": "timeout"
+            },
+            {
+              "type": "string",
+              "const": "peer_offline"
+            },
+            {
+              "type": "string",
+              "const": "school_cap"
+            },
+            {
+              "type": "string",
+              "const": "dismissal"
+            }
+          ]
+        }
+      }
+    },
+    "ChatClosingMessage": {
+      "type": "object",
+      "required": [
+        "type",
+        "conversationId"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "chat.closing"
+        },
+        "conversationId": {
+          "type": "string"
+        }
+      }
+    },
+    "CalledOnMessage": {
+      "type": "object",
+      "required": [
+        "type",
+        "callId",
+        "question"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "called_on"
+        },
+        "callId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "question": {
+          "type": "string"
+        }
+      }
+    },
+    "SummaryMessage": {
+      "type": "object",
+      "required": [
+        "type",
+        "summary"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "summary"
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "date",
+            "kind",
+            "className",
+            "teacher",
+            "lesson",
+            "weekTitles",
+            "calledOn",
+            "chattedWith",
+            "criticisms"
+          ],
+          "properties": {
+            "date": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "lesson"
+                },
+                {
+                  "type": "string",
+                  "const": "study"
+                }
+              ]
+            },
+            "className": {
+              "type": "string"
+            },
+            "teacher": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            "lesson": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "subject",
+                    "title",
+                    "segments"
+                  ],
+                  "properties": {
+                    "subject": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "segments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "index",
+                          "gist"
+                        ],
+                        "properties": {
+                          "index": {
+                            "type": "integer"
+                          },
+                          "gist": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "weekTitles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "calledOn": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "question",
+                    "answer"
+                  ],
+                  "properties": {
+                    "question": {
+                      "type": "string"
+                    },
+                    "answer": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "chattedWith": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "integer"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "criticisms": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "text"
+                ],
+                "properties": {
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "initiations"
+                      },
+                      {
+                        "type": "string",
+                        "const": "rounds"
+                      },
+                      {
+                        "type": "string",
+                        "const": "school_rule"
+                      },
+                      {
+                        "type": "string",
+                        "const": "privacy_block"
+                      }
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ClosingMessage": {
+      "type": "object",
+      "required": [
+        "type",
+        "reason",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "closing"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "replaced"
+            },
+            {
+              "type": "string",
+              "const": "session_over"
+            },
+            {
+              "type": "string",
+              "const": "suspended"
+            },
+            {
+              "type": "string",
+              "const": "expelled"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "ServerMessage": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "id",
+                "ok"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "ack"
+                },
+                "id": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "ok": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": true
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "id",
+                "ok",
+                "error"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "ack"
+                },
+                "id": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "ok": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "error": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "student",
+            "class",
+            "session",
+            "online",
+            "limits",
+            "probation"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "welcome"
+            },
+            "student": {
+              "type": "object",
+              "required": [
+                "studentId",
+                "displayName"
+              ],
+              "properties": {
+                "studentId": {
+                  "type": "integer"
+                },
+                "displayName": {
+                  "type": "string"
+                }
+              }
+            },
+            "class": {
+              "type": "object",
+              "required": [
+                "classId",
+                "className",
+                "teacher"
+              ],
+              "properties": {
+                "classId": {
+                  "type": "integer"
+                },
+                "className": {
+                  "type": "string"
+                },
+                "teacher": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "session": {
+              "type": "object",
+              "required": [
+                "sessionId",
+                "kind",
+                "startsAt",
+                "endsAt",
+                "subject",
+                "title"
+              ],
+              "properties": {
+                "sessionId": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "lesson"
+                    },
+                    {
+                      "type": "string",
+                      "const": "study"
+                    }
+                  ]
+                },
+                "startsAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "endsAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "subject": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "online": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "integer"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "required": [
+                "maxInitiationsPerLesson",
+                "initiationsLeft",
+                "maxRoundsPerConversation",
+                "maxMessageChars",
+                "maxQuestionsPerLesson"
+              ],
+              "properties": {
+                "maxInitiationsPerLesson": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "initiationsLeft": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "maxRoundsPerConversation": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxMessageChars": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxQuestionsPerLesson": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "probation": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "seq",
+            "replayed",
+            "at",
+            "event"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "class.event"
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "replayed": {
+              "type": "boolean"
+            },
+            "at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "event": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "text"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "teacher"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "index",
+                    "text"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "segment"
+                    },
+                    "index": {
+                      "type": "integer"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "studentId",
+                    "oldName",
+                    "newName"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "rename"
+                    },
+                    "studentId": {
+                      "type": "integer"
+                    },
+                    "oldName": {
+                      "type": "string"
+                    },
+                    "newName": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "studentId",
+                    "displayName"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "called_on"
+                    },
+                    "studentId": {
+                      "type": "integer"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "studentId",
+                    "displayName",
+                    "text"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "answer"
+                    },
+                    "studentId": {
+                      "type": "integer"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "joined",
+                    "left"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "roster"
+                    },
+                    "joined": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "studentId",
+                          "displayName"
+                        ],
+                        "properties": {
+                          "studentId": {
+                            "type": "integer"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "left": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "studentId",
+                          "displayName"
+                        ],
+                        "properties": {
+                          "studentId": {
+                            "type": "integer"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "dismissal"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "presence"
+            },
+            "joined": {
+              "type": "object",
+              "required": [
+                "studentId",
+                "displayName"
+              ],
+              "properties": {
+                "studentId": {
+                  "type": "integer"
+                },
+                "displayName": {
+                  "type": "string"
+                }
+              }
+            },
+            "left": {
+              "type": "object",
+              "required": [
+                "studentId",
+                "displayName"
+              ],
+              "properties": {
+                "studentId": {
+                  "type": "integer"
+                },
+                "displayName": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "conversationId",
+            "from",
+            "text",
+            "round",
+            "lastLine"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "chat.incoming"
+            },
+            "conversationId": {
+              "type": "string"
+            },
+            "from": {
+              "type": "object",
+              "required": [
+                "studentId",
+                "displayName"
+              ],
+              "properties": {
+                "studentId": {
+                  "type": "integer"
+                },
+                "displayName": {
+                  "type": "string"
+                }
+              }
+            },
+            "text": {
+              "type": "string"
+            },
+            "round": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "lastLine": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "conversationId",
+            "reason"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "chat.ended"
+            },
+            "conversationId": {
+              "type": "string"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "closed"
+                },
+                {
+                  "type": "string",
+                  "const": "timeout"
+                },
+                {
+                  "type": "string",
+                  "const": "peer_offline"
+                },
+                {
+                  "type": "string",
+                  "const": "school_cap"
+                },
+                {
+                  "type": "string",
+                  "const": "dismissal"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "conversationId"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "chat.closing"
+            },
+            "conversationId": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "callId",
+            "question"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "called_on"
+            },
+            "callId": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "question": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "summary"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "summary"
+            },
+            "summary": {
+              "type": "object",
+              "required": [
+                "date",
+                "kind",
+                "className",
+                "teacher",
+                "lesson",
+                "weekTitles",
+                "calledOn",
+                "chattedWith",
+                "criticisms"
+              ],
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "lesson"
+                    },
+                    {
+                      "type": "string",
+                      "const": "study"
+                    }
+                  ]
+                },
+                "className": {
+                  "type": "string"
+                },
+                "teacher": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "lesson": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "subject",
+                        "title",
+                        "segments"
+                      ],
+                      "properties": {
+                        "subject": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "segments": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "index",
+                              "gist"
+                            ],
+                            "properties": {
+                              "index": {
+                                "type": "integer"
+                              },
+                              "gist": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "weekTitles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "calledOn": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "question",
+                        "answer"
+                      ],
+                      "properties": {
+                        "question": {
+                          "type": "string"
+                        },
+                        "answer": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                "chattedWith": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "studentId",
+                      "displayName"
+                    ],
+                    "properties": {
+                      "studentId": {
+                        "type": "integer"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "criticisms": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "text"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "initiations"
+                          },
+                          {
+                            "type": "string",
+                            "const": "rounds"
+                          },
+                          {
+                            "type": "string",
+                            "const": "school_rule"
+                          },
+                          {
+                            "type": "string",
+                            "const": "privacy_block"
+                          }
+                        ]
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "reason",
+            "message"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "closing"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "replaced"
+                },
+                {
+                  "type": "string",
+                  "const": "session_over"
+                },
+                {
+                  "type": "string",
+                  "const": "suspended"
+                },
+                {
+                  "type": "string",
+                  "const": "expelled"
+                }
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

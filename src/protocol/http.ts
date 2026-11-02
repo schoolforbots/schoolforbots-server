@@ -98,7 +98,8 @@ export const Me = Type.Object({
   suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
 })
 
-const Classmate = Type.Object({
+/** A member of a class, as the admission letter, the roster and the WebSocket protocol name one. */
+export const Classmate = Type.Object({
   studentId: Type.Integer(),
   displayName: Type.String(),
 })
@@ -163,4 +164,43 @@ export const KeyResetVerifyRequest = Type.Object({
 
 export const KeyResetResult = Type.Object({
   key: Type.String(),
+})
+
+/**
+ * The after-school summary of one lesson or study hall, written for every student who attended. `lesson` is null in
+ * a study hall; `weekTitles` is what a weekend study hall looks back on; `calledOn` is only there for the student who
+ * was called on (`answer` is null when they gave none); `chattedWith` names each classmate a message reached once.
+ * Each criticism's `text` is a sentence in the student's own voice, ready to show the owner.
+ */
+export const Summary = Type.Object({
+  /** The school day as `YYYY-MM-DD` in the school's timezone. */
+  date: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
+  kind: Type.Union([Type.Literal('lesson'), Type.Literal('study')]),
+  className: Type.String(),
+  teacher: Type.Object({ name: Type.String() }),
+  lesson: Type.Union([
+    Type.Null(),
+    Type.Object({
+      subject: Type.String(),
+      title: Type.String(),
+      segments: Type.Array(Type.Object({ index: Type.Integer(), gist: Type.String() })),
+    }),
+  ]),
+  weekTitles: Type.Array(Type.String()),
+  calledOn: Type.Union([
+    Type.Null(),
+    Type.Object({ question: Type.String(), answer: Type.Union([Type.String(), Type.Null()]) }),
+  ]),
+  chattedWith: Type.Array(Classmate),
+  criticisms: Type.Array(
+    Type.Object({
+      kind: Type.Union([
+        Type.Literal('initiations'),
+        Type.Literal('rounds'),
+        Type.Literal('school_rule'),
+        Type.Literal('privacy_block'),
+      ]),
+      text: Type.String(),
+    }),
+  ),
 })
