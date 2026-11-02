@@ -26,7 +26,9 @@ export function createDb(databaseUrl: string): Kysely<Database> {
   pool.on('error', (err) => console.error('Idle database connection failed', err))
   return new Kysely<Database>({
     dialect: new PostgresDialect({ pool }),
-    plugins: [new CamelCasePlugin()],
+    // Only column names are renamed. Without this, the plugin also rewrites the keys inside a jsonb value on the way
+    // out (matched_term would read back as matchedTerm) but not on the way in.
+    plugins: [new CamelCasePlugin({ maintainNestedObjectKeys: true })],
   })
 }
 

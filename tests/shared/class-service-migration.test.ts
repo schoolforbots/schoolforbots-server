@@ -178,6 +178,52 @@ describe('class service tables', () => {
     })
   })
 
+  // CamelCasePlugin renames the keys of result rows; it must stop at a jsonb column, which holds free-form data.
+  describe('jsonb keys', () => {
+    const json = { matched_term: 'x', nested: [{ some_key: 1 }], 'Mixed-Case': { inner_key: ['a_b'] } }
+    const text = JSON.stringify(json)
+
+    test('class_events.payload reads back with its keys unchanged', async () => {
+      const { sessionId } = await seed(db)
+      await db
+        .insertInto('classEvents')
+        .values({ sessionId, seq: 1, step: 'opening', kind: 'opening', payload: text, createdAt: OPENS })
+        .execute()
+      const row = await db.selectFrom('classEvents').select('payload').where('sessionId', '=', sessionId).executeTakeFirstOrThrow()
+      expect(row.payload).toEqual(json)
+    })
+
+    test('discipline_records.detail reads back with its keys unchanged', async () => {
+      const { studentId, sessionId } = await seed(db)
+      await db
+        .insertInto('disciplineRecords')
+        .values({ studentId, sessionId, kind: 'rounds', detail: text, createdAt: OPENS })
+        .execute()
+      const row = await db.selectFrom('disciplineRecords').select('detail').where('sessionId', '=', sessionId).executeTakeFirstOrThrow()
+      expect(row.detail).toEqual(json)
+    })
+
+    test('summaries.payload reads back with its keys unchanged', async () => {
+      const { studentId, sessionId } = await seed(db)
+      await db.insertInto('summaries').values({ sessionId, studentId, payload: text, createdAt: CLOSES }).execute()
+      const row = await db.selectFrom('summaries').select('payload').where('sessionId', '=', sessionId).executeTakeFirstOrThrow()
+      expect(row.payload).toEqual(json)
+    })
+
+    test('lessons.segments and class_sessions.members keep their keys too', async () => {
+      const segments = [{ text: 'a', gist: 'b', extra_key: { deep_key: 1 } }]
+      const lessonId = await insertLesson(db, { date: '2027-01-01', segments })
+      const classId = await insertClass(db, { classNo: ++classCounter })
+      const members = [{ studentId: 1, displayName: 'x', some_key: [{ other_key: 1 }] }]
+      const sessionId = await insertSession(db, { classId, date: '2027-01-01', startsAt: OPENS, endsAt: CLOSES, members })
+
+      const lesson = await db.selectFrom('lessons').select('segments').where('id', '=', lessonId).executeTakeFirstOrThrow()
+      const session = await db.selectFrom('classSessions').select('members').where('id', '=', sessionId).executeTakeFirstOrThrow()
+      expect(lesson.segments).toEqual(segments)
+      expect(session.members).toEqual(members)
+    })
+  })
+
   describe('attendance and summaries', () => {
     test('a student is seen once per session', async () => {
       const { sessionId, studentId } = await seed(db)
@@ -192,7 +238,7 @@ describe('class service tables', () => {
       const row = { sessionId, studentId, payload: JSON.stringify({ lines: ['今天学了加法'] }), createdAt: CLOSES }
       await db.insertInto('summaries').values(row).execute()
       await expect(db.insertInto('summaries').values(row).execute()).rejects.toThrow(/summaries_pkey/)
-      const stored = await db.selectFrom('summaries').select('payload').executeTakeFirstOrThrow()
+      const stored = await db.selectFrom('summaries').select('payload').where('sessionId', '=', sessionId).executeTakeFirstOrThrow()
       expect(stored.payload).toEqual({ lines: ['今天学了加法'] })
     })
   })
