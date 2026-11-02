@@ -163,6 +163,10 @@ describe('checkNames', () => {
       ['Greek and Latin letters in one word', 'Αbc'],
       ['Armenian and Latin letters in one word', 'Օk'],
       ['Cherokee and Latin letters in one word', 'Ꭺb'],
+      // A combining mark has no script of its own for this rule: it stays inside the word it is written on.
+      ['a Cyrillic letter, an acute accent and a Latin word', 'Т\u0301om'],
+      ['a Cyrillic letter, an acute accent and a Cyrillic and a Latin letter', 'Т\u0301оm'],
+      ['a Latin letter, an acute accent and a Cyrillic letter', 'T\u0301о'],
     ])('rejects %s: %s', (_label, bad) => {
       expect(checkNames(bad, '小鱼', opts)).toEqual({ ok: false, part: 'owner', reason: 'mixed_script' })
       expect(checkNames('阿杰', bad, opts)).toEqual({ ok: false, part: 'ai', reason: 'mixed_script' })
@@ -183,6 +187,13 @@ describe('checkNames', () => {
       ['an emoji after Latin letters', 'Alice😀'],
       ['a digit between Latin letters', 'T0m'],
       ['accented Latin letters', 'Zoë'],
+      ['a precomposed accented letter', 'Caf\u00e9'],
+      ['a decomposed accented letter', 'Cafe\u0301'],
+      ['a Cyrillic letter with an accent that has no precomposed form', 'Ко\u0301ля'],
+      ['a CJK character with a combining mark', '小\u0301鱼'],
+      ['a CJK name ending in a combining mark', '小鱼\u0301'],
+      ['Latin and Cyrillic words with a marked CJK character between them', 'Tom小\u0301Иван'],
+      ['a mark on a CJK character between a Latin and a Cyrillic letter', 'T小\u0301о'],
     ])('accepts %s: %s', (_label, good) => {
       expect(checkNames(good, '小鱼', opts)).toMatchObject({ ok: true })
       expect(checkNames('阿杰', good, opts)).toMatchObject({ ok: true })

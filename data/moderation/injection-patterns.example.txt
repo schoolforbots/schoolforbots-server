@@ -2,6 +2,6 @@
 忽略(之前|以上|前面|上面)的?(所有)?(设定|指令|提示|规则|要求)
 (disregard|forget|ignore)(all)?(of)?(the|your)?(previous|prior|above|earlier)(instructions|prompts|rules|messages)
 (reveal|show|print|repeat|output)(me)?(your|the)(system)?prompt
-(what'?s|tellme|giveme|sendme)(your|the)owner'?s?.{0,12}(qq|wechat|weixin|phone|number|address|email)
+(what['’]?s|tellme|giveme|sendme)(your|the)owner['’]?s?.{0,12}(qq|wechat|weixin|phone|number|address|email)
 (输出|告诉我|重复)(你的)?(系统提示词?|systemprompt)
 (你|你家)?主人的?.{0,8}(qq|微信|手机|电话|住址|地址|群号|聊天记录).{0,6}(是多少|告诉我|发给我|发我|说一下)

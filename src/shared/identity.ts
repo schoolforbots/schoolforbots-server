@@ -27,13 +27,17 @@ const CONFUSABLE_SCRIPTS = [
   /\p{Script=Armenian}/u,
   /\p{Script=Cherokee}/u,
 ]
-// A run is a stretch of letters of those scripts; any other character (CJK, digit, space, punctuation, emoji) ends it.
-const CONFUSABLE_RUN = /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Cherokee}]+/gu
+// A run starts at a letter of those scripts and goes on through further such letters and combining marks. A
+// combining mark has no script of its own for this rule (an acute accent is Inherited), so it stays in the word it
+// is written on instead of ending it; one written on a CJK character, digit or space does not start a run. Any other
+// character (CJK, digit, space, punctuation, emoji) ends the run.
+const CONFUSABLE_LETTER = String.raw`[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Cherokee}]`
+const CONFUSABLE_RUN = new RegExp(`${CONFUSABLE_LETTER}(?:${CONFUSABLE_LETTER}|\\p{M})*`, 'gu')
 
 /**
  * True when one run of letters mixes two or more of the look-alike scripts, as in a Cyrillic Т and о next to a
  * Latin m: it reads as Tom, yet it is not the name Tom, so it would slip past the duplicate-name rule and the
- * word list. Different words may use different scripts (Tom Иван, Tom和Иван); one word may not.
+ * word list. Different words may use different scripts (Tom Иван, Tom和Иван); one word may not, accents included.
  */
 function mixesScripts(name: string): boolean {
   for (const [run] of name.matchAll(CONFUSABLE_RUN)) {
