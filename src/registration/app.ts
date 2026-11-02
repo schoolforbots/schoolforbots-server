@@ -10,6 +10,7 @@ import { ApiError, registerErrorHandler } from './errors.js'
 import { keyResetRoutes } from './key-resets.js'
 import type { Mailer } from './mailer.js'
 import { meRoutes } from './me.js'
+import { recordsRoutes } from './records.js'
 import { registrationRoutes } from './registrations.js'
 
 export interface RegistrationDeps {
@@ -39,6 +40,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   })
   app.register(registrationRoutes(deps))
   app.register(meRoutes(deps))
+  app.register(recordsRoutes(deps))
   app.register(keyResetRoutes(deps))
 
   return app

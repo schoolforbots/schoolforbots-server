@@ -67,6 +67,20 @@ export function localDate(moment: Date, timeZone: string): string {
   return new Date(wallClock(moment.getTime(), timeZone)).toISOString().slice(0, 10)
 }
 
+/** A moment as the school's wall clock reads it, e.g. `11月3日 20:00`. */
+export function localMoment(moment: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(moment)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${part('month')}月${part('day')}日 ${part('hour')}:${part('minute')}`
+}
+
 const TIME_OF_DAY = /^([01]\d|2[0-3]):([0-5]\d)$/
 
 /**

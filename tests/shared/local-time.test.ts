@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { addDaysToDate, atLocalTime, isDateText, isoWeekday, localDate, startOfLocalDay } from '../../src/shared/local-time.js'
+import {
+  addDaysToDate,
+  atLocalTime,
+  isDateText,
+  isoWeekday,
+  localDate,
+  localMoment,
+  startOfLocalDay,
+} from '../../src/shared/local-time.js'
 
 const at = (iso: string) => new Date(iso)
 const start = (iso: string, timeZone: string, daysBack?: number) => startOfLocalDay(at(iso), timeZone, daysBack).toISOString()
@@ -83,6 +91,17 @@ describe('localDate', () => {
     expect(localDate(at('2026-11-02T20:00:00Z'), 'America/New_York')).toBe('2026-11-02')
     expect(localDate(at('2026-11-02T15:59:59.999Z'), 'Asia/Shanghai')).toBe('2026-11-02')
     expect(localDate(at('2026-11-02T16:00:00Z'), 'Asia/Shanghai')).toBe('2026-11-03')
+  })
+})
+
+describe('localMoment', () => {
+  test('is the month, day and time a wall clock in the time zone reads, without padding the date', () => {
+    expect(localMoment(at('2026-11-03T20:00:00+08:00'), 'Asia/Shanghai')).toBe('11月3日 20:00')
+    expect(localMoment(at('2026-12-25T09:05:00+08:00'), 'Asia/Shanghai')).toBe('12月25日 09:05')
+    // 20:00 UTC on 2 November is already 3 November, 04:00 in Beijing; midnight reads 00:00, not 24:00.
+    expect(localMoment(at('2026-11-02T20:00:00Z'), 'Asia/Shanghai')).toBe('11月3日 04:00')
+    expect(localMoment(at('2026-11-02T16:00:00Z'), 'Asia/Shanghai')).toBe('11月3日 00:00')
+    expect(localMoment(at('2026-11-03T02:00:00Z'), 'America/New_York')).toBe('11月2日 21:00')
   })
 })
 

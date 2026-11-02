@@ -17,7 +17,7 @@ import {
 } from '../protocol/ws.js'
 import { MEMBER_STATUSES } from '../shared/db.js'
 import { className, displayName } from '../shared/identity.js'
-import { addDaysToDate, atLocalTime, localDate } from '../shared/local-time.js'
+import { addDaysToDate, atLocalTime, localDate, localMoment } from '../shared/local-time.js'
 import type { Database, StudentStatus } from '../shared/schema.js'
 import type { ClassDeps } from './app.js'
 import { lessonsAttendedBefore, markAttendance } from './attendance.js'
@@ -108,20 +108,6 @@ function noClassMessage(status: StudentStatus): string {
   if (status === 'dropped') return '你已经退学，不在任何班级里了，重新报名分班后才能来上课。'
   if (status === 'expelled') return '你已经被开除，不在任何班级里了。'
   return '你还没有分班，分到班级后才能来上课。'
-}
-
-/** A moment as the school's wall clock reads it, e.g. `11月3日 20:00`. */
-function localMoment(moment: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(moment)
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
-  return `${part('month')}月${part('day')}日 ${part('hour')}:${part('minute')}`
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>

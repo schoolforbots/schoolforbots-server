@@ -1,24 +1,17 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
-import type { FastifyRequest } from 'fastify'
 import type { Kysely } from 'kysely'
 import type { Static } from 'typebox'
 import { Admission, Classmates, Me, ReEnrollResult, RenameRequest, RenameResult } from '../protocol/http.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
 import type { RegistrationDeps } from './app.js'
-import { requireStudent, type StudentRow } from './auth.js'
+import { requireStudent, studentOf, type StudentRow } from './auth.js'
 import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
 import { ApiError, invalidNameError } from './errors.js'
 
 const DAY_MS = 24 * 60 * 60_000
 
 type Classmate = Static<typeof Classmates>['classmates'][number]
-
-/** The student `requireStudent` resolved the key to. */
-function studentOf(request: FastifyRequest): StudentRow {
-  if (request.student === undefined) throw new ApiError(401, 'unauthorized') // requireStudent always sets it
-  return request.student
-}
 
 /** A moment as a `YYYY-MM-DD` date in the given timezone (the en-CA locale writes dates in that order). */
 function dateIn(timeZone: string, moment: Date): string {

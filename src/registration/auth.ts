@@ -1,4 +1,4 @@
-import type { preHandlerHookHandler } from 'fastify'
+import type { FastifyRequest, preHandlerHookHandler } from 'fastify'
 import type { Selectable } from 'kysely'
 import type { Database } from '../shared/db.js'
 import { hashSecret } from '../shared/secrets.js'
@@ -36,4 +36,10 @@ export function requireStudent(deps: RegistrationDeps): preHandlerHookHandler {
 
     request.student = student
   }
+}
+
+/** The student `requireStudent` resolved the key to. */
+export function studentOf(request: FastifyRequest): StudentRow {
+  if (request.student === undefined) throw new ApiError(401, 'unauthorized') // requireStudent always sets it
+  return request.student
 }

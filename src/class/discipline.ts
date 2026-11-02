@@ -130,7 +130,11 @@ export async function calloutsForWindow(
 }
 
 /** The display names of `ids`: from the session's members as they were at the doors, else from the student rows. */
-async function namesOf(db: Kysely<Database>, session: ActiveSession, ids: number[]): Promise<Map<number, string>> {
+export async function namesOf(
+  db: Kysely<Database>,
+  session: ActiveSession,
+  ids: number[],
+): Promise<Map<number, string>> {
   const snapshot = await db
     .selectFrom('classSessions')
     .select('members')
