@@ -3,12 +3,13 @@ import { Migrator, type MigrationProvider } from 'kysely/migration'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import * as m0001 from '../../src/shared/migrations/0001_init.js'
 import * as m0002 from '../../src/shared/migrations/0002_key_reset_decoys.js'
+import * as m0003 from '../../src/shared/migrations/0003_student_queue_time.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertStudent } from '../helpers/factories.js'
 
 const provider: MigrationProvider = {
   async getMigrations() {
-    return { '0001_init': m0001, '0002_key_reset_decoys': m0002 }
+    return { '0001_init': m0001, '0002_key_reset_decoys': m0002, '0003_student_queue_time': m0003 }
   },
 }
 
@@ -33,9 +34,10 @@ const EXPIRES = new Date('2026-11-02T04:10:00Z')
 const CREATED = new Date('2026-11-02T04:00:00Z')
 
 test('0002 fills in what existing key resets requested before it makes the new columns required', async () => {
-  // createTestDb migrated to the latest; go back to the old shape and put a row there.
-  await migrateOk(migrator.migrateTo('0001_init'))
+  // createTestDb migrated to the latest. The student is inserted in the current shape, then the schema goes back to
+  // the old one (the student survives, as the later migrations only add columns) and a key reset is put there.
   const { id: studentId } = await insertStudent(t.db, { email: 'owner@example.com' })
+  await migrateOk(migrator.migrateTo('0001_init'))
   await sql`
     insert into key_resets (student_id, code_hash, expires_at, created_at)
     values (${studentId}, 'hash', ${EXPIRES}, ${CREATED})`.execute(t.db)

@@ -517,6 +517,52 @@ describe('POST /v1/me/re-enroll', () => {
     expect(((await get('/v1/me', key)).json<{ studentId: number }>()).studentId).toBe(id)
   })
 
+  test('re-enroll joins the queue now: queued_at is the clock time, created_at is untouched', async () => {
+    const registeredAt = new Date('2026-08-01T04:00:00Z')
+    const { id, key } = await insertStudent(t.db, { status: 'dropped', createdAt: registeredAt, queuedAt: registeredAt })
+
+    expect((await reEnroll(key)).json()).toEqual({ status: 'pending' })
+    expect(await studentRow(id)).toMatchObject({ createdAt: registeredAt, queuedAt: t.clock.now() })
+
+    // The same when the slot is full and the student waits.
+    await useConfig({ slotCapacity: 1 })
+    await insertStudent(t.db, { slot: 'evening', status: 'active' })
+    const waiting = await insertStudent(t.db, { status: 'dropped', createdAt: registeredAt, queuedAt: registeredAt })
+    t.clock.advance(3 * DAY)
+
+    expect((await reEnroll(waiting.key)).json()).toEqual({ status: 'waitlisted' })
+    expect(await studentRow(waiting.id)).toMatchObject({ createdAt: registeredAt, queuedAt: t.clock.now() })
+  })
+
+  test('a returner waits behind students who were already on the waitlist', async () => {
+    const config = { ...exampleConfig, slotCapacity: 1 }
+    await useConfig({ slotCapacity: 1 })
+    const now = t.clock.now()
+    const classId = await insertClass(t.db, { classNo: 1 })
+    // The only seat belongs to a student who stopped coming, so the nightly job frees it.
+    await insertStudent(t.db, {
+      status: 'active',
+      classId,
+      assignedAt: new Date(now.getTime() - 60 * DAY),
+      lastAttendedAt: new Date(now.getTime() - 31 * DAY),
+    })
+    // Registered a day ago and has been waiting since.
+    const waiting = await insertStudent(t.db, {
+      status: 'waitlisted',
+      createdAt: new Date(now.getTime() - 1 * DAY),
+    })
+    // Registered long before that, dropped out, and comes back today into the full slot.
+    const returner = await insertStudent(t.db, {
+      status: 'dropped',
+      createdAt: new Date(now.getTime() - 90 * DAY),
+    })
+    expect((await reEnroll(returner.key)).json()).toEqual({ status: 'waitlisted' })
+
+    expect(await runDailyJob({ db: t.db, config, clock: t.clock })).toMatchObject({ dropped: 1, promoted: 1 })
+    expect(await studentRow(waiting.id)).toMatchObject({ status: 'active' })
+    expect(await studentRow(returner.id)).toMatchObject({ status: 'waitlisted', classId: null })
+  })
+
   test('a returning student is placed by the next nightly job', async () => {
     const { id, key } = await insertStudent(t.db, { status: 'dropped' })
     expect((await reEnroll(key)).statusCode).toBe(200)

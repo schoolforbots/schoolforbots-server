@@ -55,7 +55,10 @@ export interface StudentsTable {
   referrerId: number | null
   keyHash: string
   registrationIp: string
+  /** When the student first registered; never changes. */
   createdAt: Date
+  /** When the student last joined the queue for a seat: registration, or re-enrolling after a drop. */
+  queuedAt: Date
   assignedAt: Date | null
   lastAttendedAt: Date | null
   lastRenamedAt: Date | null

@@ -166,9 +166,18 @@ describe('promoting the waitlist', () => {
       assignedAt: new Date(now.getTime() - 60 * DAY),
       lastAttendedAt: new Date(now.getTime() - 31 * DAY),
     })
-    // Inserted latest-first, so the order is by sign-up time and not by student number.
-    const second = await insertStudent(db, { status: 'waitlisted', createdAt: new Date(now.getTime() - 1 * DAY) })
-    const first = await insertStudent(db, { status: 'waitlisted', createdAt: new Date(now.getTime() - 2 * DAY) })
+    // Inserted latest-first, and with created_at the other way round: the order is by when each joined the queue
+    // (queued_at), not by student number and not by when the student first registered.
+    const second = await insertStudent(db, {
+      status: 'waitlisted',
+      createdAt: new Date(now.getTime() - 5 * DAY),
+      queuedAt: new Date(now.getTime() - 1 * DAY),
+    })
+    const first = await insertStudent(db, {
+      status: 'waitlisted',
+      createdAt: new Date(now.getTime() - 4 * DAY),
+      queuedAt: new Date(now.getTime() - 2 * DAY),
+    })
 
     expect(await job(config)).toEqual({ dropped: 1, promoted: 1, assigned: 1, classesCreated: 0 })
 
@@ -206,6 +215,32 @@ describe('promoting the waitlist', () => {
 
     expect(await job(config)).toMatchObject({ promoted: 0, assigned: 2 })
     expect(await statusOf(waiting.id)).toMatchObject({ status: 'waitlisted', classId: null })
+  })
+})
+
+describe('placing pending students', () => {
+  test('pending students are placed in queue order, not by student number or first registration', async () => {
+    const now = clock.now()
+    const config = { ...exampleConfig, classSize: { standard: 2, max: 2 } }
+    const classId = await insertClass(db, { classNo: 1 })
+    const recent = new Date(now.getTime() - 1 * DAY)
+    await insertStudent(db, { status: 'active', classId, assignedAt: recent, lastAttendedAt: recent })
+    // One seat is left in class 1. The student who joined the queue first takes it, though the other has the lower
+    // student number and registered first.
+    const later = await insertStudent(db, {
+      status: 'pending',
+      createdAt: new Date(now.getTime() - 9 * DAY),
+      queuedAt: new Date(now.getTime() - 1 * DAY),
+    })
+    const earlier = await insertStudent(db, {
+      status: 'pending',
+      createdAt: new Date(now.getTime() - 8 * DAY),
+      queuedAt: new Date(now.getTime() - 3 * DAY),
+    })
+
+    expect(await job(config)).toMatchObject({ assigned: 2, classesCreated: 1 })
+    expect((await statusOf(earlier.id)).classId).toBe(classId)
+    expect((await statusOf(later.id)).classId).not.toBe(classId)
   })
 })
 

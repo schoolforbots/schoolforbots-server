@@ -232,9 +232,17 @@ async function reEnrollStudent(deps: RegistrationDeps, student: StudentRow): Pro
       if ((await seatsOfEmail(trx, student.email)) >= config.maxStudentsPerEmail) throw new ApiError(409, 'email_limit')
 
       const status = (await slotOccupancy(trx, student.slot)) >= config.slotCapacity ? 'waitlisted' : 'pending'
+      // Back of the queue: `created_at` stays the first registration, `queued_at` is what the nightly job goes by.
       await trx
         .updateTable('students')
-        .set({ status, classId: null, lessonsAttended: 0, lastAttendedAt: null, assignedAt: null })
+        .set({
+          status,
+          classId: null,
+          lessonsAttended: 0,
+          lastAttendedAt: null,
+          assignedAt: null,
+          queuedAt: deps.clock.now(),
+        })
         .where('id', '=', student.id)
         .execute()
       return { status }

@@ -57,7 +57,7 @@ async function dropInactive(trx: Trx, config: SchoolConfig, now: Date): Promise<
   return Number(result.numUpdatedRows)
 }
 
-/** Per slot, the earliest waitlisted students take the seats that are free. */
+/** Per slot, the students who have waited longest (by `queued_at`) take the seats that are free. */
 async function promoteWaitlist(trx: Trx, config: SchoolConfig): Promise<number> {
   let promoted = 0
   for (const slot of SLOTS) {
@@ -75,7 +75,7 @@ async function promoteWaitlist(trx: Trx, config: SchoolConfig): Promise<number> 
           .select('id')
           .where('slot', '=', slot)
           .where('status', '=', 'waitlisted')
-          .orderBy('createdAt')
+          .orderBy('queuedAt')
           .orderBy('id')
           .limit(free),
       )
@@ -107,7 +107,7 @@ async function assignPending(
         .where('division', '=', division)
         .where('slot', '=', slot)
         .where('status', '=', 'pending')
-        .orderBy('createdAt')
+        .orderBy('queuedAt')
         .orderBy('id')
         .execute()
       if (pending.length === 0) continue

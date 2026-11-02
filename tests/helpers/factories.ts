@@ -36,6 +36,8 @@ export async function insertStudent(
     classId: number | null
     installId: string
     createdAt: Date
+    /** Defaults to `createdAt`, as for a student who has never re-enrolled. */
+    queuedAt: Date
     assignedAt: Date | null
     lastAttendedAt: Date | null
     lastRenamedAt: Date | null
@@ -43,6 +45,7 @@ export async function insertStudent(
 ): Promise<{ id: number; key: string }> {
   const n = ++studentCounter
   const key = generateStudentKey()
+  const createdAt = p.createdAt ?? new Date()
   const row = await db
     .insertInto('students')
     .values({
@@ -58,7 +61,8 @@ export async function insertStudent(
       pluginVersion: '0.0.0',
       keyHash: hashSecret(key),
       registrationIp: '127.0.0.1',
-      createdAt: p.createdAt ?? new Date(),
+      createdAt,
+      queuedAt: p.queuedAt ?? createdAt,
       assignedAt: p.assignedAt ?? null,
       lastAttendedAt: p.lastAttendedAt ?? null,
       lastRenamedAt: p.lastRenamedAt ?? null,

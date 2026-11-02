@@ -498,6 +498,20 @@ describe('POST /v1/registrations/:id/verify', () => {
     expect(errorOf(res).code).toBe('install_has_seat')
   })
 
+  test('verify stamps created_at and queued_at with the clock time', async () => {
+    const { registrationId, code } = await registerOk()
+    t.clock.advance(2 * MINUTE)
+
+    const res = await verify(registrationId, code)
+    expect(res.statusCode).toBe(201)
+    const student = await t.db
+      .selectFrom('students')
+      .select(['createdAt', 'queuedAt'])
+      .where('id', '=', res.json<{ studentId: number }>().studentId)
+      .executeTakeFirstOrThrow()
+    expect(student).toEqual({ createdAt: t.clock.now(), queuedAt: t.clock.now() })
+  })
+
   test('full slot puts the student on the waitlist', async () => {
     await useConfig({ slotCapacity: 2 })
     await insertStudent(t.db, { slot: 'evening', status: 'active' })

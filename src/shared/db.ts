@@ -4,6 +4,7 @@ import pg from 'pg'
 import type { Slot } from './config.js'
 import * as m0001 from './migrations/0001_init.js'
 import * as m0002 from './migrations/0002_key_reset_decoys.js'
+import * as m0003 from './migrations/0003_student_queue_time.js'
 import type { Database } from './schema.js'
 
 export type { Database, StudentStatus } from './schema.js'
@@ -20,7 +21,7 @@ export function createDb(databaseUrl: string): Kysely<Database> {
 // Listed in code (not read from a directory) so it works unchanged from src, tsx and a bundle.
 const provider: MigrationProvider = {
   async getMigrations() {
-    return { '0001_init': m0001, '0002_key_reset_decoys': m0002 }
+    return { '0001_init': m0001, '0002_key_reset_decoys': m0002, '0003_student_queue_time': m0003 }
   },
 }
 

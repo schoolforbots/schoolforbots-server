@@ -238,6 +238,7 @@ async function verifyInTransaction(
       keyHash: hashSecret(key),
       registrationIp: registration.ip,
       createdAt: now,
+      queuedAt: now,
       assignedAt: null,
       lastAttendedAt: null,
       lastRenamedAt: null,

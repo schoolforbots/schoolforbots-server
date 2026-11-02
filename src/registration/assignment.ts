@@ -5,7 +5,7 @@ export interface ClassState {
   memberNames: string[]
 }
 
-/** Newcomers must be sorted by sign-up order by the caller. */
+/** Newcomers must be sorted by queue order (`queued_at`) by the caller. */
 export interface Newcomer {
   studentId: number
   displayName: string
