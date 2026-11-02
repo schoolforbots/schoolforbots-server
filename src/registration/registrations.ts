@@ -1,4 +1,3 @@
-import { timingSafeEqual } from 'node:crypto'
 import { isIP } from 'node:net'
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import { sql, type Kysely } from 'kysely'
@@ -14,7 +13,8 @@ import { SEAT_STATUSES, type Database } from '../shared/db.js'
 import { checkNames } from '../shared/identity.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
-import { ApiError, type ErrorCode } from './errors.js'
+import { ApiError } from './errors.js'
+import { codeMatches, fail, normalizeEmail, type Outcome } from './verification.js'
 
 const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * MINUTE_MS
@@ -44,10 +44,6 @@ export function registrationRoutes(deps: RegistrationDeps): FastifyPluginAsyncTy
       },
     )
   }
-}
-
-function normalizeEmail(raw: string): string {
-  return raw.trim().toLowerCase()
 }
 
 /**
@@ -183,17 +179,7 @@ async function createRegistration(
   return { registrationId, expiresAt: expiresAt.toISOString() }
 }
 
-type VerifyOutcome = { ok: true; result: Static<typeof VerifyResult> } | { ok: false; error: ApiError }
-
-function fail(status: number, code: ErrorCode): VerifyOutcome {
-  return { ok: false, error: new ApiError(status, code) }
-}
-
-function codeMatches(storedHash: string, code: string): boolean {
-  const stored = Buffer.from(storedHash, 'hex')
-  const given = Buffer.from(hashSecret(code), 'hex')
-  return stored.length === given.length && timingSafeEqual(stored, given)
-}
+type VerifyOutcome = Outcome<Static<typeof VerifyResult>>
 
 function isInstallSeatViolation(err: unknown): boolean {
   return (

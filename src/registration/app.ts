@@ -7,7 +7,9 @@ import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/db.js'
 import { ApiError, registerErrorHandler } from './errors.js'
+import { keyResetRoutes } from './key-resets.js'
 import type { Mailer } from './mailer.js'
+import { meRoutes } from './me.js'
 import { registrationRoutes } from './registrations.js'
 
 export interface RegistrationDeps {
@@ -35,6 +37,8 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
     errorResponseBuilder: () => new ApiError(429, 'rate_limited'),
   })
   app.register(registrationRoutes(deps))
+  app.register(meRoutes(deps))
+  app.register(keyResetRoutes(deps))
 
   return app
 }

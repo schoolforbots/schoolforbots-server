@@ -53,3 +53,44 @@ export const VerifyResult = Type.Object({
   key: Type.String(),
   status: Type.Union([Type.Literal('pending'), Type.Literal('waitlisted')]),
 })
+
+const StudentStatus = Type.Union([
+  Type.Literal('pending'),
+  Type.Literal('waitlisted'),
+  Type.Literal('active'),
+  Type.Literal('suspended'),
+  Type.Literal('dropped'),
+  Type.Literal('expelled'),
+])
+
+/** `GET /v1/me`: who the key belongs to. `className` is null until the student is assigned to a class. */
+export const Me = Type.Object({
+  studentId: Type.Integer(),
+  ownerName: Type.String(),
+  aiName: Type.String(),
+  displayName: Type.String(),
+  division: Division,
+  slot: Slot,
+  status: StudentStatus,
+  className: Type.Union([Type.String(), Type.Null()]),
+  lastRenamedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+})
+
+export const KeyResetRequest = Type.Object({
+  studentId: Type.Integer({ minimum: 1, maximum: MAX_PG_INTEGER }),
+  // Compared after trimming and lower-casing; a malformed address simply matches nobody.
+  email: Type.String({ minLength: 1, maxLength: MAX_EMAIL }),
+})
+
+/** Always the answer to a reset request, whether or not the student id and email matched. */
+export const KeyResetAccepted = Type.Object({
+  resetId: Type.String({ format: 'uuid' }),
+})
+
+export const KeyResetVerifyRequest = Type.Object({
+  code: Type.String({ pattern: '^\\d{6}$' }),
+})
+
+export const KeyResetResult = Type.Object({
+  key: Type.String(),
+})
