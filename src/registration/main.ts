@@ -34,18 +34,26 @@ async function main(): Promise<void> {
     trustProxy: env.trustProxy,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
   })
-  await app.listen({ port: env.registrationPort, host: '0.0.0.0' })
 
-  const dailyJob = startDailyJob(async () => {
+  const runAndLog = async (trigger: 'startup' | 'midnight') => {
     try {
       const report = await runDailyJob({ db, config, clock: systemClock })
-      app.log.info({ report }, 'daily job finished')
+      app.log.info({ report, trigger }, 'daily job finished')
       return report
     } catch (err) {
-      app.log.error({ err }, 'daily job failed')
+      app.log.error({ err, trigger }, 'daily job failed')
       throw err
     }
-  }, config.timezone)
+  }
+
+  // The schedule does not make up a midnight that passed while the service was down, so every start runs the job
+  // once too. The job goes by today's date: after the day's run has happened, running it again changes nothing.
+  // A failure here is logged and the service starts anyway; the next start or midnight, or `npm run job:daily`, retries.
+  await runAndLog('startup').catch(() => undefined)
+
+  await app.listen({ port: env.registrationPort, host: '0.0.0.0' })
+
+  const dailyJob = startDailyJob(() => runAndLog('midnight'), config.timezone)
 
   let shuttingDown = false
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {

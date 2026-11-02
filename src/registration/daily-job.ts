@@ -3,10 +3,9 @@ import type { Clock } from '../shared/clock.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { displayName } from '../shared/identity.js'
+import { startOfLocalDay } from '../shared/local-time.js'
 import { assignClasses, type ClassState } from './assignment.js'
 import { slotOccupancy } from './capacity.js'
-
-const DAY_MS = 24 * 60 * 60_000
 
 /** Held for the whole run, so two runs (say, from two server instances at midnight) never overlap. */
 const DAILY_JOB_LOCK = 4242001
@@ -26,7 +25,11 @@ type Trx = Kysely<Database>
 
 /**
  * The nightly job, in one transaction: drop students who stopped coming, promote the waitlist into the freed
- * seats, and put every pending student into a class. Running it again the same day changes nothing.
+ * seats, and put the pending students who joined the queue before today into a class.
+ *
+ * Both rules go by today's date in the school's timezone, not by the time of the run: a run that starts late, or
+ * one that makes up for a missed midnight, does what the midnight run would have done, and running it again later
+ * the same day changes nothing more. Students who join the queue today wait for tomorrow's run (报名当天待分班).
  */
 export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolConfig; clock: Clock }): Promise<DailyJobReport> {
   const { db, config, clock } = deps
@@ -38,16 +41,19 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
 
     // Read after the locks, so a run that had to wait still uses the time it actually runs at.
     const now = clock.now()
-    const dropped = await dropInactive(trx, config, now)
+    const today = startOfLocalDay(now, config.timezone)
+    const dropped = await dropInactive(trx, startOfLocalDay(now, config.timezone, config.inactivityDropDays))
     const promoted = await promoteWaitlist(trx, config)
-    const { assigned, classesCreated } = await assignPending(trx, config, now)
+    const { assigned, classesCreated } = await assignPending(trx, config, now, today)
     return { dropped, promoted, assigned, classesCreated }
   })
 }
 
-/** Active students absent for more than inactivityDropDays are dropped; a student who never came counts from assignment. */
-async function dropInactive(trx: Trx, config: SchoolConfig, now: Date): Promise<number> {
-  const cutoff = new Date(now.getTime() - config.inactivityDropDays * DAY_MS)
+/**
+ * Active students not seen since before `cutoff`, the start of the local day inactivityDropDays calendar days ago,
+ * are dropped; a student who never came counts from assignment.
+ */
+async function dropInactive(trx: Trx, cutoff: Date): Promise<number> {
   const result = await trx
     .updateTable('students')
     .set({ status: 'dropped', classId: null })
@@ -85,11 +91,15 @@ async function promoteWaitlist(trx: Trx, config: SchoolConfig): Promise<number> 
   return promoted
 }
 
-/** Per division and slot, runs the assignment algorithm over the pending students, opening new classes as needed. */
+/**
+ * Per division and slot, runs the assignment algorithm over the pending students who joined the queue before
+ * `today` (the start of the local day), opening new classes as needed.
+ */
 async function assignPending(
   trx: Trx,
   config: SchoolConfig,
   now: Date,
+  today: Date,
 ): Promise<{ assigned: number; classesCreated: number }> {
   const { count } = await trx
     .selectFrom('classes')
@@ -107,6 +117,7 @@ async function assignPending(
         .where('division', '=', division)
         .where('slot', '=', slot)
         .where('status', '=', 'pending')
+        .where('queuedAt', '<', today)
         .orderBy('queuedAt')
         .orderBy('id')
         .execute()

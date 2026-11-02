@@ -9,7 +9,8 @@ import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertStudent } from '../helpers/factories.js'
 
-const DAY = 24 * 60 * 60_000
+const HOUR = 60 * 60_000
+const DAY = 24 * HOUR
 const exampleConfig = loadSchoolConfig(new URL('../../config/school.example.json', import.meta.url).pathname)
 
 let db: Kysely<Database>
@@ -41,8 +42,12 @@ async function classSizes(division: Division, slot: Slot): Promise<number[]> {
   return rows.map((r) => Number(r.size))
 }
 
+/** An hour before the clock time, which these tests keep at a local midnight: in the queue since yesterday evening. */
+const lastEvening = () => new Date(clock.now().getTime() - HOUR)
+
+/** Pending students who registered yesterday evening, so tonight's run places them. */
 async function insertPending(n: number, p: { division?: Division; slot?: Slot } = {}) {
-  for (let i = 0; i < n; i++) await insertStudent(db, { ...p, status: 'pending', createdAt: clock.now() })
+  for (let i = 0; i < n; i++) await insertStudent(db, { ...p, status: 'pending', createdAt: lastEvening() })
 }
 
 const statusOf = async (id: number) =>
@@ -83,6 +88,97 @@ test('divisions and slots are assigned separately', async () => {
   )
   expect(await classSizes('junior', 'evening')).toEqual([3])
   expect(await classSizes('primary', 'morning')).toEqual([2])
+})
+
+describe('the local day', () => {
+  const beijing = (local: string) => new Date(`${local}+08:00`)
+
+  test('a second run later the same local day changes nothing, even after more students registered that morning', async () => {
+    clock.set(beijing('2026-11-03T00:00:05'))
+    const classId = await insertClass(db, { classNo: 1 })
+    // Last came 30 days ago at 05:00: kept today whatever the time of the run, dropped tomorrow.
+    const fading = await insertStudent(db, {
+      status: 'active',
+      classId,
+      assignedAt: beijing('2026-09-01T00:00:00'),
+      lastAttendedAt: beijing('2026-10-04T05:00:00'),
+    })
+    for (let i = 0; i < 3; i++) await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-02T20:00:00') })
+    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 3, classesCreated: 0 })
+    const sizes = await classSizes('junior', 'evening')
+
+    clock.set(beijing('2026-11-03T09:00:00'))
+    const morning: { id: number }[] = []
+    for (let i = 0; i < 2; i++) morning.push(await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-03T08:00:00') }))
+    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0 })
+    expect(await classSizes('junior', 'evening')).toEqual(sizes)
+    expect(await statusOf(fading.id)).toMatchObject({ status: 'active', classId })
+    for (const { id } of morning) expect(await statusOf(id)).toMatchObject({ status: 'pending', classId: null })
+
+    // The next night places this morning's students and drops the one who stopped coming.
+    clock.set(beijing('2026-11-04T00:00:05'))
+    expect(await job()).toEqual({ dropped: 1, promoted: 0, assigned: 2, classesCreated: 0 })
+    expect(await statusOf(fading.id)).toMatchObject({ status: 'dropped', classId: null })
+  })
+
+  test('a student who registered at 00:00:01 waits for the next night, even when that night\'s run starts late', async () => {
+    const lastMinute = await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-02T23:59:59') })
+    const justAfter = await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-03T00:00:01') })
+
+    clock.set(beijing('2026-11-03T00:00:05'))
+    expect(await job()).toMatchObject({ assigned: 1 })
+    expect(await statusOf(lastMinute.id)).toMatchObject({ status: 'active', assignedAt: clock.now() })
+    expect(await statusOf(justAfter.id)).toMatchObject({ status: 'pending', classId: null })
+
+    clock.set(beijing('2026-11-04T00:00:00'))
+    expect(await job()).toMatchObject({ assigned: 1 })
+    expect(await statusOf(justAfter.id)).toMatchObject({ status: 'active', assignedAt: clock.now() })
+  })
+
+  test('dropping goes by local calendar date, not by the time of day of the run', async () => {
+    const classId = await insertClass(db, { classNo: 1 })
+    const neverCame = (assignedAt: Date) => insertStudent(db, { status: 'active', classId, assignedAt, lastAttendedAt: null })
+    // Today is 3 November; 30 days before it is 4 October.
+    const before = await neverCame(beijing('2026-10-03T23:59:59.999'))
+    const startOfDay = await neverCame(beijing('2026-10-04T00:00:00'))
+    const endOfDay = await neverCame(beijing('2026-10-04T23:59:00'))
+
+    clock.set(beijing('2026-11-03T00:00:05'))
+    expect(await job()).toMatchObject({ dropped: 1 })
+    expect(await statusOf(before.id)).toMatchObject({ status: 'dropped' })
+
+    // A rerun just before the day ends keeps the same cutoff.
+    clock.set(beijing('2026-11-03T23:59:30'))
+    expect(await job()).toMatchObject({ dropped: 0 })
+    expect(await statusOf(startOfDay.id)).toMatchObject({ status: 'active' })
+    expect(await statusOf(endOfDay.id)).toMatchObject({ status: 'active' })
+
+    clock.set(beijing('2026-11-04T00:00:05'))
+    expect(await job()).toMatchObject({ dropped: 2 })
+    expect(await statusOf(startOfDay.id)).toMatchObject({ status: 'dropped' })
+    expect(await statusOf(endOfDay.id)).toMatchObject({ status: 'dropped' })
+  })
+
+  test('the day is the configured timezone\'s, and 30 days are 30 calendar days there', async () => {
+    const config = { ...exampleConfig, timezone: 'America/New_York' }
+    // New York is on EST (UTC-5) in November and was on EDT (UTC-4) in October.
+    // 23:30 on 2 November in New York is already 3 November in Beijing.
+    const yesterday = await insertStudent(db, { status: 'pending', createdAt: new Date('2026-11-02T23:30:00-05:00') })
+    const today = await insertStudent(db, { status: 'pending', createdAt: new Date('2026-11-03T00:00:01-05:00') })
+    const classId = await insertClass(db, { classNo: 1, slot: 'morning' })
+    const member = (assignedAt: Date) => insertStudent(db, { status: 'active', slot: 'morning', classId, assignedAt })
+    // 30 days before 3 November is 4 October, whose midnight was 04:00 UTC. Counting 30 times 24 hours back
+    // from this midnight (05:00 UTC) would end an hour later and drop `kept` too.
+    const stale = await member(new Date('2026-10-03T23:00:00-04:00'))
+    const kept = await member(new Date('2026-10-04T00:00:00-04:00'))
+
+    clock.set(new Date('2026-11-03T08:00:00-05:00'))
+    expect(await job(config)).toMatchObject({ dropped: 1, assigned: 1 })
+    expect(await statusOf(yesterday.id)).toMatchObject({ status: 'active' })
+    expect(await statusOf(today.id)).toMatchObject({ status: 'pending' })
+    expect(await statusOf(stale.id)).toMatchObject({ status: 'dropped' })
+    expect(await statusOf(kept.id)).toMatchObject({ status: 'active' })
+  })
 })
 
 describe('dropping inactive students', () => {
@@ -191,7 +287,7 @@ describe('promoting the waitlist', () => {
     const classId = await insertClass(db, { classNo: 1 })
     await insertStudent(db, { slot: 'evening', status: 'suspended', classId, assignedAt: clock.now() })
     await insertStudent(db, { slot: 'evening', status: 'dropped', createdAt: clock.now() })
-    const at = (ms: number) => new Date(clock.now().getTime() + ms)
+    const at = (ms: number) => new Date(lastEvening().getTime() + ms)
     const evening = await insertStudent(db, { slot: 'evening', status: 'waitlisted', createdAt: at(0) })
     const eveningLate = await insertStudent(db, { slot: 'evening', status: 'waitlisted', createdAt: at(1) })
     // The morning slot is empty, so its waitlist is promoted up to its own capacity.
@@ -308,7 +404,7 @@ describe('creating classes', () => {
 
   test('students with the same display name land in different classes', async () => {
     for (let i = 0; i < 2; i++) {
-      await insertStudent(db, { ownerName: '阿杰', aiName: '小鱼', status: 'pending', createdAt: clock.now() })
+      await insertStudent(db, { ownerName: '阿杰', aiName: '小鱼', status: 'pending', createdAt: lastEvening() })
     }
     expect(await job()).toMatchObject({ assigned: 2, classesCreated: 2 })
     // The second 阿杰家的小鱼 cannot share the first one's class, so a second class is opened.
@@ -317,8 +413,8 @@ describe('creating classes', () => {
 })
 
 test('assigned students become active with assignedAt = now', async () => {
-  const a = await insertStudent(db, { status: 'pending', createdAt: clock.now() })
-  const b = await insertStudent(db, { status: 'pending', createdAt: clock.now(), division: 'senior', slot: 'morning' })
+  const a = await insertStudent(db, { status: 'pending', createdAt: lastEvening() })
+  const b = await insertStudent(db, { status: 'pending', createdAt: lastEvening(), division: 'senior', slot: 'morning' })
 
   expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 2, classesCreated: 2 })
   const now = clock.now()

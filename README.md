@@ -23,6 +23,7 @@ DATABASE_URL=postgres://school:school@localhost:5432/school
 说明：
 
 - 服务默认监听 `8080` 端口，启动时会自动建表和升级表结构。
+- 每天 0 点（学校配置里的时区）跑一次分班任务：退学、候补转正、分班。服务每次启动也会先跑一次，补上停机时错过的那次。任务按当天日期算，同一天里再跑不会多做任何事；当天报名的学生要等第二天 0 点才分班。需要手动跑一次时用 `npm run job:daily`。
 - `SMTP_URL` 留空时不会发邮件，验证码只打印在服务日志里，方便本地调试。
 - `data/moderation/` 下没有真实词库时，服务会改用 `*.example.txt` 里的占位内容，并在启动时打印警告。真实配置、真实词库和 `.env` 都不会提交到仓库。
 - 开发结束后用 `docker compose -f docker-compose.dev.yml down` 关掉数据库。

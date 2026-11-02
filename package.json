@@ -10,6 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev:registration": "tsx watch --env-file=.env src/registration/main.ts",
+    "job:daily": "tsx --env-file-if-exists=.env src/registration/run-daily-job.ts",
     "protocol:export": "tsx scripts/export-protocol.ts"
   },
   "dependencies": {
