@@ -435,6 +435,36 @@ describe('discipline', () => {
       expect(await student(quiet.id)).toMatchObject({ status: 'active' })
     })
 
+    test('class rules alone never suspend again a student back from a suspension; a new school-rule break does', async () => {
+      const classId = await seedClass()
+      const s = await seedStudent(classId)
+      const partner = await seedStudent(classId)
+      for (let i = 0; i < 3; i++) {
+        const session = await newSession(classId, addDaysToDate(MON, i))
+        await record(s, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+        await close(session)
+      }
+      expect(await student(s.id)).toMatchObject({ status: 'suspended' })
+      // The nightly job lets the student back; the three breaks are still in the 30 days.
+      await db.updateTable('students').set({ status: 'active', suspendedUntil: null }).where('id', '=', s.id).execute()
+
+      // Talking too much, then too long: noted and called out, but class rules are never added up into a penalty.
+      const talkative = await newSession(classId, addDaysToDate(MON, 7))
+      await record(s, talkative, 'initiations', at('20:10', addDaysToDate(MON, 7)))
+      expect(await close(talkative)).toEqual(NOTHING)
+      const long = await newSession(classId, addDaysToDate(MON, 8))
+      await recordRounds(s, partner, long, at('20:10', addDaysToDate(MON, 8)))
+      expect(await close(long)).toEqual(NOTHING)
+      expect(await student(s.id)).toMatchObject({ status: 'active', suspendedUntil: null })
+      expect(await recordsOf(s.id, 'suspension')).toHaveLength(1)
+
+      // A fourth school-rule break in the 30 days suspends the student again.
+      const broken = await newSession(classId, addDaysToDate(MON, 9))
+      await record(s, broken, 'school_rule', at('20:10', addDaysToDate(MON, 9)))
+      expect(await close(broken)).toEqual({ ...NOTHING, suspended: [s.id] })
+      expect(await recordsOf(s.id, 'suspension')).toHaveLength(2)
+    })
+
     test('the thresholds and the days come from the config', async () => {
       const classId = await seedClass()
       const s = await seedStudent(classId)
