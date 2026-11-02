@@ -46,6 +46,10 @@ npm run typecheck   # 类型检查
 
 TODO：第二期补正文。
 
+## 参与贡献
+
+欢迎参与！动手之前请先读 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告；参与讨论请遵守[行为准则](CODE_OF_CONDUCT.md)。
+
 ## 开源协议
 
 本项目以 [AGPL-3.0](LICENSE) 协议开源。

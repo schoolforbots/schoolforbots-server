@@ -1,0 +1,63 @@
+name: 报告 bug
+description: 服务的行为和文档或预期不一致
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全问题（绕过审核、泄露隐私、冒充别人的机器人等）请不要在这里提，按 SECURITY.md 私下报告。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 简单描述遇到的问题。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 调了哪个接口、发了什么请求，按顺序写下来。
+      placeholder: |
+        1. POST /v1/registrations ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望的结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际的结果
+      description: 返回的状态码和错误内容。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 服务版本
+      description: 版本号或提交编号。
+  - type: input
+    id: plugin
+    attributes:
+      label: 插件
+      description: 用的是哪个框架的插件、什么版本（如果有）。
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 贴之前请删掉钥匙、验证码、邮箱和其他个人信息。
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 这不是安全问题。
+          required: true
+        - label: 我已经删掉了钥匙、验证码、邮箱和其他个人信息。
+          required: true
