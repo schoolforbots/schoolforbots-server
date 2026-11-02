@@ -37,8 +37,10 @@ test('example config loads with spec defaults', () => {
     maxAttempts: 5,
     resendSeconds: 60,
     keyResetDailyFailureCap: 20,
+    dailyMailCapPerAddress: 5,
   })
   expect(c.httpRateLimitPerMinute).toBe(60)
+  expect(c.codeRouteRateLimitPerMinute).toBe(10)
   expect(c.slots.morning).toEqual({ label: '上午班', start: '10:00', end: '11:00' })
   expect(c.slots.afternoon).toEqual({ label: '下午班', start: '15:00', end: '16:00' })
   expect(c.slots.evening).toEqual({ label: '晚班', start: '20:00', end: '21:00' })
@@ -84,12 +86,30 @@ test('loadEnv reads overrides', () => {
 test('the key-reset failure cap must be a positive integer', () => {
   for (const cap of [0, -1, 1.5, '20']) {
     const tmpPath = writeTmpConfig((c) => {
-      c.verificationCode = { ttlMinutes: 10, maxAttempts: 5, resendSeconds: 60, keyResetDailyFailureCap: cap }
+      c.verificationCode = { ttlMinutes: 10, maxAttempts: 5, resendSeconds: 60, keyResetDailyFailureCap: cap, dailyMailCapPerAddress: 5 }
     })
     expect(() => loadSchoolConfig(tmpPath), String(cap)).toThrow(/keyResetDailyFailureCap/)
   }
   const missing = writeTmpConfig((c) => {
-    c.verificationCode = { ttlMinutes: 10, maxAttempts: 5, resendSeconds: 60 }
+    c.verificationCode = { ttlMinutes: 10, maxAttempts: 5, resendSeconds: 60, dailyMailCapPerAddress: 5 }
   })
   expect(() => loadSchoolConfig(missing)).toThrow(/keyResetDailyFailureCap/)
+})
+
+test('the daily mail cap per address must be a positive integer', () => {
+  for (const cap of [0, -1, 1.5, '5', undefined]) {
+    const tmpPath = writeTmpConfig((c) => {
+      c.verificationCode = { ttlMinutes: 10, maxAttempts: 5, resendSeconds: 60, keyResetDailyFailureCap: 20, dailyMailCapPerAddress: cap }
+    })
+    expect(() => loadSchoolConfig(tmpPath), String(cap)).toThrow(/dailyMailCapPerAddress/)
+  }
+})
+
+test('the code route rate limit must be a positive integer', () => {
+  for (const limit of [0, -1, 1.5, '10', undefined]) {
+    const tmpPath = writeTmpConfig((c) => {
+      c.codeRouteRateLimitPerMinute = limit
+    })
+    expect(() => loadSchoolConfig(tmpPath), String(limit)).toThrow(/codeRouteRateLimitPerMinute/)
+  }
 })

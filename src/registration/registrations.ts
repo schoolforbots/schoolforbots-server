@@ -15,7 +15,7 @@ import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.
 import type { RegistrationDeps } from './app.js'
 import { isInstallSeatViolation, seatsOfEmail, slotOccupancy } from './capacity.js'
 import { ApiError, invalidNameError } from './errors.js'
-import { codeMatches, fail, normalizeEmail, type Outcome } from './verification.js'
+import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
 const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * MINUTE_MS
@@ -26,7 +26,7 @@ export function registrationRoutes(deps: RegistrationDeps): FastifyPluginAsyncTy
   return async (app) => {
     app.post(
       '/v1/registrations',
-      { schema: { body: RegistrationRequest, response: { 202: RegistrationAccepted } } },
+      { config: codeRouteConfig(deps.config), schema: { body: RegistrationRequest, response: { 202: RegistrationAccepted } } },
       async (request, reply) => {
         const accepted = await createRegistration(deps, request.body, request.ip)
         return reply.status(202).send(accepted)
@@ -35,7 +35,10 @@ export function registrationRoutes(deps: RegistrationDeps): FastifyPluginAsyncTy
 
     app.post(
       '/v1/registrations/:id/verify',
-      { schema: { params: IdParams, body: VerifyRequest, response: { 201: VerifyResult } } },
+      {
+        config: codeRouteConfig(deps.config),
+        schema: { params: IdParams, body: VerifyRequest, response: { 201: VerifyResult } },
+      },
       async (request, reply) => {
         const result = await verifyRegistration(deps, request.params.id, request.body.code)
         return reply.status(201).send(result)
@@ -77,8 +80,10 @@ async function createRegistration(
   const expiresAt = new Date(now.getTime() + config.verificationCode.ttlMinutes * MINUTE_MS)
 
   const registrationId = await db.transaction().execute(async (trx) => {
-    // Serializes registrations from one address, so a burst of parallel requests cannot all slip under the limits.
+    // Serializes registrations from one address, and then those to one mailbox from any address, so a burst of
+    // parallel requests cannot all slip under the limits. Lock order: address, then email (verify takes email, then slot).
     await lock(trx, `ip:${ip}`)
+    await lock(trx, `email:${email}`)
 
     const ban = await trx
       .selectFrom('bans')
@@ -119,6 +124,16 @@ async function createRegistration(
       .limit(1)
       .executeTakeFirst()
     if (pending !== undefined) throw new ApiError(429, 'resend_too_soon')
+
+    // The mailbox's daily cap holds whatever install ids and client addresses the requests come with.
+    const mailedToday = await countRows(
+      trx
+        .selectFrom('registrations')
+        .select((eb) => eb.fn.countAll().as('count'))
+        .where('email', '=', email)
+        .where('createdAt', '>', new Date(now.getTime() - DAY_MS)),
+    )
+    if (mailedToday >= config.verificationCode.dailyMailCapPerAddress) throw new ApiError(429, 'resend_too_soon')
 
     // An unknown referrer is not an error; it is just not recorded.
     const referrer =

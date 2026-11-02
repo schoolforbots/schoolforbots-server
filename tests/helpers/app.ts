@@ -12,11 +12,21 @@ import { createTestDb } from './db.js'
 // Paths hang off this file, not the working directory, so the tests run from anywhere.
 const fromRoot = (relative: string) => fileURLToPath(new URL(`../../${relative}`, import.meta.url))
 
+/** Fields of the school config to replace; `verificationCode` may name only some of its fields. */
+export type ConfigOverrides = Omit<Partial<SchoolConfig>, 'verificationCode'> & {
+  verificationCode?: Partial<SchoolConfig['verificationCode']>
+}
+
 /** A registration service on a fresh database, with the example config and word lists and a controllable clock. */
-export async function buildTestApp(overrides: { config?: Partial<SchoolConfig>; logger?: FastifyServerOptions['logger'] } = {}) {
+export async function buildTestApp(overrides: { config?: ConfigOverrides; logger?: FastifyServerOptions['logger'] } = {}) {
   const { db, destroy: destroyDb } = await createTestDb()
 
-  const config: SchoolConfig = { ...loadSchoolConfig(fromRoot('config/school.example.json')), ...overrides.config }
+  const example = loadSchoolConfig(fromRoot('config/school.example.json'))
+  const config: SchoolConfig = {
+    ...example,
+    ...overrides.config,
+    verificationCode: { ...example.verificationCode, ...overrides.config?.verificationCode },
+  }
   const moderator = createModerator({
     blockedWords: parseWordList(readFileSync(fromRoot('data/moderation/blocked-words.example.txt'), 'utf8')),
     injectionPatterns: parseInjectionPatterns(

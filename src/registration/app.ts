@@ -30,7 +30,8 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   app.setValidatorCompiler(TypeBoxValidatorCompiler)
 
   registerErrorHandler(app)
-  // The limiter counts in real time (its own in-memory store), not with the injected clock.
+  // The limiter counts in real time (its own in-memory store), not with the injected clock. The routes that send
+  // or check a code have a stricter limit of their own (see codeRouteConfig), which replaces this one for them.
   app.register(rateLimit, {
     max: deps.config.httpRateLimitPerMinute,
     timeWindow: '1 minute',

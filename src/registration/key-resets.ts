@@ -8,7 +8,7 @@ import { lock, type Database } from '../shared/db.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
 import { ApiError } from './errors.js'
-import { codeMatches, fail, normalizeEmail, type Outcome } from './verification.js'
+import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
 const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * MINUTE_MS
@@ -40,7 +40,7 @@ export function keyResetRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebo
 
     app.post(
       '/v1/key-resets',
-      { schema: { body: KeyResetRequest, response: { 202: KeyResetAccepted } } },
+      { config: codeRouteConfig(deps.config), schema: { body: KeyResetRequest, response: { 202: KeyResetAccepted } } },
       async (request, reply) => {
         const { accepted, mail } = await requestKeyReset(deps, request.body)
         reply.status(202).send(accepted)
@@ -58,7 +58,10 @@ export function keyResetRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebo
 
     app.post(
       '/v1/key-resets/:id/verify',
-      { schema: { params: IdParams, body: KeyResetVerifyRequest, response: { 200: KeyResetResult } } },
+      {
+        config: codeRouteConfig(deps.config),
+        schema: { params: IdParams, body: KeyResetVerifyRequest, response: { 200: KeyResetResult } },
+      },
       async (request) => verifyKeyReset(deps, request.params.id, request.body.code),
     )
   }
@@ -98,6 +101,16 @@ async function requestKeyReset(
       .limit(1)
       .executeTakeFirst()
     if (recent !== undefined) throw new ApiError(429, 'resend_too_soon')
+
+    // So is the daily cap: at most dailyMailCapPerAddress resets of one pair in 24 hours, real or decoy.
+    const today = await trx
+      .selectFrom('keyResets')
+      .select((eb) => eb.fn.countAll().as('count'))
+      .where('requestedStudentId', '=', body.studentId)
+      .where('requestedEmail', '=', email)
+      .where('createdAt', '>', new Date(now.getTime() - DAY_MS))
+      .executeTakeFirstOrThrow()
+    if (Number(today.count) >= config.verificationCode.dailyMailCapPerAddress) throw new ApiError(429, 'resend_too_soon')
 
     const student = await trx
       .selectFrom('students')

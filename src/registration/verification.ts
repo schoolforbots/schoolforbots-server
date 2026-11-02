@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
+import type { SchoolConfig } from '../shared/config.js'
 import { hashSecret } from '../shared/secrets.js'
 import { ApiError, type ErrorCode } from './errors.js'
 
@@ -7,6 +8,14 @@ import { ApiError, type ErrorCode } from './errors.js'
 /** Emails are compared and stored trimmed and lower-cased. */
 export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase()
+}
+
+/**
+ * Route options for the four routes that send or check a code: a per-IP limit of their own, one counter per route,
+ * stricter than the global one. @fastify/rate-limit counts a route with its own limit against that limit only.
+ */
+export function codeRouteConfig(config: SchoolConfig) {
+  return { rateLimit: { max: config.codeRouteRateLimitPerMinute, timeWindow: '1 minute' } }
 }
 
 /** Compares a submitted code with the stored hash in constant time. */

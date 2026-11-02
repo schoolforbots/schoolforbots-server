@@ -25,8 +25,13 @@ export const SchoolConfigSchema = Type.Object({
     resendSeconds: Type.Integer({ minimum: 0 }),
     // Failed key-reset guesses allowed per (student id, email) pair in any 24 hours, summed over all its reset requests.
     keyResetDailyFailureCap: PositiveInt,
+    // Code mails per address in any 24 hours: registrations per email, and key resets per (student id, email) pair.
+    dailyMailCapPerAddress: PositiveInt,
   }),
+  // Per IP, for all routes together that have no limit of their own.
   httpRateLimitPerMinute: PositiveInt,
+  // Per IP and per route, for each route that sends or checks a code (registration, key reset, and their verify).
+  codeRouteRateLimitPerMinute: PositiveInt,
   slots: Type.Object({ morning: SlotConfig, afternoon: SlotConfig, evening: SlotConfig }),
   divisions: Type.Object({ primary: DivisionConfig, junior: DivisionConfig, senior: DivisionConfig }),
   teacherPersonas: Type.Array(

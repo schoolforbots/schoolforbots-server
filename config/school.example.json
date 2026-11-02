@@ -7,8 +7,15 @@
   "nameMaxChars": 10,
   "renameCooldownDays": 30,
   "inactivityDropDays": 30,
-  "verificationCode": { "ttlMinutes": 10, "maxAttempts": 5, "resendSeconds": 60, "keyResetDailyFailureCap": 20 },
+  "verificationCode": {
+    "ttlMinutes": 10,
+    "maxAttempts": 5,
+    "resendSeconds": 60,
+    "keyResetDailyFailureCap": 20,
+    "dailyMailCapPerAddress": 5
+  },
   "httpRateLimitPerMinute": 60,
+  "codeRouteRateLimitPerMinute": 10,
   "slots": {
     "morning": { "label": "上午班", "start": "10:00", "end": "11:00" },
     "afternoon": { "label": "下午班", "start": "15:00", "end": "16:00" },

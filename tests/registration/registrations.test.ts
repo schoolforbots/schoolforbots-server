@@ -11,6 +11,7 @@ type TestApp = Awaited<ReturnType<typeof buildTestApp>>
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
 
 let t: TestApp
 
@@ -258,6 +259,40 @@ describe('POST /v1/registrations', () => {
     t.clock.advance(31_000)
     expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
     expect(t.mailer.sent).toHaveLength(3)
+  })
+
+  test('one mailbox gets at most dailyMailCapPerAddress codes in 24 hours, whatever the install id and the address', async () => {
+    const t0 = t.clock.now().getTime()
+    for (let i = 0; i < 5; i++) {
+      // A new install id and a new client address each time, so neither the resend window nor the per-IP limit applies.
+      expect((await register(registrationBody(), `203.0.113.${i + 1}`)).statusCode).toBe(202)
+      t.clock.advance(MINUTE)
+    }
+    expect(t.mailer.sent).toHaveLength(5)
+
+    const capped = await register(registrationBody({ email: ' a@EXAMPLE.com' }), '203.0.113.99')
+    expect(capped.statusCode).toBe(429)
+    expect(errorOf(capped).code).toBe('resend_too_soon')
+    expect(Value.Check(ErrorBody, capped.json())).toBe(true)
+    expect(t.mailer.sent).toHaveLength(5)
+    expect(await t.db.selectFrom('registrations').select('id').execute()).toHaveLength(5)
+
+    // Another mailbox is not held back.
+    expect((await register(registrationBody({ email: 'b@example.com' }), '203.0.113.99')).statusCode).toBe(202)
+
+    // The window slides: still capped just before the first code is a day old, free again once it is.
+    t.clock.set(new Date(t0 + DAY - 1))
+    expect((await register(registrationBody(), '203.0.113.98')).statusCode).toBe(429)
+    t.clock.set(new Date(t0 + DAY))
+    expect((await register(registrationBody(), '203.0.113.98')).statusCode).toBe(202)
+  })
+
+  test('parallel registrations of one mailbox from many addresses cannot exceed the daily mail cap', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_, i) => register(registrationBody(), `198.51.100.${i + 1}`)),
+    )
+    expect(results.map((r) => r.statusCode).sort()).toEqual([202, 202, 202, 202, 202, 429, 429, 429])
+    expect(t.mailer.sent).toHaveLength(5)
   })
 
   test('checks run in the documented order', async () => {
@@ -600,6 +635,7 @@ describe('POST /v1/registrations/:id/verify', () => {
   })
 
   test('concurrent wrong guesses cannot get past the attempt limit', async () => {
+    await useConfig({ codeRouteRateLimitPerMinute: 100 }) // 20 calls to the verify route within a minute
     const { registrationId, code } = await registerOk()
     const guesses = Array.from({ length: 20 }, (_, i) => String(i).padStart(6, '0')).filter((g) => g !== code)
 
@@ -609,20 +645,46 @@ describe('POST /v1/registrations/:id/verify', () => {
   })
 })
 
-describe('global rate limit', () => {
-  test('exceeding the per-IP limit answers 429 rate_limited in the standard body', async () => {
+describe('rate limits', () => {
+  test('exceeding the global per-IP limit answers 429 rate_limited in the standard body', async () => {
     await useConfig({ httpRateLimitPerMinute: 3 })
+    const getMe = (remoteAddress?: string) =>
+      t.app.inject({ method: 'GET', url: '/v1/me', ...(remoteAddress === undefined ? {} : { remoteAddress }) })
 
     for (let i = 0; i < 3; i++) {
-      expect((await register({})).statusCode).toBe(400)
+      expect((await getMe()).statusCode).toBe(401)
     }
-    const res = await register({})
+    const res = await getMe()
     expect(res.statusCode).toBe(429)
     expect(errorOf(res).code).toBe('rate_limited')
     expect(Value.Check(ErrorBody, res.json())).toBe(true)
 
     // The limit is per IP.
-    expect((await register({}, '203.0.113.50')).statusCode).toBe(400)
+    expect((await getMe('203.0.113.50')).statusCode).toBe(401)
+  })
+
+  test('each route that sends or checks a code has its own per-IP limit of codeRouteRateLimitPerMinute', async () => {
+    await useConfig({ codeRouteRateLimitPerMinute: 2, httpRateLimitPerMinute: 100 })
+    const routes = [
+      { url: '/v1/registrations', payload: {} },
+      { url: `/v1/registrations/${randomUUID()}/verify`, payload: { code: '123456' } },
+      { url: '/v1/key-resets', payload: {} },
+      { url: `/v1/key-resets/${randomUUID()}/verify`, payload: { code: '123456' } },
+    ]
+
+    // Every route gets its own two calls: using up one route's limit leaves the others alone.
+    for (const route of routes) {
+      const call = (remoteAddress = '127.0.0.1') => t.app.inject({ method: 'POST', ...route, remoteAddress })
+      for (let i = 0; i < 2; i++) expect((await call()).statusCode, route.url).not.toBe(429)
+
+      const res = await call()
+      expect(res.statusCode, route.url).toBe(429)
+      expect(errorOf(res).code, route.url).toBe('rate_limited')
+      expect(Value.Check(ErrorBody, res.json())).toBe(true)
+
+      // The limit is per IP.
+      expect((await call('203.0.113.50')).statusCode, route.url).not.toBe(429)
+    }
   })
 })
 

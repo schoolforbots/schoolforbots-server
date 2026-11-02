@@ -25,6 +25,12 @@ afterEach(async () => {
   await t.destroy()
 })
 
+/** Replaces the app of the current test with one built from the example config plus these overrides. */
+async function useConfig(config: NonNullable<Parameters<typeof buildTestApp>[0]>['config']) {
+  await t.destroy()
+  t = await buildTestApp({ config })
+}
+
 function requestReset(body: unknown) {
   return t.app.inject({ method: 'POST', url: '/v1/key-resets', payload: body as object })
 }
@@ -201,11 +207,43 @@ describe('POST /v1/key-resets', () => {
     expect(t.mailer.sent).toHaveLength(2)
   })
 
+  test('a pair gets at most dailyMailCapPerAddress resets in 24 hours, then resend_too_soon and no new row', async () => {
+    const student = await insertStudent(t.db, { email: 'owner@example.com' })
+    const pair = { studentId: student.id, email: 'owner@example.com' }
+    const t0 = t.clock.now().getTime()
+
+    for (let i = 0; i < 5; i++) {
+      expect((await requestReset(pair)).statusCode).toBe(202)
+      t.clock.advance(MINUTE)
+    }
+    expect(t.mailer.sent).toHaveLength(5)
+
+    const capped = await requestReset({ ...pair, email: ' OWNER@example.com ' })
+    expect(seen(capped)).toEqual([429, 'resend_too_soon'])
+    expect(Value.Check(ErrorBody, capped.json())).toBe(true)
+    expect(t.mailer.sent).toHaveLength(5)
+    expect(await resetRows()).toHaveLength(5)
+
+    // The cap belongs to the pair: the same student under another email is a different pair.
+    expect((await requestReset({ studentId: student.id, email: 'someone.else@example.com' })).statusCode).toBe(202)
+
+    // Still capped just before the first reset is a day old, free again once it is.
+    t.clock.set(new Date(t0 + DAY - 1))
+    expect(seen(await requestReset(pair))).toEqual([429, 'resend_too_soon'])
+    t.clock.set(new Date(t0 + DAY))
+    expect((await requestReset(pair)).statusCode).toBe(202)
+    expect(t.mailer.sent).toHaveLength(6)
+  })
+
   test('a matching pair and a mismatched pair get the same answers, request by request', async () => {
+    await useConfig({ codeRouteRateLimitPerMinute: 100 }) // 3 pairs make 21 calls to each route within a minute
     const real = await insertStudent(t.db, { email: 'owner@example.com' })
     const other = await insertStudent(t.db, { email: 'other@example.com' })
 
-    /** Requests a reset, repeats at once, makes 5 wrong guesses then a 6th, waits out the code, then lets a second reset expire. */
+    /**
+     * Requests a reset, repeats at once, makes 5 wrong guesses then a 6th, waits out the code, lets a second reset
+     * expire, then asks three more times to reach the daily cap of five resets, and once more beyond it.
+     */
     async function observe(pair: { studentId: number; email: string }): Promise<Seen[]> {
       const mailsBefore = t.mailer.sent.length
       const steps: Seen[] = []
@@ -225,6 +263,11 @@ describe('POST /v1/key-resets', () => {
       steps.push(seen(second))
       t.clock.advance(11 * MINUTE)
       steps.push(seen(await verifyReset(resetIdOf(second), '123456')))
+
+      for (let i = 0; i < 4; i++) {
+        t.clock.advance(MINUTE)
+        steps.push(seen(await requestReset(pair)))
+      }
       return steps
     }
 
@@ -236,18 +279,25 @@ describe('POST /v1/key-resets', () => {
       [429, 'code_attempts_exceeded'],
       [202, null],
       [410, 'code_expired'],
+      [202, null],
+      [202, null],
+      [202, null],
+      [429, 'resend_too_soon'],
     ]
     const matching = await observe({ studentId: real.id, email: 'owner@example.com' })
     expect(matching).toEqual(expected)
-    expect(t.mailer.sent.map((m) => m.to)).toEqual(['owner@example.com', 'owner@example.com'])
+    expect(t.mailer.sent.map((m) => m.to)).toEqual(Array.from({ length: 5 }, () => 'owner@example.com'))
 
     // A decoy goes through exactly the same steps: wrong email for a real student, and a student that does not exist.
     expect(await observe({ studentId: other.id, email: 'owner@example.com' })).toEqual(matching)
     expect(await observe({ studentId: other.id + 1000, email: 'owner@example.com' })).toEqual(matching)
-    expect(t.mailer.sent).toHaveLength(2)
+    expect(t.mailer.sent).toHaveLength(5)
+    // Each pair stopped at five rows, the refused request added none.
+    expect(await resetRows()).toHaveLength(15)
   })
 
   test('identical requests at the same moment send one mail, real or decoy', async () => {
+    await useConfig({ codeRouteRateLimitPerMinute: 100 }) // 16 calls to the request route within a minute
     const student = await insertStudent(t.db, { email: 'owner@example.com' })
     await warmPool()
 
@@ -461,6 +511,7 @@ describe('POST /v1/key-resets/:id/verify', () => {
   })
 
   test('concurrent wrong guesses cannot get past the attempt limit', async () => {
+    await useConfig({ codeRouteRateLimitPerMinute: 100 }) // 20 calls to the verify route within a minute
     const { resetId, code } = await resetOk()
     const guesses = Array.from({ length: 20 }, (_, i) => String(i).padStart(6, '0')).filter((g) => g !== code)
 
@@ -530,10 +581,16 @@ describe('POST /v1/key-resets/:id/verify', () => {
 describe('daily cap on failed key-reset guesses', () => {
   const CAP = 20
 
-  // These tests make well over 60 requests, more than the default per-minute limit allows.
+  // These tests make far more requests than the per-minute limits allow, and ask for more than
+  // dailyMailCapPerAddress resets of one pair a day; neither limit is what they are about.
+  const LOOSE_LIMITS = {
+    httpRateLimitPerMinute: 10_000,
+    codeRouteRateLimitPerMinute: 10_000,
+    verificationCode: { dailyMailCapPerAddress: 1_000 },
+  }
+
   beforeEach(async () => {
-    await t.destroy()
-    t = await buildTestApp({ config: { httpRateLimitPerMinute: 10_000 } })
+    await useConfig(LOOSE_LIMITS)
   })
 
   /** Requests a reset for this pair and makes `wrong` wrong guesses at it. Returns the reset id and the real code, if one was mailed. */
@@ -643,7 +700,7 @@ describe('daily cap on failed key-reset guesses', () => {
   test('guesses at a reset whose mail failed still count, so a mail outage is no way around the cap', async () => {
     const logs = captureLogs()
     await t.destroy()
-    t = await buildTestApp({ config: { httpRateLimitPerMinute: 10_000 }, logger: { level: 'info', stream: logs.stream } })
+    t = await buildTestApp({ config: LOOSE_LIMITS, logger: { level: 'info', stream: logs.stream } })
     const student = await insertStudent(t.db, { email: 'owner@example.com' })
     const pair = { studentId: student.id, email: 'owner@example.com' }
     const failedSends = () => logs.entries().filter((e) => e.level >= 50).length
