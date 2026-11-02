@@ -147,18 +147,61 @@ export interface Env {
   classTimelineSpeed: number
 }
 
+/** What the class service reads from the environment: what it uses, and no mail settings, which it never does. */
+export type ClassEnv = Pick<Env, 'databaseUrl' | 'moderationDataDir' | 'configPath' | 'classPort' | 'classTimelineSpeed'>
+
+type Get = (name: string) => string | undefined
+
+function getter(env: NodeJS.ProcessEnv): Get {
+  // An empty value (e.g. a bare `SMTP_URL=` copied from .env.example) counts as unset.
+  return (name) => env[name] || undefined
+}
+
 function parsePort(name: string, raw: string | undefined, fallback: number): number {
   const port = raw === undefined ? fallback : Number(raw)
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid ${name}: ${raw}`)
   return port
 }
 
-export function loadEnv(env: NodeJS.ProcessEnv): Env {
-  // An empty value (e.g. a bare `SMTP_URL=` copied from .env.example) counts as unset.
-  const get = (name: string): string | undefined => env[name] || undefined
-
+function requireDatabaseUrl(get: Get): string {
   const databaseUrl = get('DATABASE_URL')
   if (databaseUrl === undefined) throw new Error('Missing required environment variable DATABASE_URL')
+  return databaseUrl
+}
+
+function parseTimelineSpeed(get: Get): number {
+  const speedRaw = get('CLASS_TIMELINE_SPEED')
+  const speed = speedRaw === undefined ? 1 : Number(speedRaw)
+  if (!Number.isFinite(speed) || speed < 1 || speed > 600) {
+    throw new Error(`Invalid CLASS_TIMELINE_SPEED: ${speedRaw} (expected a number from 1 to 600)`)
+  }
+  return speed
+}
+
+const moderationDataDirOf = (get: Get) => get('MODERATION_DATA_DIR') ?? 'data/moderation'
+const configPathOf = (get: Get) => get('SCHOOL_CONFIG') ?? 'config/school.json'
+const classPortOf = (get: Get) => parsePort('CLASS_PORT', get('CLASS_PORT'), 8081)
+
+/** The environment of the class service, read as `loadEnv` reads the same variables. */
+export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {
+  const get = getter(env)
+  const databaseUrl = requireDatabaseUrl(get)
+  const classPort = classPortOf(get)
+  const classTimelineSpeed = parseTimelineSpeed(get)
+  return {
+    databaseUrl,
+    moderationDataDir: moderationDataDirOf(get),
+    configPath: configPathOf(get),
+    classPort,
+    classTimelineSpeed,
+  }
+}
+
+/** The environment of the registration service and the tools. */
+export function loadEnv(env: NodeJS.ProcessEnv): Env {
+  const get = getter(env)
+
+  const databaseUrl = requireDatabaseUrl(get)
 
   // Codes are printed instead of mailed only when MAIL_TRANSPORT=console says so: a missing SMTP_URL must not
   // quietly turn a deployment into one that mails nobody and writes the codes to its log.
@@ -180,20 +223,15 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
   }
 
   const registrationPort = parsePort('REGISTRATION_PORT', get('REGISTRATION_PORT'), 8080)
-  const classPort = parsePort('CLASS_PORT', get('CLASS_PORT'), 8081)
-
-  const speedRaw = get('CLASS_TIMELINE_SPEED')
-  const classTimelineSpeed = speedRaw === undefined ? 1 : Number(speedRaw)
-  if (!Number.isFinite(classTimelineSpeed) || classTimelineSpeed < 1 || classTimelineSpeed > 600) {
-    throw new Error(`Invalid CLASS_TIMELINE_SPEED: ${speedRaw} (expected a number from 1 to 600)`)
-  }
+  const classPort = classPortOf(get)
+  const classTimelineSpeed = parseTimelineSpeed(get)
 
   return {
     databaseUrl,
     mail,
     mailFrom: get('MAIL_FROM') ?? '机器人网校 <no-reply@example.com>',
-    moderationDataDir: get('MODERATION_DATA_DIR') ?? 'data/moderation',
-    configPath: get('SCHOOL_CONFIG') ?? 'config/school.json',
+    moderationDataDir: moderationDataDirOf(get),
+    configPath: configPathOf(get),
     registrationPort,
     trustProxy: get('TRUST_PROXY') === '1',
     classPort,

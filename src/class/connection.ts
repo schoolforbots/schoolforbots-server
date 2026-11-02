@@ -109,6 +109,8 @@ export const PING_INTERVAL_MS = 30_000
 const closing = (reason: Closing['reason'], message: string): Closing => ({ type: 'closing', reason, message })
 const REPLACED = closing('replaced', '这个学号在别的地方连上了，这里的连接已经断开。')
 const HELLO_TIMEOUT = closing('session_over', '连上以后没有及时收到 hello，连接已经断开。')
+/** What everyone is told when the service stops (see `ClassDeps.stopping`). */
+export const MAINTENANCE = closing('session_over', '学校正在维护，请稍后重连。')
 
 /** What a student with no class is told, by status. */
 function noClassMessage(status: StudentStatus): string {
@@ -210,6 +212,7 @@ export function serveConnection(
 
   /** The student's class, or why the student may not come in now. */
   const atTheDoor = (): { classId: number } | { refusal: Closing } => {
+    if (deps.stopping?.() === true) return { refusal: MAINTENANCE }
     const until = student.suspendedUntil
     if (student.status === 'suspended' && (until === null || until.getTime() > clock.now().getTime())) {
       const message =
@@ -305,6 +308,13 @@ export function serveConnection(
     // between, so a close that comes later finds this connection and disconnects it.
     if (runtime.currentSession(classId)?.sessionId !== sessionId) {
       sendClosing(outsideSession())
+      return
+    }
+    // Nor while the service stops: it has told everyone in the hub so and disconnected them, and one registered now
+    // would stay behind, its queries landing after the database is gone. Also right before registering, so the stop
+    // either finds this connection in the hub or this check finds the stop.
+    if (deps.stopping?.() === true) {
+      sendClosing(MAINTENANCE)
       return
     }
 

@@ -1,19 +1,18 @@
 import type { FastifyInstance, FastifyServerOptions } from 'fastify'
 import type { Kysely } from 'kysely'
-import type { Static } from 'typebox'
 import type { Moderator } from '../moderation/moderator.js'
-import type { ClosingMessage } from '../protocol/ws.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/schema.js'
 import { buildClassApp } from './app.js'
 import { chatHandlers, createChatEngine, type ChatEngine } from './chat.js'
-import type { MessageHandlers } from './connection.js'
+import { MAINTENANCE, type MessageHandlers } from './connection.js'
 import { disciplineRecorder } from './discipline.js'
 import { createLessonHooks, type LessonHooks } from './hooks.js'
 import { createHub, type MemoryHub } from './hub.js'
 import { questionHandlers, type QuestionsDeps } from './questions.js'
 import { createClassRuntime, LIVE_TOLERANCE_MS, type ClassRuntime } from './runtime.js'
+import { startTicker, type Ticker } from './ticker.js'
 
 export interface ClassServiceDeps {
   db: Kysely<Database>
@@ -46,15 +45,11 @@ export interface ClassService {
   hooks: LessonHooks
   /** What the service runs on its interval: the lesson runtime's steps, then the conversations overdue by the clock. */
   tick(): Promise<void>
-  /** Tells every student connected that the school is stopping for maintenance, and disconnects them. */
+  /**
+   * The service is stopping: tells every student connected that the school is under maintenance and disconnects
+   * them. From then on nobody comes in (see `ClassDeps.stopping`).
+   */
   disconnectAll(): void
-}
-
-/** The `closing` sent to everyone connected when the service stops. */
-const MAINTENANCE: Static<typeof ClosingMessage> = {
-  type: 'closing',
-  reason: 'session_over',
-  message: '学校正在维护，请稍后重连。',
 }
 
 /**
@@ -66,6 +61,8 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
   const { db, config, moderator, clock, speed } = deps
   // The app's logger: the parts only log while the app is serving.
   const log = (obj: object, msg: string) => app.log.info(obj, msg)
+  // Set by `disconnectAll`, for good.
+  let stopping = false
 
   const hub = createHub()
   const chat = createChatEngine({ db, config, clock, hub, moderator, discipline: disciplineRecorder, speed, log })
@@ -97,6 +94,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     handlers: { ...chatHandlers(chat), ...questionHandlers(questions), ...deps.handlers },
     helloTimeoutMs: deps.helloTimeoutMs,
     pingIntervalMs: deps.pingIntervalMs,
+    stopping: () => stopping,
     logger: deps.logger,
   })
 
@@ -120,6 +118,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
       if (failure !== null) throw failure.err
     },
     disconnectAll() {
+      stopping = true
       hub.disconnectAll(MAINTENANCE)
     },
   }
@@ -132,4 +131,19 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
  */
 export function tickIntervalMs(speed: number): number {
   return Math.floor(Math.min(1000, Math.max(20, LIVE_TOLERANCE_MS / speed / 3)))
+}
+
+/**
+ * Starts the service: one tick, then listening, then a tick on every interval. The first tick comes before anyone can
+ * connect, so the sessions going on are open by then: a student back right after a restart is let in, not told that
+ * the next lesson is tomorrow. A failed first tick fails the start, and nothing listens; a later one is logged.
+ */
+export async function startClassService(
+  service: Pick<ClassService, 'app' | 'tick'>,
+  p: { port: number; host?: string; speed: number },
+): Promise<Ticker> {
+  const { app, tick } = service
+  await tick()
+  await app.listen({ port: p.port, host: p.host ?? '0.0.0.0' })
+  return startTicker(tick, tickIntervalMs(p.speed), (err) => app.log.error({ err }, 'class tick failed'))
 }

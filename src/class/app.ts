@@ -43,6 +43,12 @@ export interface ClassDeps {
    * next is dropped. Default `PING_INTERVAL_MS`.
    */
   pingIntervalMs?: number
+  /**
+   * Whether the service is stopping: it has sent everyone connected the maintenance `closing`. From then on nobody
+   * comes in: a new connection is told the same at the door, and a hello still going is answered with it instead of
+   * joining. Unset: never.
+   */
+  stopping?: () => boolean
   /** Fastify logger options; unset means no logging. */
   logger?: FastifyServerOptions['logger']
 }

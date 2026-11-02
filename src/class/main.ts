@@ -1,13 +1,14 @@
 import { loadModerationData } from '../moderation/load.js'
 import { createModerator } from '../moderation/moderator.js'
 import { systemClock } from '../shared/clock.js'
-import { loadEnv, loadSchoolConfig } from '../shared/config.js'
+import { loadClassEnv, loadSchoolConfig } from '../shared/config.js'
 import { assertMigrationsUpToDate, createDb } from '../shared/db.js'
-import { createClassService, tickIntervalMs } from './service.js'
-import { startTicker } from './ticker.js'
+import { createShutdown } from '../shared/shutdown.js'
+import { createClassService, startClassService } from './service.js'
 
 async function main(): Promise<void> {
-  const env = loadEnv(process.env)
+  // Only what this service uses: it sends no mail, so it needs no mail settings.
+  const env = loadClassEnv(process.env)
   const config = loadSchoolConfig(env.configPath)
 
   // The registration service migrates the database; this one only checks that it has, and does not start otherwise.
@@ -31,28 +32,18 @@ async function main(): Promise<void> {
   })
   const { app } = service
 
-  await app.listen({ port: env.classPort, host: '0.0.0.0' })
+  // Ticks once before it listens (a failure ends the start here), then on every interval.
+  const ticker = await startClassService(service, { port: env.classPort, speed })
 
-  const ticker = startTicker(service.tick, tickIntervalMs(speed), (err) => app.log.error({ err }, 'class tick failed'))
-
-  let shuttingDown = false
-  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
-    if (shuttingDown) return
-    shuttingDown = true
+  const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
-    try {
-      await ticker.stop() // waits for a tick still running
-      service.disconnectAll()
-      await app.close()
-      await db.destroy()
-      process.exit(0)
-    } catch (err) {
-      console.error('Shutdown failed', err)
-      process.exit(1)
-    }
-  }
-  process.on('SIGTERM', (signal) => void shutdown(signal))
-  process.on('SIGINT', (signal) => void shutdown(signal))
+    await ticker.stop() // waits for a tick still running
+    service.disconnectAll() // and from now on nobody comes in
+    await app.close()
+    await db.destroy()
+  })
+  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', shutdown)
 }
 
 main().catch((err) => {
