@@ -60,10 +60,12 @@ export interface MessageHandlers {
   question(p: Participant, msg: Static<typeof QuestionMessage>): Promise<AckResult>
   answer(p: Participant, msg: Static<typeof AnswerMessage>): Promise<AckResult>
   /**
-   * How many conversations the student may still start this session, for the welcome; missing, the whole allowance.
-   * Asked at every hello, right after the connection is registered, so the chat engine meets every student there.
+   * The student joined the class: registers them with the handlers, which may need them before they say anything (a
+   * conversation's limit needs the responder's `maxRounds`), and answers what the welcome needs. Called at every hello
+   * right after the connection is put in the hub, with no await in between, so nobody can find the student online
+   * before the handlers know them. Missing: the whole allowance of starts.
    */
-  initiationsLeft?(p: Participant): Promise<number>
+  join?(p: Participant): Promise<{ initiationsLeft: number }>
 }
 
 /** What the connections of one app share. */
@@ -265,6 +267,8 @@ export function serveConnection(
 
     pending = []
     const replaced = hub.add(connection)
+    // Right after the hub, with no await in between (see `MessageHandlers.join`).
+    const joined = deps.handlers?.join?.(me)
     registered = true
     participant = me
     if (replaced !== undefined) {
@@ -273,7 +277,7 @@ export function serveConnection(
       replaced.close()
     }
 
-    const welcome = await buildWelcome(me, session)
+    const welcome = await buildWelcome(me, session, joined)
     const events = await eventsAfter(db, sessionId, hello.lastSeq ?? 0)
     // Closed meanwhile (by the client, or by the session's close): the close handler has done the rest.
     if (socket.readyState !== socket.OPEN) return
@@ -302,9 +306,13 @@ export function serveConnection(
     log.info({ studentId, classId, sessionId, replaced: replaced !== undefined }, 'student joined class')
   }
 
-  async function buildWelcome(me: Participant, session: ActiveSession): Promise<Static<typeof WelcomeMessage>> {
+  async function buildWelcome(
+    me: Participant,
+    session: ActiveSession,
+    joined: Promise<{ initiationsLeft: number }> | undefined,
+  ): Promise<Static<typeof WelcomeMessage>> {
     const others = hub.online(classId).filter((id) => id !== studentId)
-    const [online, classRow, lesson, initiationsLeft] = await Promise.all([
+    const [online, classRow, lesson, { initiationsLeft }] = await Promise.all([
       others.length === 0
         ? []
         : db
@@ -325,7 +333,7 @@ export function serveConnection(
         .where('s.id', '=', session.sessionId)
         .executeTakeFirstOrThrow(),
       // The chat engine counts the conversations already started this session.
-      deps.handlers?.initiationsLeft?.(me) ?? config.chat.maxInitiationsPerLesson,
+      joined ?? { initiationsLeft: config.chat.maxInitiationsPerLesson },
     ])
     // As the runtime does: a teacher the config no longer lists is just 老师.
     const teacher = config.teacherPersonas.find((t) => t.id === classRow.teacherPersonaId)?.name ?? '老师'

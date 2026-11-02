@@ -41,7 +41,12 @@ export interface ChatEngine {
   start(from: Participant, to: number, text: string): Promise<AckResult>
   /** The next line of a conversation, from the side whose turn it is. */
   reply(from: Participant, conversationId: string, text: string): Promise<AckResult>
-  /** How many conversations the student may still start this session; asked for the welcome at every hello. */
+  /**
+   * The student joined the class (hello): the engine registers them, since a conversation's limit needs the
+   * responder's `maxRounds` before they have said anything, and answers the starts left for the welcome.
+   */
+  join(p: Participant): Promise<{ initiationsLeft: number }>
+  /** How many conversations the student may still start this session. */
   initiationsLeft(p: Participant): Promise<number>
   /** The student went offline: their conversation ends with `peer_offline`, and the other side is told. */
   onDisconnect(studentId: number): void
@@ -208,11 +213,11 @@ async function countStarts(db: Kysely<Database>, p: Participant): Promise<number
 /** The message handlers the class app takes from the engine. */
 export function chatHandlers(
   engine: ChatEngine,
-): Required<Pick<MessageHandlers, 'chatStart' | 'chatReply' | 'initiationsLeft'>> {
+): Required<Pick<MessageHandlers, 'chatStart' | 'chatReply' | 'join'>> {
   return {
     chatStart: (p, msg) => engine.start(p, msg.to, msg.text),
     chatReply: (p, msg) => engine.reply(p, msg.conversationId, msg.text),
-    initiationsLeft: (p) => engine.initiationsLeft(p),
+    join: (p) => engine.join(p),
   }
 }
 
@@ -226,10 +231,7 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
   const conversations = new Map<string, Conversation>()
   /** The conversation each student is in. */
   const busy = new Map<number, Conversation>()
-  /**
-   * The students connected, as their hello described them: met when the welcome asks for their starts left, and at
-   * each of their lines. A conversation's limit needs the responder's `maxRounds` before they have said anything.
-   */
+  /** The students connected, as their hello described them (see `join`); forgotten when they go offline. */
   const participants = new Map<number, Participant>()
   /** The classes in their closing grace, until when (ms): nothing starts there. Forgotten at the close. */
   const closing = new Map<number, number>()
@@ -303,18 +305,30 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
     for (const [studentId, p] of participants) if (now >= p.closeAt.getTime()) participants.delete(studentId)
   }
 
+  /** The rounds the conversation lasts: the smaller plugin limit, or the school's. */
+  const capOf = (c: Conversation) =>
+    Math.min(c.opener.maxRounds, c.responderMaxRounds ?? Infinity, limits.maxRoundsPerConversation)
+
+  /**
+   * How a line of `from` ends the conversation by the rounds: the last round's reply ends it, `school_cap` when both
+   * plugins would have gone on past the school's limit (it is the school's doing then), else `closed`. Null otherwise.
+   */
+  function endingOf(c: Conversation, from: Participant): 'school_cap' | 'closed' | null {
+    if (from.studentId === c.opener.studentId || c.round < capOf(c)) return null
+    const schoolCap = limits.maxRoundsPerConversation
+    return c.opener.maxRounds > schoolCap && (c.responderMaxRounds ?? 0) > schoolCap ? 'school_cap' : 'closed'
+  }
+
   /**
    * Forwards a line that has been written and moves the conversation on: to the other side's turn, or to its end
-   * when the line was its last. Returns the reason it ended for, if it did.
+   * when the line was its last.
    */
-  function forward(c: Conversation, from: Participant, text: string, closingLine: boolean): EndReason | null {
+  function forward(c: Conversation, from: Participant, text: string, closingLine: boolean): void {
     const to = otherSide(c, from.studentId)
     const byOpener = from.studentId === c.opener.studentId
-    const schoolCap = limits.maxRoundsPerConversation
-    const cap = Math.min(c.opener.maxRounds, c.responderMaxRounds ?? Infinity, schoolCap)
-    const completes = !byOpener && c.round >= cap
+    const ending = endingOf(c, from)
     // `lastLine`: the recipient's next line is the conversation's last. A closing line has no reply at all.
-    const lastLine = !closingLine && !completes && (c.closing || (byOpener && c.round >= cap))
+    const lastLine = !closingLine && ending === null && (c.closing || (byOpener && c.round >= capOf(c)))
     const message: Static<typeof ChatIncomingMessage> = {
       type: 'chat.incoming',
       conversationId: c.id,
@@ -326,22 +340,12 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
     hub.send(to, message)
     c.opened = true
 
-    if (completes) {
-      // The school's doing only when both plugins would have gone on past its limit.
-      const bothOver = c.opener.maxRounds > schoolCap && (c.responderMaxRounds ?? 0) > schoolCap
-      const reason = bothOver ? 'school_cap' : 'closed'
-      end(c, reason)
-      return reason
-    }
-    if (closingLine) {
-      end(c, 'dismissal')
-      return 'dismissal'
-    }
+    if (ending !== null) return end(c, ending)
+    if (closingLine) return end(c, 'dismissal')
     if (!byOpener) c.round++
     c.turn = to
     c.dueAt = clock.now().getTime() + replyTimeoutMs
     if (c.closing) hub.send(to, closingMessage(c.id))
-    return null
   }
 
   async function block(line: Line, blocked: Blocked): Promise<AckResult> {
@@ -351,20 +355,47 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
     return fail('blocked', { category: blocked.category })
   }
 
+  /**
+   * Writes the reply that ends a conversation at the school's limit together with a class-rule record for each side,
+   * naming the other, before it is forwarded: a line delivered always has its records. They stand if the classmate
+   * leaves before it is forwarded, for the rounds were talked.
+   */
+  async function writeSchoolCapReply(c: Conversation, line: Line): Promise<number> {
+    const { opener, sessionId } = c
+    const { from, at } = line
+    const rounds = (studentId: number, partnerId: number, partnerName: string) => ({
+      studentId,
+      sessionId,
+      kind: 'rounds' as const,
+      detail: { partnerId, partnerName },
+      at,
+    })
+    return db.transaction().execute(async (trx) => {
+      const id = await writeLine(trx, line, null)
+      await discipline.record(trx, rounds(opener.studentId, from.studentId, from.displayName))
+      await discipline.record(trx, rounds(from.studentId, opener.studentId, opener.displayName))
+      return id
+    })
+  }
+
+  async function initiationsLeft(p: Participant): Promise<number> {
+    return Math.max(0, limits.maxInitiationsPerLesson - (await loadStarts(p)))
+  }
+
   const markUndelivered = (id: number) =>
     db.updateTable('messages').set({ delivered: false }).where('id', '=', id).execute()
 
   return {
     async start(from, to, text) {
       if (!isValidText(text, limits.maxMessageChars)) return fail('invalid_message')
-      participants.set(from.studentId, from)
       if (sessionOver(from, clock.now().getTime())) return fail('not_in_session')
       if (from.lessonsAttended < limits.probationLessons) return fail('probation')
       const loaded = await loadStarts(from)
       // Someone online in the class is a classmate; anyone else is looked up, to tell "not in your class" from offline.
       const peerClass = to === from.studentId || online(from.classId, to) ? from.classId : await classOf(to)
 
-      // Nothing is awaited from here to the reservation.
+      // From here every check and the reservation run with no await between them. The only awaits are those of a
+      // refusal (recording the initiation cap, writing a stopped line), and it returns right after.
       const at = clock.now()
       const now = at.getTime()
       expire(now)
@@ -431,9 +462,9 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
 
     async reply(from, conversationId, text) {
       if (!isValidText(text, limits.maxMessageChars)) return fail('invalid_message')
-      participants.set(from.studentId, from)
 
-      // Nothing is awaited from here to the reservation.
+      // From here every check and the reservation run with no await between them; only a stopped line awaits (its
+      // writing), and it returns right after.
       const at = clock.now()
       expire(at.getTime())
       const c = conversations.get(conversationId)
@@ -452,38 +483,31 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
       if (from.studentId === c.responderId) c.responderMaxRounds ??= from.maxRounds
       let id: number
       try {
-        id = await writeLine(db, line, null)
+        id = endingOf(c, from) === 'school_cap' ? await writeSchoolCapReply(c, line) : await writeLine(db, line, null)
       } catch (err) {
-        if (c.ended === null) c.turn = from.studentId
+        if (c.ended === null) {
+          c.turn = from.studentId
+          // The dismissal came while the line was on its way: its sender is the one to tell now.
+          if (c.closing && !closingLine) hub.send(from.studentId, closingMessage(c.id))
+        }
         throw err
       }
       if (c.ended !== null) {
         await markUndelivered(id)
         return fail(c.offline === to ? 'peer_offline' : 'conversation_ended')
       }
-      if (forward(c, from, text, closingLine) === 'school_cap') {
-        // Both talked as long as the school allows: a class-rule record for each, naming the other.
-        const { opener, sessionId } = c
-        const now = clock.now()
-        const rounds = (studentId: number, partnerId: number, partnerName: string) => ({
-          studentId,
-          sessionId,
-          kind: 'rounds' as const,
-          detail: { partnerId, partnerName },
-          at: now,
-        })
-        await db.transaction().execute(async (trx) => {
-          await discipline.record(trx, rounds(opener.studentId, from.studentId, from.displayName))
-          await discipline.record(trx, rounds(from.studentId, opener.studentId, opener.displayName))
-        })
-      }
+      forward(c, from, text, closingLine)
       return { ok: true }
     },
 
-    async initiationsLeft(p) {
+    // Registered before the first await: the connection layer calls this right after putting the student in the hub,
+    // so no classmate can find them online without the engine knowing them.
+    async join(p) {
       participants.set(p.studentId, p)
-      return Math.max(0, limits.maxInitiationsPerLesson - (await loadStarts(p)))
+      return { initiationsLeft: await initiationsLeft(p) }
     },
+
+    initiationsLeft,
 
     onDisconnect(studentId) {
       participants.delete(studentId)
