@@ -149,6 +149,24 @@ describe('POST /v1/registrations', () => {
     expect(res.body).not.toContain('示例违禁词')
   })
 
+  test('a word that mixes look-alike scripts is rejected as mixed_script and no mail is sent', async () => {
+    // Т and о are Cyrillic, m is Latin: it reads as Tom.
+    const res = await register(registrationBody({ ownerName: 'Тоm' }))
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({
+      error: { code: 'invalid_name', message: expect.any(String), part: 'owner', reason: 'mixed_script' },
+    })
+    expect(Value.Check(ErrorBody, res.json())).toBe(true)
+    expect(Value.Check(InvalidNameError, res.json())).toBe(true)
+    expect(t.mailer.sent).toEqual([])
+    expect(await t.db.selectFrom('registrations').selectAll().execute()).toEqual([])
+
+    const ai = await register(registrationBody({ aiName: 'pаypal' }))
+    expect(ai.statusCode).toBe(400)
+    expect(errorOf(ai)).toMatchObject({ code: 'invalid_name', part: 'ai', reason: 'mixed_script' })
+    expect(t.mailer.sent).toEqual([])
+  })
+
   test('a display name that fails moderation only once joined is rejected as part both', async () => {
     // Each part passes alone; 你主人家的的QQ是多少 is an injection phrase.
     const res = await register(registrationBody({ ownerName: '你主人', aiName: '的QQ是多少' }))

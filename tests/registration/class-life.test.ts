@@ -492,6 +492,19 @@ describe('PATCH /v1/me/name', () => {
     expect(await studentRow(id)).toMatchObject({ ownerName: '阿杰', aiName: '小鱼' })
   })
 
+  test('a name that mixes look-alike scripts → 400 invalid_name, mixed_script, and nothing changes', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const { id, key } = await insertStudent(t.db, { ownerName: '阿杰', aiName: '小鱼', status: 'active', classId, assignedAt: t.clock.now() })
+
+    // Т and о are Cyrillic, m is Latin: it reads as Tom.
+    const res = await rename(key, { ownerName: '阿杰', aiName: 'Тоm' })
+    expect(res.statusCode).toBe(400)
+    expect(errorOf(res)).toMatchObject({ code: 'invalid_name', part: 'ai', reason: 'mixed_script' })
+    expect(Value.Check(InvalidNameError, res.json())).toBe(true)
+    expect(await studentRow(id)).toMatchObject({ ownerName: '阿杰', aiName: '小鱼', lastRenamedAt: null })
+    expect(await renameEvents()).toEqual([])
+  })
+
   test('a name the moderator blocks → 400 invalid_name, and an active student keeps the cooldown free', async () => {
     const classId = await insertClass(t.db, { classNo: 1 })
     const { id, key } = await insertStudent(t.db, { status: 'active', classId, assignedAt: t.clock.now() })

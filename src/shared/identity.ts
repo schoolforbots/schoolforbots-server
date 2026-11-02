@@ -19,13 +19,36 @@ export function normalizeNamePart(raw: string): string {
     .replace(/\s+/gu, ' ')
 }
 
+// Scripts with letters that look like Latin ones (Cyrillic а о е, Greek Α Ο, Armenian Օ, Cherokee Ꭺ ...).
+const CONFUSABLE_SCRIPTS = [
+  /\p{Script=Latin}/u,
+  /\p{Script=Cyrillic}/u,
+  /\p{Script=Greek}/u,
+  /\p{Script=Armenian}/u,
+  /\p{Script=Cherokee}/u,
+]
+// A run is a stretch of letters of those scripts; any other character (CJK, digit, space, punctuation, emoji) ends it.
+const CONFUSABLE_RUN = /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Armenian}\p{Script=Cherokee}]+/gu
+
+/**
+ * True when one run of letters mixes two or more of the look-alike scripts, as in a Cyrillic Т and о next to a
+ * Latin m: it reads as Tom, yet it is not the name Tom, so it would slip past the duplicate-name rule and the
+ * word list. Different words may use different scripts (Tom Иван, Tom和Иван); one word may not.
+ */
+function mixesScripts(name: string): boolean {
+  for (const [run] of name.matchAll(CONFUSABLE_RUN)) {
+    if (CONFUSABLE_SCRIPTS.filter((script) => script.test(run)).length >= 2) return true
+  }
+  return false
+}
+
 export function displayName(ownerName: string, aiName: string): string {
   return `${ownerName}家的${aiName}`
 }
 
 export type NameCheck =
   | { ok: true; ownerName: string; aiName: string }
-  | { ok: false; part: 'owner' | 'ai'; reason: 'empty' | 'too_long' | 'moderation' }
+  | { ok: false; part: 'owner' | 'ai'; reason: 'empty' | 'too_long' | 'mixed_script' | 'moderation' }
   // Each part passed alone, but the display name they make together did not.
   | { ok: false; part: 'both'; reason: 'moderation' }
 
@@ -34,12 +57,14 @@ type PartFailure = Extract<NameCheck, { ok: false }>['reason']
 function checkPart(name: string, maxChars: number, moderator: Moderator): PartFailure | null {
   if (name === '') return 'empty'
   if ([...name].length > maxChars) return 'too_long' // code points, so an emoji counts as one
+  if (mixesScripts(name)) return 'mixed_script'
   if (moderator.check(name).verdict === 'blocked') return 'moderation'
   return null
 }
 
 /**
- * Normalizes both name parts and checks them, owner first, then moderates the display name they make together:
+ * Normalizes both name parts and checks them, owner first (empty, too long, mixed scripts, then moderation), then
+ * moderates the display name they make together:
  * everyone sees and hears the joined name, and two harmless parts can join into a QQ number or an injection
  * phrase (QQ + 12345678 is QQ家的12345678). The returned names are the normalized ones.
  */

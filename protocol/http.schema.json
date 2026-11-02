@@ -198,6 +198,10 @@
                 },
                 {
                   "type": "string",
+                  "const": "mixed_script"
+                },
+                {
+                  "type": "string",
                   "const": "moderation"
                 }
               ]

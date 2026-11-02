@@ -26,14 +26,20 @@ export const ErrorBody = Type.Object({
 /**
  * The 400 answer of registration and rename when a name fails its checks. `part` is the part that failed:
  * `owner` or `ai`, or `both` when each part passed alone but the display name they make together did not
- * (always with reason `moderation`). What the moderation matched is never sent back.
+ * (always with reason `moderation`). `mixed_script` means a word of the name mixes letters of look-alike scripts,
+ * such as Cyrillic and Latin. What the moderation matched is never sent back.
  */
 export const InvalidNameError = Type.Object({
   error: Type.Object({
     code: Type.Literal('invalid_name'),
     message: Type.String(),
     part: Type.Union([Type.Literal('owner'), Type.Literal('ai'), Type.Literal('both')]),
-    reason: Type.Union([Type.Literal('empty'), Type.Literal('too_long'), Type.Literal('moderation')]),
+    reason: Type.Union([
+      Type.Literal('empty'),
+      Type.Literal('too_long'),
+      Type.Literal('mixed_script'),
+      Type.Literal('moderation'),
+    ]),
   }),
 })
 
