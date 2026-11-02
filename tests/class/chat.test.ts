@@ -785,6 +785,19 @@ describe('the chat engine', () => {
       expect(JSON.stringify(quoted)).not.toContain('13812345678')
     })
 
+    test('a line stopped for another reason that also gives a phone number is quoted with the number masked', async () => {
+      const a = await joined()
+      const b = await joined()
+      // The moderator stops at the injection phrase, so the line is a school-rule break and not a privacy block.
+      expect(await engine.start(a, b.studentId, `${INJECTION}，${PHONE}`)).toEqual(failure('blocked', { category: 'injection' }))
+
+      const quoted = await records()
+      expect(quoted).toEqual([
+        { studentId: a.studentId, sessionId, kind: 'school_rule', detail: { category: 'injection', quote: `${INJECTION}，我的手机号是138****5678` }, matchedTerm: INJECTION, createdAt: at('20:05') },
+      ])
+      expect(JSON.stringify(quoted)).not.toContain('13812345678')
+    })
+
     test('the program log has numbers and categories, never what was said or what matched', async () => {
       const a = await joined({ maxRounds: 1 })
       const b = await joined()

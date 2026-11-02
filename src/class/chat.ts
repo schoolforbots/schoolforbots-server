@@ -157,8 +157,9 @@ export async function writeLine(trx: Kysely<Database>, line: Line, blocked: Bloc
 
 /**
  * A line the moderator stopped: written undelivered, with the record it earns, in one transaction. A privacy hit is a
- * `privacy_block` every time, quoting the line with the number or address masked; any other hit breaks the school rule,
- * recorded once per lesson, quoting the line as it was and naming what matched.
+ * `privacy_block` every time; any other hit breaks the school rule, recorded once per lesson and naming what matched.
+ * Either quotes the line with any number or address masked: the moderator stops at its first hit, so a line stopped
+ * for a banned word may still hold a phone number, and the quote reaches the owner's records and summaries.
  */
 export async function recordBlocked(
   db: Kysely<Database>,
@@ -168,13 +169,14 @@ export async function recordBlocked(
 ): Promise<void> {
   const { studentId, sessionId } = line.from
   const privacy = blocked.category === 'privacy'
+  const quote = maskPrivacy(line.text)
   await db.transaction().execute(async (trx) => {
     await writeLine(trx, line, blocked)
     await discipline.record(trx, {
       studentId,
       sessionId,
       kind: privacy ? 'privacy_block' : 'school_rule',
-      detail: privacy ? { quote: maskPrivacy(line.text) } : { category: blocked.category, quote: line.text },
+      detail: privacy ? { quote } : { category: blocked.category, quote },
       matchedTerm: privacy ? null : blocked.matched,
       at: line.at,
     })

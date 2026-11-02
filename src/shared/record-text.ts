@@ -14,7 +14,7 @@ function untilText(detail: Record<string, unknown>, timeZone: string): string {
 
 /**
  * A discipline record in the words the owner reads: the student's own (the four criticisms) or the school's. A
- * `school_rule` or `privacy_block` quotes the line as it was stored, the privacy one already masked.
+ * `school_rule` or `privacy_block` quotes the line as it was stored, numbers and addresses already masked.
  */
 export function recordText(
   record: { kind: DisciplineKind; detail: Record<string, unknown> },
