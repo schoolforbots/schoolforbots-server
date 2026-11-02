@@ -50,14 +50,21 @@ export const ChatReplyMessage = Type.Object({
   text: Text,
 })
 
-/** A question to the teacher about the lesson. */
+/**
+ * A question to the teacher about the lesson, at most `limits.maxQuestionsPerLesson` a lesson (then `question_cap`).
+ * The `ack` of a question taken has `result: { reply }`, the teacher's Chinese reply to the asker alone; the class is
+ * not told, and the teacher answers the questions later.
+ */
 export const QuestionMessage = Type.Object({
   id: Id,
   type: Type.Literal('question'),
   text: Text,
 })
 
-/** The answer to the `called_on` message that carried `callId`. */
+/**
+ * The answer to the `called_on` message that carried `callId`. The class hears an answer taken as an `answer` event;
+ * from anyone else, or with another `callId`, it is `not_called_on`, and once answered or past its time `call_closed`.
+ */
 export const AnswerMessage = Type.Object({
   id: Id,
   type: Type.Literal('answer'),

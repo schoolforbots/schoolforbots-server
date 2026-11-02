@@ -4,6 +4,7 @@ import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/schema.js'
 import type { ChatEngine } from './chat.js'
 import { applyPenalties, calloutsForWindow } from './discipline.js'
+import { callOnCloseStep, callOnStep, type QuestionsDeps } from './questions.js'
 import type { ActiveSession } from './runtime.js'
 
 /**
@@ -57,17 +58,27 @@ export interface LessonHooksDeps {
   clock: Clock
   /** The chat engine the class app relays conversations through; without one, the chat hooks do nothing. */
   chat?: Pick<ChatEngine, 'startClosing' | 'endAll' | 'onDisconnect'>
+  /** What the call-on is built from, as the class app's question handlers are; without it, nobody is called on. */
+  questions?: QuestionsDeps
 }
 
 /**
  * The hooks of the running class service: `noopHooks` with each part's real hook put in its place as it is built.
- * So far: the teacher's discipline callouts, the conversations' closing grace and end, and the penalties after class.
+ * So far: the teacher's discipline callouts, the call-on and its close, the conversations' closing grace and end, and
+ * the penalties after class.
  */
 export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
-  const { db, config, clock, chat } = deps
+  const { db, config, clock, chat, questions } = deps
   return {
     ...noopHooks,
     callouts: (session, from, to) => calloutsForWindow(db, session, from, to),
+    // Each writes its step's events itself (see questions.ts), at most once per session.
+    ...(questions === undefined
+      ? {}
+      : {
+          callOn: (session: ActiveSession) => callOnStep(questions, session),
+          callOnClose: (session: ActiveSession) => callOnCloseStep(questions, session),
+        }),
     // All three are synchronous, as the runtime and the connection layer call them.
     ...(chat === undefined
       ? {}

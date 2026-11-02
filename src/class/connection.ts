@@ -27,7 +27,8 @@ import type { ActiveSession } from './runtime.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from './ws-errors.js'
 
 // One student's WebSocket connection to the class, from the upgrade to the close: the checks at the door, hello,
-// attendance, welcome, the replay of the class events missed, presence, and handing each later message to its handler.
+// attendance, welcome, the replay of the class events missed and of what the student is still owed (an open call-on),
+// presence, and handing each later message to its handler.
 // Frames of one connection are handled one at a time, in the order they came.
 
 export type StudentRow = Selectable<Database['students']>
@@ -66,6 +67,14 @@ export interface MessageHandlers {
    * before the handlers know them. Missing: the whole allowance of starts.
    */
   join?(p: Participant): Promise<{ initiationsLeft: number }>
+  /**
+   * What the student is owed privately when they join, read after the replay and written right after it: what the
+   * handlers sent them before and still stands, such as the `called_on` of a call-on they have not answered (they
+   * reconnected since, or the service stopped before it went out). Whatever the hub pushed meanwhile comes after it,
+   * so a call that closes during the hello is closed after it is sent; a message pushed meanwhile that is the same as
+   * one of these is not sent twice. Missing: nothing is owed.
+   */
+  resume?(p: Participant): Promise<object[]>
 }
 
 /** What the connections of one app share. */
@@ -279,6 +288,8 @@ export function serveConnection(
 
     const welcome = await buildWelcome(me, session, joined)
     const events = await eventsAfter(db, sessionId, hello.lastSeq ?? 0)
+    // After the replay is read, so it knows at least as much as the replay (see `MessageHandlers.resume`).
+    const owed = (await deps.handlers?.resume?.(me)) ?? []
     // Closed meanwhile (by the client, or by the session's close): the close handler has done the rest.
     if (socket.readyState !== socket.OPEN) return
 
@@ -289,12 +300,16 @@ export function serveConnection(
       write(classEventMessage(e, true))
       seen = Math.max(seen, e.seq)
     }
+    for (const m of owed) write(m)
+    const resent = new Set(owed.map((m) => JSON.stringify(m)))
     const queued = pending
     pending = null
     for (const m of queued) {
       // An event pushed while the replay was read is in the replay already.
       const seq = (m as { seq?: unknown }).seq
       if (typeOf(m) === 'class.event' && typeof seq === 'number' && seq <= seen) continue
+      // As is a private message pushed while what was owed was read.
+      if (resent.has(JSON.stringify(m))) continue
       write(m)
     }
 
