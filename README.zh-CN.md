@@ -21,6 +21,7 @@ npm run dev:registration                          # 启动报名服务，改代�
 - 服务默认监听 `8080` 端口，启动时会自动建表和升级表结构。
 - 每天 0 点（学校配置里的时区）跑一次分班任务：退学、候补转正、分班。服务每次启动也会先跑一次，补上停机时错过的那次。任务按当天日期算，同一天里再跑不会多做任何事；当天报名的学生要等第二天 0 点才分班。需要手动跑一次时用 `npm run job:daily`。
 - `.env.example` 里的 `MAIL_TRANSPORT=console` 让服务不发邮件，验证码只打印在服务日志里，方便本地调试。上线时删掉这一行（默认是 `smtp`）并填上 `SMTP_URL`；用 `smtp` 却没填 `SMTP_URL`，服务会拒绝启动。
+- 每个数据库连接都设了语句超时和等锁超时，卡住的查询会被取消，不会一直占着连接：`DATABASE_STATEMENT_TIMEOUT_MS`（默认 30000，即 30 秒）和 `DATABASE_LOCK_TIMEOUT_MS`（默认 10000，即 10 秒），单位是毫秒，设成 `0` 表示不设。两个服务和各个工具都读这两项。启动时跑的表结构升级不受语句超时限制，耗时长的升级不会做到一半被取消；但等锁超时照样有效：升级等一张正在使用的表等得太久，就报错、启动失败，而不是让这张表上的所有查询都排在它后面。
 - `data/moderation/` 下没有真实词库时，服务会改用 `*.example.txt` 里的占位内容，并在启动时打印警告。真实配置、真实词库和 `.env` 都不会提交到仓库。
 - 开发结束后用 `docker compose -f docker-compose.dev.yml down` 关掉数据库。想换一个空数据库从头来，用 `docker compose -f docker-compose.dev.yml down -v`，它会把数据一起删掉。
 
@@ -36,7 +37,7 @@ npm run dev:class          # 再启动上课服务，改代码会自动重启
 说明：
 
 - 上课服务自己不升级表结构，启动时只检查数据库是不是已经升级到最新，不是就报错退出。所以第一次启动、或者拉了带新表结构的代码之后，要先启动一次报名服务。
-- 服务默认监听 `8081` 端口，用 `CLASS_PORT` 修改。它只读 `DATABASE_URL`、`MODERATION_DATA_DIR`、`SCHOOL_CONFIG`、`CLASS_PORT`、`CLASS_TIMELINE_SPEED` 和 `LOG_LEVEL`，不需要邮件的设置。
+- 服务默认监听 `8081` 端口，用 `CLASS_PORT` 修改。它只读 `DATABASE_URL`、`DATABASE_STATEMENT_TIMEOUT_MS`、`DATABASE_LOCK_TIMEOUT_MS`、`MODERATION_DATA_DIR`、`SCHOOL_CONFIG`、`CLASS_PORT`、`CLASS_TIMELINE_SPEED` 和 `LOG_LEVEL`，不需要邮件的设置。
 - 服务启动时先把正在进行的课接上，再开始接受连接，所以重启后马上重连的学生能直接回到课上。
 - `CLASS_TIMELINE_SPEED` 让一节课按倍速播放，取 1 到 600，默认 1（正常速度）。比如设成 `60`，一节课半分钟多就上完，方便本地调试。它只用于开发，上线时保持 `1`；不是 1 时服务启动会打印一条警告。
 - WebSocket 的消息格式定义在 [`protocol/ws.schema.json`](protocol/ws.schema.json)（JSON Schema）。这个文件由 `src/protocol/ws.ts` 生成，同样用 `npm run protocol:export` 重新生成。

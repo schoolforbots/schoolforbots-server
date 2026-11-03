@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   const config = loadSchoolConfig(env.configPath)
   const schoolRules = loadSchoolRules(env.schoolRulesDir)
 
-  const db = createDb(env.databaseUrl)
+  const db = createDb(env.databaseUrl, env.databaseTimeouts)
   await migrateToLatest(db)
 
   const moderator = createModerator(loadModerationData(env.moderationDataDir))

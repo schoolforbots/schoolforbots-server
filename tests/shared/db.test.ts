@@ -95,3 +95,86 @@ describe('connection pool', () => {
     }
   })
 })
+
+describe('timeouts', () => {
+  const setting = async (db: Kysely<Database>, name: 'statement_timeout' | 'lock_timeout') =>
+    (await sql<{ value: string }>`select current_setting(${name}) as value`.execute(db)).rows[0]?.value
+
+  /** A connection of the test's own to the database at `url`, closed by `end()`. */
+  async function client(url: string) {
+    const c = new pg.Client({ connectionString: url })
+    await c.connect()
+    return c
+  }
+
+  test('every connection has the default statement and lock timeouts', async () => {
+    const { db, destroy } = await createTestDb()
+    try {
+      expect(await setting(db, 'statement_timeout')).toBe('30s')
+      expect(await setting(db, 'lock_timeout')).toBe('10s')
+    } finally {
+      await destroy()
+    }
+  })
+
+  test('a statement running past the statement timeout is cancelled, and the connection stays usable', async () => {
+    const { db, destroy } = await createTestDb({ timeouts: { statementMs: 200, lockMs: 100 } })
+    try {
+      await expect(sql`select pg_sleep(2)`.execute(db)).rejects.toThrow(/statement timeout/)
+      await expect(sql`select 1 as ok`.execute(db)).resolves.toBeTruthy()
+    } finally {
+      await destroy()
+    }
+  })
+
+  test('a statement waiting for a lock past the lock timeout gives up', async () => {
+    const { db, url, destroy } = await createTestDb({ timeouts: { statementMs: 5000, lockMs: 100 } })
+    const holder = await client(url)
+    try {
+      const { id } = await insertStudent(db, { status: 'active' })
+      await holder.query('begin')
+      await holder.query('select id from students where id = $1 for update', [id])
+
+      const started = Date.now()
+      await expect(
+        db.transaction().execute((trx) => trx.selectFrom('students').select('id').where('id', '=', id).forUpdate().execute()),
+      ).rejects.toThrow(/lock timeout/)
+      expect(Date.now() - started).toBeLessThan(2000)
+    } finally {
+      await holder.end()
+      await destroy()
+    }
+  })
+
+  test('0 sets no timeout', async () => {
+    const { db, destroy } = await createTestDb({ timeouts: { statementMs: 0, lockMs: 0 } })
+    try {
+      expect(await setting(db, 'statement_timeout')).toBe('0')
+      expect(await setting(db, 'lock_timeout')).toBe('0')
+    } finally {
+      await destroy()
+    }
+  })
+
+  test('migrations run with no statement timeout, and the connection gets the pool setting back', async () => {
+    const { db, url, destroy } = await createTestDb({ timeouts: { statementMs: 300, lockMs: 100 }, migrate: false })
+    // Kysely's migration lock (see its PostgresAdapter), held for longer than the statement timeout: the migration
+    // waits for it, which its statement would not survive under a statement timeout.
+    const holder = await client(url)
+    try {
+      await holder.query('select pg_advisory_lock(3853314791062309107)')
+      const migrated = migrateToLatest(db)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      await holder.query('select pg_advisory_unlock(3853314791062309107)')
+      await expect(migrated).resolves.toBeUndefined()
+
+      const tables = (await db.introspection.getTables()).map((t) => t.name)
+      expect(tables).toContain('students')
+      // The pool has one connection now, the one the migrations ran on.
+      expect(await setting(db, 'statement_timeout')).toBe('300ms')
+    } finally {
+      await holder.end()
+      await destroy()
+    }
+  })
+})

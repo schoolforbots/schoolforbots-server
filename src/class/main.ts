@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   const config = loadSchoolConfig(env.configPath)
 
   // The registration service migrates the database; this one only checks that it has, and does not start otherwise.
-  const db = createDb(env.databaseUrl)
+  const db = createDb(env.databaseUrl, env.databaseTimeouts)
   await assertMigrationsUpToDate(db)
 
   const moderator = createModerator(loadModerationData(env.moderationDataDir))
