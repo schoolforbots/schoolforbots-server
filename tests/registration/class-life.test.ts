@@ -197,6 +197,33 @@ describe('GET /v1/me/admission', () => {
     expect((await get('/v1/me/admission', key)).json()).toMatchObject({ startsOn: '2026-11-02' })
   })
 
+  /** A student who joined the queue on the evening of 2 November, assigned by the nightly job at midnight. */
+  async function assignedOnThird(calendar: NonNullable<typeof exampleConfig.calendar>): Promise<string> {
+    await useConfig({ calendar })
+    const { key } = await insertStudent(t.db, { status: 'pending', createdAt: t.clock.now() })
+    t.clock.set(new Date('2026-11-03T00:00:00+08:00'))
+    await runDailyJob({ db: t.db, config: { ...exampleConfig, calendar }, clock: t.clock })
+    return key
+  }
+
+  test('a student assigned before the school opens starts on the first school day', async () => {
+    const key = await assignedOnThird({ openingDay: '2026-12-07', breaks: [] })
+
+    const res = await get('/v1/me/admission', key)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ startsOn: '2026-12-07' })
+    expect(Value.Check(Admission, res.json())).toBe(true)
+  })
+
+  test('a student assigned in a break with no reopening date yet has no start date', async () => {
+    const key = await assignedOnThird({ breaks: [{ from: '2026-11-01', reopensOn: null, name: '寒假' }] })
+
+    const res = await get('/v1/me/admission', key)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ startsOn: null })
+    expect(Value.Check(Admission, res.json())).toBe(true)
+  })
+
   test('a teacher missing from the config shows as the persona id', async () => {
     const classId = await insertClass(t.db, { classNo: 1, teacherPersonaId: 'retired-teacher' })
     const { key } = await insertStudent(t.db, { status: 'active', classId, assignedAt: t.clock.now() })

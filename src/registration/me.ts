@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import type { Kysely } from 'kysely'
 import type { Static } from 'typebox'
 import { Admission, Classmates, Me, ReEnrollResult, RenameRequest, RenameResult } from '../protocol/http.js'
+import { nextSchoolDay } from '../shared/calendar.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
 import type { RegistrationDeps } from './app.js'
@@ -70,7 +71,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           classNo: row.classNo,
           className: className(row.division, row.slot, row.classNo, deps.config),
           teacher: { name: teacher?.name ?? row.teacherPersonaId },
-          startsOn: dateIn(deps.config.timezone, student.assignedAt),
+          startsOn: nextSchoolDay(dateIn(deps.config.timezone, student.assignedAt), deps.config),
           classmates: await classmatesOf(deps.db, student.classId),
           suspendedUntil: student.suspendedUntil?.toISOString() ?? null,
         }

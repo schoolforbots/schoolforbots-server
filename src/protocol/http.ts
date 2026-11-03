@@ -11,6 +11,9 @@ const MAX_EMAIL = 254
 const MAX_PLUGIN_FIELD = 64
 const MAX_PG_INTEGER = 2_147_483_647
 
+/** A calendar day, `YYYY-MM-DD` in the school's timezone. */
+const DateText = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
+
 const Division = Type.Union([Type.Literal('primary'), Type.Literal('junior'), Type.Literal('senior')])
 const Slot = Type.Union([Type.Literal('morning'), Type.Literal('afternoon'), Type.Literal('evening')])
 
@@ -113,8 +116,12 @@ export const Admission = Type.Object({
   classNo: Type.Integer(),
   className: Type.String(),
   teacher: Type.Object({ name: Type.String() }),
-  /** The day the student was assigned, as `YYYY-MM-DD` in the school's timezone. */
-  startsOn: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
+  /**
+   * The first school day from the day the student was assigned, as `YYYY-MM-DD` in the school's timezone: the
+   * assignment day itself when school is held that day. Null while that is not known, because the student was assigned
+   * during a break whose reopening day is not decided yet.
+   */
+  startsOn: Type.Union([DateText, Type.Null()]),
   /** Active and suspended members of the class, the student included, by student number. */
   classmates: Type.Array(Classmate),
   /** When the suspension of a suspended student ends; null for an active one. A suspended student stays in the class. */
@@ -174,7 +181,7 @@ export const KeyResetResult = Type.Object({
  */
 export const Summary = Type.Object({
   /** The school day as `YYYY-MM-DD` in the school's timezone. */
-  date: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
+  date: DateText,
   kind: Type.Union([Type.Literal('lesson'), Type.Literal('study')]),
   className: Type.String(),
   teacher: Type.Object({ name: Type.String() }),
@@ -236,6 +243,30 @@ export const RecordsResult = Type.Object({
       at: Type.String({ format: 'date-time' }),
       text: Type.String(),
       revoked: Type.Boolean(),
+    }),
+  ),
+})
+
+/**
+ * `GET /v1/school-calendar`, no key needed: whether the school is in session today, and the breaks still to come.
+ * `today` is the date in the school's timezone. `state` is `not_started` before the opening day, `in_term` or
+ * `on_break`; registration goes on in all three, classes are held only in term. `breakName` is the name of the break
+ * that is on, null when it has none. `reopensOn` is the first school day the school is in session again (before the
+ * opening, the first school day from the opening day): null in term, and null when the break has no reopening day yet.
+ * `openingDay` is null when the school opened long ago. `breaks` are the breaks not over yet, the one that is on
+ * included, ordered by `from`; the `reopensOn` of each is the first school day after it, null when not decided yet.
+ */
+export const SchoolCalendar = Type.Object({
+  today: DateText,
+  state: Type.Union([Type.Literal('not_started'), Type.Literal('in_term'), Type.Literal('on_break')]),
+  breakName: Type.Union([Type.String(), Type.Null()]),
+  reopensOn: Type.Union([DateText, Type.Null()]),
+  openingDay: Type.Union([DateText, Type.Null()]),
+  breaks: Type.Array(
+    Type.Object({
+      from: DateText,
+      reopensOn: Type.Union([DateText, Type.Null()]),
+      name: Type.Union([Type.String(), Type.Null()]),
     }),
   ),
 })

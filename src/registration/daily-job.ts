@@ -1,9 +1,10 @@
 import { sql, type Kysely } from 'kysely'
+import { inactivityCutoffDay } from '../shared/calendar.js'
 import type { Clock } from '../shared/clock.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { displayName, nameKey } from '../shared/identity.js'
-import { startOfLocalDay } from '../shared/local-time.js'
+import { atLocalTime, localDate, startOfLocalDay } from '../shared/local-time.js'
 import { assignClasses, type ClassState } from './assignment.js'
 import { slotOccupancy } from './capacity.js'
 
@@ -43,7 +44,7 @@ export function teacherPersonaFor(config: SchoolConfig, classesBefore: number): 
  * The rules that count days go by today's date in the school's timezone, not by the time of the run: a run that
  * starts late, or one that makes up for a missed midnight, does what the midnight run would have done, and running
  * it again later the same day changes nothing more. Students who join the queue today wait for tomorrow's run
- * (报名当天待分班).
+ * (报名当天待分班). Days on a break, and those before the opening day, do not count towards staying away.
  */
 export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolConfig; clock: Clock }): Promise<DailyJobReport> {
   const { db, config, clock } = deps
@@ -56,7 +57,10 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
     // Read after the locks, so a run that had to wait still uses the time it actually runs at.
     const now = clock.now()
     const today = startOfLocalDay(now, config.timezone)
-    const dropped = await dropInactive(trx, startOfLocalDay(now, config.timezone, config.inactivityDropDays))
+    // The day the last `inactivityDropDays` days that are not a holiday start on; none when the school has not been
+    // open that many days yet, so nobody is dropped for staying away.
+    const cutoffDay = inactivityCutoffDay(localDate(now, config.timezone), config.inactivityDropDays, config)
+    const dropped = cutoffDay === null ? 0 : await dropInactive(trx, atLocalTime(cutoffDay, '00:00', config.timezone))
     const promoted = await promoteWaitlist(trx, config)
     const { assigned, classesCreated } = await assignPending(trx, config, now, today)
     const reinstated = await reinstateSuspended(trx, now)
@@ -66,8 +70,8 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
 }
 
 /**
- * Active students not seen since before `cutoff`, the start of the local day inactivityDropDays calendar days ago,
- * are dropped; a student who never came counts from assignment.
+ * Active students not seen since before `cutoff`, the start of the local day that the last inactivityDropDays days
+ * that are not a holiday began on, are dropped; a student who never came counts from assignment.
  */
 async function dropInactive(trx: Trx, cutoff: Date): Promise<number> {
   const result = await trx
