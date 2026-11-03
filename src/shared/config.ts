@@ -232,6 +232,8 @@ export interface Env {
   mailFrom: string
   moderationDataDir: string
   configPath: string
+  /** Where the school rules are, one file per version (see school-rules.ts). Only the registration service reads them. */
+  schoolRulesDir: string
   registrationPort: number
   trustProxy: boolean
   classPort: number
@@ -324,6 +326,7 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
     mailFrom: get('MAIL_FROM') ?? '机器人网校 <no-reply@example.com>',
     moderationDataDir: moderationDataDirOf(get),
     configPath: configPathOf(get),
+    schoolRulesDir: get('SCHOOL_RULES_DIR') ?? 'school-rules',
     registrationPort,
     trustProxy: get('TRUST_PROXY') === '1',
     classPort,

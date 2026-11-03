@@ -6,6 +6,7 @@ import { MemoryMailer } from '../../src/registration/mailer.js'
 import { createModerator, type Moderator } from '../../src/moderation/moderator.js'
 import { parseInjectionPatterns, parseWordList } from '../../src/moderation/load.js'
 import { loadSchoolConfig, type SchoolConfig } from '../../src/shared/config.js'
+import { loadSchoolRules, type SchoolRules } from '../../src/shared/school-rules.js'
 import { createTestClock } from './clock.js'
 import { createTestDb } from './db.js'
 
@@ -37,16 +38,31 @@ export function exampleModerator(): Moderator {
   })
 }
 
-/** A registration service on a fresh database, with the example config and word lists and a controllable clock. */
-export async function buildTestApp(overrides: { config?: ConfigOverrides; logger?: FastifyServerOptions['logger'] } = {}) {
+/**
+ * A registration service on a fresh database, with the example config and word lists, the school rules in the
+ * repository (unless `schoolRules` replaces them) and a controllable clock.
+ */
+export async function buildTestApp(
+  overrides: { config?: ConfigOverrides; schoolRules?: SchoolRules; logger?: FastifyServerOptions['logger'] } = {},
+) {
   const { db, destroy: destroyDb } = await createTestDb()
 
   const config = exampleConfig(overrides.config)
+  const schoolRules = overrides.schoolRules ?? loadSchoolRules(fromRoot('school-rules'))
   const moderator = exampleModerator()
   const mailer = new MemoryMailer()
   const clock = createTestClock(new Date('2026-11-02T12:00:00+08:00'))
 
-  const app = buildRegistrationApp({ db, config, moderator, mailer, clock, trustProxy: false, logger: overrides.logger })
+  const app = buildRegistrationApp({
+    db,
+    config,
+    moderator,
+    mailer,
+    clock,
+    schoolRules,
+    trustProxy: false,
+    logger: overrides.logger,
+  })
   try {
     await app.ready()
   } catch (err) {

@@ -90,7 +90,7 @@ test('loadEnv requires DATABASE_URL and fills defaults', () => {
   expect(loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25' })).toEqual({
     databaseUrl: 'postgres://x', mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' },
     mailFrom: '机器人网校 <no-reply@example.com>', moderationDataDir: 'data/moderation',
-    configPath: 'config/school.json', registrationPort: 8080, trustProxy: false,
+    configPath: 'config/school.json', schoolRulesDir: 'school-rules', registrationPort: 8080, trustProxy: false,
     classPort: 8081, classTimelineSpeed: 1,
   })
 })
@@ -98,11 +98,11 @@ test('loadEnv requires DATABASE_URL and fills defaults', () => {
 test('loadEnv reads overrides', () => {
   expect(loadEnv({
     DATABASE_URL: 'postgres://x', MAIL_TRANSPORT: 'smtp', SMTP_URL: 'smtp://mail:25', MAIL_FROM: 'a <a@b.c>',
-    MODERATION_DATA_DIR: '/m', SCHOOL_CONFIG: '/c.json', REGISTRATION_PORT: '9090', TRUST_PROXY: '1',
-    CLASS_PORT: '9091', CLASS_TIMELINE_SPEED: '60',
+    MODERATION_DATA_DIR: '/m', SCHOOL_CONFIG: '/c.json', SCHOOL_RULES_DIR: '/r', REGISTRATION_PORT: '9090',
+    TRUST_PROXY: '1', CLASS_PORT: '9091', CLASS_TIMELINE_SPEED: '60',
   })).toEqual({
     databaseUrl: 'postgres://x', mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' }, mailFrom: 'a <a@b.c>',
-    moderationDataDir: '/m', configPath: '/c.json', registrationPort: 9090, trustProxy: true,
+    moderationDataDir: '/m', configPath: '/c.json', schoolRulesDir: '/r', registrationPort: 9090, trustProxy: true,
     classPort: 9091, classTimelineSpeed: 60,
   })
   expect(loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25', TRUST_PROXY: '0' }).trustProxy).toBe(false)
@@ -326,6 +326,8 @@ describe('loadClassEnv', () => {
         SCHOOL_CONFIG: '/c.json',
         CLASS_PORT: '9091',
         CLASS_TIMELINE_SPEED: '60',
+        // The school rules are the registration service's; the class service never reads them.
+        SCHOOL_RULES_DIR: '/r',
       }),
     ).toEqual({ databaseUrl: 'postgres://x', moderationDataDir: '/m', configPath: '/c.json', classPort: 9091, classTimelineSpeed: 60 })
     expect(loadClassEnv({ DATABASE_URL: 'postgres://x', CLASS_PORT: '', CLASS_TIMELINE_SPEED: '' })).toMatchObject({
