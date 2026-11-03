@@ -28,6 +28,7 @@ const PUBLISHED = [
   'Summary',
   'VerifyRequest',
   'VerifyResult',
+  'WithdrawResult',
 ] as const satisfies readonly (keyof typeof http)[]
 
 /** The v1 HTTP protocol as one JSON Schema document; `protocol/http.schema.json` is this, written out by `npm run protocol:export`. */

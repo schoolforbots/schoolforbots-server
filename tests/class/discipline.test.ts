@@ -7,7 +7,7 @@ import { calloutInitiations, calloutRounds, calloutSchoolRule } from '../../src/
 import { runDailyJob } from '../../src/registration/daily-job.js'
 import { displayName } from '../../src/shared/identity.js'
 import { addDaysToDate } from '../../src/shared/local-time.js'
-import type { Database, DisciplineKind, SessionMember } from '../../src/shared/schema.js'
+import type { Database, DisciplineKind, SessionMember, StudentStatus } from '../../src/shared/schema.js'
 import { buildTestClassApp } from '../helpers/class-app.js'
 import { exampleConfig } from '../helpers/app.js'
 import { createTestClock } from '../helpers/clock.js'
@@ -56,7 +56,7 @@ describe('discipline', () => {
     display: string
   }
 
-  async function seedStudent(classId: number | null, p: { status?: 'active' | 'suspended' | 'dropped'; suspendedUntil?: Date } = {}): Promise<Seeded> {
+  async function seedStudent(classId: number | null, p: { status?: StudentStatus; suspendedUntil?: Date } = {}): Promise<Seeded> {
     const { ownerName, aiName, display } = names()
     const email = `student${counter}@example.com`
     const installId = randomUUID()
@@ -542,14 +542,115 @@ describe('discipline', () => {
       expect(bans.map((b) => b.until)).toEqual(Array(2).fill(later(at('20:31', TUE), 45 * DAY)))
     })
 
-    test('a student who is no longer in the class is not penalised', async () => {
-      const classId = await seedClass()
-      const gone = await seedStudent(null, { status: 'dropped' })
-      const sessions = [await newSession(classId, MON), await newSession(classId, TUE), await newSession(classId, WED)]
-      for (const [i, session] of sessions.entries()) await record(gone, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+    describe('a student who is no longer in the class', () => {
+      /** Three lessons in which `s` breaks the school rule, the last one still to close. */
+      async function threeBreaks(classId: number, s: Seeded) {
+        const sessions = [await newSession(classId, MON), await newSession(classId, TUE), await newSession(classId, WED)]
+        for (const [i, session] of sessions.entries()) await record(s, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+        return sessions
+      }
 
-      expect(await close(sessions[2]!)).toEqual(NOTHING)
-      expect(await student(gone.id)).toMatchObject({ status: 'dropped' })
+      test('one who withdrew is suspended all the same: still dropped, with the date and the record', async () => {
+        const classId = await seedClass()
+        const gone = await seedStudent(null, { status: 'dropped' })
+        const sessions = await threeBreaks(classId, gone)
+
+        expect(await close(sessions[2]!)).toEqual({ ...NOTHING, suspended: [gone.id] })
+
+        const until = later(at('20:31', WED), 3 * DAY)
+        expect(await student(gone.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: until })
+        expect(await recordsOf(gone.id, 'suspension')).toEqual([
+          {
+            id: expect.any(Number),
+            sessionId: sessions[2]!.sessionId,
+            detail: { until: until.toISOString() },
+            matchedTerm: null,
+            createdAt: at('20:31', WED),
+            revokedAt: null,
+          },
+        ])
+
+        // Closed again after a crash, an hour later: nothing changes, the date does not move.
+        clock.set(later(sessions[2]!.closeAt, 60 * 60_000))
+        expect(await applyPenalties(db, config, clock, sessions[2]!)).toEqual(NOTHING)
+        expect(await student(gone.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: until })
+        expect(await recordsOf(gone.id, 'suspension')).toHaveLength(1)
+      })
+
+      test('one who withdrew is expelled all the same: the email and the install are banned', async () => {
+        const classId = await seedClass()
+        const gone = await seedStudent(null, { status: 'dropped' })
+        const sessions = [await newSession(classId, MON), await newSession(classId, TUE)]
+        for (const [i, session] of sessions.entries()) await record(gone, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+        const strict = {
+          ...config,
+          discipline: { ...config.discipline, expulsion: { schoolRuleCount: 2, windowDays: 30, banDays: 45 } },
+        }
+
+        expect(await close(sessions[1]!, strict)).toEqual({ ...NOTHING, expelled: [gone.id] })
+
+        const closedAt = at('20:31', TUE)
+        const banUntil = later(closedAt, 45 * DAY)
+        expect(await student(gone.id)).toEqual({ status: 'expelled', classId: null, suspendedUntil: null })
+        const bans = await db.selectFrom('bans').select(['email', 'installId', 'until', 'reason', 'createdAt']).execute()
+        expect(bans).toHaveLength(2)
+        expect(bans).toEqual(
+          expect.arrayContaining([
+            { email: gone.email, installId: null, until: banUntil, reason: 'expelled', createdAt: closedAt },
+            { email: null, installId: gone.installId, until: banUntil, reason: 'expelled', createdAt: closedAt },
+          ]),
+        )
+        expect((await recordsOf(gone.id, 'expulsion')).map((r) => r.sessionId)).toEqual([sessions[1]!.sessionId])
+      })
+
+      test.each(['pending', 'waitlisted'] as const)(
+        'one who withdrew and came back (%s) goes back to dropped: no place in the queue, the date set',
+        async (status) => {
+          const classId = await seedClass()
+          const returned = await seedStudent(null, { status })
+          const sessions = await threeBreaks(classId, returned)
+
+          expect(await close(sessions[2]!)).toEqual({ ...NOTHING, suspended: [returned.id] })
+
+          const until = later(at('20:31', WED), 3 * DAY)
+          expect(await student(returned.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: until })
+          expect(await recordsOf(returned.id, 'suspension')).toHaveLength(1)
+        },
+      )
+
+      test('an expelled student is not looked at again', async () => {
+        const classId = await seedClass()
+        const expelled = await seedStudent(null, { status: 'expelled' })
+        const sessions = [await newSession(classId, MON), await newSession(classId, TUE)]
+        for (const [i, session] of sessions.entries()) await record(expelled, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+        const strict = {
+          ...config,
+          discipline: { ...config.discipline, expulsion: { schoolRuleCount: 2, windowDays: 30, banDays: 45 } },
+        }
+
+        expect(await close(sessions[1]!, strict)).toEqual(NOTHING)
+        expect(await student(expelled.id)).toEqual({ status: 'expelled', classId: null, suspendedUntil: null })
+        expect(await recordsOf(expelled.id, 'expulsion')).toEqual([])
+        expect(await db.selectFrom('bans').select('id').execute()).toEqual([])
+      })
+
+      test('one who withdrew still has the parent notice sent', async () => {
+        const classId = await seedClass()
+        const gone = await seedStudent(null, { status: 'dropped' })
+        const partner = await seedStudent(classId)
+        let session!: ActiveSession
+        // Two class-rule breaks a lesson: the fifth comes in the third lesson.
+        for (let i = 0; i < 3; i++) {
+          const date = addDaysToDate(MON, i)
+          session = await newSession(classId, date)
+          await record(gone, session, 'initiations', at('20:10', date))
+          await record(gone, session, 'rounds', at('20:10', date), { detail: { partnerId: partner.id, partnerName: partner.display } })
+          expect(await close(session)).toEqual(i < 2 ? NOTHING : { ...NOTHING, parentNotices: [gone.id] })
+        }
+        expect((await recordsOf(gone.id, 'parent_notice')).map((r) => r.sessionId)).toEqual([session.sessionId])
+        // Class rules never suspend.
+        expect(await student(gone.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: null })
+      })
     })
 
     describe('the parent notice', () => {

@@ -161,12 +161,16 @@ export interface PenaltyReport {
 }
 
 /**
- * After the lesson, for each student who has a new record in it (and is still in the class): when it broke the school
+ * After the lesson, for each student who has a new record in it and has not been expelled: when it broke the school
  * rule in this lesson, expels the student when the school-rule breaks of the last `expulsion.windowDays` days reach
  * `expulsion.schoolRuleCount`, otherwise suspends the student at `suspension.schoolRuleCount`; and, when it broke a
  * class rule in this lesson, whichever of those happened, records a parent notice when the class rules broken in the
  * last `parentNotice.windowDays` days reach `parentNotice.classRuleCount` and no notice has gone out in that time.
  * Records that were revoked never count. Everything is written in one transaction.
+ *
+ * Withdrawing from school does not escape any of it. A student who is not in a class any more (they withdrew before
+ * the lesson closed, or withdrew and re-enrolled) is expelled and banned like anyone else; a suspension leaves them
+ * dropped, with no class and the date they cannot re-enroll before, which also voids their place in the queue.
  *
  * The penalties are keyed by the session: a student the lesson has already suspended or expelled is not suspended
  * or expelled again by it, nor does a suspension get longer, and a lesson that has sent a notice sends no second one.
@@ -223,7 +227,8 @@ export async function applyPenalties(
         .where('id', '=', studentId)
         .forUpdate()
         .executeTakeFirst()
-      if (student === undefined || !(MEMBER_STATUSES as readonly StudentStatus[]).includes(student.status)) continue
+      if (student === undefined || student.status === 'expelled') continue
+      const inClass = (MEMBER_STATUSES as readonly StudentStatus[]).includes(student.status)
 
       const punished = await trx
         .selectFrom('disciplineRecords')
@@ -259,9 +264,15 @@ export async function applyPenalties(
           report.expelled.push(studentId)
         } else if ((await count(studentId, ['school_rule'], suspension.windowDays)) >= suspension.schoolRuleCount) {
           const until = new Date(now.getTime() + suspension.days * DAY_MS)
+          // A student who is not in a class (withdrawn, or back in the queue) is not let into one by a suspension: they
+          // go back to dropped, and `suspendedUntil` is what keeps them from re-enrolling until it is over.
           await trx
             .updateTable('students')
-            .set({ status: 'suspended', suspendedUntil: until })
+            .set(
+              inClass
+                ? { status: 'suspended', suspendedUntil: until }
+                : { status: 'dropped', classId: null, suspendedUntil: until },
+            )
             .where('id', '=', studentId)
             .execute()
           await disciplineRecorder.record(trx, {

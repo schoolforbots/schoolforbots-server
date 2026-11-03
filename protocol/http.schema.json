@@ -1282,6 +1282,18 @@
           ]
         }
       }
+    },
+    "WithdrawResult": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "dropped"
+        }
+      }
     }
   }
 }

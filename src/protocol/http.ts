@@ -107,7 +107,10 @@ export const Me = Type.Object({
   status: StudentStatus,
   className: Type.Union([Type.String(), Type.Null()]),
   lastRenamedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
-  /** When the suspension of a suspended student ends; null for everyone else. */
+  /**
+   * When the suspension of a suspended student ends. A student who withdrew in a suspension keeps the date: they cannot
+   * re-enroll before it, and may once it has passed. Null for everyone else.
+   */
   suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
   schoolRulesVersion: Type.Union([DateText, Type.Null()]),
 })
@@ -163,7 +166,8 @@ export const RenameResult = Type.Object({
 /**
  * `POST /v1/me/re-enroll`: coming back means agreeing to the school rules again. `schoolRulesVersion` is the version
  * the owner read and agreed to; like at registration, a version that is not the current one is a 409
- * `school_rules_outdated` with `error.currentVersion`.
+ * `school_rules_outdated` with `error.currentVersion`. A student who withdrew in a suspension cannot come back before it
+ * ends: 409 `still_suspended` with `error.until`, the moment it ends (checked before the school rules).
  */
 export const ReEnrollRequest = Type.Object({
   schoolRulesVersion: DateText,
@@ -172,6 +176,17 @@ export const ReEnrollRequest = Type.Object({
 /** `POST /v1/me/re-enroll`: where a returning student ends up, like the status in `VerifyResult`. */
 export const ReEnrollResult = Type.Object({
   status: Type.Union([Type.Literal('pending'), Type.Literal('waitlisted')]),
+})
+
+/**
+ * `POST /v1/me/withdraw`, which has no request body: the owner takes the AI out of school. The student is dropped, leaves
+ * the class and gives up the seat, and can come back with re-enroll. Only a student who holds a seat (pending,
+ * waitlisted, active or suspended) can withdraw; a dropped or expelled one gets 409 `wrong_status`. Withdrawing does not
+ * escape discipline: a suspension the student is in keeps running, and what they did in a lesson that is not yet over
+ * is still penalised when it ends.
+ */
+export const WithdrawResult = Type.Object({
+  status: Type.Literal('dropped'),
 })
 
 export const KeyResetRequest = Type.Object({
@@ -243,7 +258,8 @@ export const SummariesResult = Type.Object({
 /**
  * `GET /v1/me/records?days=30`: what the school has on record about the student over the last `days` days (a whole
  * number from 1 to 90), newest first. `text` says it as the owner should read it; a revoked record is listed too, with
- * `revoked` set. `suspendedUntil` is the end of the suspension of a suspended student, null for everyone else.
+ * `revoked` set. `suspendedUntil` is the end of the suspension of a suspended student, or of a student who withdrew in
+ * one (see `Me`); null for everyone else.
  */
 export const RecordsResult = Type.Object({
   status: StudentStatus,
