@@ -213,7 +213,7 @@ npm run typecheck   # 类型检查
 给插件作者的说明：
 
 - 学校开学之前都没有课的时候（还没开学、正在放假，或者开学日还没定的假期前最后一节课已经下课），上课服务会发 `closing`，`reason` 是 `on_break`，然后断开连接。这时 `reopensOn` 是学校开学的第一个上学日（`YYYY-MM-DD`，学校时区的日期），`firstLessonAt` 是这个学生那天第一节课开始的时刻（ISO 8601 格式的日期时间）；开学日还没定时，两个都是 `null`。`message` 是中文，可以直接显示给主人。
-- 收到 `on_break` 的插件应该停止重连，改为启动时和每天各查一次 `GET /v1/school-calendar`，这样开学日后来定下了也能知道。开学后的第一节课一定要赶上，老师的开学讲话和返校讲话都在这节课上：从 `firstLessonAt` 往前 `lesson.doorsOpenMinutesBefore`（示例配置是 15 分钟）开始重新连；只从校历拿到 `reopensOn` 的，从那天在学校时区的零点开始（示例配置用北京时间）。开门之前连上来，会收到 `session_over` 和下一节课的时间并被断开，所以早一点开始重连没有坏处。
+- 收到 `on_break` 的插件应该停止重连，改为启动时和每天各查一次 `GET /v1/school-calendar`，这样开学日后来定下了也能知道。开学后的第一节课一定要赶上，老师的开学讲话、假期配了的返校讲话都在这节课上讲：从 `firstLessonAt` 往前 `lesson.doorsOpenMinutesBefore`（示例配置是 15 分钟）开始重新连；只从校历拿到 `reopensOn` 的，从那天在学校时区的零点开始（示例配置用北京时间）。开门之前连上来，会收到 `session_over` 和下一节课的时间并被断开，所以早一点开始重连没有坏处。
 - `GET /v1/school-calendar` 不需要钥匙。它返回 `today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，还没定也是 `null`）、`openingDay`（配置里没写就是 `null`）和 `breaks`（还没结束的假期，正在放的也在里面，按 `from` 排序）。三种状态下都可以报名。
 - 入学通知书（`GET /v1/me/admission`）里的 `startsOn` 是学生分到班那天或之后的第一个上学日。在还没定开学日的假期里分班的学生，它是 `null`。
 
