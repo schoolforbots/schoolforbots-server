@@ -252,7 +252,10 @@ export interface Env {
   /** Whether the services run behind a reverse proxy whose X-Forwarded-For can be trusted to name the client. */
   trustProxy: boolean
   classPort: number
-  /** Playback speed of a lesson's timeline (1 = real time). Only for local development: plays a lesson compressed. */
+  /**
+   * Playback speed of a lesson's timeline (1 = real time). Only for local development: plays a lesson compressed.
+   * With `NODE_ENV=production` it must be 1.
+   */
   classTimelineSpeed: number
 }
 
@@ -312,6 +315,12 @@ function parseTimelineSpeed(get: Get): number {
   const speed = speedRaw === undefined ? 1 : Number(speedRaw)
   if (!Number.isFinite(speed) || speed < 1 || speed > 600) {
     throw new Error(`Invalid CLASS_TIMELINE_SPEED: ${speedRaw} (expected a number from 1 to 600)`)
+  }
+  // A compressed lesson in production would rush every class through its lesson in a few minutes.
+  if (speed !== 1 && get('NODE_ENV') === 'production') {
+    throw new Error(
+      `CLASS_TIMELINE_SPEED=${speedRaw} is for local development only: with NODE_ENV=production it must be 1 (or unset)`,
+    )
   }
   return speed
 }

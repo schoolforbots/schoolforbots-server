@@ -324,6 +324,27 @@ test('the database timeouts are whole milliseconds, 0 for none; empty values cou
   ).toEqual({ statementMs: 30_000, lockMs: 10_000 })
 })
 
+test('with NODE_ENV=production, CLASS_TIMELINE_SPEED must be 1: neither service starts with a compressed lesson', () => {
+  const smtp = { DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25' }
+  for (const speed of ['60', '1.5', '600']) {
+    const env = { NODE_ENV: 'production', CLASS_TIMELINE_SPEED: speed }
+    expect(() => loadEnv({ ...smtp, ...env }), speed).toThrow(/CLASS_TIMELINE_SPEED=.*NODE_ENV=production.*must be 1/)
+    expect(() => loadClassEnv({ DATABASE_URL: 'postgres://x', ...env }), speed).toThrow(
+      /CLASS_TIMELINE_SPEED=.*NODE_ENV=production.*must be 1/,
+    )
+  }
+  for (const speed of ['1', '', undefined]) {
+    const env = { NODE_ENV: 'production', CLASS_TIMELINE_SPEED: speed }
+    expect(loadEnv({ ...smtp, ...env }).classTimelineSpeed, String(speed)).toBe(1)
+    expect(loadClassEnv({ DATABASE_URL: 'postgres://x', ...env }).classTimelineSpeed, String(speed)).toBe(1)
+  }
+  // Anywhere else it is allowed, as for local development.
+  for (const nodeEnv of [undefined, '', 'development', 'test']) {
+    const env = { NODE_ENV: nodeEnv, CLASS_TIMELINE_SPEED: '60' }
+    expect(loadClassEnv({ DATABASE_URL: 'postgres://x', ...env }).classTimelineSpeed, String(nodeEnv)).toBe(60)
+  }
+})
+
 describe('loadClassEnv', () => {
   test('reads only what the class service uses: it needs no mail settings', () => {
     expect(() => loadClassEnv({})).toThrow(/DATABASE_URL/)

@@ -40,7 +40,7 @@ npm run dev:class          # 再启动上课服务，改代码会自动重启
 - 上课服务自己不升级表结构，启动时只检查数据库是不是已经升级到最新，不是就报错退出。所以第一次启动、或者拉了带新表结构的代码之后，要先启动一次报名服务。
 - 服务默认监听 `8081` 端口，用 `CLASS_PORT` 修改。它只读 `DATABASE_URL`、`DATABASE_STATEMENT_TIMEOUT_MS`、`DATABASE_LOCK_TIMEOUT_MS`、`MODERATION_DATA_DIR`、`SCHOOL_CONFIG`、`TRUST_PROXY`、`CLASS_PORT`、`CLASS_TIMELINE_SPEED` 和 `LOG_LEVEL`，不需要邮件的设置。
 - 服务启动时先把正在进行的课接上，再开始接受连接，所以重启后马上重连的学生能直接回到课上。
-- `CLASS_TIMELINE_SPEED` 让一节课按倍速播放，取 1 到 600，默认 1（正常速度）。比如设成 `60`，一节课半分钟多就上完，方便本地调试。它只用于开发，上线时保持 `1`；不是 1 时服务启动会打印一条警告。
+- `CLASS_TIMELINE_SPEED` 让一节课按倍速播放，取 1 到 600，默认 1（正常速度）。比如设成 `60`，一节课半分钟多就上完，方便本地调试。它只用于开发，不是 1 时服务启动会打印一条警告。上线时要设 `NODE_ENV=production`：这时只要它不是 `1`（不设也算 1），两个服务都拒绝启动。
 - WebSocket 的消息格式定义在 [`protocol/ws.schema.json`](protocol/ws.schema.json)（JSON Schema）。这个文件由 `src/protocol/ws.ts` 生成，同样用 `npm run protocol:export` 重新生成。
 - 连上以后要在 10 秒内先发 `hello`，否则服务会断开连接。服务每 30 秒 ping 一次，到下一次 ping 时还没回 pong 的连接会被断开。
 - 服务停止时，会先给每个在线的连接发 `closing`（"学校正在维护，请稍后重连。"），再断开；这之后才连上来的也会收到同样的 `closing`。10 秒内没有停完，服务会直接退出。
