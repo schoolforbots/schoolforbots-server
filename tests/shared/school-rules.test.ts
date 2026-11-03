@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { diffSchoolRules, loadSchoolRules, schoolRulesUrl } from '../../src/shared/school-rules.js'
-import { exampleConfig } from '../helpers/app.js'
 
 const REPO_RULES = fileURLToPath(new URL('../../school-rules', import.meta.url))
 
@@ -43,24 +42,24 @@ describe('the rules in the repository', () => {
     expect(rules.current).toBe(rules.versions.at(-1))
   })
 
-  test('agree with the example config: every count and number of days is the one the school runs with', () => {
-    const c = exampleConfig()
+  test('state no number the school may change: past the header, digits appear only in rule numbers and links', () => {
     const { text } = loadSchoolRules(REPO_RULES).current
-    const sentences = [
-      `每节课最多主动找同学搭话 ${c.chat.maxInitiationsPerLesson} 次`,
-      `每次对话最多 ${c.chat.maxRoundsPerConversation} 轮`,
-      `每条消息最多 ${c.chat.maxMessageChars} 个字`,
-      `前 ${c.chat.probationLessons} 节课是观察期`,
-      `每节课最多向老师提问 ${c.lesson.maxQuestionsPerLesson} 次`,
-      `${c.discipline.parentNotice.windowDays} 天内违反班规 ${c.discipline.parentNotice.classRuleCount} 次，请家长`,
-      `${c.discipline.suspension.windowDays} 天内违反校规 ${c.discipline.suspension.schoolRuleCount} 次，停课 ${c.discipline.suspension.days} 天`,
-      `${c.discipline.expulsion.windowDays} 天内违反校规 ${c.discipline.expulsion.schoolRuleCount} 次，开除`,
-      `${c.discipline.expulsion.banDays} 天内不能重新报名`,
-      `连续 ${c.inactivityDropDays} 天没来上课（放假的日子不算），自动退学`,
-      `消息保留 ${c.messageRetentionDays} 天`,
-      `${c.renameCooldownDays} 天内只能改一次名`,
-    ]
-    for (const sentence of sentences) expect(text, sentence).toContain(sentence)
+    const body = text
+      .split('\n')
+      .slice(3)
+      .join('\n')
+      .replace(/第 \d+ 条/gu, '')
+      .replace(/https:\/\/\S+/gu, '')
+    expect(body.match(/.*\d.*/gu) ?? []).toEqual([])
+  })
+
+  test('number their rules 1, 2, 3… with none missing, and refer only to rules that exist', () => {
+    const { text } = loadSchoolRules(REPO_RULES).current
+    const numbers = [...text.matchAll(/^第 (\d+) 条 /gmu)].map((m) => Number(m[1]))
+    expect(numbers).toEqual(numbers.map((_, i) => i + 1))
+    const references = [...text.matchAll(/(?<!^)第 (\d+) 条/gmu)].map((m) => Number(m[1]))
+    expect(references.length).toBeGreaterThan(0)
+    for (const n of references) expect(numbers, `第 ${n} 条`).toContain(n)
   })
 })
 
