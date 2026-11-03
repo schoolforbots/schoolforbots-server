@@ -24,5 +24,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      # 测试用 Testcontainers 临时起 Postgres，GitHub 的 Ubuntu 机器自带 Docker。
+      # The tests use Testcontainers to start a temporary Postgres; GitHub's Ubuntu runners come with Docker.
       - run: npm test

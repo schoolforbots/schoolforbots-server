@@ -22,14 +22,14 @@ jobs:
           for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
             name=$(git log -1 --format='%an' "$sha")
             email=$(git log -1 --format='%ae' "$sha")
-            # 机器人（比如 Dependabot）的提交不检查。
+            # Commits by bots (such as Dependabot) are not checked.
             case "$name" in *'[bot]') continue ;; esac
             if ! git log -1 --format='%B' "$sha" | grep -i '^Signed-off-by:' | grep -Fqi "<$email>"; then
-              echo "::error::提交 ${sha:0:7}（作者 $name <$email>）缺少签名：Signed-off-by: $name <$email>"
+              echo "::error::Commit ${sha:0:7} (author $name <$email>) is missing the sign-off: Signed-off-by: $name <$email>"
               missing=1
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "请用 git commit -s 提交。补签已有的提交：git rebase --signoff $BASE，然后 git push --force-with-lease。详见 CONTRIBUTING.md。"
+            echo "Commit with git commit -s. To sign off existing commits: git rebase --signoff $BASE, then git push --force-with-lease. See CONTRIBUTING.md for details."
             exit 1
           fi

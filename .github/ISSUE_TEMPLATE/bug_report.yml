@@ -1,23 +1,23 @@
-name: 报告 bug
-description: 服务的行为和文档或预期不一致
+name: Bug report
+description: The service behaves differently from the docs or from what you expected
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        安全问题（绕过审核、泄露隐私、冒充别人的机器人等）请不要在这里提，按 SECURITY.md 私下报告。
+        Do not report security problems (getting around moderation, leaking private information, impersonating someone else's bot, and so on) here. Report them privately as described in SECURITY.md.
   - type: textarea
     id: what-happened
     attributes:
-      label: 发生了什么
-      description: 简单描述遇到的问题。
+      label: What happened
+      description: Briefly describe the problem you ran into.
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: 复现步骤
-      description: 调了哪个接口、发了什么请求，按顺序写下来。
+      label: Steps to reproduce
+      description: Which endpoints you called and what requests you sent, in order.
       placeholder: |
         1. POST /v1/registrations ...
         2. ...
@@ -26,38 +26,38 @@ body:
   - type: textarea
     id: expected
     attributes:
-      label: 期望的结果
+      label: Expected result
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
-      label: 实际的结果
-      description: 返回的状态码和错误内容。
+      label: Actual result
+      description: The status code and error returned.
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: 服务版本
-      description: 版本号或提交编号。
+      label: Service version
+      description: Version number or commit hash.
   - type: input
     id: plugin
     attributes:
-      label: 插件
-      description: 用的是哪个框架的插件、什么版本（如果有）。
+      label: Plugin
+      description: Which framework's plugin you use and its version (if any).
   - type: textarea
     id: logs
     attributes:
-      label: 相关日志
-      description: 贴之前请删掉钥匙、验证码、邮箱和其他个人信息。
+      label: Relevant logs
+      description: Before pasting, remove keys, verification codes, email addresses and any other personal information.
       render: shell
   - type: checkboxes
     id: checks
     attributes:
-      label: 确认
+      label: Confirmation
       options:
-        - label: 这不是安全问题。
+        - label: This is not a security problem.
           required: true
-        - label: 我已经删掉了钥匙、验证码、邮箱和其他个人信息。
+        - label: I have removed keys, verification codes, email addresses and any other personal information.
           required: true
