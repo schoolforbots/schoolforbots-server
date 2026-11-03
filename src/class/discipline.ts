@@ -230,7 +230,9 @@ export async function applyPenalties(
 
     // The offenders and every other student of their AI ids are locked first, in one statement in student-number
     // order, so two runs that overlap take the rows in the same order. They are then worked on from these rows, which
-    // are kept up to date as the penalties are written.
+    // are kept up to date as the penalties are written. `FOR NO KEY UPDATE` is enough, as the penalties change no key:
+    // unlike `FOR UPDATE`, it does not wait for a message of the student still being written as class ends, whose
+    // foreign key holds `FOR KEY SHARE` on the row.
     const offenderIds = [...involved.keys()]
     const aiIds = await trx.selectFrom('students').select('aiId').distinct().where('id', 'in', offenderIds).execute()
     const locked = await trx
@@ -238,7 +240,7 @@ export async function applyPenalties(
       .select(['id', 'email', 'aiId', 'status'])
       .where((eb) => eb.or([eb('id', 'in', offenderIds), eb('aiId', 'in', aiIds.map((i) => i.aiId))]))
       .orderBy('id')
-      .forUpdate()
+      .forNoKeyUpdate()
       .execute()
     const students = new Map(locked.map((s) => [s.id, s]))
     const isMember = (status: StudentStatus) => (MEMBER_STATUSES as readonly StudentStatus[]).includes(status)

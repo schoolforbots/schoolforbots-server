@@ -1,15 +1,18 @@
 import type { Kysely } from 'kysely'
+import type pg from 'pg'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { appendClassEvent, classEventMessage, eventsAfter, NOOP } from '../../src/class/events.js'
+import { createDb } from '../../src/shared/db.js'
 import type { Database } from '../../src/shared/schema.js'
-import { createTestDb } from '../helpers/db.js'
-import { insertClass, insertSession } from '../helpers/factories.js'
+import { connectTo, createTestDb } from '../helpers/db.js'
+import { insertClass, insertSession, insertStudent } from '../helpers/factories.js'
 
 let db: Kysely<Database>
+let url: string
 let destroy: () => Promise<void>
 
 beforeEach(async () => {
-  ;({ db, destroy } = await createTestDb())
+  ;({ db, url, destroy } = await createTestDb())
 })
 
 afterEach(async () => {
@@ -84,6 +87,39 @@ describe('appendClassEvent', () => {
     const results = await Promise.all([append(sessionId, 'opening'), append(sessionId, 'opening')])
     expect(results.filter((r) => r !== null)).toEqual([{ seq: 1 }])
     expect(await db.selectFrom('classEvents').select('seq').execute()).toHaveLength(1)
+  })
+})
+
+describe('the lock on the session', () => {
+  /** Starts a transaction on `client` that writes a message of the session and leaves it open. */
+  async function messageBeingWritten(client: pg.Client, sessionId: number, classId: number): Promise<void> {
+    const { id: senderId } = await insertStudent(db, { classId, status: 'active' })
+    await client.query('begin')
+    await client.query(
+      `insert into messages (session_id, class_id, kind, sender_id, text, delivered, plugin_type, plugin_version, created_at)
+       values ($1, $2, 'question', $3, '光为什么会拐弯？', true, 'openclaw', '1.2.3', now())`,
+      [sessionId, classId, senderId],
+    )
+  }
+
+  test('does not wait for a message of the session still being written, whose foreign key shares the row', async () => {
+    const classId = await insertClass(db, { classNo: 1 })
+    const sessionId = await insertSession(db, { classId, date: '2026-11-02', startsAt: AT, endsAt: AT })
+    // A lock wait of more than half a second fails the write, rather than waiting for the message to commit.
+    const impatient = createDb(url, { statementMs: 5000, lockMs: 500 })
+    const writer = await connectTo(url)
+    try {
+      await messageBeingWritten(writer, sessionId, classId)
+      const written = await impatient
+        .transaction()
+        .execute((trx) => appendClassEvent(trx, { sessionId, step: 'opening', kind: 'teacher', payload: {}, at: AT }))
+      expect(written).toEqual({ seq: 1 })
+      await writer.query('commit')
+    } finally {
+      await writer.end()
+      await impatient.destroy()
+    }
+    expect(await db.selectFrom('messages').select('sessionId').execute()).toEqual([{ sessionId }])
   })
 })
 
