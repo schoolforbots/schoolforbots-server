@@ -7,6 +7,7 @@ import {
   isSchoolDay,
   nextSchoolDay,
   speechOn,
+  undecidedBreakAhead,
 } from '../../src/shared/calendar.js'
 import type { SchoolConfig } from '../../src/shared/config.js'
 import { exampleConfig } from '../helpers/app.js'
@@ -137,6 +138,32 @@ describe('nextSchoolDay', () => {
       breaks: [{ from: '2026-12-07', reopensOn: '2026-12-14' }],
     })
     expect(nextSchoolDay('2026-12-01', config)).toBe('2026-12-14')
+  })
+})
+
+describe('undecidedBreakAhead', () => {
+  test('is the break with no end that comes before any school day: from the evening and the weekend before it, and in it', () => {
+    for (const day of ['2026-12-19', '2026-12-20', '2026-12-21', '2027-03-01']) {
+      expect(undecidedBreakAhead(day, C), day).toEqual({ name: null, from: '2026-12-21' })
+    }
+    const named = school({ breaks: [{ from: '2026-12-21', reopensOn: null, name: '寒假' }] })
+    expect(undecidedBreakAhead('2026-12-19', named)).toEqual({ name: '寒假', from: '2026-12-21' })
+  })
+
+  test('is null when there is a school day before it, and when every break has an end', () => {
+    expect(undecidedBreakAhead('2026-12-18', C)).toBeNull()
+    expect(undecidedBreakAhead('2026-12-25', A)).toBeNull()
+    expect(undecidedBreakAhead('2026-12-01', A)).toBeNull()
+  })
+
+  test('at the end of a chain of breaks, is the one with no end, not the first', () => {
+    const chained = school({
+      breaks: [
+        { from: '2026-12-21', reopensOn: '2026-12-28', name: '冬假' },
+        { from: '2026-12-28', reopensOn: null, name: '寒假' },
+      ],
+    })
+    expect(undecidedBreakAhead('2026-12-19', chained)).toEqual({ name: '寒假', from: '2026-12-28' })
   })
 })
 
