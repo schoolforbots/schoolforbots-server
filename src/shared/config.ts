@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { Type, type Static } from 'typebox'
 import { Value } from 'typebox/value'
+import { isDateText } from './local-time.js'
 
 export type Division = 'primary' | 'junior' | 'senior'
 export type Slot = 'morning' | 'afternoon' | 'evening'
@@ -8,8 +9,16 @@ export type Slot = 'morning' | 'afternoon' | 'evening'
 const PositiveInt = Type.Integer({ minimum: 1 })
 const NonNegativeInt = Type.Integer({ minimum: 0 })
 const TimeOfDay = Type.String({ pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' })
+// The shape only; whether it is a real calendar date (not 30 February) is checked after loading, with isDateText.
+const DateText = Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' })
+// What a teacher says, one sentence per item.
+const Speech = Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })
 const SlotConfig = Type.Object({ label: Type.String({ minLength: 1 }), start: TimeOfDay, end: TimeOfDay })
 const DivisionConfig = Type.Object({ label: Type.String({ minLength: 1 }) })
+
+/** What a speech may name, written in braces: the teacher, the class, the division and the number of students. */
+const SPEECH_PLACEHOLDERS = ['teacher', 'className', 'division', 'classSize']
+const braced = (names: string[]) => names.map((name) => `{${name}}`).join(', ')
 
 export const SchoolConfigSchema = Type.Object({
   timezone: Type.String({ minLength: 1 }),
@@ -73,6 +82,27 @@ export const SchoolConfigSchema = Type.Object({
     expulsion: Type.Object({ schoolRuleCount: PositiveInt, windowDays: PositiveInt, banDays: PositiveInt }),
   }),
   messageRetentionDays: PositiveInt,
+  // Without a calendar the school has always been open and never takes a break.
+  calendar: Type.Optional(
+    Type.Object({
+      // The first day of school. Before it the school counts as on break (registration goes on); without one, the
+      // school opened long ago.
+      openingDay: Type.Optional(DateText),
+      // The teacher's speech on the first school day on or after the opening day, one sentence per item.
+      openingSpeech: Type.Optional(Speech),
+      // A break covers `from` and every day up to the day before `reopensOn`, the day the school is back; null means
+      // that is not decided yet, which only the last break may say.
+      breaks: Type.Array(
+        Type.Object({
+          from: DateText,
+          reopensOn: Type.Union([DateText, Type.Null()]),
+          name: Type.Optional(Type.String({ minLength: 1 })),
+          // The teacher's speech on the first school day after the break.
+          speech: Type.Optional(Speech),
+        }),
+      ),
+    }),
+  ),
 })
 
 export type SchoolConfig = Static<typeof SchoolConfigSchema>
@@ -84,6 +114,66 @@ function pointerToPath(pointer: string): string {
     .split('/')
     .map((s) => s.replace(/~1/g, '/').replace(/~0/g, '~'))
     .join('.')
+}
+
+/** What is wrong with the school calendar that the schema cannot say, one text per problem. */
+function calendarProblems(calendar: NonNullable<SchoolConfig['calendar']>): string[] {
+  const problems: string[] = []
+  const realDate = (path: string, text: string): boolean => {
+    if (isDateText(text)) return true
+    problems.push(`${path}: not a real calendar date (${text})`)
+    return false
+  }
+
+  const { openingDay } = calendar
+  const openingDayIsReal = openingDay === undefined || realDate('calendar.openingDay', openingDay)
+
+  // Only breaks with real dates, that end after they start, can be put in order and compared with each other.
+  const sound: Array<{ from: string; reopensOn: string | null }> = []
+  calendar.breaks.forEach((b, i) => {
+    const path = `calendar.breaks.${i}`
+    const fromIsReal = realDate(`${path}.from`, b.from)
+    const reopensOnIsReal = b.reopensOn === null || realDate(`${path}.reopensOn`, b.reopensOn)
+    if (!fromIsReal || !reopensOnIsReal) return
+    if (b.reopensOn !== null && b.reopensOn <= b.from) {
+      problems.push(`${path}.reopensOn: must be later than from (${b.reopensOn} <= ${b.from})`)
+      return
+    }
+    if (openingDay !== undefined && openingDayIsReal && b.from < openingDay) {
+      problems.push(`${path}.from: must not be before calendar.openingDay (${b.from} < ${openingDay})`)
+    }
+    sound.push(b)
+  })
+
+  const byStart = [...sound].sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))
+  byStart.forEach((b, i) => {
+    const next = byStart[i + 1]
+    if (next === undefined) return
+    if (b.reopensOn === null) {
+      problems.push(
+        `calendar.breaks: only the last break may have reopensOn null (the break from ${b.from} is followed by one from ${next.from})`,
+      )
+    } else if (b.reopensOn > next.from) {
+      problems.push(
+        `calendar.breaks: breaks must not overlap (the break from ${b.from} to ${b.reopensOn} runs into the one from ${next.from})`,
+      )
+    }
+  })
+
+  const speeches: Array<[path: string, sentences: string[] | undefined]> = [
+    ['calendar.openingSpeech', calendar.openingSpeech],
+    ...calendar.breaks.map((b, i): [string, string[] | undefined] => [`calendar.breaks.${i}.speech`, b.speech]),
+  ]
+  for (const [path, sentences] of speeches) {
+    sentences?.forEach((sentence, i) => {
+      const names = Array.from(sentence.matchAll(/\{([^{}]*)\}/g), (m) => m[1] ?? '')
+      const unknown = [...new Set(names)].filter((name) => !SPEECH_PLACEHOLDERS.includes(name))
+      if (unknown.length > 0) {
+        problems.push(`${path}.${i}: unknown placeholder ${braced(unknown)} (known: ${braced(SPEECH_PLACEHOLDERS)})`)
+      }
+    })
+  }
+  return problems
 }
 
 export function loadSchoolConfig(path: string): SchoolConfig {
@@ -124,6 +214,8 @@ export function loadSchoolConfig(path: string): SchoolConfig {
       `lesson.callOnAfterSegment: must be between 1 and ${segmentMinutes.length - 1} (the number of segments minus one), got ${callOnAfterSegment}`,
     )
   }
+
+  if (config.calendar !== undefined) crossFieldProblems.push(...calendarProblems(config.calendar))
 
   if (crossFieldProblems.length > 0) {
     throw new Error(`Invalid school config ${path}:\n  ${crossFieldProblems.join('\n  ')}`)
