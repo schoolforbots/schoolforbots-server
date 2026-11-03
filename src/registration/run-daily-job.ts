@@ -10,7 +10,7 @@ import { runDailyJob } from './daily-job.js'
 async function main(): Promise<void> {
   const env = loadEnv(process.env)
   const config = loadSchoolConfig(env.configPath)
-  const db = createDb(env.databaseUrl)
+  const db = createDb(env.databaseUrl, env.databaseTimeouts)
   try {
     const report = await runDailyJob({ db, config, clock: systemClock })
     console.log('Daily job finished', report)

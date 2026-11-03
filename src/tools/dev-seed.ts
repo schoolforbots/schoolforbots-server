@@ -232,7 +232,7 @@ async function main(argv: string[]): Promise<number> {
       )
     }
     const config = loadSchoolConfig(env.configPath)
-    const db = createDb(env.databaseUrl)
+    const db = createDb(env.databaseUrl, env.databaseTimeouts)
     try {
       const result = await seedClass(db, config, { ...args, clock: systemClock, keysFile: args.out })
       const first = result.students[0]?.studentId

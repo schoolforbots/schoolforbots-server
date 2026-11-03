@@ -236,7 +236,7 @@ async function main(argv: string[]): Promise<number> {
     const env = loadEnv(process.env)
     const config = loadSchoolConfig(env.configPath)
     const moderator = createModerator(loadModerationData(env.moderationDataDir))
-    const db = createDb(env.databaseUrl)
+    const db = createDb(env.databaseUrl, env.databaseTimeouts)
     try {
       const result = await importLesson(db, config, moderator, input, { approve, clock: systemClock })
       console.log(`课程已导入，课程编号 ${result.lessonId}${result.replaced ? '（覆盖了这一天这个学部原来的课程）' : ''}`)

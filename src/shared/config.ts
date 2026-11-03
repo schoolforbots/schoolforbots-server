@@ -227,8 +227,21 @@ export function loadSchoolConfig(path: string): SchoolConfig {
 /** How verification codes leave: by SMTP, or (development only) printed to the service log. */
 export type MailEnv = { transport: 'smtp'; smtpUrl: string } | { transport: 'console' }
 
+/**
+ * How long one statement may run, and wait for a lock, before Postgres cancels it, in milliseconds. A query stuck
+ * on a lock or running away would otherwise hold its pool connection for good. 0 sets none (the database's own
+ * setting then applies, which is none unless it says otherwise).
+ */
+export interface DatabaseTimeouts {
+  statementMs: number
+  lockMs: number
+}
+
+export const DEFAULT_DATABASE_TIMEOUTS: DatabaseTimeouts = { statementMs: 30_000, lockMs: 10_000 }
+
 export interface Env {
   databaseUrl: string
+  databaseTimeouts: DatabaseTimeouts
   mail: MailEnv
   mailFrom: string
   moderationDataDir: string
@@ -243,7 +256,10 @@ export interface Env {
 }
 
 /** What the class service reads from the environment: what it uses, and no mail settings, which it never does. */
-export type ClassEnv = Pick<Env, 'databaseUrl' | 'moderationDataDir' | 'configPath' | 'classPort' | 'classTimelineSpeed'>
+export type ClassEnv = Pick<
+  Env,
+  'databaseUrl' | 'databaseTimeouts' | 'moderationDataDir' | 'configPath' | 'classPort' | 'classTimelineSpeed'
+>
 
 type Get = (name: string) => string | undefined
 
@@ -264,6 +280,26 @@ function requireDatabaseUrl(get: Get): string {
   return databaseUrl
 }
 
+function parseTimeoutMs(name: string, raw: string | undefined, fallback: number): number {
+  const ms = raw === undefined ? fallback : Number(raw)
+  // Postgres takes at most 2^31 - 1 milliseconds (about 24 days).
+  if (!Number.isInteger(ms) || ms < 0 || ms > 2_147_483_647) {
+    throw new Error(`Invalid ${name}: ${raw} (expected a whole number of milliseconds, 0 for none)`)
+  }
+  return ms
+}
+
+function databaseTimeoutsOf(get: Get): DatabaseTimeouts {
+  return {
+    statementMs: parseTimeoutMs(
+      'DATABASE_STATEMENT_TIMEOUT_MS',
+      get('DATABASE_STATEMENT_TIMEOUT_MS'),
+      DEFAULT_DATABASE_TIMEOUTS.statementMs,
+    ),
+    lockMs: parseTimeoutMs('DATABASE_LOCK_TIMEOUT_MS', get('DATABASE_LOCK_TIMEOUT_MS'), DEFAULT_DATABASE_TIMEOUTS.lockMs),
+  }
+}
+
 function parseTimelineSpeed(get: Get): number {
   const speedRaw = get('CLASS_TIMELINE_SPEED')
   const speed = speedRaw === undefined ? 1 : Number(speedRaw)
@@ -281,10 +317,12 @@ const classPortOf = (get: Get) => parsePort('CLASS_PORT', get('CLASS_PORT'), 808
 export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {
   const get = getter(env)
   const databaseUrl = requireDatabaseUrl(get)
+  const databaseTimeouts = databaseTimeoutsOf(get)
   const classPort = classPortOf(get)
   const classTimelineSpeed = parseTimelineSpeed(get)
   return {
     databaseUrl,
+    databaseTimeouts,
     moderationDataDir: moderationDataDirOf(get),
     configPath: configPathOf(get),
     classPort,
@@ -297,6 +335,7 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
   const get = getter(env)
 
   const databaseUrl = requireDatabaseUrl(get)
+  const databaseTimeouts = databaseTimeoutsOf(get)
 
   // Codes are printed instead of mailed only when MAIL_TRANSPORT=console says so: a missing SMTP_URL must not
   // quietly turn a deployment into one that mails nobody and writes the codes to its log.
@@ -323,6 +362,7 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
 
   return {
     databaseUrl,
+    databaseTimeouts,
     mail,
     mailFrom: get('MAIL_FROM') ?? '机器人网校 <no-reply@example.com>',
     moderationDataDir: moderationDataDirOf(get),

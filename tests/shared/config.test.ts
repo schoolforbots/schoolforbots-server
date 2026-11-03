@@ -88,7 +88,8 @@ test('schema violations are rejected with the field path', () => {
 test('loadEnv requires DATABASE_URL and fills defaults', () => {
   expect(() => loadEnv({ SMTP_URL: 'smtp://mail:25' })).toThrow(/DATABASE_URL/)
   expect(loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25' })).toEqual({
-    databaseUrl: 'postgres://x', mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' },
+    databaseUrl: 'postgres://x', databaseTimeouts: { statementMs: 30_000, lockMs: 10_000 },
+    mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' },
     mailFrom: '机器人网校 <no-reply@example.com>', moderationDataDir: 'data/moderation',
     configPath: 'config/school.json', schoolRulesDir: 'school-rules', registrationPort: 8080, trustProxy: false,
     classPort: 8081, classTimelineSpeed: 1,
@@ -99,9 +100,11 @@ test('loadEnv reads overrides', () => {
   expect(loadEnv({
     DATABASE_URL: 'postgres://x', MAIL_TRANSPORT: 'smtp', SMTP_URL: 'smtp://mail:25', MAIL_FROM: 'a <a@b.c>',
     MODERATION_DATA_DIR: '/m', SCHOOL_CONFIG: '/c.json', SCHOOL_RULES_DIR: '/r', REGISTRATION_PORT: '9090',
-    TRUST_PROXY: '1', CLASS_PORT: '9091', CLASS_TIMELINE_SPEED: '60',
+    TRUST_PROXY: '1', CLASS_PORT: '9091', CLASS_TIMELINE_SPEED: '60', DATABASE_STATEMENT_TIMEOUT_MS: '5000',
+    DATABASE_LOCK_TIMEOUT_MS: '0',
   })).toEqual({
-    databaseUrl: 'postgres://x', mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' }, mailFrom: 'a <a@b.c>',
+    databaseUrl: 'postgres://x', databaseTimeouts: { statementMs: 5000, lockMs: 0 },
+    mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' }, mailFrom: 'a <a@b.c>',
     moderationDataDir: '/m', configPath: '/c.json', schoolRulesDir: '/r', registrationPort: 9090, trustProxy: true,
     classPort: 9091, classTimelineSpeed: 60,
   })
@@ -302,11 +305,31 @@ test('CLASS_TIMELINE_SPEED must be a number from 1 to 600', () => {
   }
 })
 
+test('the database timeouts are whole milliseconds, 0 for none; empty values count as unset', () => {
+  const smtp = { DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25' }
+  for (const name of ['DATABASE_STATEMENT_TIMEOUT_MS', 'DATABASE_LOCK_TIMEOUT_MS']) {
+    for (const raw of ['-1', '1.5', '30s', 'NaN', 'Infinity', '2147483648']) {
+      expect(() => loadEnv({ ...smtp, [name]: raw }), `${name}=${raw}`).toThrow(new RegExp(name))
+      expect(() => loadClassEnv({ DATABASE_URL: 'postgres://x', [name]: raw }), `${name}=${raw}`).toThrow(
+        new RegExp(name),
+      )
+    }
+  }
+  expect(loadEnv({ ...smtp, DATABASE_STATEMENT_TIMEOUT_MS: '2147483647' }).databaseTimeouts.statementMs).toBe(
+    2_147_483_647,
+  )
+  expect(
+    loadClassEnv({ DATABASE_URL: 'postgres://x', DATABASE_STATEMENT_TIMEOUT_MS: '', DATABASE_LOCK_TIMEOUT_MS: '' })
+      .databaseTimeouts,
+  ).toEqual({ statementMs: 30_000, lockMs: 10_000 })
+})
+
 describe('loadClassEnv', () => {
   test('reads only what the class service uses: it needs no mail settings', () => {
     expect(() => loadClassEnv({})).toThrow(/DATABASE_URL/)
     expect(loadClassEnv({ DATABASE_URL: 'postgres://x' })).toEqual({
       databaseUrl: 'postgres://x',
+      databaseTimeouts: { statementMs: 30_000, lockMs: 10_000 },
       moderationDataDir: 'data/moderation',
       configPath: 'config/school.json',
       classPort: 8081,
@@ -326,10 +349,19 @@ describe('loadClassEnv', () => {
         SCHOOL_CONFIG: '/c.json',
         CLASS_PORT: '9091',
         CLASS_TIMELINE_SPEED: '60',
+        DATABASE_STATEMENT_TIMEOUT_MS: '0',
+        DATABASE_LOCK_TIMEOUT_MS: '2500',
         // The school rules are the registration service's; the class service never reads them.
         SCHOOL_RULES_DIR: '/r',
       }),
-    ).toEqual({ databaseUrl: 'postgres://x', moderationDataDir: '/m', configPath: '/c.json', classPort: 9091, classTimelineSpeed: 60 })
+    ).toEqual({
+      databaseUrl: 'postgres://x',
+      databaseTimeouts: { statementMs: 0, lockMs: 2500 },
+      moderationDataDir: '/m',
+      configPath: '/c.json',
+      classPort: 9091,
+      classTimelineSpeed: 60,
+    })
     expect(loadClassEnv({ DATABASE_URL: 'postgres://x', CLASS_PORT: '', CLASS_TIMELINE_SPEED: '' })).toMatchObject({
       classPort: 8081,
       classTimelineSpeed: 1,
