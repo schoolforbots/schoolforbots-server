@@ -114,7 +114,7 @@ describe('POST /v1/registrations', () => {
       attempts: 0,
       referrerId: null,
       verifiedAt: null,
-      schoolRulesVersion: '2026-11-03',
+      schoolRulesVersion: t.schoolRules.current.version,
     })
     expect(row.createdAt).toEqual(t.clock.now())
     expect(row.schoolRulesAgreedAt).toEqual(t.clock.now())
@@ -136,7 +136,7 @@ describe('POST /v1/registrations', () => {
       .select(['schoolRulesVersion', 'schoolRulesAgreedAt'])
       .where('id', '=', registrationId)
       .executeTakeFirstOrThrow()
-    expect(row).toEqual({ schoolRulesVersion: '2026-11-03', schoolRulesAgreedAt: t.clock.now() })
+    expect(row).toEqual({ schoolRulesVersion: t.schoolRules.current.version, schoolRulesAgreedAt: t.clock.now() })
   })
 
   test('any version but the current one → 409 school_rules_outdated, nothing written, no mail', async () => {
@@ -148,7 +148,7 @@ describe('POST /v1/registrations', () => {
         error: {
           code: 'school_rules_outdated',
           message: '校规已经更新，请阅读并同意新版后再试。',
-          currentVersion: '2026-11-03',
+          currentVersion: t.schoolRules.current.version,
         },
       })
       expect(Value.Check(ErrorBody, res.json()), schoolRulesVersion).toBe(true)
@@ -578,7 +578,7 @@ describe('POST /v1/registrations/:id/verify', () => {
       lastAttendedAt: null,
       lastRenamedAt: null,
       lessonsAttended: 0,
-      schoolRulesVersion: '2026-11-03',
+      schoolRulesVersion: t.schoolRules.current.version,
     })
     expect(student.createdAt).toEqual(t.clock.now())
     expect(student.schoolRulesAgreedAt).toEqual(t.clock.now())
@@ -733,7 +733,8 @@ describe('POST /v1/registrations/:id/verify', () => {
     // The service reads the rules once at startup; a new version arrives with a restart. Here the rules object the app
     // holds is changed in place, between the registration and the verification.
     const v1 = t.schoolRules.current
-    const v2 = { version: '2026-12-01', changes: '改了一条。', text: `${v1.text}\n第 99 条 新的一条。\n` }
+    // A version later than any the repository will have.
+    const v2 = { version: '2099-12-31', changes: '改了一条。', text: `${v1.text}\n第 99 条 新的一条。\n` }
     const rules: SchoolRules = { current: v1, versions: [v1] }
     await t.destroy()
     t = await buildTestApp({ schoolRules: rules })
@@ -747,7 +748,7 @@ describe('POST /v1/registrations/:id/verify', () => {
     // The old version is outdated now ...
     const stale = await register(registrationBody({ schoolRulesVersion: v1.version, email: 'other@example.com' }))
     expect(stale.statusCode).toBe(409)
-    expect(errorOf(stale)).toMatchObject({ code: 'school_rules_outdated', currentVersion: '2026-12-01' })
+    expect(errorOf(stale)).toMatchObject({ code: 'school_rules_outdated', currentVersion: v2.version })
 
     // ... but the owner agreed to it when registering, and the verification stands.
     const res = await verify(registrationId, code)
@@ -758,7 +759,7 @@ describe('POST /v1/registrations/:id/verify', () => {
       .where('id', '=', res.json<{ studentId: number }>().studentId)
       .executeTakeFirstOrThrow()
     expect(student).toEqual({
-      schoolRulesVersion: '2026-11-03',
+      schoolRulesVersion: v1.version,
       schoolRulesAgreedAt: registeredAt,
       createdAt: t.clock.now(),
     })
