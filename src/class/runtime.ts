@@ -7,7 +7,7 @@ import { lessonLockKey, lock, MEMBER_STATUSES } from '../shared/db.js'
 import { className, displayName } from '../shared/identity.js'
 import { atLocalTime, localDate } from '../shared/local-time.js'
 import type { Database, LessonSegment, SessionKind, SessionMember } from '../shared/schema.js'
-import { appendClassEvent, classEventMessage, NOOP, stepWritten } from './events.js'
+import { appendClassEvent, classEventMessage, lockSession, NOOP, stepWritten } from './events.js'
 import type { LessonHooks } from './hooks.js'
 import type { Hub } from './hub.js'
 import { isSchoolDay, planSession } from './planning.js'
@@ -377,8 +377,13 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     return written.map((e) => e.seq)
   }
 
-  /** The renames in the class not yet announced, as events, marked announced as of `now`. */
+  /**
+   * The renames in the class not yet announced, as events, marked announced as of `now`. The session is locked before
+   * the renames, as every step that writes events locks it first (see `lockSession`): the call-on announces them
+   * before anything else of its step, the other steps after checking they have not run.
+   */
   async function renameEvents(trx: Transaction<Database>, t: Tracked, now: Date): Promise<PendingEvent[]> {
+    await lockSession(trx, t.session.sessionId)
     const renames = await trx
       .selectFrom('renameEvents')
       .select(['id', 'studentId', 'oldDisplayName', 'newDisplayName'])
