@@ -86,7 +86,8 @@ export const SchoolConfigSchema = Type.Object({
   calendar: Type.Optional(
     Type.Object({
       // The first day of school. Before it the school counts as on break (registration goes on); without one, the
-      // school opened long ago.
+      // school counts as open from the start. It stays after the opening, as past breaks do: the count of days toward
+      // `inactivityDropDays` reads them (see `inactivityCutoffDay`).
       openingDay: Type.Optional(DateText),
       // The teacher's speech on the first school day on or after the opening day, one sentence per item.
       openingSpeech: Type.Optional(Speech),
