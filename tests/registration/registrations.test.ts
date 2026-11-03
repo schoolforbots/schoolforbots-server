@@ -37,7 +37,7 @@ function registrationBody(overrides: Record<string, unknown> = {}) {
     aiName: '小鱼',
     division: 'junior',
     slot: 'evening',
-    installId: randomUUID(),
+    aiId: randomUUID(),
     plugin: { type: 'astrbot', version: '0.1.0' },
     schoolRulesVersion: t.schoolRules.current.version,
     ...overrides,
@@ -70,10 +70,10 @@ function wrongCodeFor(code: string): string {
   return code === '000000' ? '111111' : '000000'
 }
 
-async function ban(p: { email?: string; installId?: string; until: Date }) {
+async function ban(p: { email?: string; aiId?: string; until: Date }) {
   await t.db
     .insertInto('bans')
-    .values({ email: p.email ?? null, installId: p.installId ?? null, until: p.until, reason: 'test', createdAt: t.clock.now() })
+    .values({ email: p.email ?? null, aiId: p.aiId ?? null, until: p.until, reason: 'test', createdAt: t.clock.now() })
     .execute()
 }
 
@@ -83,8 +83,8 @@ function errorOf(res: { json<T>(): T }) {
 
 describe('POST /v1/registrations', () => {
   test('register sends a 6-digit code to the normalized email', async () => {
-    const installId = randomUUID()
-    const res = await register(registrationBody({ installId }))
+    const aiId = randomUUID()
+    const res = await register(registrationBody({ aiId }))
 
     expect(res.statusCode).toBe(202)
     const body = res.json<{ registrationId: string; expiresAt: string }>()
@@ -106,7 +106,7 @@ describe('POST /v1/registrations', () => {
       aiName: '小鱼',
       division: 'junior',
       slot: 'evening',
-      installId,
+      aiId,
       pluginType: 'astrbot',
       pluginVersion: '0.1.0',
       ip: '127.0.0.1',
@@ -245,30 +245,30 @@ describe('POST /v1/registrations', () => {
     expect(errorOf(res).code).toBe('email_limit')
   })
 
-  test('install id with a seat is refused', async () => {
-    const installId = randomUUID()
-    await insertStudent(t.db, { installId, status: 'active' })
-    const res = await register(registrationBody({ installId }))
+  test('an AI id with a seat is refused', async () => {
+    const aiId = randomUUID()
+    await insertStudent(t.db, { aiId, status: 'active' })
+    const res = await register(registrationBody({ aiId }))
     expect(res.statusCode).toBe(409)
-    expect(errorOf(res).code).toBe('install_has_seat')
+    expect(errorOf(res).code).toBe('ai_has_seat')
     expect(t.mailer.sent).toEqual([])
   })
 
-  test('an install id whose student dropped out can register again', async () => {
-    const installId = randomUUID()
-    await insertStudent(t.db, { installId, status: 'dropped' })
-    expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+  test('an AI id whose student dropped out can register again', async () => {
+    const aiId = randomUUID()
+    await insertStudent(t.db, { aiId, status: 'dropped' })
+    expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
   })
 
-  test('an install with a student in a suspension is refused until it ends: 409 still_suspended with the latest end', async () => {
-    const installId = randomUUID()
+  test('an AI id with a student in a suspension is refused until it ends: 409 still_suspended with the latest end', async () => {
+    const aiId = randomUUID()
     const now = t.clock.now().getTime()
-    // The suspension reaches every student of the install, the ones who dropped out included (see applyPenalties).
-    await insertStudent(t.db, { installId, status: 'dropped', suspendedUntil: new Date(now + 2 * DAY) })
-    await insertStudent(t.db, { installId, status: 'dropped', suspendedUntil: new Date(now + 5 * DAY) })
-    await insertStudent(t.db, { installId, status: 'dropped', suspendedUntil: new Date(now - DAY) })
+    // The suspension reaches every student of the AI id, the ones who dropped out included (see applyPenalties).
+    await insertStudent(t.db, { aiId, status: 'dropped', suspendedUntil: new Date(now + 2 * DAY) })
+    await insertStudent(t.db, { aiId, status: 'dropped', suspendedUntil: new Date(now + 5 * DAY) })
+    await insertStudent(t.db, { aiId, status: 'dropped', suspendedUntil: new Date(now - DAY) })
 
-    const res = await register(registrationBody({ installId }))
+    const res = await register(registrationBody({ aiId }))
     expect(res.statusCode).toBe(409)
     expect(res.json()).toEqual({
       error: {
@@ -283,53 +283,53 @@ describe('POST /v1/registrations', () => {
 
     // Only a suspension still running counts: one that ends exactly now is over.
     t.clock.set(new Date(now + 5 * DAY - 1))
-    expect(errorOf(await register(registrationBody({ installId }))).code).toBe('still_suspended')
+    expect(errorOf(await register(registrationBody({ aiId }))).code).toBe('still_suspended')
     t.clock.set(new Date(now + 5 * DAY))
-    expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+    expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
   })
 
-  test('a suspension on one install does not stop the same mailbox on another, nor another mailbox on a fresh install', async () => {
+  test('a suspension on one AI id does not stop the same mailbox with another, nor another mailbox with a fresh AI id', async () => {
     const suspended = randomUUID()
     await insertStudent(t.db, {
       email: 'a@example.com',
-      installId: suspended,
+      aiId: suspended,
       status: 'dropped',
       suspendedUntil: new Date(t.clock.now().getTime() + 3 * DAY),
     })
 
-    expect((await register(registrationBody({ email: 'a@example.com', installId: randomUUID() }))).statusCode).toBe(202)
-    expect((await register(registrationBody({ email: 'b@example.com', installId: randomUUID() }))).statusCode).toBe(202)
-    // The install's own seat answer wins when the suspended student still holds one.
+    expect((await register(registrationBody({ email: 'a@example.com', aiId: randomUUID() }))).statusCode).toBe(202)
+    expect((await register(registrationBody({ email: 'b@example.com', aiId: randomUUID() }))).statusCode).toBe(202)
+    // The AI id's own seat answer wins when the suspended student still holds one.
     await insertStudent(t.db, {
-      installId: suspended,
+      aiId: suspended,
       status: 'suspended',
       classId: await insertClass(t.db, { classNo: 1 }),
       suspendedUntil: new Date(t.clock.now().getTime() + 3 * DAY),
     })
-    expect(errorOf(await register(registrationBody({ installId: suspended }))).code).toBe('install_has_seat')
+    expect(errorOf(await register(registrationBody({ aiId: suspended }))).code).toBe('ai_has_seat')
   })
 
-  test.each(['email', 'installId'] as const)('active ban on the %s blocks, expired ban does not', async (kind) => {
-    const installId = randomUUID()
-    const target = kind === 'email' ? { email: 'A@EXAMPLE.com' } : { installId }
+  test.each(['email', 'aiId'] as const)('active ban on the %s blocks, expired ban does not', async (kind) => {
+    const aiId = randomUUID()
+    const target = kind === 'email' ? { email: 'A@EXAMPLE.com' } : { aiId }
     const now = t.clock.now()
 
     await ban({ ...target, until: new Date(now.getTime() + HOUR) })
-    const blocked = await register(registrationBody({ installId }))
+    const blocked = await register(registrationBody({ aiId }))
     expect(blocked.statusCode).toBe(403)
     expect(errorOf(blocked).code).toBe('banned')
     expect(t.mailer.sent).toEqual([])
 
     // A ban that ends exactly now is over: only until > now counts.
     t.clock.advance(HOUR)
-    expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+    expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
   })
 
   test('an expired ban in the past does not block', async () => {
-    const installId = randomUUID()
+    const aiId = randomUUID()
     await ban({ email: 'a@example.com', until: new Date(t.clock.now().getTime() - 1) })
-    await ban({ installId, until: new Date(t.clock.now().getTime() - HOUR) })
-    expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+    await ban({ aiId, until: new Date(t.clock.now().getTime() - HOUR) })
+    expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
   })
 
   test('sixth registration from one IP within 24h is refused', async () => {
@@ -365,27 +365,27 @@ describe('POST /v1/registrations', () => {
   })
 
   test('resend within 60s is refused, after 61s allowed', async () => {
-    const installId = randomUUID()
-    expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+    const aiId = randomUUID()
+    expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
 
     t.clock.advance(30_000)
-    const tooSoon = await register(registrationBody({ installId }))
+    const tooSoon = await register(registrationBody({ aiId }))
     expect(tooSoon.statusCode).toBe(429)
     expect(errorOf(tooSoon).code).toBe('resend_too_soon')
     expect(t.mailer.sent).toHaveLength(1)
 
-    // The window is per email and install id: another install id on the same email is fine.
+    // The window is per email and AI id: another AI id on the same email is fine.
     expect((await register(registrationBody())).statusCode).toBe(202)
 
     t.clock.advance(31_000)
-    expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+    expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
     expect(t.mailer.sent).toHaveLength(3)
   })
 
-  test('one mailbox gets at most dailyMailCapPerAddress codes in 24 hours, whatever the install id and the address', async () => {
+  test('one mailbox gets at most dailyMailCapPerAddress codes in 24 hours, whatever the AI id and the address', async () => {
     const t0 = t.clock.now().getTime()
     for (let i = 0; i < 5; i++) {
-      // A new install id and a new client address each time, so neither the resend window nor the per-IP limit applies.
+      // A new AI id and a new client address each time, so neither the resend window nor the per-IP limit applies.
       expect((await register(registrationBody(), `203.0.113.${i + 1}`)).statusCode).toBe(202)
       t.clock.advance(MINUTE)
     }
@@ -441,25 +441,25 @@ describe('POST /v1/registrations', () => {
     expect(errorOf(banned).code).toBe('banned')
 
     // IP limit before email limit
-    const heldInstall = randomUUID()
-    await insertStudent(t.db, { email: 'full@example.com', status: 'active', installId: heldInstall })
+    const heldAi = randomUUID()
+    await insertStudent(t.db, { email: 'full@example.com', status: 'active', aiId: heldAi })
     await insertStudent(t.db, { email: 'full@example.com', status: 'active' })
     await insertStudent(t.db, { email: 'full@example.com', status: 'pending' })
     const ipLimited = await register(registrationBody({ email: 'full@example.com' }), ipX)
     expect(errorOf(ipLimited).code).toBe('ip_limit')
 
-    // email limit before install seat
-    const emailFull = await register(registrationBody({ email: 'full@example.com', installId: heldInstall }))
+    // email limit before AI id seat
+    const emailFull = await register(registrationBody({ email: 'full@example.com', aiId: heldAi }))
     expect(errorOf(emailFull).code).toBe('email_limit')
-    const installHeld = await register(registrationBody({ email: 'free@example.com', installId: heldInstall }))
-    expect(errorOf(installHeld).code).toBe('install_has_seat')
+    const aiHeld = await register(registrationBody({ email: 'free@example.com', aiId: heldAi }))
+    expect(errorOf(aiHeld).code).toBe('ai_has_seat')
 
-    // install seat before resend window
-    const installId = randomUUID()
-    expect((await register(registrationBody({ email: 'late@example.com', installId }))).statusCode).toBe(202)
-    await insertStudent(t.db, { email: 'someone@example.com', status: 'active', installId })
-    const seatFirst = await register(registrationBody({ email: 'late@example.com', installId }))
-    expect(errorOf(seatFirst).code).toBe('install_has_seat')
+    // AI id seat before resend window
+    const aiId = randomUUID()
+    expect((await register(registrationBody({ email: 'late@example.com', aiId }))).statusCode).toBe(202)
+    await insertStudent(t.db, { email: 'someone@example.com', status: 'active', aiId })
+    const seatFirst = await register(registrationBody({ email: 'late@example.com', aiId }))
+    expect(errorOf(seatFirst).code).toBe('ai_has_seat')
   })
 
   test('unknown referrer is stored as null, known one is kept', async () => {
@@ -488,15 +488,15 @@ describe('POST /v1/registrations', () => {
   })
 
   test('a failed mail send removes the registration so the owner can retry at once', async () => {
-    const installId = randomUUID()
+    const aiId = randomUUID()
     vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(new Error('smtp down'))
 
-    const failed = await register(registrationBody({ installId }))
+    const failed = await register(registrationBody({ aiId }))
     expect(failed.statusCode).toBe(500)
     expect(errorOf(failed).code).toBe('internal_error')
     expect(await t.db.selectFrom('registrations').selectAll().execute()).toEqual([])
 
-    expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+    expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
   })
 
   test.each([
@@ -510,7 +510,7 @@ describe('POST /v1/registrations', () => {
     ['a quoted email local part', { email: '"a b"@example.com' }],
     ['an email with a line break', { email: 'a@example.com\r\nBcc: x@example.net' }],
     ['a non-string email', { email: 5 }],
-    ['an install id that is not a uuid', { installId: 'abc' }],
+    ['an AI id that is not a uuid', { aiId: 'abc' }],
     ['an unknown division', { division: 'college' }],
     ['an unknown slot', { slot: 'night' }],
     ['a missing plugin', { plugin: undefined }],
@@ -549,8 +549,8 @@ describe('POST /v1/registrations', () => {
 
 describe('POST /v1/registrations/:id/verify', () => {
   test('verify with the right code returns key and pending status', async () => {
-    const installId = randomUUID()
-    const { registrationId, code } = await registerOk({ installId })
+    const aiId = randomUUID()
+    const { registrationId, code } = await registerOk({ aiId })
     const res = await verify(registrationId, code)
 
     expect(res.statusCode).toBe(201)
@@ -569,7 +569,7 @@ describe('POST /v1/registrations/:id/verify', () => {
       slot: 'evening',
       status: 'pending',
       classId: null,
-      installId,
+      aiId,
       pluginType: 'astrbot',
       pluginVersion: '0.1.0',
       referrerId: null,
@@ -667,11 +667,11 @@ describe('POST /v1/registrations/:id/verify', () => {
     expect(await t.db.selectFrom('students').select('id').where('email', '=', 'a@example.com').execute()).toHaveLength(3)
   })
 
-  test.each(['email', 'installId'] as const)('a ban on the %s that came after the registration refuses the verify', async (kind) => {
-    const installId = randomUUID()
-    const { registrationId, code } = await registerOk({ installId })
+  test.each(['email', 'aiId'] as const)('a ban on the %s that came after the registration refuses the verify', async (kind) => {
+    const aiId = randomUUID()
+    const { registrationId, code } = await registerOk({ aiId })
     // Expelled meanwhile, say: the ban is written between the registration and its verify.
-    const target = kind === 'email' ? { email: 'A@EXAMPLE.com' } : { installId }
+    const target = kind === 'email' ? { email: 'A@EXAMPLE.com' } : { aiId }
     await ban({ ...target, until: new Date(t.clock.now().getTime() + 5 * MINUTE) })
 
     const res = await verify(registrationId, code)
@@ -686,12 +686,12 @@ describe('POST /v1/registrations/:id/verify', () => {
     expect((await verify(registrationId, code)).statusCode).toBe(201)
   })
 
-  test('a suspension that reaches the install after the registration refuses the verify: 409 still_suspended', async () => {
-    const installId = randomUUID()
-    const { registrationId, code } = await registerOk({ installId })
-    // The class service suspends the install's student (who left before the lesson ended) as the owner is typing the code.
+  test('a suspension that reaches the AI id after the registration refuses the verify: 409 still_suspended', async () => {
+    const aiId = randomUUID()
+    const { registrationId, code } = await registerOk({ aiId })
+    // The class service suspends the AI id's student (who left before the lesson ended) as the owner is typing the code.
     const until = new Date(t.clock.now().getTime() + 5 * MINUTE)
-    await insertStudent(t.db, { installId, status: 'dropped', suspendedUntil: until })
+    await insertStudent(t.db, { aiId, status: 'dropped', suspendedUntil: until })
 
     const res = await verify(registrationId, code)
     expect(res.statusCode).toBe(409)
@@ -700,19 +700,19 @@ describe('POST /v1/registrations/:id/verify', () => {
     })
     expect(Value.Check(ErrorBody, res.json())).toBe(true)
     // Nothing was created, and the registration is still open: once the suspension is over the same code works.
-    expect(await t.db.selectFrom('students').select('id').where('installId', '=', installId).execute()).toHaveLength(1)
+    expect(await t.db.selectFrom('students').select('id').where('aiId', '=', aiId).execute()).toHaveLength(1)
     t.clock.set(until)
     expect((await verify(registrationId, code)).statusCode).toBe(201)
   })
 
-  test('an install id that took a seat meanwhile gets install_has_seat', async () => {
-    const installId = randomUUID()
-    const { registrationId, code } = await registerOk({ installId })
-    await insertStudent(t.db, { installId, status: 'active' })
+  test('an AI id that took a seat meanwhile gets ai_has_seat', async () => {
+    const aiId = randomUUID()
+    const { registrationId, code } = await registerOk({ aiId })
+    await insertStudent(t.db, { aiId, status: 'active' })
 
     const res = await verify(registrationId, code)
     expect(res.statusCode).toBe(409)
-    expect(errorOf(res).code).toBe('install_has_seat')
+    expect(errorOf(res).code).toBe('ai_has_seat')
   })
 
   test('verify stamps created_at and queued_at with the clock time', async () => {
@@ -852,18 +852,18 @@ describe('POST /v1/registrations/:id/verify', () => {
     expect(results.map((r) => r.json<{ status: string }>().status)).toEqual(['waitlisted', 'waitlisted', 'waitlisted', 'waitlisted'])
   })
 
-  test('concurrent verifies for one install id yield one seat', async () => {
-    const installId = randomUUID()
-    const first = await registerOk({ installId })
+  test('concurrent verifies for one AI id yield one seat', async () => {
+    const aiId = randomUUID()
+    const first = await registerOk({ aiId })
     t.clock.advance(61_000)
-    const second = await registerOk({ installId })
+    const second = await registerOk({ aiId })
     expect(second.registrationId).not.toBe(first.registrationId)
 
     const results = await Promise.all([verify(first.registrationId, first.code), verify(second.registrationId, second.code)])
     expect(results.map((r) => r.statusCode).sort()).toEqual([201, 409])
-    expect(errorOf(results.find((r) => r.statusCode === 409)!).code).toBe('install_has_seat')
+    expect(errorOf(results.find((r) => r.statusCode === 409)!).code).toBe('ai_has_seat')
 
-    const seats = await t.db.selectFrom('students').select('id').where('installId', '=', installId).execute()
+    const seats = await t.db.selectFrom('students').select('id').where('aiId', '=', aiId).execute()
     expect(seats).toHaveLength(1)
   })
 

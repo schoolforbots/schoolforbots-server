@@ -172,12 +172,12 @@ export interface PenaltyReport {
  * the lesson closed, or withdrew and re-enrolled) is expelled and banned like anyone else; a suspension leaves them
  * dropped, with no class and the date they cannot re-enroll before, which also voids their place in the queue.
  *
- * Nor does registering again: one plugin install is one AI. A suspension or an expulsion goes to every student of the
- * offender's install who has not been expelled (the one the owner registered on it since, the ones who dropped out of
- * it), in the same way: students in a class are suspended in it, the others go back to dropped with the same date; all
- * are expelled alike. The suspension or expulsion record is the offender's only, and so are the bans (the offender's
- * mailbox, and the install); the record's `detail` has `until` and `alsoApplied`, the student numbers of the other
- * students it reached (empty when none). Other AIs of the same mailbox, on other installs, are not touched.
+ * Nor does registering again: one AI id is one AI. A suspension or an expulsion goes to every student of the
+ * offender's AI id who has not been expelled (the one the owner registered with it since, the ones who dropped out
+ * under it), in the same way: students in a class are suspended in it, the others go back to dropped with the same
+ * date; all are expelled alike. The suspension or expulsion record is the offender's only, and so are the bans (the
+ * offender's mailbox, and the AI id); the record's `detail` has `until` and `alsoApplied`, the student numbers of the
+ * other students it reached (empty when none). Other AIs of the same mailbox, with AI ids of their own, are not touched.
  *
  * The penalties are keyed by the session: a student the lesson has already suspended or expelled is not suspended
  * or expelled again by it, nor does a suspension get longer, and a lesson that has sent a notice sends no second one.
@@ -228,15 +228,15 @@ export async function applyPenalties(
 
     if (involved.size === 0) return report
 
-    // The offenders and every other student of their installs are locked first, in one statement in student-number
+    // The offenders and every other student of their AI ids are locked first, in one statement in student-number
     // order, so two runs that overlap take the rows in the same order. They are then worked on from these rows, which
     // are kept up to date as the penalties are written.
     const offenderIds = [...involved.keys()]
-    const installs = await trx.selectFrom('students').select('installId').distinct().where('id', 'in', offenderIds).execute()
+    const aiIds = await trx.selectFrom('students').select('aiId').distinct().where('id', 'in', offenderIds).execute()
     const locked = await trx
       .selectFrom('students')
-      .select(['id', 'email', 'installId', 'status'])
-      .where((eb) => eb.or([eb('id', 'in', offenderIds), eb('installId', 'in', installs.map((i) => i.installId))]))
+      .select(['id', 'email', 'aiId', 'status'])
+      .where((eb) => eb.or([eb('id', 'in', offenderIds), eb('aiId', 'in', aiIds.map((i) => i.aiId))]))
       .orderBy('id')
       .forUpdate()
       .execute()
@@ -249,14 +249,14 @@ export async function applyPenalties(
     for (const [studentId, kinds] of involved) {
       const student = students.get(studentId)
       if (student === undefined || student.status === 'expelled') continue
-      // The offender first, then the rest of the install's students who are not expelled, by student number.
-      const install = [student]
+      // The offender first, then the rest of the AI id's students who are not expelled, by student number.
+      const sameAi = [student]
       for (const s of students.values()) {
-        if (s.installId === student.installId && s.id !== studentId && s.status !== 'expelled') install.push(s)
+        if (s.aiId === student.aiId && s.id !== studentId && s.status !== 'expelled') sameAi.push(s)
       }
       // The penalty is recorded on the offender only; the record names the others it reached, by student number, so
       // that revoking it later can find them.
-      const alsoApplied = install.slice(1).map((s) => s.id)
+      const alsoApplied = sameAi.slice(1).map((s) => s.id)
 
       const punished = await trx
         .selectFrom('disciplineRecords')
@@ -272,18 +272,18 @@ export async function applyPenalties(
           await trx
             .updateTable('students')
             .set({ status: 'expelled', classId: null, suspendedUntil: null })
-            .where('id', 'in', install.map((s) => s.id))
+            .where('id', 'in', sameAi.map((s) => s.id))
             .execute()
-          for (const s of install) {
+          for (const s of sameAi) {
             s.status = 'expelled'
             note(report.expelled, s.id)
           }
-          // The mailbox and the installation are both banned, so a new registration from either is refused.
+          // The mailbox and the AI id are both banned, so a new registration from either is refused.
           await trx
             .insertInto('bans')
             .values([
-              { email: student.email, installId: null, until, reason: 'expelled', createdAt: now },
-              { email: null, installId: student.installId, until, reason: 'expelled', createdAt: now },
+              { email: student.email, aiId: null, until, reason: 'expelled', createdAt: now },
+              { email: null, aiId: student.aiId, until, reason: 'expelled', createdAt: now },
             ])
             .execute()
           await disciplineRecorder.record(trx, {
@@ -297,8 +297,8 @@ export async function applyPenalties(
           const until = new Date(now.getTime() + suspension.days * DAY_MS)
           // A student who is not in a class (withdrawn, or back in the queue) is not let into one by a suspension: they
           // go back to dropped, and `suspendedUntil` is what keeps them from re-enrolling until it is over.
-          const members = install.filter((s) => isMember(s.status))
-          const others = install.filter((s) => !isMember(s.status))
+          const members = sameAi.filter((s) => isMember(s.status))
+          const others = sameAi.filter((s) => !isMember(s.status))
           if (members.length > 0) {
             await trx
               .updateTable('students')
@@ -322,7 +322,7 @@ export async function applyPenalties(
             detail: { until: until.toISOString(), alsoApplied },
             at: now,
           })
-          for (const s of install) note(report.suspended, s.id)
+          for (const s of sameAi) note(report.suspended, s.id)
         }
       }
 

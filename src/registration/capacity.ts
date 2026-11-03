@@ -3,7 +3,7 @@ import type { Slot } from '../shared/config.js'
 import { SEAT_STATUSES, type Database } from '../shared/db.js'
 
 // Seat accounting shared by the flows that put a student into a slot: verify, re-enroll and the nightly waitlist promotion.
-// The install checks of registration and verify live here too.
+// The AI id checks of registration and verify live here too.
 
 /** Statuses that count against a slot's capacity; waitlisted students wait outside it. */
 export const CAPACITY_STATUSES = ['pending', 'active', 'suspended'] as const
@@ -50,27 +50,27 @@ export async function seatsOfEmail(db: Kysely<Database>, email: string): Promise
 }
 
 /**
- * When the latest suspension of any student of the install ends, if one is still running at `now` (an end at `now` is
- * over); null otherwise. One plugin install is one AI: the penalties of a lesson reach every student of the install,
- * so while one of them is suspended the install takes no new student, or the AI would shed its suspension by
- * registering again. Read under the email lock, like the seat counts.
+ * When the latest suspension of any student of the AI id ends, if one is still running at `now` (an end at `now` is
+ * over); null otherwise. One AI id is one AI: the penalties of a lesson reach every student of the AI id, so while
+ * one of them is suspended the AI id takes no new student, or the AI would shed its suspension by registering
+ * again. Read under the email lock, like the seat counts.
  */
-export async function suspensionOnInstall(db: Kysely<Database>, installId: string, now: Date): Promise<Date | null> {
+export async function suspensionOfAi(db: Kysely<Database>, aiId: string, now: Date): Promise<Date | null> {
   const row = await db
     .selectFrom('students')
     .select((eb) => eb.fn.max('suspendedUntil').as('until'))
-    .where('installId', '=', installId)
+    .where('aiId', '=', aiId)
     .where('suspendedUntil', '>', now)
     .executeTakeFirstOrThrow()
   return row.until
 }
 
-/** True for the unique violation of `students_install_seat`: an install holds at most one seat. */
-export function isInstallSeatViolation(err: unknown): boolean {
+/** True for the unique violation of `students_ai_seat`: an AI id holds at most one seat. */
+export function isAiSeatViolation(err: unknown): boolean {
   return (
     typeof err === 'object' &&
     err !== null &&
     (err as { code?: unknown }).code === '23505' &&
-    (err as { constraint?: unknown }).constraint === 'students_install_seat'
+    (err as { constraint?: unknown }).constraint === 'students_ai_seat'
   )
 }

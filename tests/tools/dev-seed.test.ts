@@ -105,7 +105,7 @@ describe('seedClass', () => {
       expect(seeded.students[i]!.key).toMatch(/^ais_[A-Za-z0-9_-]{43}$/)
       for (const time of [r.createdAt, r.queuedAt, r.assignedAt]) expect(time).toEqual(clock.now())
     })
-    expect(new Set(rows.map((r) => r.installId)).size).toBe(3)
+    expect(new Set(rows.map((r) => r.aiId)).size).toBe(3)
 
     // Seeding again opens the class after it, with the next teacher, and with emails of its own.
     clock.advance(60_000)

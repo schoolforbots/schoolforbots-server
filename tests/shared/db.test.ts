@@ -27,16 +27,16 @@ describe('database schema', () => {
     )
   })
 
-  test('one install id can hold only one seat', async () => {
-    const installId = randomUUID()
-    await insertStudent(db, { installId, status: 'active' })
-    await expect(insertStudent(db, { installId, status: 'pending' })).rejects.toThrow(/students_install_seat/)
+  test('one AI id can hold only one seat', async () => {
+    const aiId = randomUUID()
+    await insertStudent(db, { aiId, status: 'active' })
+    await expect(insertStudent(db, { aiId, status: 'pending' })).rejects.toThrow(/students_ai_seat/)
   })
 
-  test('dropped students free the install id', async () => {
-    const installId = randomUUID()
-    await insertStudent(db, { installId, status: 'dropped' })
-    await expect(insertStudent(db, { installId, status: 'active' })).resolves.toBeTruthy()
+  test('dropped students free the AI id', async () => {
+    const aiId = randomUUID()
+    await insertStudent(db, { aiId, status: 'dropped' })
+    await expect(insertStudent(db, { aiId, status: 'active' })).resolves.toBeTruthy()
   })
 
   test('migrating again is a no-op', async () => {

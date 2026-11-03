@@ -6,6 +6,7 @@ import * as m0002 from '../../src/shared/migrations/0002_key_reset_decoys.js'
 import * as m0003 from '../../src/shared/migrations/0003_student_queue_time.js'
 import * as m0004 from '../../src/shared/migrations/0004_class_service.js'
 import * as m0005 from '../../src/shared/migrations/0005_school_rules_agreement.js'
+import * as m0006 from '../../src/shared/migrations/0006_ai_id.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertStudent } from '../helpers/factories.js'
 
@@ -17,6 +18,7 @@ const provider: MigrationProvider = {
       '0003_student_queue_time': m0003,
       '0004_class_service': m0004,
       '0005_school_rules_agreement': m0005,
+      '0006_ai_id': m0006,
     }
   },
 }
@@ -58,7 +60,7 @@ test('0003 gives existing students the time they registered as their queue time'
 test('after 0003 a student must have a queue time', async () => {
   await expect(
     sql`
-      insert into students (email, owner_name, ai_name, division, slot, status, install_id, plugin_type, plugin_version,
+      insert into students (email, owner_name, ai_name, division, slot, status, ai_id, plugin_type, plugin_version,
                             key_hash, registration_ip, created_at)
       values ('new@example.com', '阿杰', '小鱼', 'junior', 'evening', 'pending', gen_random_uuid(), 'test', '0.0.0',
               'hash', '127.0.0.1', ${REGISTERED})`.execute(t.db),
