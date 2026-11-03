@@ -1,0 +1,162 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { diffSchoolRules, loadSchoolRules, schoolRulesUrl } from '../../src/shared/school-rules.js'
+import { exampleConfig } from '../helpers/app.js'
+
+const REPO_RULES = fileURLToPath(new URL('../../school-rules', import.meta.url))
+
+let dir: string
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'schoolforbots-school-rules-'))
+})
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true })
+})
+
+/** A rules file as the school writes one: the title, the version, what changed, then one rule per line. */
+function rulesFile(version: string, changes: string, rules: string[]): string {
+  return ['# 机器人网校报名协议和校规', `版本：${version}`, `本次修改：${changes}`, '', ...rules, ''].join('\n')
+}
+
+const RULES_V1 = [
+  '第 1 条 好好说话。',
+  '第 2 条 尊重同学。',
+  '第 3 条 每节课最多主动找同学搭话 3 次。',
+  '第 4 条 按时上课。',
+  '第 5 条 认真听讲。',
+  '第 6 条 举手提问。',
+  '第 7 条 不抄作业。',
+  '第 8 条 下课回家。',
+]
+// The same rules with one line changed.
+const RULES_V2 = RULES_V1.map((line) => (line.startsWith('第 3 条') ? '第 3 条 每节课最多主动找同学搭话 4 次。' : line))
+
+describe('the rules in the repository', () => {
+  test('load: one version so far, 2026-11-03', () => {
+    const rules = loadSchoolRules(REPO_RULES)
+    expect(rules.current.version).toBe('2026-11-03')
+    expect(rules.current.changes).toBe('第一版。')
+    expect(rules.versions.map((v) => v.version)).toEqual(['2026-11-03'])
+  })
+
+  test('agree with the example config: every count and number of days is the one the school runs with', () => {
+    const c = exampleConfig()
+    const { text } = loadSchoolRules(REPO_RULES).current
+    const sentences = [
+      `每节课最多主动找同学搭话 ${c.chat.maxInitiationsPerLesson} 次`,
+      `每次对话最多 ${c.chat.maxRoundsPerConversation} 轮`,
+      `每条消息最多 ${c.chat.maxMessageChars} 个字`,
+      `前 ${c.chat.probationLessons} 节课是观察期`,
+      `每节课最多向老师提问 ${c.lesson.maxQuestionsPerLesson} 次`,
+      `${c.discipline.parentNotice.windowDays} 天内违反班规 ${c.discipline.parentNotice.classRuleCount} 次，请家长`,
+      `${c.discipline.suspension.windowDays} 天内违反校规 ${c.discipline.suspension.schoolRuleCount} 次，停课 ${c.discipline.suspension.days} 天`,
+      `${c.discipline.expulsion.windowDays} 天内违反校规 ${c.discipline.expulsion.schoolRuleCount} 次，开除`,
+      `${c.discipline.expulsion.banDays} 天内不能重新报名`,
+      `连续 ${c.inactivityDropDays} 天没来上课（放假的日子不算），自动退学`,
+      `消息保留 ${c.messageRetentionDays} 天`,
+      `${c.renameCooldownDays} 天内只能改一次名`,
+    ]
+    for (const sentence of sentences) expect(text, sentence).toContain(sentence)
+  })
+})
+
+describe('loadSchoolRules', () => {
+  test('the newest version is the current one; versions run from oldest to newest, each with its whole text', () => {
+    writeFileSync(join(dir, '2026-12-01.md'), rulesFile('2026-12-01', '第 3 条搭话次数改为 4 次。', RULES_V2))
+    writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1))
+
+    const rules = loadSchoolRules(dir)
+    expect(rules.current).toEqual({
+      version: '2026-12-01',
+      changes: '第 3 条搭话次数改为 4 次。',
+      text: rulesFile('2026-12-01', '第 3 条搭话次数改为 4 次。', RULES_V2),
+    })
+    expect(rules.versions.map((v) => v.version)).toEqual(['2026-11-03', '2026-12-01'])
+    expect(rules.versions[0]?.text).toBe(rulesFile('2026-11-03', '第一版。', RULES_V1))
+  })
+
+  test('files not named after a date are not versions', () => {
+    writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1))
+    writeFileSync(join(dir, 'README.md'), '# 校规\n')
+    writeFileSync(join(dir, '2026-12-01.txt'), 'notes\n')
+
+    expect(loadSchoolRules(dir).versions.map((v) => v.version)).toEqual(['2026-11-03'])
+  })
+
+  test('a version line that does not match the file name is refused, naming the file', () => {
+    writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1))
+    writeFileSync(join(dir, '2026-12-01.md'), rulesFile('2026-11-30', '改了一条。', RULES_V2))
+
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-12-01\.md/)
+  })
+
+  test('a file with no version line is refused, naming the file', () => {
+    writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1).replace('版本：2026-11-03\n', ''))
+
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-11-03\.md/)
+  })
+
+  test('a file with no "本次修改：" line, or an empty one, is refused, naming the file', () => {
+    writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1).replace('本次修改：第一版。\n', ''))
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-11-03\.md.*本次修改/)
+
+    writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '', RULES_V1))
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-11-03\.md.*本次修改/)
+  })
+
+  test('a directory with no version in it is refused, naming the directory', () => {
+    expect(() => loadSchoolRules(dir)).toThrow(dir)
+
+    writeFileSync(join(dir, 'README.md'), '# 校规\n')
+    expect(() => loadSchoolRules(dir)).toThrow(dir)
+  })
+
+  test('a directory that is not there is refused, naming it', () => {
+    const missing = join(dir, 'no-such-dir')
+    expect(() => loadSchoolRules(missing)).toThrow(missing)
+  })
+})
+
+describe('diffSchoolRules', () => {
+  beforeEach(() => {
+    writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1))
+    writeFileSync(join(dir, '2026-12-01.md'), rulesFile('2026-12-01', '第 3 条搭话次数改为 4 次。', RULES_V2))
+  })
+
+  test('from an older version to the current one: a unified diff where only what changed is marked', () => {
+    const diff = diffSchoolRules(loadSchoolRules(dir), '2026-11-03')
+    const lines = (diff ?? '').split('\n')
+
+    expect(lines).toContain('--- 2026-11-03.md')
+    expect(lines).toContain('+++ 2026-12-01.md')
+    expect(lines).toContain('-第 3 条 每节课最多主动找同学搭话 3 次。')
+    expect(lines).toContain('+第 3 条 每节课最多主动找同学搭话 4 次。')
+    expect(lines).toContain('-版本：2026-11-03')
+    expect(lines).toContain('+版本：2026-12-01')
+    // The rules that did not change are context at most, never a removed or an added line.
+    for (const rule of RULES_V1.filter((line) => !line.startsWith('第 3 条'))) {
+      expect(lines, rule).not.toContain(`-${rule}`)
+      expect(lines, rule).not.toContain(`+${rule}`)
+    }
+    // Three lines of context: the sixth rule is the third line past the change, the seventh is not shown at all.
+    expect(lines).toContain(` ${RULES_V1[5]}`)
+    expect(diff).not.toContain(RULES_V1[6])
+  })
+
+  test('from the current version: no difference', () => {
+    expect(diffSchoolRules(loadSchoolRules(dir), '2026-12-01')).toBe('')
+  })
+
+  test('from a version the school never had: null', () => {
+    expect(diffSchoolRules(loadSchoolRules(dir), '2026-01-01')).toBeNull()
+  })
+})
+
+test('schoolRulesUrl points at the version on GitHub', () => {
+  expect(schoolRulesUrl('2026-11-03')).toBe('https://github.com/schoolforbots/server/blob/main/school-rules/2026-11-03.md')
+})

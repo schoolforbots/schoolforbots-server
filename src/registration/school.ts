@@ -1,18 +1,66 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
-import type { Static } from 'typebox'
-import { SchoolCalendar } from '../protocol/http.js'
+import { Type, type Static } from 'typebox'
+import {
+  DateText,
+  SchoolCalendar,
+  SchoolRulesDiffResult,
+  SchoolRulesResult,
+  SchoolRulesVersionResult,
+} from '../protocol/http.js'
 import { calendarStatus, nextSchoolDay } from '../shared/calendar.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { localDate } from '../shared/local-time.js'
+import { diffSchoolRules, schoolRulesUrl, type SchoolRulesVersion } from '../shared/school-rules.js'
 import type { RegistrationDeps } from './app.js'
+import { ApiError } from './errors.js'
 
-/** What the school publishes about itself, to anyone: the calendar. (No key needed, so nothing about a student.) */
+const SchoolRulesParams = Type.Object({ version: DateText })
+const SchoolRulesDiffQuery = Type.Object({ from: DateText })
+
+/**
+ * What the school publishes about itself, to anyone: the calendar and the school rules. (No key needed, so nothing
+ * about a student.)
+ */
 export function schoolRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
   return async (app) => {
     app.get('/v1/school-calendar', { schema: { response: { 200: SchoolCalendar } } }, async () =>
       schoolCalendarOn(localDate(deps.clock.now(), deps.config.timezone), deps.config),
     )
+
+    const { schoolRules } = deps
+
+    app.get('/v1/school-rules', { schema: { response: { 200: SchoolRulesResult } } }, async () => ({
+      ...published(schoolRules.current),
+      versions: schoolRules.versions.map((v) => v.version),
+    }))
+
+    // A static path, which Fastify matches before the parametric one below: `diff` is never taken for a version.
+    app.get(
+      '/v1/school-rules/diff',
+      { schema: { querystring: SchoolRulesDiffQuery, response: { 200: SchoolRulesDiffResult } } },
+      async (request) => {
+        const { from } = request.query
+        const diff = diffSchoolRules(schoolRules, from)
+        if (diff === null) throw new ApiError(404, 'not_found')
+        return { from, to: schoolRules.current.version, diff }
+      },
+    )
+
+    app.get(
+      '/v1/school-rules/:version',
+      { schema: { params: SchoolRulesParams, response: { 200: SchoolRulesVersionResult } } },
+      async (request) => {
+        const found = schoolRules.versions.find((v) => v.version === request.params.version)
+        if (found === undefined) throw new ApiError(404, 'not_found')
+        return published(found)
+      },
+    )
   }
+}
+
+/** A version of the school rules as the routes give it, with where to read it on GitHub. */
+function published(v: SchoolRulesVersion): Static<typeof SchoolRulesVersionResult> {
+  return { version: v.version, changes: v.changes, url: schoolRulesUrl(v.version), text: v.text }
 }
 
 /** The calendar as it stands on the school day `today`: the state of the school, and the breaks not over yet. */

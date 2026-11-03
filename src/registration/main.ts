@@ -3,6 +3,7 @@ import { createModerator } from '../moderation/moderator.js'
 import { systemClock } from '../shared/clock.js'
 import { loadEnv, loadSchoolConfig } from '../shared/config.js'
 import { createDb, migrateToLatest } from '../shared/db.js'
+import { loadSchoolRules } from '../shared/school-rules.js'
 import { createShutdown } from '../shared/shutdown.js'
 import { buildRegistrationApp } from './app.js'
 import { runDailyJob } from './daily-job.js'
@@ -12,6 +13,7 @@ import { startDailyJob } from './scheduler.js'
 async function main(): Promise<void> {
   const env = loadEnv(process.env)
   const config = loadSchoolConfig(env.configPath)
+  const schoolRules = loadSchoolRules(env.schoolRulesDir)
 
   const db = createDb(env.databaseUrl)
   await migrateToLatest(db)
@@ -32,6 +34,7 @@ async function main(): Promise<void> {
     moderator,
     mailer,
     clock: systemClock,
+    schoolRules,
     trustProxy: env.trustProxy,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
   })

@@ -12,7 +12,7 @@ const MAX_PLUGIN_FIELD = 64
 const MAX_PG_INTEGER = 2_147_483_647
 
 /** A calendar day, `YYYY-MM-DD` in the school's timezone. */
-const DateText = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
+export const DateText = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
 
 const Division = Type.Union([Type.Literal('primary'), Type.Literal('junior'), Type.Literal('senior')])
 const Slot = Type.Union([Type.Literal('morning'), Type.Literal('afternoon'), Type.Literal('evening')])
@@ -269,4 +269,36 @@ export const SchoolCalendar = Type.Object({
       name: Type.Union([Type.String(), Type.Null()]),
     }),
   ),
+})
+
+/**
+ * `GET /v1/school-rules/{version}`, no key needed: one version of the registration agreement and school rules
+ * (报名协议和校规), the current one or an older one. `version` is its date; `changes` says what it changed from the
+ * version before; `url` is where it can be read on GitHub; `text` is the whole Markdown file, Chinese, one rule per line.
+ */
+export const SchoolRulesVersionResult = Type.Object({
+  version: DateText,
+  changes: Type.String(),
+  url: Type.String(),
+  text: Type.String(),
+})
+
+/**
+ * `GET /v1/school-rules`, no key needed: the current version, the one an owner agrees to when registering, and
+ * `versions`, every version there has been, oldest first (the current one last).
+ */
+export const SchoolRulesResult = Type.Object({
+  ...SchoolRulesVersionResult.properties,
+  versions: Type.Array(DateText),
+})
+
+/**
+ * `GET /v1/school-rules/diff?from=YYYY-MM-DD`, no key needed: what changed from the version `from` to the current one
+ * `to`, as a unified diff like git's: a `---` and a `+++` line naming the files `<version>.md`, then the hunks, with
+ * three lines of context. Empty when `from` is the current version; a `from` the school never had is a 404 not_found.
+ */
+export const SchoolRulesDiffResult = Type.Object({
+  from: DateText,
+  to: DateText,
+  diff: Type.String(),
 })

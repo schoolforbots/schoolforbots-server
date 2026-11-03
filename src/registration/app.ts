@@ -6,6 +6,7 @@ import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/db.js'
+import type { SchoolRules } from '../shared/school-rules.js'
 import { ApiError, registerErrorHandler } from './errors.js'
 import { keyResetRoutes } from './key-resets.js'
 import type { Mailer } from './mailer.js'
@@ -20,6 +21,8 @@ export interface RegistrationDeps {
   moderator: Moderator
   mailer: Mailer
   clock: Clock
+  /** The school rules, every version, read at startup. */
+  schoolRules: SchoolRules
   /** True when the service runs behind a reverse proxy whose X-Forwarded-For can be trusted. */
   trustProxy: boolean
   /** Fastify logger options; unset means no logging. Unexpected errors are logged at error level. */

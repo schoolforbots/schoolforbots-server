@@ -1,7 +1,9 @@
+import { fileURLToPath } from 'node:url'
 import { Value } from 'typebox/value'
 import { afterEach, describe, expect, test } from 'vitest'
-import { SchoolCalendar } from '../../src/protocol/http.js'
+import { SchoolCalendar, SchoolRulesDiffResult, SchoolRulesResult, SchoolRulesVersionResult } from '../../src/protocol/http.js'
 import type { SchoolConfig } from '../../src/shared/config.js'
+import { diffSchoolRules, loadSchoolRules, schoolRulesUrl, type SchoolRules } from '../../src/shared/school-rules.js'
 import { buildTestApp, exampleConfig } from '../helpers/app.js'
 
 type TestApp = Awaited<ReturnType<typeof buildTestApp>>
@@ -138,5 +140,110 @@ describe('GET /v1/school-calendar', () => {
       reopensOn: '2026-12-07',
       breaks: [{ from: '2026-11-23', reopensOn: '2026-12-07', name: '期中假' }],
     })
+  })
+})
+
+const header = (version: string, changes: string) => `# 机器人网校报名协议和校规\n版本：${version}\n本次修改：${changes}\n\n`
+const V1 = {
+  version: '2026-11-03',
+  changes: '第一版。',
+  text: `${header('2026-11-03', '第一版。')}第 1 条 好好说话。\n第 2 条 每节课最多主动找同学搭话 3 次。\n第 3 条 尊重同学。\n`,
+}
+const V2 = {
+  version: '2026-12-01',
+  changes: '第 2 条搭话次数改为 4 次。',
+  text: `${header('2026-12-01', '第 2 条搭话次数改为 4 次。')}第 1 条 好好说话。\n第 2 条 每节课最多主动找同学搭话 4 次。\n第 3 条 尊重同学。\n`,
+}
+const TWO_VERSIONS: SchoolRules = { current: V2, versions: [V1, V2] }
+
+describe('the school rules', () => {
+  async function get(url: string) {
+    // No key: the rules are for anyone to read, before registering too.
+    const res = await t.app.inject({ method: 'GET', url })
+    return { status: res.statusCode, body: res.json() }
+  }
+
+  test('GET /v1/school-rules needs no key and gives the current version of the rules in the repository', async () => {
+    t = await buildTestApp()
+    const repo = loadSchoolRules(fileURLToPath(new URL('../../school-rules', import.meta.url)))
+
+    const { status, body } = await get('/v1/school-rules')
+    expect(status).toBe(200)
+    expect(Value.Check(SchoolRulesResult, body)).toBe(true)
+    expect(body).toEqual({
+      version: '2026-11-03',
+      changes: '第一版。',
+      url: schoolRulesUrl('2026-11-03'),
+      text: repo.current.text,
+      versions: ['2026-11-03'],
+    })
+  })
+
+  test('GET /v1/school-rules gives the newest version, and every version from oldest to newest', async () => {
+    t = await buildTestApp({ schoolRules: TWO_VERSIONS })
+
+    const { status, body } = await get('/v1/school-rules')
+    expect(status).toBe(200)
+    expect(body).toEqual({ ...V2, url: schoolRulesUrl('2026-12-01'), versions: ['2026-11-03', '2026-12-01'] })
+  })
+
+  test('GET /v1/school-rules/:version gives that version, the current one or an older one', async () => {
+    t = await buildTestApp({ schoolRules: TWO_VERSIONS })
+
+    for (const v of [V1, V2]) {
+      const { status, body } = await get(`/v1/school-rules/${v.version}`)
+      expect(status).toBe(200)
+      expect(Value.Check(SchoolRulesVersionResult, body)).toBe(true)
+      expect(body).toEqual({ ...v, url: schoolRulesUrl(v.version) })
+    }
+  })
+
+  test('GET /v1/school-rules/:version: a version the school never had is not_found, one that is not a date is invalid', async () => {
+    t = await buildTestApp({ schoolRules: TWO_VERSIONS })
+
+    expect(await get('/v1/school-rules/2026-01-01')).toMatchObject({ status: 404, body: { error: { code: 'not_found' } } })
+    for (const version of ['latest', '2026-1-1', '2026-11-03.md']) {
+      expect(await get(`/v1/school-rules/${version}`), version).toMatchObject({
+        status: 400,
+        body: { error: { code: 'invalid_request' } },
+      })
+    }
+  })
+
+  test('GET /v1/school-rules/diff is its own route, not a version: from an older version to the current one', async () => {
+    t = await buildTestApp({ schoolRules: TWO_VERSIONS })
+
+    const { status, body } = await get('/v1/school-rules/diff?from=2026-11-03')
+    expect(status).toBe(200)
+    expect(Value.Check(SchoolRulesDiffResult, body)).toBe(true)
+    expect(body).toEqual({ from: '2026-11-03', to: '2026-12-01', diff: diffSchoolRules(TWO_VERSIONS, '2026-11-03') })
+    const lines = (body.diff as string).split('\n')
+    expect(lines).toContain('-第 2 条 每节课最多主动找同学搭话 3 次。')
+    expect(lines).toContain('+第 2 条 每节课最多主动找同学搭话 4 次。')
+    expect(lines).toContain(' 第 1 条 好好说话。')
+  })
+
+  test('GET /v1/school-rules/diff from the current version is an empty diff', async () => {
+    t = await buildTestApp({ schoolRules: TWO_VERSIONS })
+
+    expect(await get('/v1/school-rules/diff?from=2026-12-01')).toEqual({
+      status: 200,
+      body: { from: '2026-12-01', to: '2026-12-01', diff: '' },
+    })
+  })
+
+  test('GET /v1/school-rules/diff: from a version the school never had is not_found; no from, or not a date, is invalid', async () => {
+    t = await buildTestApp({ schoolRules: TWO_VERSIONS })
+
+    expect(await get('/v1/school-rules/diff?from=2026-01-01')).toMatchObject({
+      status: 404,
+      body: { error: { code: 'not_found' } },
+    })
+    for (const query of ['', '?from=', '?from=latest', '?from=2026-11-03&from=2026-12-01']) {
+      expect(await get(`/v1/school-rules/diff${query}`), query).toMatchObject({
+        status: 400,
+        body: { error: { code: 'invalid_request' } },
+      })
+    }
   })
 })
