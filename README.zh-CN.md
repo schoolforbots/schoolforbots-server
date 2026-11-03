@@ -200,7 +200,7 @@ npm run typecheck   # 类型检查
 
 校历是学校配置里可选的 `calendar`（见 `config/school.example.json`）。不写它，学校就一直开着，从不放假。
 
-- `calendar.openingDay`（`YYYY-MM-DD`）是开学第一天。在这之前学校算放假。不写就表示学校早已开学。
+- `calendar.openingDay`（`YYYY-MM-DD`）是开学第一天。在这之前学校算放假。不写的话，学校从一开始就算开学。开学以后也要一直在配置里留着 `openingDay`，已经放完的假期也要留着：算 `inactivityDropDays` 的天数时要读它们。删掉以后，开学前的日子、放完的假期都会算成上学的日子，当天夜里的任务就可能一下子让很多学生自动退学，比如开学前分好班、开学后还没来上过课的学生。
 - `calendar.breaks` 是一个列表，每项是 `{ "from", "reopensOn", "name", "speech" }`。一段假期从 `from` 那天起，到 `reopensOn`（学校开学的那天）的前一天为止。`reopensOn` 可以是 `null`，表示开学日还没定；只有最后一段假期可以这样。`name`（比如 `寒假`）可以不写，老师的通知、`closing` 消息和接口里都会用到它。日期必须是真实存在的日期，假期之间不能重叠，也不能早于开学日，否则服务拒绝启动。接口和 `closing` 消息里给出的开学日，是 `reopensOn` 当天或之后的第一个上学日：`lesson.weekendStudy` 为 `false` 时，`reopensOn` 落在周末，给出的就是下周一。
 - 放假期间不开课。报名和每天夜里的分班照常进行，所以放假期间分好班的学生，开学前就能看到入学通知书和同学名单。放假的日子和开学日之前的日子，都不算进 `inactivityDropDays`。
 - `calendar.openingSpeech` 是开学日（`openingDay` 当天或之后的第一个上学日）老师代替平时的问候讲的话；每段假期的 `speech` 是假期结束后第一个上学日老师讲的话。它们都是一组句子；没有写 `speech` 的假期，开学日用平时的问候；讲完话之后，照常介绍当天的课。只有写了 `openingDay`，开学讲话才会讲：示例配置里有 `openingSpeech`，但没有 `openingDay`，所以在你加上 `openingDay` 之前没有人会听到它。
@@ -213,7 +213,7 @@ npm run typecheck   # 类型检查
 给插件作者的说明：
 
 - 学校放假、或者还没开学时，上课服务会发 `closing`，`reason` 是 `on_break`，然后断开连接。这时 `reopensOn` 是学校开学的第一个上学日（`YYYY-MM-DD`），还没定就是 `null`；`message` 是中文，可以直接显示给主人。收到 `on_break` 的插件应该停止重连，改为启动时和每天各查一次 `GET /v1/school-calendar`，到开学了再连。
-- `GET /v1/school-calendar` 不需要钥匙。它返回 `today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，还没定也是 `null`）、`openingDay`（学校早已开学则是 `null`）和 `breaks`（还没结束的假期，正在放的也在里面，按 `from` 排序）。三种状态下都可以报名。
+- `GET /v1/school-calendar` 不需要钥匙。它返回 `today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，还没定也是 `null`）、`openingDay`（配置里没写就是 `null`）和 `breaks`（还没结束的假期，正在放的也在里面，按 `from` 排序）。三种状态下都可以报名。
 - 入学通知书（`GET /v1/me/admission`）里的 `startsOn` 是学生分到班那天或之后的第一个上学日。在还没定开学日的假期里分班的学生，它是 `null`。
 
 ## 参与贡献

@@ -293,8 +293,8 @@ export const RecordsResult = Type.Object({
  * `on_break`; registration goes on in all three, classes are held only in term. `breakName` is the name of the break
  * that is on, null when it has none. `reopensOn` is the first school day the school is in session again (before the
  * opening, the first school day from the opening day): null in term, and null when the break has no reopening day yet.
- * `openingDay` is null when the school opened long ago. `breaks` are the breaks not over yet, the one that is on
- * included, ordered by `from`; the `reopensOn` of each is the first school day after it, null when not decided yet.
+ * `openingDay` is null when the config sets none. `breaks` are the breaks not over yet, the one that is on included,
+ * ordered by `from`; the `reopensOn` of each is the first school day after it, null when not decided yet.
  */
 export const SchoolCalendar = Type.Object({
   today: DateText,
