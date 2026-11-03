@@ -86,6 +86,7 @@ describe('authentication', () => {
       { method: 'GET', url: '/v1/me/classmates' },
       { method: 'PATCH', url: '/v1/me/name', payload: { ownerName: '阿杰', aiName: '小鱼' } },
       { method: 'POST', url: '/v1/me/re-enroll', payload: { schoolRulesVersion: '2026-11-03' } },
+      { method: 'POST', url: '/v1/me/withdraw' },
     ] as const
     for (const request of requests) {
       const res = await t.app.inject({ ...request, headers: bearer('ais_notAKeyAnyoneWasGiven') })
@@ -817,11 +818,22 @@ describe('POST /v1/me/re-enroll', () => {
     expect((await studentRow(id)).status).toBe('dropped')
   })
 
-  test('the status is checked first, then the school rules, then the seats', async () => {
-    // A student who is not dropped hears wrong_status, whichever version they send.
+  test('the status is checked first, then the suspension, then the school rules, then the seats', async () => {
+    // A student who is not dropped hears wrong_status, whichever version they send, and whatever date is left over.
     const active = await insertStudent(t.db, { status: 'active', classId: await insertClass(t.db, { classNo: 1 }) })
     const wrongStatus = await reEnroll(active.key, { schoolRulesVersion: '2026-10-01' })
     expect(errorOf(wrongStatus).code).toBe('wrong_status')
+    const leftOver = new Date(t.clock.now().getTime() + 3 * DAY)
+    const expelled = await insertStudent(t.db, { status: 'expelled', suspendedUntil: leftOver })
+    expect(errorOf(await reEnroll(expelled.key, { schoolRulesVersion: '2026-10-01' })).code).toBe('wrong_status')
+
+    // A dropped student still in a suspension waits it out before anything else is asked of them.
+    const suspended = await insertStudent(t.db, { status: 'dropped', suspendedUntil: leftOver })
+    const stillSuspended = await reEnroll(suspended.key, { schoolRulesVersion: '2026-10-01' })
+    expect(errorOf(stillSuspended).code).toBe('still_suspended')
+    t.clock.set(leftOver)
+    expect(errorOf(await reEnroll(suspended.key, { schoolRulesVersion: '2026-10-01' })).code).toBe('school_rules_outdated')
+    expect((await reEnroll(suspended.key)).statusCode).toBe(200)
 
     // A dropped student whose email is full still has to agree to the new rules first.
     const email = 'family@example.com'
@@ -831,6 +843,26 @@ describe('POST /v1/me/re-enroll', () => {
     expect(errorOf(outdated).code).toBe('school_rules_outdated')
     const full = await reEnroll(dropped.key)
     expect(errorOf(full).code).toBe('email_limit')
+  })
+
+  test('a suspension that lands while the request waits for the student row is still honoured', async () => {
+    // The class service closes a lesson the student left before its end, and suspends them, just as they re-enroll.
+    const { id, key } = await insertStudent(t.db, { status: 'dropped' })
+    const until = new Date(t.clock.now().getTime() + 3 * DAY)
+
+    let response!: ReturnType<typeof reEnroll>
+    await t.db.transaction().execute(async (trx) => {
+      await trx.selectFrom('students').select('id').where('id', '=', id).forUpdate().execute()
+      // The key was checked before the suspension; the request then waits for the row.
+      response = reEnroll(key)
+      await sleep(300)
+      await trx.updateTable('students').set({ suspendedUntil: until }).where('id', '=', id).execute()
+    })
+
+    const res = await response
+    expect(res.statusCode).toBe(409)
+    expect(errorOf(res)).toMatchObject({ code: 'still_suspended', until: until.toISOString() })
+    expect(await studentRow(id)).toMatchObject({ status: 'dropped', suspendedUntil: until })
   })
 
   test('re-enrolling resets the class record and keeps the student number', async () => {

@@ -9,10 +9,12 @@ import {
   ReEnrollResult,
   RenameRequest,
   RenameResult,
+  WithdrawResult,
 } from '../protocol/http.js'
 import { nextSchoolDay } from '../shared/calendar.js'
-import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
+import { MEMBER_STATUSES, SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
+import type { StudentStatus } from '../shared/schema.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf, type StudentRow } from './auth.js'
 import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
@@ -112,6 +114,12 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
       '/v1/me/re-enroll',
       { preHandler: requireStudent(deps), schema: { body: ReEnrollRequest, response: { 200: ReEnrollResult } } },
       async (request) => reEnrollStudent(deps, studentOf(request), request.body),
+    )
+
+    app.post(
+      '/v1/me/withdraw',
+      { preHandler: requireStudent(deps), schema: { response: { 200: WithdrawResult } } },
+      async (request) => withdrawStudent(deps, studentOf(request)),
     )
   }
 }
@@ -227,6 +235,13 @@ async function renameStudent(
   })
 }
 
+/** A student who withdrew in a suspension (or was suspended after leaving) cannot come back before it ends. */
+function checkSuspensionOver(student: { suspendedUntil: Date | null }, now: Date): void {
+  if (student.suspendedUntil !== null && student.suspendedUntil.getTime() > now.getTime()) {
+    throw new ApiError(409, 'still_suspended', { until: student.suspendedUntil.toISOString() })
+  }
+}
+
 /**
  * A dropped student comes back to the queue: they need a seat again, and the nightly job will give them a class.
  * Coming back means agreeing to the school rules as they stand now.
@@ -237,11 +252,12 @@ async function reEnrollStudent(
   body: Static<typeof ReEnrollRequest>,
 ): Promise<Static<typeof ReEnrollResult>> {
   const { db, config } = deps
-  // Cheap early answer; the status is checked again below, under the locks.
+  // Cheap early answers; the status and the suspension are checked again below, under the locks.
   if (student.status !== 'dropped') throw new ApiError(409, 'wrong_status')
+  checkSuspensionOver(student, deps.clock.now())
 
-  // The version needs no lock: it is checked after the status and before the seats, so nothing is written for an
-  // owner who has not seen the new rules.
+  // The version needs no lock: it is checked after the status and the suspension and before the seats, so nothing is
+  // written for an owner who has not seen the new rules.
   const currentVersion = deps.schoolRules.current.version
   if (body.schoolRulesVersion !== currentVersion) throw new ApiError(409, 'school_rules_outdated', { currentVersion })
 
@@ -254,11 +270,13 @@ async function reEnrollStudent(
 
       const current = await trx
         .selectFrom('students')
-        .select('status')
+        .select(['status', 'suspendedUntil'])
         .where('id', '=', student.id)
         .forUpdate()
         .executeTakeFirstOrThrow()
       if (current.status !== 'dropped') throw new ApiError(409, 'wrong_status')
+      // The class service may have suspended them since the key was checked, for a lesson they left before it ended.
+      checkSuspensionOver(current, deps.clock.now())
       // The seat they gave up may have been used since: by their email for another AI, or by their install for a new one.
       if ((await seatsOfEmail(trx, student.email)) >= config.maxStudentsPerEmail) throw new ApiError(409, 'email_limit')
 
@@ -278,6 +296,8 @@ async function reEnrollStudent(
           lastAttendedAt: null,
           assignedAt: null,
           queuedAt: now,
+          // The suspension they withdrew in is over, and nothing of it stays on a student who is back.
+          suspendedUntil: null,
           schoolRulesVersion: body.schoolRulesVersion,
           schoolRulesAgreedAt: now,
         })
@@ -289,4 +309,30 @@ async function reEnrollStudent(
     if (isInstallSeatViolation(err)) throw new ApiError(409, 'install_has_seat')
     throw err
   }
+}
+
+/**
+ * The owner takes the AI out of school: the student is dropped, leaves the class and gives up the seat. Only `status`
+ * and `class_id` change, so a suspension the student is in keeps its date: they cannot re-enroll before it ends, and
+ * the class service still penalises what they did in a lesson that has not been closed yet (see `applyPenalties`).
+ */
+async function withdrawStudent(deps: RegistrationDeps, current: StudentRow): Promise<Static<typeof WithdrawResult>> {
+  return deps.db.transaction().execute(async (trx) => {
+    // The slot lock first, as in rename and re-enroll: the nightly job holds it while it promotes and assigns students
+    // by what it has read, so a withdrawal cannot slip between that read and its write and be undone by it.
+    await lock(trx, slotLockKey(current.slot))
+
+    // The status is read again under a row lock: the nightly job or a penalty may have changed it since the key was
+    // checked, and two withdrawals by one student must not both pass.
+    const student = await trx
+      .selectFrom('students')
+      .select('status')
+      .where('id', '=', current.id)
+      .forUpdate()
+      .executeTakeFirstOrThrow()
+    if (!(SEAT_STATUSES as readonly StudentStatus[]).includes(student.status)) throw new ApiError(409, 'wrong_status')
+
+    await trx.updateTable('students').set({ status: 'dropped', classId: null }).where('id', '=', current.id).execute()
+    return { status: 'dropped' }
+  })
 }

@@ -10,6 +10,7 @@ test('protocol export contains every v1 schema', () => {
     'KeyResetVerifyRequest', 'Me', 'ReEnrollRequest', 'ReEnrollResult', 'RecordsResult', 'RegistrationAccepted',
     'RegistrationRequest', 'RenameRequest', 'RenameResult', 'SchoolCalendar', 'SchoolRulesDiffResult',
     'SchoolRulesResult', 'SchoolRulesVersionResult', 'SummariesResult', 'Summary', 'VerifyRequest', 'VerifyResult',
+    'WithdrawResult',
   ])
 })
 
