@@ -80,12 +80,50 @@ describe('loadSchoolRules', () => {
     expect(rules.versions[0]?.text).toBe(rulesFile('2026-11-03', '第一版。', RULES_V1))
   })
 
-  test('files not named after a date are not versions', () => {
+  test('files not named after a date are not versions: a README, and files that are not Markdown', () => {
     writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1))
     writeFileSync(join(dir, 'README.md'), '# 校规\n')
     writeFileSync(join(dir, '2026-12-01.txt'), 'notes\n')
 
     expect(loadSchoolRules(dir).versions.map((v) => v.version)).toEqual(['2026-11-03'])
+  })
+
+  test.each(['2026-12-1.md', '2026-12-01.MD', '2026-13-45.md', '2026-02-30.md', 'draft.md'])(
+    'any other Markdown file, %s, is refused, naming the file: it looks like a version that would be left out',
+    (name) => {
+      writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1))
+      // The version line says what the name says, so only the name can be what is wrong.
+      writeFileSync(join(dir, name), rulesFile(name.slice(0, -'.md'.length), '改了一条。', RULES_V2))
+
+      expect(() => loadSchoolRules(dir)).toThrow(name)
+      expect(() => loadSchoolRules(dir)).toThrow(/YYYY-MM-DD/)
+    },
+  )
+
+  test('a file that does not start with the title is refused, naming the file', () => {
+    writeFileSync(join(dir, '2026-11-03.md'), rulesFile('2026-11-03', '第一版。', RULES_V1).replace('# 机器人网校报名协议和校规', '# 校规'))
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-11-03\.md.*# 机器人网校报名协议和校规/)
+
+    writeFileSync(join(dir, '2026-11-03.md'), `\n${rulesFile('2026-11-03', '第一版。', RULES_V1)}`)
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-11-03\.md/)
+  })
+
+  test('the version line must be the second line and the changes line the third, or the file is refused', () => {
+    const swapped = rulesFile('2026-11-03', '第一版。', RULES_V1).replace(
+      '版本：2026-11-03\n本次修改：第一版。\n',
+      '本次修改：第一版。\n版本：2026-11-03\n',
+    )
+    writeFileSync(join(dir, '2026-11-03.md'), swapped)
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-11-03\.md/)
+
+    const spaced = rulesFile('2026-11-03', '第一版。', RULES_V1).replace('版本：2026-11-03\n', '\n版本：2026-11-03\n')
+    writeFileSync(join(dir, '2026-11-03.md'), spaced)
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-11-03\.md/)
+
+    // A rule that happens to start like a header line does not stand in for it.
+    const late = rulesFile('2026-11-03', '第一版。', [...RULES_V1, '本次修改：不算。']).replace('本次修改：第一版。\n', '')
+    writeFileSync(join(dir, '2026-11-03.md'), late)
+    expect(() => loadSchoolRules(dir)).toThrow(/2026-11-03\.md.*本次修改/)
   })
 
   test('a version line that does not match the file name is refused, naming the file', () => {
