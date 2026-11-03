@@ -4,7 +4,7 @@ import { WS_ERROR_MESSAGES, type WsErrorCode } from '../../src/class/ws-errors.j
 const CODES: WsErrorCode[] = [
   'invalid_message', 'hello_required', 'protocol_unsupported', 'probation', 'initiation_cap', 'peer_offline',
   'peer_busy', 'self_busy', 'not_classmate', 'not_your_turn', 'conversation_ended', 'blocked', 'question_cap',
-  'not_called_on', 'call_closed', 'not_in_session',
+  'not_called_on', 'call_closed', 'not_in_session', 'rate_limited',
 ]
 
 test('every WebSocket error code has a Chinese message', () => {

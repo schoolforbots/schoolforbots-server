@@ -31,6 +31,10 @@ import { WS_ERROR_MESSAGES, type WsErrorCode } from './ws-errors.js'
 // its deadline), attendance, welcome, the replay of the class events missed and of what the student is still owed (an
 // open call-on), presence, handing each later message to its handler, and the pings that find a client gone.
 // Frames of one connection are handled one at a time, in the order they came.
+//
+// What a connection may cost is bounded both ways (see `classConnection` in the school config): the frames it may send
+// in any minute, every one counted, and the frames it may have waiting to be handled; and what may wait to go out to
+// it, so a client that stops reading is dropped rather than held in memory.
 
 export type StudentRow = Selectable<Database['students']>
 
@@ -107,6 +111,9 @@ export const HELLO_TIMEOUT_MS = 10_000
 /** How often a connection is pinged, by default (see `ClassDeps.pingIntervalMs`). */
 export const PING_INTERVAL_MS = 30_000
 
+/** The window `classConnection.framesPerMinute` counts the frames in, by default (see `ClassDeps.rateWindowMs`). */
+export const RATE_WINDOW_MS = 60_000
+
 const closing = (reason: Closing['reason'], message: string): Closing => ({ type: 'closing', reason, message })
 const REPLACED = closing('replaced', '这个学号在别的地方连上了，这里的连接已经断开。')
 const HELLO_TIMEOUT = closing('session_over', '连上以后没有及时收到 hello，连接已经断开。')
@@ -163,6 +170,8 @@ export function serveConnection(
   const { db, config, clock, runtime, hub } = deps
   const { student, ip, log } = p
   const studentId = student.id
+  const limits = config.classConnection
+  const maxSendBufferBytes = limits.maxSendBufferKiB * 1024
 
   // Set at hello, when the connection is registered in the hub.
   let participant: Participant | null = null
@@ -171,8 +180,11 @@ export function serveConnection(
   let left = false
   // From the moment the connection is registered until the welcome and the replay are out, what the hub sends waits
   // here, so that nothing pushed meanwhile comes before the welcome, goes missing or comes twice. A `closing` does not
-  // wait: it is the last message, and the connection closes right after it.
+  // wait: it is the last message, and the connection closes right after it. `pendingBytes` is what it holds, as sent.
   let pending: object[] | null = null
+  let pendingBytes = 0
+  // Set when more waits to go out than `maxSendBufferKiB`: nothing more is written, and the connection is dropped.
+  let overflowed = false
   // The transport's timers, on real time (see `ClassDeps`): the deadline for hello, and the pings. Both stop when the
   // connection is over.
   let helloTimer: NodeJS.Timeout | undefined
@@ -182,8 +194,20 @@ export function serveConnection(
     clearInterval(pingTimer)
   }
 
+  /**
+   * More waits to go out to the client than the school allows: it reads too slowly (or, during hello, too much came
+   * meanwhile). It is dropped, outside the write that found it, which may be in the middle of a broadcast.
+   */
+  const overflow = (): void => {
+    if (overflowed) return
+    overflowed = true
+    log.info({ studentId, bufferedBytes: socket.bufferedAmount + pendingBytes }, 'class connection fell behind')
+    setImmediate(dropSocket)
+  }
   const write = (message: object): void => {
-    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
+    if (socket.readyState !== socket.OPEN || overflowed) return
+    socket.send(JSON.stringify(message))
+    if (socket.bufferedAmount > maxSendBufferBytes) overflow()
   }
   // The server closing the connection: the student is gone from this moment, not only once the client has answered
   // the close (which may take until `ws` gives up waiting, if the client has vanished).
@@ -297,8 +321,11 @@ export function serveConnection(
     studentId,
     classId,
     send(message) {
-      if (pending !== null && typeOf(message) !== 'closing') pending.push(message)
-      else write(message)
+      if (pending === null || typeOf(message) === 'closing') return write(message)
+      if (overflowed) return
+      pending.push(message)
+      pendingBytes += Buffer.byteLength(JSON.stringify(message))
+      if (pendingBytes + socket.bufferedAmount > maxSendBufferBytes) overflow()
     },
     close() {
       closeSocket(1000)
@@ -385,6 +412,7 @@ export function serveConnection(
     const resent = new Set(owed.map((m) => JSON.stringify(m)))
     const queued = pending
     pending = null
+    pendingBytes = 0
     for (const m of queued) {
       // An event pushed while the replay was read is in the replay already.
       const seq = (m as { seq?: unknown }).seq
@@ -456,6 +484,7 @@ export function serveConnection(
         maxRoundsPerConversation: config.chat.maxRoundsPerConversation,
         maxMessageChars: config.chat.maxMessageChars,
         maxQuestionsPerLesson: config.lesson.maxQuestionsPerLesson,
+        framesPerMinute: limits.framesPerMinute,
         // The grace the runtime's timeline gives, so it is scaled with the timeline speed like the close itself.
         closingGraceSeconds: (session.closeAt.getTime() - session.endsAt.getTime()) / 1000,
       },
@@ -483,7 +512,8 @@ export function serveConnection(
     }
   }
 
-  async function onFrame(data: RawData): Promise<void> {
+  /** Handles a frame; one that came past the connection's rate (`withinRate` was false) is only answered so. */
+  async function onFrame(data: RawData, withinRate: boolean): Promise<void> {
     if (socket.readyState !== socket.OPEN) return
     const reply = (id: string, r: AckResult) => write(ackMessage(id, r))
 
@@ -495,6 +525,8 @@ export function serveConnection(
       return reply('', fail('invalid_message'))
     }
     const id = isObject(frame) && typeof frame.id === 'string' && frame.id.length <= MAX_ID ? frame.id : ''
+    // Nothing else is looked at: the frame is not handled, whatever it is.
+    if (!withinRate) return reply(id, fail('rate_limited'))
     // Looked at before the schema, whose literal 'v1' would make any other protocol just an invalid message.
     if (isObject(frame) && frame.type === 'hello' && frame.protocol !== 'v1') {
       return reply(id, fail('protocol_unsupported'))
@@ -516,15 +548,40 @@ export function serveConnection(
     reply(msg.id, await dispatch(me, msg))
   }
 
-  // Attached before anything is awaited, so no frame is missed.
+  // The moments (real time, in ms) the frames of the last window came that were let through, oldest first: at most
+  // `framesPerMinute` of them. A frame past them is answered `rate_limited`, and does not count.
+  const rateWindowMs = deps.rateWindowMs ?? RATE_WINDOW_MS
+  const counted: number[] = []
+  const withinRate = (): boolean => {
+    const now = performance.now()
+    while (counted.length > 0 && now - (counted[0] ?? now) >= rateWindowMs) counted.shift()
+    if (counted.length >= limits.framesPerMinute) return false
+    counted.push(now)
+    return true
+  }
+
+  // Attached before anything is awaited, so no frame is missed. Whether a frame is within the rate is decided when it
+  // comes, not when its turn does; its answer still comes in order.
   let queue = Promise.resolve()
+  let waiting = 0
   socket.on('message', (data) => {
+    if (socket.readyState !== socket.OPEN) return
+    if (waiting >= limits.maxQueuedFrames) {
+      log.info({ studentId }, 'class connection sent too many frames at once')
+      closeSocket(1008)
+      return
+    }
+    const allowed = withinRate()
+    waiting++
     queue = queue
-      .then(() => onFrame(data))
+      .then(() => onFrame(data, allowed))
       .catch((err: unknown) => {
         // Only what kind of frame failed is logged, never what it said.
         log.error({ err, studentId }, 'class connection frame failed')
         closeSocket(1011)
+      })
+      .finally(() => {
+        waiting--
       })
   })
 

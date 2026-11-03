@@ -67,6 +67,16 @@ export const SchoolConfigSchema = Type.Object({
     // Whether Saturdays and Sundays have study halls that look back on the week; without them the weekend is a holiday.
     weekendStudy: Type.Boolean(),
   }),
+  // One WebSocket connection to the class service: how fast it may send, and how much may wait, either way.
+  classConnection: Type.Object({
+    // Frames the connection may send in any minute, every one counted (hello, invalid frames and lines the moderator
+    // stops too). Past it, a frame is answered `rate_limited` and not handled.
+    framesPerMinute: PositiveInt,
+    // Frames the connection may have waiting to be handled, one at a time. Past it, the connection is closed (1008).
+    maxQueuedFrames: PositiveInt,
+    // What may wait to go out to the connection, in KiB: a client that reads this far behind is dropped.
+    maxSendBufferKiB: PositiveInt,
+  }),
   chat: Type.Object({
     maxInitiationsPerLesson: NonNegativeInt,
     maxRoundsPerConversation: PositiveInt,

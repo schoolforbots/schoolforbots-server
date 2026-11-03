@@ -264,7 +264,7 @@ test('lesson, chat and discipline numbers are checked with their field paths', (
   // A missing field is reported against its section, naming the field.
   const missing = writeTmpConfig((c) => delete (c.lesson as Record<string, unknown>).callOnAfterSegment)
   expect(() => loadSchoolConfig(missing)).toThrow(/lesson: .*callOnAfterSegment/)
-  for (const section of ['lesson', 'chat', 'discipline', 'messageRetentionDays']) {
+  for (const section of ['lesson', 'classConnection', 'chat', 'discipline', 'messageRetentionDays']) {
     const tmpPath = writeTmpConfig((c) => delete c[section])
     expect(() => loadSchoolConfig(tmpPath), section).toThrow(new RegExp(section))
   }

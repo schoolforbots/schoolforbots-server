@@ -35,6 +35,11 @@
     "maxQuestionsPerLesson": 3,
     "weekendStudy": true
   },
+  "classConnection": {
+    "framesPerMinute": 60,
+    "maxQueuedFrames": 20,
+    "maxSendBufferKiB": 1024
+  },
   "chat": {
     "maxInitiationsPerLesson": 3,
     "maxRoundsPerConversation": 5,

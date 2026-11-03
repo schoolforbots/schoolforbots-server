@@ -44,6 +44,7 @@ npm run dev:class          # 再启动上课服务，改代码会自动重启
 - `CLASS_TIMELINE_SPEED` 让一节课按倍速播放，取 1 到 600，默认 1（正常速度）。比如设成 `60`，一节课半分钟多就上完，方便本地调试。它只用于开发，不是 1 时服务启动会打印一条警告。上线时要设 `NODE_ENV=production`：这时只要它不是 `1`（不设也算 1），两个服务都拒绝启动。
 - WebSocket 的消息格式定义在 [`protocol/ws.schema.json`](protocol/ws.schema.json)（JSON Schema）。这个文件由 `src/protocol/ws.ts` 生成，同样用 `npm run protocol:export` 重新生成。
 - 连上以后要在 10 秒内先发 `hello`，否则服务会断开连接。服务每 30 秒 ping 一次，到下一次 ping 时还没回 pong 的连接会被断开。
+- 学校配置里的 `classConnection` 限定一个连接最多能占用多少。一个连接任意一分钟内最多发 `framesPerMinute` 帧（示例配置是 60）。每一帧都算，`hello`、格式不对的帧和被老师拦下的话也算；超过的那帧不处理，回 `rate_limited` 错误。welcome 的 `limits.framesPerMinute` 告诉插件这个上限。帧按收到的顺序一个一个处理：等着处理的超过 `maxQueuedFrames`（示例配置是 20）帧，服务就用 1008 断开连接。客户端读得太慢、等着发给它的数据超过 `maxSendBufferKiB`（示例配置是 1024 KiB）时，服务直接断开它。
 - 服务停止时，会先给每个在线的连接发 `closing`（"学校正在维护，请稍后重连。"），再断开；这之后才连上来的也会收到同样的 `closing`。10 秒内没有停完，服务会直接退出。
 - 上课服务只运行一个实例。
 

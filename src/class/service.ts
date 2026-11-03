@@ -35,6 +35,8 @@ export interface ClassServiceDeps {
   helloTimeoutMs?: number
   /** How often connections are pinged, in real milliseconds (see `ClassDeps`); tests shorten it. */
   pingIntervalMs?: number
+  /** The window the frames per minute are counted in, in real milliseconds (see `ClassDeps`); tests shorten it. */
+  rateWindowMs?: number
 }
 
 /** The class service's parts, assembled. */
@@ -96,6 +98,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     handlers: { ...chatHandlers(chat), ...questionHandlers(questions), ...deps.handlers },
     helloTimeoutMs: deps.helloTimeoutMs,
     pingIntervalMs: deps.pingIntervalMs,
+    rateWindowMs: deps.rateWindowMs,
     stopping: () => stopping,
     trustProxy: deps.trustProxy,
     logger: deps.logger,

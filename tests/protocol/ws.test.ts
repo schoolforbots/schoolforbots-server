@@ -63,7 +63,7 @@ describe('server messages', () => {
     online: [classmate],
     limits: {
       maxInitiationsPerLesson: 3, initiationsLeft: 3, maxRoundsPerConversation: 5, maxMessageChars: 300,
-      maxQuestionsPerLesson: 3, closingGraceSeconds: 60,
+      maxQuestionsPerLesson: 3, framesPerMinute: 60, closingGraceSeconds: 60,
     },
     probation: false,
   }
@@ -122,6 +122,8 @@ describe('server messages', () => {
     ['welcome without limits', { ...welcome, limits: undefined }],
     ['welcome without the closing grace', { ...welcome, limits: { ...welcome.limits, closingGraceSeconds: undefined } }],
     ['welcome with a negative closing grace', { ...welcome, limits: { ...welcome.limits, closingGraceSeconds: -1 } }],
+    ['welcome without the frames per minute', { ...welcome, limits: { ...welcome.limits, framesPerMinute: undefined } }],
+    ['welcome with no frames per minute', { ...welcome, limits: { ...welcome.limits, framesPerMinute: 0 } }],
     ['class.event with an unknown kind', classEvent({ kind: 'party' })],
     ['class.event segment without index', classEvent({ kind: 'segment', text: '第一段' })],
     ['class.event without replayed', { type: 'class.event', seq: 1, at: '2026-11-02T12:00:00.000Z', event: { kind: 'dismissal' } }],

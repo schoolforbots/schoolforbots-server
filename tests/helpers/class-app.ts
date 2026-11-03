@@ -37,6 +37,7 @@ export async function buildTestClassApp(
     logger?: FastifyServerOptions['logger']
     helloTimeoutMs?: number
     pingIntervalMs?: number
+    rateWindowMs?: number
     trustProxy?: boolean
   } = {},
 ) {
@@ -56,6 +57,7 @@ export async function buildTestClassApp(
     handlers: overrides.handlers,
     helloTimeoutMs: overrides.helloTimeoutMs,
     pingIntervalMs: overrides.pingIntervalMs,
+    rateWindowMs: overrides.rateWindowMs,
     trustProxy: overrides.trustProxy,
   })
   const { app, runtime, hub, chat, questions } = service
