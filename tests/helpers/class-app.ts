@@ -37,6 +37,7 @@ export async function buildTestClassApp(
     logger?: FastifyServerOptions['logger']
     helloTimeoutMs?: number
     pingIntervalMs?: number
+    trustProxy?: boolean
   } = {},
 ) {
   const { db, destroy: destroyDb } = await createTestDb()
@@ -55,6 +56,7 @@ export async function buildTestClassApp(
     handlers: overrides.handlers,
     helloTimeoutMs: overrides.helloTimeoutMs,
     pingIntervalMs: overrides.pingIntervalMs,
+    trustProxy: overrides.trustProxy,
   })
   const { app, runtime, hub, chat, questions } = service
   try {

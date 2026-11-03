@@ -249,6 +249,7 @@ export interface Env {
   /** Where the school rules are, one file per version (see school-rules.ts). Only the registration service reads them. */
   schoolRulesDir: string
   registrationPort: number
+  /** Whether the services run behind a reverse proxy whose X-Forwarded-For can be trusted to name the client. */
   trustProxy: boolean
   classPort: number
   /** Playback speed of a lesson's timeline (1 = real time). Only for local development: plays a lesson compressed. */
@@ -258,7 +259,13 @@ export interface Env {
 /** What the class service reads from the environment: what it uses, and no mail settings, which it never does. */
 export type ClassEnv = Pick<
   Env,
-  'databaseUrl' | 'databaseTimeouts' | 'moderationDataDir' | 'configPath' | 'classPort' | 'classTimelineSpeed'
+  | 'databaseUrl'
+  | 'databaseTimeouts'
+  | 'moderationDataDir'
+  | 'configPath'
+  | 'trustProxy'
+  | 'classPort'
+  | 'classTimelineSpeed'
 >
 
 type Get = (name: string) => string | undefined
@@ -312,6 +319,7 @@ function parseTimelineSpeed(get: Get): number {
 const moderationDataDirOf = (get: Get) => get('MODERATION_DATA_DIR') ?? 'data/moderation'
 const configPathOf = (get: Get) => get('SCHOOL_CONFIG') ?? 'config/school.json'
 const classPortOf = (get: Get) => parsePort('CLASS_PORT', get('CLASS_PORT'), 8081)
+const trustProxyOf = (get: Get) => get('TRUST_PROXY') === '1'
 
 /** The environment of the class service, read as `loadEnv` reads the same variables. */
 export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {
@@ -325,6 +333,7 @@ export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {
     databaseTimeouts,
     moderationDataDir: moderationDataDirOf(get),
     configPath: configPathOf(get),
+    trustProxy: trustProxyOf(get),
     classPort,
     classTimelineSpeed,
   }
@@ -369,7 +378,7 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
     configPath: configPathOf(get),
     schoolRulesDir: get('SCHOOL_RULES_DIR') ?? 'school-rules',
     registrationPort,
-    trustProxy: get('TRUST_PROXY') === '1',
+    trustProxy: trustProxyOf(get),
     classPort,
     classTimelineSpeed,
   }

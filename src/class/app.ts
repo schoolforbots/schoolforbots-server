@@ -50,6 +50,11 @@ export interface ClassDeps {
    * joining. Unset: never.
    */
   stopping?: () => boolean
+  /**
+   * True when the service runs behind a reverse proxy whose X-Forwarded-For can be trusted: the address a student's
+   * messages are kept with is then the client's that the proxy names, not the proxy's. Unset: false.
+   */
+  trustProxy?: boolean
   /** Fastify logger options; unset means no logging. */
   logger?: FastifyServerOptions['logger']
 }
@@ -69,7 +74,7 @@ const BEARER = /^Bearer\s+(\S+)$/i
  * what happens on a connection.
  */
 export function buildClassApp(deps: ClassDeps): FastifyInstance {
-  const app = Fastify({ logger: deps.logger })
+  const app = Fastify({ trustProxy: deps.trustProxy ?? false, logger: deps.logger })
   const ctx: ConnectionContext = { deps, announced: new WeakSet() }
   // The student each upgrade's key belongs to, from the auth hook to the WebSocket handler.
   const students = new WeakMap<FastifyRequest, StudentRow>()
@@ -108,7 +113,7 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
         const student = students.get(request)
         try {
           if (student === undefined) throw new Error('The upgrade reached the handler without a student')
-          // The peer's address: no proxy in front is trusted to name the client.
+          // The peer's address, or behind a trusted proxy the client's it names (see `ClassDeps.trustProxy`).
           serveConnection(ctx, socket, { student, ip: inetAddress(request.ip), log: request.log })
         } catch (err) {
           request.log.error({ err }, 'class connection failed')

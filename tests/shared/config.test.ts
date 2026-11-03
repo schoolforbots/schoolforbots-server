@@ -332,6 +332,7 @@ describe('loadClassEnv', () => {
       databaseTimeouts: { statementMs: 30_000, lockMs: 10_000 },
       moderationDataDir: 'data/moderation',
       configPath: 'config/school.json',
+      trustProxy: false,
       classPort: 8081,
       classTimelineSpeed: 1,
     })
@@ -351,6 +352,7 @@ describe('loadClassEnv', () => {
         CLASS_TIMELINE_SPEED: '60',
         DATABASE_STATEMENT_TIMEOUT_MS: '0',
         DATABASE_LOCK_TIMEOUT_MS: '2500',
+        TRUST_PROXY: '1',
         // The school rules are the registration service's; the class service never reads them.
         SCHOOL_RULES_DIR: '/r',
       }),
@@ -359,9 +361,11 @@ describe('loadClassEnv', () => {
       databaseTimeouts: { statementMs: 0, lockMs: 2500 },
       moderationDataDir: '/m',
       configPath: '/c.json',
+      trustProxy: true,
       classPort: 9091,
       classTimelineSpeed: 60,
     })
+    expect(loadClassEnv({ DATABASE_URL: 'postgres://x', TRUST_PROXY: '0' }).trustProxy).toBe(false)
     expect(loadClassEnv({ DATABASE_URL: 'postgres://x', CLASS_PORT: '', CLASS_TIMELINE_SPEED: '' })).toMatchObject({
       classPort: 8081,
       classTimelineSpeed: 1,

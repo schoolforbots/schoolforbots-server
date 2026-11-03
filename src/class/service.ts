@@ -21,6 +21,8 @@ export interface ClassServiceDeps {
   clock: Clock
   /** Timeline speed (`CLASS_TIMELINE_SPEED`): 1 is real time. It scales every lesson duration, not the transport's. */
   speed: number
+  /** Whether X-Forwarded-For names the client (see `ClassDeps.trustProxy`). Unset: false. */
+  trustProxy?: boolean
   /** Fastify logger options; unset means no logging. */
   logger?: FastifyServerOptions['logger']
   /** Picks whom the teacher calls on (see `QuestionsDeps.random`); `Math.random` when unset. */
@@ -95,6 +97,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     helloTimeoutMs: deps.helloTimeoutMs,
     pingIntervalMs: deps.pingIntervalMs,
     stopping: () => stopping,
+    trustProxy: deps.trustProxy,
     logger: deps.logger,
   })
 

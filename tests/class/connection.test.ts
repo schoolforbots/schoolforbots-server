@@ -111,15 +111,18 @@ function track(ws: WebSocket): Client {
 
 /**
  * Opens a connection with `key` (none when null), from `remoteAddress` if given (an injected connection has no address
- * otherwise). Listeners are attached before the upgrade, so nothing is missed.
+ * otherwise) and with `headers` besides the key. Listeners are attached before the upgrade, so nothing is missed.
  */
-async function connect(key: string | null, p: { remoteAddress?: string } = {}): Promise<Client> {
+async function connect(
+  key: string | null,
+  p: { remoteAddress?: string; headers?: Record<string, string> } = {},
+): Promise<Client> {
   if (service === undefined) throw new Error('start() first')
   let client: Client | undefined
   const ws = await service.app.injectWS(
     '/v1/class',
     {
-      headers: key === null ? {} : { authorization: `Bearer ${key}` },
+      headers: { ...p.headers, ...(key === null ? {} : { authorization: `Bearer ${key}` }) },
       ...(p.remoteAddress === undefined ? {} : { socket: { remoteAddress: p.remoteAddress } as Socket }),
     },
     {
@@ -547,6 +550,30 @@ describe('the client address', () => {
     expect(await client.next()).toMatchObject({ type: 'ack', id: 'q1', ok: true })
 
     expect(await s.db.selectFrom('messages').select(['kind', 'ip']).execute()).toEqual([{ kind: 'question', ip: 'fe80::1' }])
+  })
+
+  /** Asks a question from a connection made from 10.0.0.2 with `headers`, and returns the address it was kept with. */
+  async function addressKept(s: Service, key: string, headers: Record<string, string>) {
+    const client = await connect(key, { remoteAddress: '10.0.0.2', headers })
+    await hello(client)
+    client.send({ id: 'q1', type: 'question', text: '光为什么会拐弯？' })
+    expect(await client.next()).toMatchObject({ type: 'ack', id: 'q1', ok: true })
+    const row = await s.db.selectFrom('messages').select('ip').executeTakeFirstOrThrow()
+    return row.ip
+  }
+
+  test('behind a trusted proxy, the address is the client the proxy names', async () => {
+    const s = await start({ trustProxy: true })
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:45'))
+    expect(await addressKept(s, students[0]!.key, { 'x-forwarded-for': '203.0.113.7' })).toBe('203.0.113.7')
+  })
+
+  test('without TRUST_PROXY, X-Forwarded-For is ignored: anyone could write it', async () => {
+    const s = await start()
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:45'))
+    expect(await addressKept(s, students[0]!.key, { 'x-forwarded-for': '203.0.113.7' })).toBe('10.0.0.2')
   })
 })
 

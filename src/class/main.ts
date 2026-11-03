@@ -28,6 +28,7 @@ async function main(): Promise<void> {
     moderator,
     clock: systemClock,
     speed,
+    trustProxy: env.trustProxy,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
   })
   const { app } = service
