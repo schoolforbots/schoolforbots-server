@@ -1032,14 +1032,14 @@ describe('POST /v1/me/re-enroll', () => {
     expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409, 409])
   })
 
-  test('an install that has taken another seat meanwhile → 409 install_has_seat', async () => {
-    const installId = randomUUID()
-    const dropped = await insertStudent(t.db, { status: 'dropped', installId })
-    await insertStudent(t.db, { status: 'pending', installId })
+  test('an AI id that has taken another seat meanwhile → 409 ai_has_seat', async () => {
+    const aiId = randomUUID()
+    const dropped = await insertStudent(t.db, { status: 'dropped', aiId })
+    await insertStudent(t.db, { status: 'pending', aiId })
 
     const res = await reEnroll(dropped.key)
     expect(res.statusCode).toBe(409)
-    expect(errorOf(res).code).toBe('install_has_seat')
+    expect(errorOf(res).code).toBe('ai_has_seat')
     expect((await studentRow(dropped.id)).status).toBe('dropped')
   })
 

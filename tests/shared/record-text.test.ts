@@ -22,7 +22,7 @@ describe('recordText', () => {
     // The dates are the school's wall clock, not UTC: 12:31 UTC is 20:31 in Beijing.
     expect(text('suspension', { until: '2026-11-05T12:31:00.000Z' })).toBe('停课到 11月5日 20:31')
     expect(text('expulsion', { until: '2026-12-02T17:00:00.000Z' })).toBe('被开除，12月3日 01:00 前不能重新报名')
-    // The other students of the install a penalty reached are for the school, not said to the owner.
+    // The other students of the AI id a penalty reached are for the school, not said to the owner.
     expect(text('suspension', { until: '2026-11-05T12:31:00.000Z', alsoApplied: [12, 15] })).toBe('停课到 11月5日 20:31')
     expect(text('expulsion', { until: '2026-12-02T17:00:00.000Z', alsoApplied: [12] })).toBe('被开除，12月3日 01:00 前不能重新报名')
   })

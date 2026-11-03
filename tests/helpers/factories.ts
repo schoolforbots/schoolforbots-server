@@ -34,7 +34,7 @@ export async function insertStudent(
     slot: Slot
     status: StudentStatus
     classId: number | null
-    installId: string
+    aiId: string
     createdAt: Date
     /** Defaults to `createdAt`, as for a student who has never re-enrolled. */
     queuedAt: Date
@@ -62,7 +62,7 @@ export async function insertStudent(
       slot: p.slot ?? 'evening',
       status: p.status ?? 'pending',
       classId: p.classId ?? null,
-      installId: p.installId ?? randomUUID(),
+      aiId: p.aiId ?? randomUUID(),
       pluginType: 'test',
       pluginVersion: '0.0.0',
       keyHash: hashSecret(key),

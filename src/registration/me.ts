@@ -17,7 +17,7 @@ import { checkNames, className, displayName, nameKey } from '../shared/identity.
 import type { StudentStatus } from '../shared/schema.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf, type StudentRow } from './auth.js'
-import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
+import { isAiSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
 import { ApiError, invalidNameError } from './errors.js'
 
 const DAY_MS = 24 * 60 * 60_000
@@ -286,7 +286,7 @@ async function reEnrollStudent(
       if (current.status !== 'dropped') throw new ApiError(409, 'wrong_status')
       // The class service may have suspended them since the key was checked, for a lesson they left before it ended.
       checkSuspensionOver(current, deps.clock.now())
-      // The seat they gave up may have been used since: by their email for another AI, or by their install for a new one.
+      // The seat they gave up may have been used since: by their email for another AI, or by their AI id in a new registration.
       if ((await seatsOfEmail(trx, student.email)) >= config.maxStudentsPerEmail) throw new ApiError(409, 'email_limit')
 
       // Like a new registration, a returner waits behind the students already waiting in the slot, free seat or not.
@@ -315,7 +315,7 @@ async function reEnrollStudent(
       return { status }
     })
   } catch (err) {
-    if (isInstallSeatViolation(err)) throw new ApiError(409, 'install_has_seat')
+    if (isAiSeatViolation(err)) throw new ApiError(409, 'ai_has_seat')
     throw err
   }
 }

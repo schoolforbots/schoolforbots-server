@@ -13,7 +13,7 @@ import { checkNames } from '../shared/identity.js'
 import { inetAddress } from '../shared/net.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
-import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy, suspensionOnInstall } from './capacity.js'
+import { isAiSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy, suspensionOfAi } from './capacity.js'
 import { ApiError, invalidNameError } from './errors.js'
 import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
@@ -55,13 +55,13 @@ function isPlainEmail(email: string): boolean {
   return IsEmail(email) && !/["[\]\s]/u.test(email)
 }
 
-/** Whether the mailbox or the installation is banned at `now` (an expulsion bans both); a ban ending then is over. */
-async function isBanned(trx: Kysely<Database>, p: { email: string; installId: string }, now: Date): Promise<boolean> {
+/** Whether the mailbox or the AI id is banned at `now` (an expulsion bans both); a ban ending then is over. */
+async function isBanned(trx: Kysely<Database>, p: { email: string; aiId: string }, now: Date): Promise<boolean> {
   const ban = await trx
     .selectFrom('bans')
     .select('id')
     .where('until', '>', now)
-    .where((eb) => eb.or([eb(eb.fn('lower', ['email']), '=', p.email), eb('installId', '=', p.installId)]))
+    .where((eb) => eb.or([eb(eb.fn('lower', ['email']), '=', p.email), eb('aiId', '=', p.aiId)]))
     .limit(1)
     .executeTakeFirst()
   return ban !== undefined
@@ -102,7 +102,7 @@ async function createRegistration(
     await lock(trx, `ip:${ip}`)
     await lock(trx, `email:${email}`)
 
-    if (await isBanned(trx, { email, installId: body.installId }, now)) throw new ApiError(403, 'banned')
+    if (await isBanned(trx, { email, aiId: body.aiId }, now)) throw new ApiError(403, 'banned')
 
     const fromIp = await countRows(
       trx
@@ -118,27 +118,27 @@ async function createRegistration(
     const seat = await trx
       .selectFrom('students')
       .select('id')
-      .where('installId', '=', body.installId)
+      .where('aiId', '=', body.aiId)
       .where('status', 'in', [...SEAT_STATUSES])
       .limit(1)
       .executeTakeFirst()
-    if (seat !== undefined) throw new ApiError(409, 'install_has_seat')
-    // A student who withdrew in a suspension has freed the seat, but not the install: it is still the same AI.
-    const suspendedUntil = await suspensionOnInstall(trx, body.installId, now)
+    if (seat !== undefined) throw new ApiError(409, 'ai_has_seat')
+    // A student who withdrew in a suspension has freed the seat, but not the AI id: it is still the same AI.
+    const suspendedUntil = await suspensionOfAi(trx, body.aiId, now)
     if (suspendedUntil !== null) throw new ApiError(409, 'still_suspended', { until: suspendedUntil.toISOString() })
 
     const pending = await trx
       .selectFrom('registrations')
       .select('id')
       .where('email', '=', email)
-      .where('installId', '=', body.installId)
+      .where('aiId', '=', body.aiId)
       .where('verifiedAt', 'is', null)
       .where('createdAt', '>', new Date(now.getTime() - config.verificationCode.resendSeconds * 1000))
       .limit(1)
       .executeTakeFirst()
     if (pending !== undefined) throw new ApiError(429, 'resend_too_soon')
 
-    // The mailbox's daily cap holds whatever install ids and client addresses the requests come with.
+    // The mailbox's daily cap holds whatever AI ids and client addresses the requests come with.
     const mailedToday = await countRows(
       trx
         .selectFrom('registrations')
@@ -163,7 +163,7 @@ async function createRegistration(
         division: body.division,
         slot: body.slot,
         referrerId: referrer?.id ?? null,
-        installId: body.installId,
+        aiId: body.aiId,
         pluginType: body.plugin.type,
         pluginVersion: body.plugin.version,
         ip,
@@ -205,7 +205,7 @@ async function verifyRegistration(
   try {
     outcome = await deps.db.transaction().execute((trx) => verifyInTransaction(trx, deps, id, code, now))
   } catch (err) {
-    if (isInstallSeatViolation(err)) throw new ApiError(409, 'install_has_seat')
+    if (isAiSeatViolation(err)) throw new ApiError(409, 'ai_has_seat')
     throw err
   }
 
@@ -247,8 +247,8 @@ async function verifyInTransaction(
   // A ban that came after the registration (the mailbox's student was expelled meanwhile) holds here too.
   if (await isBanned(trx, registration, now)) return fail(403, 'banned')
   if ((await seatsOfEmail(trx, registration.email)) >= config.maxStudentsPerEmail) return fail(409, 'email_limit')
-  // A suspension that reached the install after the registration holds here too: the AI cannot come in by the back door.
-  const suspendedUntil = await suspensionOnInstall(trx, registration.installId, now)
+  // A suspension that reached the AI id after the registration holds here too: the AI cannot come in by the back door.
+  const suspendedUntil = await suspensionOfAi(trx, registration.aiId, now)
   if (suspendedUntil !== null) return fail(409, 'still_suspended', { until: suspendedUntil.toISOString() })
 
   // A free seat is not enough: while students wait in the slot, a newcomer waits behind them.
@@ -270,7 +270,7 @@ async function verifyInTransaction(
       slot: registration.slot,
       status,
       classId: null,
-      installId: registration.installId,
+      aiId: registration.aiId,
       pluginType: registration.pluginType,
       pluginVersion: registration.pluginVersion,
       referrerId: registration.referrerId,

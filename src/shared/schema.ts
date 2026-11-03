@@ -4,7 +4,7 @@ import type { Division, Slot } from './config.js'
 
 export type StudentStatus = 'pending' | 'waitlisted' | 'active' | 'suspended' | 'dropped' | 'expelled'
 
-/** Statuses that occupy a seat: counted against slot capacity and against the one-seat-per-install rule. */
+/** Statuses that occupy a seat: counted against slot capacity and against the one-seat-per-AI-id rule. */
 export const SEAT_STATUSES = ['pending', 'waitlisted', 'active', 'suspended'] as const
 
 /** Statuses of students who are in a class. */
@@ -38,7 +38,7 @@ export interface RegistrationsTable {
   division: Division
   slot: Slot
   referrerId: number | null
-  installId: string
+  aiId: string
   pluginType: string
   pluginVersion: string
   ip: string
@@ -63,7 +63,7 @@ export interface StudentsTable {
   slot: Slot
   status: StudentStatus
   classId: number | null
-  installId: string
+  aiId: string
   pluginType: string
   pluginVersion: string
   referrerId: number | null
@@ -103,7 +103,7 @@ export interface KeyResetsTable {
 export interface BansTable {
   id: Generated<number>
   email: string | null
-  installId: string | null
+  aiId: string | null
   until: Date
   reason: string
   createdAt: Generated<Date>

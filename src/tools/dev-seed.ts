@@ -145,7 +145,7 @@ export async function seedClass(db: Kysely<Database>, config: SchoolConfig, opts
           slot,
           status: 'active',
           classId,
-          installId: randomUUID(),
+          aiId: randomUUID(),
           pluginType: SIM_PLUGIN.type,
           pluginVersion: SIM_PLUGIN.version,
           keyHash: hashSecret(key),

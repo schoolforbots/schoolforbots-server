@@ -203,8 +203,8 @@ describe('POST /v1/me/withdraw', () => {
     })
   }
 
-  /** A registration of an AI on this install, from a mailbox of its own: only the install's seat can refuse it. */
-  function registerOn(installId: string) {
+  /** A registration with this AI id, from a mailbox of its own: only the AI id's seat can refuse it. */
+  function registerOn(aiId: string) {
     return t.app.inject({
       method: 'POST',
       url: '/v1/registrations',
@@ -214,7 +214,7 @@ describe('POST /v1/me/withdraw', () => {
         aiName: '小鱼',
         division: 'junior',
         slot: 'evening',
-        installId,
+        aiId,
         plugin: { type: 'astrbot', version: '0.1.0' },
         schoolRulesVersion: t.schoolRules.current.version,
       },
@@ -228,15 +228,15 @@ describe('POST /v1/me/withdraw', () => {
     'a student who is %s can withdraw: dropped, no class, the seat is free again',
     async (status) => {
       const classId = status === 'active' ? await insertClass(t.db, { classNo: 1 }) : null
-      const installId = randomUUID()
+      const aiId = randomUUID()
       const { id, key } = await insertStudent(t.db, {
         status,
         classId,
-        installId,
+        aiId,
         assignedAt: classId === null ? null : t.clock.now(),
       })
-      // While the seat is held, the install cannot take another AI.
-      expect(errorOf(await registerOn(installId)).code).toBe('install_has_seat')
+      // While the seat is held, the AI id cannot register again.
+      expect(errorOf(await registerOn(aiId)).code).toBe('ai_has_seat')
 
       const res = await withdraw(key)
       expect(res.statusCode).toBe(200)
@@ -244,30 +244,30 @@ describe('POST /v1/me/withdraw', () => {
       expect(Value.Check(WithdrawResult, res.json())).toBe(true)
       expect(await studentRow(id)).toMatchObject({ id, status: 'dropped', classId: null })
 
-      expect((await registerOn(installId)).statusCode).toBe(202)
+      expect((await registerOn(aiId)).statusCode).toBe(202)
     },
   )
 
-  test('a suspended student can withdraw too, but the install stays closed until the suspension ends', async () => {
+  test('a suspended student can withdraw too, but the AI id stays closed until the suspension ends', async () => {
     const classId = await insertClass(t.db, { classNo: 1 })
-    const installId = randomUUID()
+    const aiId = randomUUID()
     const suspendedUntil = new Date(t.clock.now().getTime() + 3 * DAY)
     const { id, key } = await insertStudent(t.db, {
       status: 'suspended',
       classId,
-      installId,
+      aiId,
       assignedAt: t.clock.now(),
       suspendedUntil,
     })
-    expect(errorOf(await registerOn(installId)).code).toBe('install_has_seat')
+    expect(errorOf(await registerOn(aiId)).code).toBe('ai_has_seat')
 
     const res = await withdraw(key)
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ status: 'dropped' })
     expect(await studentRow(id)).toMatchObject({ status: 'dropped', classId: null, suspendedUntil })
 
-    // The seat is free, but a new registration on the same install would be a clean AI in the middle of the suspension.
-    const early = await registerOn(installId)
+    // The seat is free, but a new registration with the same AI id would be a clean AI in the middle of the suspension.
+    const early = await registerOn(aiId)
     expect(early.statusCode).toBe(409)
     expect(early.json()).toEqual({
       error: {
@@ -279,7 +279,7 @@ describe('POST /v1/me/withdraw', () => {
     expect(t.mailer.sent).toEqual([])
 
     t.clock.set(suspendedUntil)
-    expect((await registerOn(installId)).statusCode).toBe(202)
+    expect((await registerOn(aiId)).statusCode).toBe(202)
   })
 
   test('withdrawing leaves the student number, the key and the names as they were', async () => {

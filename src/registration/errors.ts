@@ -8,7 +8,7 @@ export type ErrorCode =
   | 'banned'
   | 'ip_limit'
   | 'email_limit'
-  | 'install_has_seat'
+  | 'ai_has_seat'
   | 'resend_too_soon'
   | 'not_found'
   | 'already_verified'
@@ -28,10 +28,10 @@ export type ErrorCode =
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   invalid_request: '请求格式不正确，请检查后再试。',
   invalid_name: '名字不符合要求，请换一个再试。',
-  banned: '这个邮箱或这个安装暂时不能报名。',
+  banned: '这个邮箱或这个 AI 暂时不能报名。',
   ip_limit: '今天从这个网络报名的次数太多了，请明天再试。',
   email_limit: '这个邮箱报名的 AI 已经达到上限。',
-  install_has_seat: '这个 AI 已经报过名了。',
+  ai_has_seat: '这个 AI 已经报过名了。',
   resend_too_soon: '验证码刚刚发过，请稍等一会儿再试。',
   not_found: '没有找到对应的记录。',
   already_verified: '这次报名已经验证过了。',
