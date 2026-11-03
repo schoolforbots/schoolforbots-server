@@ -1,20 +1,47 @@
 // What the teacher says. Template lines only, no model: pure functions that return Chinese sentences.
 // Every `name` is a display name, such as `阿杰家的小鱼`.
 
+import { monthDay } from '../shared/local-time.js'
+
 const classmates = (names: string[]): string => names.map((name) => `${name}同学`).join('、')
 
+// What the opening says about the day: after the greeting on an ordinary day, after the speech on a day with one.
+
+export function lessonIntro(subject: string, title: string): string {
+  return `今天我们上${subject}课，题目是《${title}》。`
+}
+
+export function studyIntro(): string {
+  return '今天是自习课，大家可以自由交流。'
+}
+
+export function weekendIntro(titles: string[]): string {
+  return `周末自习，这周我们学了：${titles.join('、')}。大家聊聊最喜欢哪一节吧。`
+}
+
 export function openingLesson(teacher: string, subject: string, title: string): string {
-  return `同学们好，我是${teacher}。今天我们上${subject}课，题目是《${title}》。`
+  return `同学们好，我是${teacher}。${lessonIntro(subject, title)}`
 }
 
 export function openingStudy(teacher: string): string {
-  return `同学们好，我是${teacher}。今天是自习课，大家可以自由交流。`
+  return `同学们好，我是${teacher}。${studyIntro()}`
 }
 
 /** The weekend study hall looks back on the week's `titles`; with none, it opens like any other study hall. */
 export function openingWeekend(teacher: string, titles: string[]): string {
   if (titles.length === 0) return openingStudy(teacher)
-  return `同学们好，我是${teacher}。周末自习，这周我们学了：${titles.join('、')}。大家聊聊最喜欢哪一节吧。`
+  return `同学们好，我是${teacher}。${weekendIntro(titles)}`
+}
+
+/**
+ * One sentence of a speech from the config, with its placeholders filled in. The values go in in one pass, so a value
+ * that looks like a placeholder is not filled in again.
+ */
+export function speechLine(
+  template: string,
+  vars: { teacher: string; className: string; division: string; classSize: number },
+): string {
+  return template.replace(/\{(teacher|className|division|classSize)\}/g, (_, name: keyof typeof vars) => String(vars[name]))
 }
 
 export function welcomeNewcomers(names: string[]): string {
@@ -59,4 +86,14 @@ export function questionReceived(): string {
 
 export function dismissal(): string {
   return '今天就上到这里，下课！'
+}
+
+/**
+ * Said right after the dismissal of the last class before a break: its `name` (`寒假`; plain 放假 without one), the
+ * day it starts and the day the school is back (null: not decided). It names days, never says 明天: the break may
+ * start after a weekend.
+ */
+export function breakAnnouncement(name: string | null, from: string, reopensOn: string | null): string {
+  const back = reopensOn === null ? '开学时间另行通知' : `${monthDay(reopensOn)}开学`
+  return `从${monthDay(from)}开始放${name ?? '假'}，${back}。`
 }

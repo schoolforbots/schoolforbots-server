@@ -15,15 +15,15 @@ import {
   type QuestionMessage,
   type WelcomeMessage,
 } from '../protocol/ws.js'
+import { calendarStatus, nextSchoolDay, type CalendarStatus } from '../shared/calendar.js'
 import { MEMBER_STATUSES } from '../shared/db.js'
 import { className, displayName } from '../shared/identity.js'
-import { addDaysToDate, atLocalTime, localDate, localMoment } from '../shared/local-time.js'
+import { addDaysToDate, atLocalTime, localDate, localMoment, monthDay } from '../shared/local-time.js'
 import type { Database, StudentStatus } from '../shared/schema.js'
 import type { ClassDeps } from './app.js'
 import { lessonsAttendedBefore, markAttendance } from './attendance.js'
 import { classEventMessage, eventsAfter } from './events.js'
 import type { HubConnection } from './hub.js'
-import { isSchoolDay } from './planning.js'
 import type { ActiveSession } from './runtime.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from './ws-errors.js'
 
@@ -113,6 +113,9 @@ const HELLO_TIMEOUT = closing('session_over', '连上以后没有及时收到 he
 /** What everyone is told when the service stops (see `ClassDeps.stopping`). */
 export const MAINTENANCE = closing('session_over', '学校正在维护，请稍后重连。')
 
+/** What everyone is told while the school is on a break whose end is not decided yet. */
+const UNDECIDED_BREAK = { ...closing('on_break', '学校正在放假，开学时间另行通知。'), reopensOn: null }
+
 /** What a student with no class is told, by status. */
 function noClassMessage(status: StudentStatus): string {
   if (status === 'dropped') return '你已经退学，不在任何班级里了，重新报名分班后才能来上课。'
@@ -198,18 +201,33 @@ export function serveConnection(
     closeSocket(1000)
   }
 
+  /** The start of the student's slot on the school day `day`, as the school's wall clock reads it, e.g. `1月4日 20:00`. */
+  const lessonStart = (day: string): string =>
+    localMoment(atLocalTime(day, config.slots[student.slot].start, config.timezone), config.timezone)
+
+  /** The school is not in term (a break, or before its opening day): when it is back, if that is decided. */
+  const notInTerm = ({ state, breakName, reopensOn }: CalendarStatus): Closing => {
+    if (reopensOn === null) return UNDECIDED_BREAK
+    const opens = `${monthDay(reopensOn)}开学，第一节课在${lessonStart(reopensOn)}开始。`
+    const message = state === 'not_started' ? `学校${opens}` : `学校正在放${breakName ?? '假'}，${opens}`
+    return { ...closing('on_break', message), reopensOn }
+  }
+
   /**
-   * Outside a session: the next starts at the start of the student's slot on the next school day, today if that start
-   * is to come (a weekend with no study halls is skipped).
+   * Outside a session. When the school is not in term, the student is told when it is back. Otherwise the next lesson
+   * starts at the start of the student's slot on the next school day, today if that start is to come (a weekend with
+   * no study halls is skipped); a break ahead with no end yet leaves that undecided.
    */
   const outsideSession = (): Closing => {
     const now = clock.now()
     const { start } = config.slots[student.slot]
     let day = localDate(now, config.timezone)
+    const status = calendarStatus(day, config)
+    if (status.state !== 'in_term') return notInTerm(status)
     if (atLocalTime(day, start, config.timezone).getTime() <= now.getTime()) day = addDaysToDate(day, 1)
-    while (!isSchoolDay(day, config)) day = addDaysToDate(day, 1)
-    const next = atLocalTime(day, start, config.timezone)
-    return closing('session_over', `现在不在上课时间，下一节课在 ${localMoment(next, config.timezone)} 开始。`)
+    const next = nextSchoolDay(day, config)
+    if (next === null) return UNDECIDED_BREAK
+    return closing('session_over', `现在不在上课时间，下一节课在 ${lessonStart(next)} 开始。`)
   }
 
   // ---- At the door ----

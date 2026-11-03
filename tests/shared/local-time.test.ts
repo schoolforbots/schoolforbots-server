@@ -6,6 +6,7 @@ import {
   isoWeekday,
   localDate,
   localMoment,
+  monthDay,
   startOfLocalDay,
 } from '../../src/shared/local-time.js'
 
@@ -102,6 +103,21 @@ describe('localMoment', () => {
     expect(localMoment(at('2026-11-02T20:00:00Z'), 'Asia/Shanghai')).toBe('11月3日 04:00')
     expect(localMoment(at('2026-11-02T16:00:00Z'), 'Asia/Shanghai')).toBe('11月3日 00:00')
     expect(localMoment(at('2026-11-03T02:00:00Z'), 'America/New_York')).toBe('11月2日 21:00')
+  })
+})
+
+describe('monthDay', () => {
+  test('is the month and day of a calendar date, without padding', () => {
+    expect(monthDay('2026-12-07')).toBe('12月7日')
+    expect(monthDay('2026-11-03')).toBe('11月3日')
+    expect(monthDay('2027-01-04')).toBe('1月4日')
+    expect(monthDay('2028-02-29')).toBe('2月29日')
+    expect(monthDay('2026-10-10')).toBe('10月10日')
+  })
+
+  test('refuses something that is not a date', () => {
+    expect(() => monthDay('2026-02-30')).toThrow(/2026-02-30/)
+    expect(() => monthDay('soon')).toThrow(/soon/)
   })
 })
 

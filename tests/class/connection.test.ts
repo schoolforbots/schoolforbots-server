@@ -327,6 +327,136 @@ describe('a student who may not come in', () => {
     }
   })
 
+  describe('on a break', () => {
+    type Calendar = NonNullable<ReturnType<typeof exampleConfig>['calendar']>
+    const lesson = (weekendStudy: boolean) => ({ ...exampleConfig().lesson, weekendStudy })
+    const WINTER = { from: '2026-12-21', reopensOn: '2027-01-04', name: '寒假' }
+    const FRI = '2026-12-18'
+    const THU = '2026-12-24'
+
+    /** What a student of the evening class is told on connecting at `time`, with the connection ended. */
+    async function toldAt(time: Date, calendar: Calendar, weekendStudy = true) {
+      const s = await start({ config: { calendar, lesson: lesson(weekendStudy) }, now: time })
+      const { students } = await seedClass(s, 1)
+      await tickAt(s, time)
+      const client = await connect(students[0]!.key)
+      const told = await client.next()
+      expect(await client.closed()).toBe(1000)
+      return told
+    }
+
+    test('before the opening day, the student is told the day the school opens and when its first lesson starts', async () => {
+      const told = await toldAt(at('19:50'), { openingDay: '2026-11-09', breaks: [] })
+
+      expect(told).toEqual({
+        type: 'closing',
+        reason: 'on_break',
+        reopensOn: '2026-11-09',
+        message: '学校11月9日开学，第一节课在11月9日 20:00开始。',
+      })
+    })
+
+    test('the first lesson is at the start of the slot of the student, on the first school day', async () => {
+      // 12 December is a Saturday; with no study halls at the weekend the school opens on Monday the 14th.
+      const told = await toldAt(at('12:00', '2026-12-07'), { openingDay: '2026-12-12', breaks: [] }, false)
+
+      expect(told).toEqual({
+        type: 'closing',
+        reason: 'on_break',
+        reopensOn: '2026-12-14',
+        message: '学校12月14日开学，第一节课在12月14日 20:00开始。',
+      })
+    })
+
+    test('in a break with a name and a day the school is back, the student is told both', async () => {
+      const told = await toldAt(at('12:00', THU), { breaks: [WINTER] })
+
+      expect(told).toEqual({
+        type: 'closing',
+        reason: 'on_break',
+        reopensOn: '2027-01-04',
+        message: '学校正在放寒假，1月4日开学，第一节课在1月4日 20:00开始。',
+      })
+      expect(told.message.startsWith('学校正在放寒假，')).toBe(true)
+    })
+
+    test('in a break with no name it is plain 放假', async () => {
+      const told = await toldAt(at('12:00', THU), { breaks: [{ from: '2026-12-21', reopensOn: '2027-01-04' }] })
+
+      expect(told).toEqual({
+        type: 'closing',
+        reason: 'on_break',
+        reopensOn: '2027-01-04',
+        message: '学校正在放假，1月4日开学，第一节课在1月4日 20:00开始。',
+      })
+    })
+
+    test('the day the school is back is the first school day after the break, not the date the config gives', async () => {
+      // 2 January 2027 is a Saturday: with no study halls at the weekend the school is back on Monday the 4th.
+      const told = await toldAt(at('12:00', THU), { breaks: [{ ...WINTER, reopensOn: '2027-01-02' }] }, false)
+
+      expect(told).toMatchObject({ reason: 'on_break', reopensOn: '2027-01-04' })
+    })
+
+    test('in a break with no end yet, the student is told so, and the connection ends', async () => {
+      const told = await toldAt(at('12:00', THU), { breaks: [{ from: '2026-12-21', reopensOn: null }] })
+
+      expect(told).toEqual({
+        type: 'closing',
+        reason: 'on_break',
+        reopensOn: null,
+        message: '学校正在放假，开学时间另行通知。',
+      })
+    })
+
+    test('the evening a break with no end yet begins, the student who comes after class is told the same', async () => {
+      // It is still term on Friday, so the calendar lets the student come to the door; the next lesson is what is undecided.
+      const told = await toldAt(at('20:45', FRI), { breaks: [{ from: '2026-12-21', reopensOn: null }] }, false)
+
+      expect(told).toEqual({
+        type: 'closing',
+        reason: 'on_break',
+        reopensOn: null,
+        message: '学校正在放假，开学时间另行通知。',
+      })
+    })
+
+    test('a hello that finds the break begun, since the session closed, is answered the same way', async () => {
+      const calendar = { breaks: [{ from: '2026-12-21', reopensOn: null }] }
+      const s = await start({ config: { calendar, lesson: lesson(false) }, now: at('19:50', FRI) })
+      const { classId, students } = await seedClass(s, 1)
+      await tickAt(s, at('19:50', FRI))
+      const client = await connect(students[0]!.key)
+      await tickAt(s, at('20:31', FRI))
+      expect(s.runtime.currentSession(classId)).toBeNull()
+
+      client.send({ id: 'h1', ...HELLO })
+      expect(await client.next()).toMatchObject({ type: 'closing', reason: 'on_break', reopensOn: null })
+      expect(await client.closed()).toBe(1000)
+    })
+
+    test.each([
+      ['before the doors', at('19:44')],
+      ['after the close', at('20:31')],
+    ])('between two lessons of a school in term (%s), the student is still told session_over, with no day the school is back', async (_when, time) => {
+      const told = await toldAt(time, { openingDay: '2026-11-02', breaks: [WINTER] })
+
+      expect(told.reason).toBe('session_over')
+      expect(told).not.toHaveProperty('reopensOn')
+    })
+
+    test('after the last lesson before a break, the student is told when the next lesson is, as session_over', async () => {
+      // The next school day after Friday is Monday the 21st, the first day of the break: the lesson is after it.
+      const told = await toldAt(at('20:45', FRI), { breaks: [WINTER] }, false)
+
+      expect(told).toEqual({
+        type: 'closing',
+        reason: 'session_over',
+        message: '现在不在上课时间，下一节课在 1月4日 20:00 开始。',
+      })
+    })
+  })
+
   test('a hello during which the session closes registers nothing and is answered the same way', async () => {
     const s = await start()
     const { classId, students } = await seedClass(s, 1)

@@ -6,11 +6,14 @@ import { RecordingHub, type RecordedMessage } from '../../src/class/hub.js'
 import { createClassRuntime, type ActiveSession } from '../../src/class/runtime.js'
 import {
   dismissal,
+  lessonIntro,
   openingLesson,
   openingStudy,
   openingWeekend,
   renameAnnouncement,
+  studyIntro,
   transition,
+  weekendIntro,
   welcomeNewcomers,
 } from '../../src/class/teacher.js'
 import { createModerator } from '../../src/moderation/moderator.js'
@@ -925,5 +928,259 @@ describe('the opening', () => {
     await runtime.tick()
 
     expect(hub.messages.map(show)).toEqual([`teacher ${openingStudy('老周')}`, `roster +[] -[${b.id} ${b.name}]`])
+  })
+})
+
+describe('the school calendar', () => {
+  type Calendar = NonNullable<SchoolConfig['calendar']>
+  /** The example school with `calendar`, and with or without study halls at the weekend (as the example has them). */
+  const school = (calendar: Calendar, weekendStudy = true): SchoolConfig => ({
+    ...config,
+    calendar,
+    lesson: { ...config.lesson, weekendStudy },
+  })
+
+  /** What a class of `members` is told from the doors until 20:01 on `date`, as short lines. */
+  async function toldAtOpening(p: { school: SchoolConfig; date: string; classNo?: number; members?: number }) {
+    const { classId, members } = await seedClass({ classNo: p.classNo ?? 1, members: p.members ?? 1 })
+    const clock = createTestClock(at('19:45', p.date))
+    const hub = new RecordingHub()
+    for (const m of members) hub.join(classId, m.id)
+    const runtime = newRuntime({ clock, hub, config: p.school })
+    await runtime.tick()
+    clock.set(at('20:01', p.date))
+    await runtime.tick()
+    return hub.messages.map(show)
+  }
+
+  const SPEECH = ['我是{teacher}，是{className}的老师。', '{division}的这个班一共有{classSize}位同学。', '好了，第一节课马上开始。']
+
+  describe('a break', () => {
+    test('holds no class on its days, and opens again on the day the school is back', async () => {
+      await seedClass({ members: 1 })
+      const clock = createTestClock(at('19:45'))
+      const runtime = newRuntime({
+        clock,
+        hub: new RecordingHub(),
+        config: school({ breaks: [{ from: MON, reopensOn: '2026-11-04', name: '期中假' }] }),
+      })
+
+      for (const [date, time] of [[MON, '19:45'], [MON, '20:10'], [TUE, '19:45'], [TUE, '20:00']] as const) {
+        clock.set(at(time, date))
+        await runtime.tick()
+      }
+      expect(await sessionRows()).toEqual([])
+
+      clock.set(at('19:45', '2026-11-04'))
+      await runtime.tick()
+      expect(await sessionRows()).toMatchObject([{ date: '2026-11-04' }])
+    })
+
+    test('holds no class before the opening day', async () => {
+      await seedClass({ members: 1 })
+      const clock = createTestClock(at('19:50'))
+      const runtime = newRuntime({ clock, hub: new RecordingHub(), config: school({ openingDay: '2026-11-09', breaks: [] }) })
+
+      await runtime.tick()
+      expect(await sessionRows()).toEqual([])
+
+      clock.set(at('19:50', '2026-11-09'))
+      await runtime.tick()
+      expect(await sessionRows()).toMatchObject([{ date: '2026-11-09' }])
+    })
+  })
+
+  describe('the opening of a school day', () => {
+    test('on the opening day the teacher gives the speech, then says what the lesson is', async () => {
+      await insertLesson(db, { date: MON, title: '光的折射', subject: '科学', segments: SEGMENTS })
+
+      const told = await toldAtOpening({
+        school: school({ openingDay: MON, openingSpeech: SPEECH, breaks: [] }),
+        date: MON,
+        classNo: 2,
+        members: 3,
+      })
+
+      expect(told).toEqual([
+        'teacher 我是老周，是初中部·晚班·2 班的老师。',
+        'teacher 初中部的这个班一共有3位同学。',
+        'teacher 好了，第一节课马上开始。',
+        `teacher ${lessonIntro('科学', '光的折射')}`,
+      ])
+      // Not the plain opening, which greets the class and names the teacher once more.
+      expect(told.join()).not.toContain('同学们好')
+    })
+
+    test('the class size is the number of members when the doors opened', async () => {
+      await insertLesson(db, { date: MON, segments: SEGMENTS })
+      const { classId, members } = await seedClass({ members: 2 })
+      const clock = createTestClock(at('19:45'))
+      const hub = new RecordingHub()
+      for (const m of members) hub.join(classId, m.id)
+      const runtime = newRuntime({ clock, hub, config: school({ openingDay: MON, openingSpeech: ['一共{classSize}位同学。'], breaks: [] }) })
+      await runtime.tick()
+
+      // A third student comes into the class after the doors opened.
+      await addStudent(classId)
+      clock.set(at('20:01'))
+      await runtime.tick()
+
+      expect(hub.messages.map(show)[0]).toBe('teacher 一共2位同学。')
+    })
+
+    test('a study hall follows the speech with the study intro', async () => {
+      const told = await toldAtOpening({
+        school: school({ openingDay: MON, openingSpeech: SPEECH, breaks: [] }),
+        date: MON,
+      })
+
+      expect(told).toEqual([
+        'teacher 我是老周，是初中部·晚班·1 班的老师。',
+        'teacher 初中部的这个班一共有1位同学。',
+        'teacher 好了，第一节课马上开始。',
+        `teacher ${studyIntro()}`,
+      ])
+    })
+
+    test('a weekend study hall follows the speech with the titles of the week', async () => {
+      const titles = ['静夜思', '勾股定理', 'My Day']
+      for (const [i, title] of titles.entries()) {
+        await insertLesson(db, { date: `2026-11-0${i + 2}`, title, segments: SEGMENTS })
+      }
+
+      const told = await toldAtOpening({
+        school: school({ openingDay: SAT, openingSpeech: ['我是{teacher}。'], breaks: [] }),
+        date: SAT,
+      })
+
+      expect(told).toEqual(['teacher 我是老周。', `teacher ${weekendIntro(titles)}`])
+    })
+
+    test('a weekend study hall that looks back on no lesson follows the speech with the study intro', async () => {
+      const told = await toldAtOpening({
+        school: school({ openingDay: SAT, openingSpeech: ['我是{teacher}。'], breaks: [] }),
+        date: SAT,
+      })
+
+      expect(told).toEqual(['teacher 我是老周。', `teacher ${studyIntro()}`])
+    })
+
+    test('the first day back from a break has the speech of the break', async () => {
+      await insertLesson(db, { date: MON, title: '光的折射', subject: '科学', segments: SEGMENTS })
+
+      const told = await toldAtOpening({
+        school: school({
+          openingSpeech: ['这是开学讲话。'],
+          breaks: [{ from: '2026-10-26', reopensOn: MON, name: '国庆假', speech: ['欢迎回来，我是{teacher}。', '{className}又见面啦。'] }],
+        }),
+        date: MON,
+      })
+
+      expect(told).toEqual([
+        'teacher 欢迎回来，我是老周。',
+        'teacher 初中部·晚班·1 班又见面啦。',
+        `teacher ${lessonIntro('科学', '光的折射')}`,
+      ])
+    })
+
+    test('the speech comes before the roster and the welcome of the students who joined', async () => {
+      const { classId, members } = await seedClass({ members: 2 })
+      const [a, b] = members as [Member, Member]
+      const last = await insertSession(db, {
+        classId,
+        date: SUN,
+        kind: 'study',
+        startsAt: at('20:00', SUN),
+        endsAt: at('20:30', SUN),
+        members: [{ studentId: a.id, displayName: a.name }],
+      })
+      await db.updateTable('classSessions').set({ dismissedAt: at('20:31', SUN) }).where('id', '=', last).execute()
+      const clock = createTestClock(at('19:45'))
+      const hub = new RecordingHub()
+      hub.join(classId, a.id)
+      const runtime = newRuntime({ clock, hub, config: school({ openingDay: MON, openingSpeech: ['我是{teacher}。'], breaks: [] }) })
+      await runtime.tick()
+      clock.set(at('20:00'))
+      await runtime.tick()
+
+      expect(hub.messages.map(show)).toEqual([
+        'teacher 我是老周。',
+        `teacher ${studyIntro()}`,
+        `roster +[${b.id} ${b.name}] -[]`,
+        `teacher ${welcomeNewcomers([b.name])}`,
+      ])
+    })
+
+    test('an ordinary day opens as usual, in a school that has a calendar and a speech', async () => {
+      await insertLesson(db, { date: TUE, title: '光的折射', subject: '科学', segments: SEGMENTS })
+      const calendar: Calendar = { openingDay: MON, openingSpeech: SPEECH, breaks: [] }
+
+      expect(await toldAtOpening({ school: school(calendar), date: TUE })).toEqual([
+        `teacher ${openingLesson('老周', '科学', '光的折射')}`,
+      ])
+    })
+
+    test('an ordinary study hall opens as usual too, and so does a school with no calendar at all', async () => {
+      const { calendar: _, ...noCalendar } = config
+      expect(await toldAtOpening({ school: noCalendar, date: MON })).toEqual([`teacher ${openingStudy('老周')}`])
+    })
+  })
+
+  describe('the dismissal', () => {
+    const FRI = '2026-12-18'
+    const BREAK = { from: '2026-12-21', reopensOn: '2027-01-04', name: '寒假' }
+
+    /** What the class is told at the dismissal at 20:30 on `date`, as short lines. */
+    async function toldAtDismissal(config: SchoolConfig, date: string) {
+      const { classId, members } = await seedClass({ members: 1 })
+      const clock = createTestClock(at('19:45', date))
+      const hub = new RecordingHub()
+      hub.join(classId, members[0]!.id)
+      const runtime = newRuntime({ clock, hub, config })
+      await runtime.tick()
+      const timeline = await runUntil(runtime, clock, hub, at('20:31', date))
+      return timeline.find(([time]) => time === '20:30')?.[1]
+    }
+
+    test('announces a break that starts with the next school day, between the farewell and the dismissal', async () => {
+      const told = await toldAtDismissal(school({ breaks: [BREAK] }, false), FRI)
+
+      expect(told).toEqual([
+        `teacher ${dismissal()}`,
+        'teacher 从12月21日开始放寒假，1月4日开学。',
+        'dismissal',
+      ])
+    })
+
+    test('says so when the day the school is back is not decided', async () => {
+      const told = await toldAtDismissal(school({ breaks: [{ from: '2026-12-21', reopensOn: null }] }, false), FRI)
+
+      expect(told).toEqual([
+        `teacher ${dismissal()}`,
+        'teacher 从12月21日开始放假，开学时间另行通知。',
+        'dismissal',
+      ])
+    })
+
+    test('announces nothing when the next school day is not in a break', async () => {
+      // With study halls at the weekend, the day after Friday is a school day, and the break is two days off.
+      expect(await toldAtDismissal(school({ breaks: [BREAK] }, true), FRI)).toEqual([`teacher ${dismissal()}`, 'dismissal'])
+    })
+
+    test('announces nothing on the Monday before a break that starts later in the week', async () => {
+      const calendar: Calendar = { breaks: [{ from: '2026-11-04', reopensOn: '2026-11-09' }] }
+      expect(await toldAtDismissal(school(calendar), MON)).toEqual([`teacher ${dismissal()}`, 'dismissal'])
+    })
+
+    test('writes the announcement as a class event of the dismissal step', async () => {
+      await toldAtDismissal(school({ breaks: [BREAK] }, false), FRI)
+
+      const rows = await db.selectFrom('classEvents').select(['step', 'kind']).where('step', 'like', 'dismissal%').orderBy('seq').execute()
+      expect(rows).toEqual([
+        { step: 'dismissal', kind: 'teacher' },
+        { step: 'dismissal#2', kind: 'teacher' },
+        { step: 'dismissal#3', kind: 'dismissal' },
+      ])
+    })
   })
 })
