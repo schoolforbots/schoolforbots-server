@@ -541,6 +541,7 @@
             "maxRoundsPerConversation",
             "maxMessageChars",
             "maxQuestionsPerLesson",
+            "framesPerMinute",
             "closingGraceSeconds"
           ],
           "properties": {
@@ -563,6 +564,10 @@
             "maxQuestionsPerLesson": {
               "type": "integer",
               "minimum": 0
+            },
+            "framesPerMinute": {
+              "type": "integer",
+              "minimum": 1
             },
             "closingGraceSeconds": {
               "type": "number",
@@ -1575,6 +1580,7 @@
                 "maxRoundsPerConversation",
                 "maxMessageChars",
                 "maxQuestionsPerLesson",
+                "framesPerMinute",
                 "closingGraceSeconds"
               ],
               "properties": {
@@ -1597,6 +1603,10 @@
                 "maxQuestionsPerLesson": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "framesPerMinute": {
+                  "type": "integer",
+                  "minimum": 1
                 },
                 "closingGraceSeconds": {
                   "type": "number",

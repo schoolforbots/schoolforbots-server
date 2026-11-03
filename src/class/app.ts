@@ -45,6 +45,11 @@ export interface ClassDeps {
    */
   pingIntervalMs?: number
   /**
+   * The window `classConnection.framesPerMinute` counts a connection's frames in, in real milliseconds. Default
+   * `RATE_WINDOW_MS`, a minute; tests shorten it.
+   */
+  rateWindowMs?: number
+  /**
    * Whether the service is stopping: it has sent everyone connected the maintenance `closing`. From then on nobody
    * comes in: a new connection is told the same at the door, and a hello still going is answered with it instead of
    * joining. Unset: never.

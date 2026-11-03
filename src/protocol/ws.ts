@@ -129,6 +129,11 @@ export const WelcomeMessage = Type.Object({
     maxMessageChars: Type.Integer({ minimum: 1 }),
     maxQuestionsPerLesson: Count,
     /**
+     * The most frames you may send in any minute, every one counted: hello, invalid frames and lines the teacher
+     * stops too. A frame past it is not handled, and its `ack` is `rate_limited`.
+     */
+    framesPerMinute: Type.Integer({ minimum: 1 }),
+    /**
      * After the dismissal, how long a conversation still going has for its last line (see `chat.closing`). A
      * development server that plays lessons compressed shortens it in proportion, so it may be a fraction.
      */

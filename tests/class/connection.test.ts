@@ -710,6 +710,133 @@ describe('the transport', () => {
   })
 })
 
+describe('the limits of a connection', () => {
+  const LIMITS = { framesPerMinute: 60, maxQueuedFrames: 20, maxSendBufferKiB: 1024 }
+  const reply = (id: string) => ({ id, type: 'chat.reply', conversationId: 'none', text: '你好' })
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  test('frames past the rate are answered rate_limited and not handled; every frame counts, a stopped line too', async () => {
+    const s = await start({ config: { classConnection: { ...LIMITS, framesPerMinute: 4 } }, rateWindowMs: 1000 })
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:50'))
+    const client = await connect(students[0]!.key)
+    await hello(client) // 1
+
+    // Sent at once: whether each is within the rate is decided as it comes, and the answers come in order.
+    client.send({ id: 'q1', type: 'question', text: '示例违禁词' }) // 2: stopped, and counted all the same
+    client.send(reply('r1')) // 3
+    client.send('{not json') // 4: an invalid frame counts too
+    client.send({ id: 'q2', type: 'question', text: '光为什么会拐弯？' })
+    client.send(reply('r2'))
+    expect(await take(client, 5)).toEqual([
+      { type: 'ack', id: 'q1', ok: false, error: { code: 'blocked', category: 'sensitive', message: WS_ERROR_MESSAGES.blocked } },
+      { type: 'ack', id: 'r1', ok: false, error: { code: 'conversation_ended', message: WS_ERROR_MESSAGES.conversation_ended } },
+      { type: 'ack', id: '', ok: false, error: { code: 'invalid_message', message: WS_ERROR_MESSAGES.invalid_message } },
+      { type: 'ack', id: 'q2', ok: false, error: { code: 'rate_limited', message: WS_ERROR_MESSAGES.rate_limited } },
+      { type: 'ack', id: 'r2', ok: false, error: { code: 'rate_limited', message: WS_ERROR_MESSAGES.rate_limited } },
+    ])
+    // The question refused for the rate was not handled: only the stopped one is kept.
+    expect(await s.db.selectFrom('messages').select(['kind', 'moderation']).execute()).toEqual([
+      { kind: 'question', moderation: 'sensitive' },
+    ])
+
+    // A window later the connection may send again.
+    await sleep(1100)
+    client.send({ id: 'q3', type: 'question', text: '光为什么会拐弯？' })
+    expect(await client.next()).toMatchObject({ type: 'ack', id: 'q3', ok: true })
+  })
+
+  test('a connection with too many frames waiting to be handled is closed', async () => {
+    let handled = 0
+    const s = await start({
+      config: { classConnection: { ...LIMITS, maxQueuedFrames: 3 } },
+      handlers: {
+        // Each question takes a while, so the frames after it wait.
+        question: async () => {
+          await sleep(300)
+          handled++
+          return { ok: true }
+        },
+      },
+    })
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:50'))
+    const client = await connect(students[0]!.key)
+    await hello(client)
+
+    for (const id of ['q1', 'q2', 'q3', 'q4']) client.send({ id, type: 'question', text: '光为什么会拐弯？' })
+    expect(await client.closed()).toBe(1008)
+    expect(s.disconnects).toEqual([students[0]!.id])
+    expect(s.logs.entries().filter((e) => e.msg === 'class connection sent too many frames at once')).toMatchObject([
+      { studentId: students[0]!.id },
+    ])
+    expect(handled).toBeLessThan(4)
+  })
+
+  test('a client that stops reading is dropped once what waits to go out to it passes the limit', async () => {
+    const s = await start({ config: { classConnection: { ...LIMITS, maxSendBufferKiB: 64 } } })
+    const { classId, students } = await seedClass(s, 2)
+    const [a, b] = students
+    await tickAt(s, at('19:50'))
+    const ca = await connectOverTcp(a!.key)
+    await hello(ca)
+    const cb = await connectOverTcp(b!.key)
+    await hello(cb)
+    expect(await ca.next()).toMatchObject({ type: 'presence', joined: { studentId: b!.id } })
+
+    // b stops reading: what the service sends it piles up, first in the network's buffers, then in the service.
+    cb.ws.pause()
+    const big = { type: 'presence', joined: { studentId: 1, displayName: '字'.repeat(5000) } }
+    for (let sent = 0; s.hub.online(classId).includes(b!.id); sent++) {
+      if (sent > 20_000) throw new Error('Never dropped')
+      s.hub.send(b!.id, big)
+      if (sent % 50 === 0) await new Promise((resolve) => setImmediate(resolve))
+    }
+
+    expect(s.disconnects).toEqual([b!.id])
+    expect(s.logs.entries().filter((e) => e.msg === 'class connection fell behind')).toMatchObject([{ studentId: b!.id }])
+    // Its classmate sees it leave, and stays.
+    expect(await ca.next()).toEqual({ type: 'presence', left: { studentId: b!.id, displayName: b!.displayName } })
+    expect(s.hub.online(classId)).toEqual([a!.id])
+  })
+
+  test('so is one that joins while more is pushed to it than the limit, before its welcome is out', async () => {
+    let resuming!: () => void
+    const resumeStarted = new Promise<void>((resolve) => (resuming = resolve))
+    let release!: () => void
+    const released = new Promise<void>((resolve) => (release = resolve))
+    let resumed!: () => void
+    const resumeDone = new Promise<void>((resolve) => (resumed = resolve))
+    const s = await start({
+      config: { classConnection: { ...LIMITS, maxSendBufferKiB: 1 } },
+      handlers: {
+        // The last thing the hello waits for before the welcome; what the hub sends meanwhile waits for the welcome.
+        resume: async () => {
+          resuming()
+          await released
+          resumed()
+          return []
+        },
+      },
+    })
+    const { classId, students } = await seedClass(s, 1)
+    await tickAt(s, at('19:50'))
+    const client = await connect(students[0]!.key)
+    client.send({ id: 'h1', ...HELLO })
+    await resumeStarted
+
+    s.hub.send(students[0]!.id, { type: 'presence', joined: { studentId: 1, displayName: '字'.repeat(400) } })
+    await waitUntil(() => !s.hub.online(classId).includes(students[0]!.id), 'the drop')
+    expect(await client.closed()).toBe(1006)
+    release()
+    await resumeDone
+    // Neither the welcome nor what waited for it went out.
+    expect(client.received).toEqual([])
+    expect(s.disconnects).toEqual([students[0]!.id])
+    expect(s.logs.entries().filter((e) => e.msg === 'class connection fell behind')).toHaveLength(1)
+  })
+})
+
 describe('joining the class', () => {
   test('welcome, then every event since the opening replayed, then the live ones', async () => {
     const s = await start()
@@ -740,6 +867,7 @@ describe('joining the class', () => {
         maxRoundsPerConversation: 5,
         maxMessageChars: 300,
         maxQuestionsPerLesson: 3,
+        framesPerMinute: 60,
         closingGraceSeconds: 60,
       },
       probation: true,

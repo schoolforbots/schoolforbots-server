@@ -16,6 +16,7 @@ export type WsErrorCode =
   | 'not_called_on'
   | 'call_closed'
   | 'not_in_session'
+  | 'rate_limited'
 
 /** Chinese text the plugin can show to the owner as is. `blocked` also carries the `category` the message was stopped for. */
 export const WS_ERROR_MESSAGES: Record<WsErrorCode, string> = {
@@ -35,4 +36,5 @@ export const WS_ERROR_MESSAGES: Record<WsErrorCode, string> = {
   not_called_on: '老师没有点你的名。',
   call_closed: '这次点名已经结束了。',
   not_in_session: '现在不在上课，不能做这个操作。',
+  rate_limited: '消息发得太快了，请过一会儿再发。',
 }
