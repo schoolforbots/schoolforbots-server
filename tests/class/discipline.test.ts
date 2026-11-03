@@ -380,7 +380,7 @@ describe('discipline', () => {
         {
           id: expect.any(Number),
           sessionId: sessions[2]!.sessionId,
-          detail: { until: until.toISOString() },
+          detail: { until: until.toISOString(), alsoApplied: [] },
           matchedTerm: null,
           createdAt: at('20:31', WED),
           revokedAt: null,
@@ -517,7 +517,7 @@ describe('discipline', () => {
         {
           id: expect.any(Number),
           sessionId: sessions[5]!.sessionId,
-          detail: { until: banUntil.toISOString() },
+          detail: { until: banUntil.toISOString(), alsoApplied: [] },
           matchedTerm: null,
           createdAt: closedAt,
           revokedAt: null,
@@ -566,7 +566,7 @@ describe('discipline', () => {
           {
             id: expect.any(Number),
             sessionId: sessions[2]!.sessionId,
-            detail: { until: until.toISOString() },
+            detail: { until: until.toISOString(), alsoApplied: [] },
             matchedTerm: null,
             createdAt: at('20:31', WED),
             revokedAt: null,
@@ -705,8 +705,10 @@ describe('discipline', () => {
           // The mailbox's other AI on another install, and a student expelled earlier, are not touched.
           expect(await student(other.id)).toEqual({ status: 'active', classId, suspendedUntil: null })
           expect(await student(banned.id)).toEqual({ status: 'expelled', classId: null, suspendedUntil: null })
-          // One record, on the one who broke the rule.
-          expect((await recordsOf(gone.id, 'suspension')).map((r) => r.sessionId)).toEqual([sessions[2]!.sessionId])
+          // One record, on the one who broke the rule, naming the others it reached so that a revocation can find them.
+          const records = await recordsOf(gone.id, 'suspension')
+          expect(records.map((r) => r.sessionId)).toEqual([sessions[2]!.sessionId])
+          expect(records[0]!.detail).toEqual({ until: until.toISOString(), alsoApplied: sorted([older.id, again.id]) })
           for (const s of [older, again, other, banned]) expect(await recordsOf(s.id, 'suspension')).toEqual([])
         },
       )
@@ -735,7 +737,9 @@ describe('discipline', () => {
             { email: null, installId: gone.installId, until: banUntil, reason: 'expelled', createdAt: closedAt },
           ]),
         )
-        expect((await recordsOf(gone.id, 'expulsion')).map((r) => r.sessionId)).toEqual([sessions[1]!.sessionId])
+        const records = await recordsOf(gone.id, 'expulsion')
+        expect(records.map((r) => r.sessionId)).toEqual([sessions[1]!.sessionId])
+        expect(records[0]!.detail).toEqual({ until: banUntil.toISOString(), alsoApplied: sorted([older.id, again.id]) })
         for (const s of [older, again, other, banned]) expect(await recordsOf(s.id, 'expulsion')).toEqual([])
       })
 
@@ -769,6 +773,10 @@ describe('discipline', () => {
         for (const s of [gone, again]) expect((await recordsOf(s.id, 'suspension')).map((r) => r.sessionId)).toEqual([sessions[2]!.sessionId])
         expect(await recordsOf(older.id, 'suspension')).toEqual([])
         const until = later(at('20:31', WED), 3 * DAY)
+        // Each record names the other students of the install it reached.
+        const detailOf = async (id: number) => (await recordsOf(id, 'suspension'))[0]!.detail
+        expect(await detailOf(gone.id)).toEqual({ until: until.toISOString(), alsoApplied: sorted([older.id, again.id]) })
+        expect(await detailOf(again.id)).toEqual({ until: until.toISOString(), alsoApplied: sorted([gone.id, older.id]) })
         expect(await student(again.id)).toEqual({ status: 'suspended', classId, suspendedUntil: until })
         expect(await student(gone.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: until })
       })
@@ -1038,7 +1046,7 @@ describe('discipline through the class service', () => {
     const until = at('20:31', '2026-11-07')
     expect(wednesday.after).toEqual({ status: 'suspended', classId, suspendedUntil: until })
     expect(await records('suspension')).toEqual([
-      { sessionId: expect.any(Number), kind: 'suspension', detail: { until: until.toISOString() } },
+      { sessionId: expect.any(Number), kind: 'suspension', detail: { until: until.toISOString(), alsoApplied: [] } },
     ])
 
     // During the suspension the connection is refused with the reason.
