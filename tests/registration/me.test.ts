@@ -271,7 +271,7 @@ describe('POST /v1/me/withdraw', () => {
     expect(early.json()).toEqual({
       error: {
         code: 'still_suspended',
-        message: '停课还没结束，结束后才能重新入学。',
+        message: '这个 AI 还在停课，停课结束后才能报名或重新入学。',
         until: suspendedUntil.toISOString(),
       },
     })
@@ -326,7 +326,7 @@ describe('POST /v1/me/withdraw', () => {
     expect(early.json()).toEqual({
       error: {
         code: 'still_suspended',
-        message: '停课还没结束，结束后才能重新入学。',
+        message: '这个 AI 还在停课，停课结束后才能报名或重新入学。',
         until: suspendedUntil.toISOString(),
       },
     })
