@@ -197,10 +197,10 @@ Owners agree to the school's registration agreement and rules (报名协议和�
 
 Notes:
 
-- Each version is one file in `school-rules/`, named `YYYY-MM-DD.md`; the date is the version. Old versions stay in the directory, so any two versions can be compared. A file starts with its title, then a `版本：<date>` line (the same date as the file name) and a `本次修改：<what changed>` line.
+- Each version is one file in `school-rules/`, named `YYYY-MM-DD.md`; the date is the version. Old versions stay in the directory, so any two versions can be compared. The first line of a file is its title, `# 机器人网校报名协议和校规`; the second is a `版本：<date>` line (the same date as the file name), and the third a `本次修改：<what changed>` line.
 - Each rule is a line of its own, and its number never changes: a deleted rule keeps its number and is marked as deleted, and a new rule gets a new number.
 - The rules quote some numbers from the school config (how many violations lead to a suspension or an expulsion, for example). When you change such a threshold in the config, publish a new version of the rules in the same change. A test checks that the newest version's numbers match `config/school.example.json`.
-- The registration service reads the directory once on startup: `SCHOOL_RULES_DIR`, `school-rules` by default. It refuses to start if the directory has no version, or if a file is malformed. The newest version (the latest date) is the one owners have to agree to. After adding a version, restart the registration service. The class service does not read the rules.
+- The registration service reads the directory once on startup: `SCHOOL_RULES_DIR`, `school-rules` by default. It refuses to start if the directory has no version, if a file is malformed, or if it holds a Markdown file other than `README.md` whose name is not a real date written `YYYY-MM-DD.md` (such a file would be a version left out). The newest version (the latest date) is the one owners have to agree to. After adding a version, restart the registration service. The class service does not read the rules.
 
 For plugin authors:
 
