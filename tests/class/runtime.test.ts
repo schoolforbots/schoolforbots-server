@@ -1,6 +1,7 @@
 import { sql, type Kysely } from 'kysely'
 import type { Static } from 'typebox'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { lockSession } from '../../src/class/events.js'
 import { noopHooks, type LessonHooks } from '../../src/class/hooks.js'
 import { RecordingHub, type RecordedMessage } from '../../src/class/hub.js'
 import { createClassRuntime, type ActiveSession } from '../../src/class/runtime.js'
@@ -928,6 +929,79 @@ describe('the opening', () => {
     await runtime.tick()
 
     expect(hub.messages.map(show)).toEqual([`teacher ${openingStudy('老周')}`, `roster +[] -[${b.id} ${b.name}]`])
+  })
+})
+
+describe('the locks', () => {
+  test('a rename announced at the call-on locks the session before the renames, as every other step does', async () => {
+    await insertLesson(db, { date: MON, segments: SEGMENTS })
+    const { classId, members } = await seedClass({ members: 1 })
+    const [a] = members as [Member]
+    const clock = createTestClock(at('19:45'))
+    const hub = new RecordingHub()
+    hub.join(classId, a.id)
+    // The call-on fails once after its renames are written, so the next tick starts the step with its renames.
+    let callOnFails = true
+    const runtime = newRuntime({
+      clock,
+      hub,
+      hooks: {
+        ...noopHooks,
+        async callOn() {
+          if (!callOnFails) return
+          callOnFails = false
+          throw new Error('the call-on failed')
+        },
+      },
+    })
+    await runtime.tick()
+    clock.set(at('20:15'))
+    await expect(runtime.tick()).rejects.toThrow(/call-on/)
+    const sessionId = runtime.currentSession(classId)!.sessionId
+    const rename = await db
+      .insertInto('renameEvents')
+      .values({ studentId: a.id, classId, oldDisplayName: a.name, newDisplayName: '阿杰家的小鱼', createdAt: at('20:15'), announcedAt: null })
+      .returning('id')
+      .executeTakeFirstOrThrow()
+
+    // Another writer of the session's events holds its lock, not yet committed.
+    let commit!: () => void
+    const committed = new Promise<void>((resolve) => (commit = resolve))
+    let locked!: () => void
+    const lockTaken = new Promise<void>((resolve) => (locked = resolve))
+    const writer = db.transaction().execute(async (trx) => {
+      await lockSession(trx, sessionId)
+      locked()
+      await committed
+    })
+    await lockTaken
+
+    const ticking = runtime.tick()
+    let renameFree: boolean
+    try {
+      await waitFor(async () => {
+        const { rows } = await sql<{ n: number }>`select count(*)::int as n from pg_locks where not granted`.execute(db)
+        return rows[0]!.n > 0
+      })
+      // The call-on waits for the session and holds nothing else yet: the rename is not locked by it.
+      renameFree = await db
+        .transaction()
+        .execute((trx) => trx.selectFrom('renameEvents').select('id').where('id', '=', rename.id).forUpdate().noWait().execute())
+        .then(
+          () => true,
+          () => false,
+        )
+    } finally {
+      commit()
+      await writer
+      await ticking
+    }
+    expect(renameFree).toBe(true)
+
+    // Then it goes on as usual: the rename is announced at the call-on.
+    expect(await db.selectFrom('renameEvents').select('announcedAt').execute()).toEqual([{ announcedAt: at('20:15') }])
+    const steps = await db.selectFrom('classEvents').select('step').where('sessionId', '=', sessionId).orderBy('id').execute()
+    expect(steps.map((s) => s.step).slice(-3)).toEqual([`rename-${rename.id}`, `rename-${rename.id}#2`, 'call-on'])
   })
 })
 

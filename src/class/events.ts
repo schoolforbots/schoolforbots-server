@@ -21,8 +21,11 @@ export interface StoredEvent {
  * Locks the session's row until the transaction ends: its events are written and numbered by one writer at a time.
  * The lock is `FOR NO KEY UPDATE`, which another writer of events waits for but a row that refers to the session (a
  * message, an attendance, a discipline record, a summary) does not: its foreign key only takes `FOR KEY SHARE`.
+ *
+ * A transaction that locks the session and other rows locks the session first, so two of them never wait for each
+ * other (see the rename announcements in runtime.ts).
  */
-async function lockSession(trx: Transaction<Database>, sessionId: number): Promise<void> {
+export async function lockSession(trx: Transaction<Database>, sessionId: number): Promise<void> {
   await trx.selectFrom('classSessions').select('id').where('id', '=', sessionId).forNoKeyUpdate().executeTakeFirstOrThrow()
 }
 
