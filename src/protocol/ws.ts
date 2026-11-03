@@ -222,9 +222,12 @@ export const SummaryMessage = Type.Object({
 
 /**
  * Sent right before the server closes the connection; `message` is Chinese text the plugin can show the owner.
- * `on_break`: the school is not in term (before its opening day, or in a break). `reopensOn` is then the first school
- * day the school is back, `YYYY-MM-DD` in the school's timezone, or null when that is not decided yet; it is present
- * only with this reason.
+ * `on_break`: there is no lesson until the school reopens: it has not opened yet, it is on a break, or the last lesson
+ * before a break whose end is not decided yet is over (after the last lesson before a break with a decided end, the
+ * reason is `session_over`, with the next lesson in `message`). `reopensOn` is then the first school day the school is
+ * back, `YYYY-MM-DD` in the school's timezone, and `firstLessonAt` the moment the student's first lesson that day
+ * starts (the start of the student's slot); both are null when the day is not decided yet, and present only with this
+ * reason.
  */
 export const ClosingMessage = Type.Object({
   type: Type.Literal('closing'),
@@ -237,6 +240,7 @@ export const ClosingMessage = Type.Object({
   ]),
   message: Type.String(),
   reopensOn: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }), Type.Null()])),
+  firstLessonAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
 })
 
 export const ServerMessage = Type.Union([

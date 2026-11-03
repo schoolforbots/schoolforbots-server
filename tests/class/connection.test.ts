@@ -352,7 +352,8 @@ describe('a student who may not come in', () => {
         type: 'closing',
         reason: 'on_break',
         reopensOn: '2026-11-09',
-        message: '学校11月9日开学，第一节课在11月9日 20:00开始。',
+        firstLessonAt: at('20:00', '2026-11-09').toISOString(),
+        message: '学校还没开学，第一节课在 11月9日 20:00 开始。',
       })
     })
 
@@ -364,7 +365,8 @@ describe('a student who may not come in', () => {
         type: 'closing',
         reason: 'on_break',
         reopensOn: '2026-12-14',
-        message: '学校12月14日开学，第一节课在12月14日 20:00开始。',
+        firstLessonAt: at('20:00', '2026-12-14').toISOString(),
+        message: '学校还没开学，第一节课在 12月14日 20:00 开始。',
       })
     })
 
@@ -375,7 +377,8 @@ describe('a student who may not come in', () => {
         type: 'closing',
         reason: 'on_break',
         reopensOn: '2027-01-04',
-        message: '学校正在放寒假，1月4日开学，第一节课在1月4日 20:00开始。',
+        firstLessonAt: at('20:00', '2027-01-04').toISOString(),
+        message: '学校正在放寒假，第一节课在 1月4日 20:00 开始。',
       })
       expect(told.message.startsWith('学校正在放寒假，')).toBe(true)
     })
@@ -387,7 +390,8 @@ describe('a student who may not come in', () => {
         type: 'closing',
         reason: 'on_break',
         reopensOn: '2027-01-04',
-        message: '学校正在放假，1月4日开学，第一节课在1月4日 20:00开始。',
+        firstLessonAt: at('20:00', '2027-01-04').toISOString(),
+        message: '学校正在放假，第一节课在 1月4日 20:00 开始。',
       })
     })
 
@@ -395,7 +399,7 @@ describe('a student who may not come in', () => {
       // 2 January 2027 is a Saturday: with no study halls at the weekend the school is back on Monday the 4th.
       const told = await toldAt(at('12:00', THU), { breaks: [{ ...WINTER, reopensOn: '2027-01-02' }] }, false)
 
-      expect(told).toMatchObject({ reason: 'on_break', reopensOn: '2027-01-04' })
+      expect(told).toMatchObject({ reason: 'on_break', reopensOn: '2027-01-04', firstLessonAt: at('20:00', '2027-01-04').toISOString() })
     })
 
     test('in a break with no end yet, the student is told so, and the connection ends', async () => {
@@ -405,19 +409,36 @@ describe('a student who may not come in', () => {
         type: 'closing',
         reason: 'on_break',
         reopensOn: null,
+        firstLessonAt: null,
         message: '学校正在放假，开学时间另行通知。',
       })
     })
 
-    test('the evening a break with no end yet begins, the student who comes after class is told the same', async () => {
-      // It is still term on Friday, so the calendar lets the student come to the door; the next lesson is what is undecided.
-      const told = await toldAt(at('20:45', FRI), { breaks: [{ from: '2026-12-21', reopensOn: null }] }, false)
+    test('after the last lesson before a break with no end yet, the student is told when it starts, as on_break', async () => {
+      // It is still term on Friday, so the calendar lets the student come to the door; there is no lesson until the
+      // school is back, and that is undecided. The weekend before the break is the same.
+      for (const time of [at('20:45', FRI), at('12:00', '2026-12-19')]) {
+        const told = await toldAt(time, { breaks: [{ from: '2026-12-21', reopensOn: null }] }, false)
+
+        expect(told).toEqual({
+          type: 'closing',
+          reason: 'on_break',
+          reopensOn: null,
+          firstLessonAt: null,
+          message: '从12月21日开始放假，开学时间另行通知。',
+        })
+      }
+    })
+
+    test('a break with no end yet that has a name is named, the evening before it too', async () => {
+      const told = await toldAt(at('20:45', FRI), { breaks: [{ from: '2026-12-21', reopensOn: null, name: '寒假' }] }, false)
 
       expect(told).toEqual({
         type: 'closing',
         reason: 'on_break',
         reopensOn: null,
-        message: '学校正在放假，开学时间另行通知。',
+        firstLessonAt: null,
+        message: '从12月21日开始放寒假，开学时间另行通知。',
       })
     })
 
@@ -431,7 +452,13 @@ describe('a student who may not come in', () => {
       expect(s.runtime.currentSession(classId)).toBeNull()
 
       client.send({ id: 'h1', ...HELLO })
-      expect(await client.next()).toMatchObject({ type: 'closing', reason: 'on_break', reopensOn: null })
+      expect(await client.next()).toEqual({
+        type: 'closing',
+        reason: 'on_break',
+        reopensOn: null,
+        firstLessonAt: null,
+        message: '从12月21日开始放假，开学时间另行通知。',
+      })
       expect(await client.closed()).toBe(1000)
     })
 
@@ -443,6 +470,7 @@ describe('a student who may not come in', () => {
 
       expect(told.reason).toBe('session_over')
       expect(told).not.toHaveProperty('reopensOn')
+      expect(told).not.toHaveProperty('firstLessonAt')
     })
 
     test('after the last lesson before a break, the student is told when the next lesson is, as session_over', async () => {

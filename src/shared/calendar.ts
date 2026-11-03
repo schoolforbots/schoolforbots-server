@@ -39,11 +39,8 @@ export function isSchoolDay(date: string, config: SchoolConfig): boolean {
   return !isOnBreak(date, config) && (isoWeekday(date) <= 5 || config.lesson.weekendStudy)
 }
 
-/**
- * The first school day on or after `from`: `from` itself when it is one. Null when the school is on a break from
- * then on that has no reopening day yet.
- */
-export function nextSchoolDay(from: string, config: SchoolConfig): string | null {
+/** Walks from `from` to the first school day on or after it, or to the break with no end that comes first. */
+function walkToSchoolDay(from: string, config: SchoolConfig): { schoolDay: string } | { endless: Break } {
   const openingDay = config.calendar?.openingDay
   let day = from
   // Each pass moves to a later day: the opening day, the end of a break, or the next day. A break with no end
@@ -55,13 +52,31 @@ export function nextSchoolDay(from: string, config: SchoolConfig): string | null
     }
     const onBreak = breakOn(day, config)
     if (onBreak !== undefined) {
-      if (onBreak.reopensOn === null) return null
+      if (onBreak.reopensOn === null) return { endless: onBreak }
       day = onBreak.reopensOn
       continue
     }
-    if (isoWeekday(day) <= 5 || config.lesson.weekendStudy) return day
+    if (isoWeekday(day) <= 5 || config.lesson.weekendStudy) return { schoolDay: day }
     day = addDaysToDate(day, 1)
   }
+}
+
+/**
+ * The first school day on or after `from`: `from` itself when it is one. Null when the school is on a break from
+ * then on that has no reopening day yet.
+ */
+export function nextSchoolDay(from: string, config: SchoolConfig): string | null {
+  const reached = walkToSchoolDay(from, config)
+  return 'schoolDay' in reached ? reached.schoolDay : null
+}
+
+/**
+ * The break with no reopening day yet that comes before any school day on or after `from`: the one that makes
+ * `nextSchoolDay` null, whether `from` is in it or in term before it. Null when there is a school day first.
+ */
+export function undecidedBreakAhead(from: string, config: SchoolConfig): { name: string | null; from: string } | null {
+  const reached = walkToSchoolDay(from, config)
+  return 'endless' in reached ? { name: reached.endless.name ?? null, from: reached.endless.from } : null
 }
 
 /** The first school day after break `b`, null when it has no reopening day yet. */
