@@ -11,7 +11,7 @@ import { disciplineRecorder } from './discipline.js'
 import { createLessonHooks, type LessonHooks } from './hooks.js'
 import { createHub, type MemoryHub } from './hub.js'
 import { questionHandlers, type QuestionsDeps } from './questions.js'
-import { createClassRuntime, LIVE_TOLERANCE_MS, type ClassRuntime } from './runtime.js'
+import { createClassRuntime, LIVE_TOLERANCE_MS, onlyClassStepsFailed, type ClassRuntime } from './runtime.js'
 import { startTicker, type Ticker } from './ticker.js'
 
 export interface ClassServiceDeps {
@@ -139,14 +139,25 @@ export function tickIntervalMs(speed: number): number {
 /**
  * Starts the service: one tick, then listening, then a tick on every interval. The first tick comes before anyone can
  * connect, so the sessions going on are open by then: a student back right after a restart is let in, not told that
- * the next lesson is tomorrow. A failed first tick fails the start, and nothing listens; a later one is logged.
+ * the next lesson is tomorrow.
+ *
+ * A first tick that could not open or load the sessions fails the start, and nothing listens. One in which only the
+ * steps of some classes failed does not: those classes are left behind, the others are taught, and every tick tries
+ * the failed steps again (see `ClassStepError`). A class whose step keeps failing then keeps only itself from going
+ * on, not the whole service from starting. Later failures are logged.
  */
 export async function startClassService(
   service: Pick<ClassService, 'app' | 'tick'>,
   p: { port: number; host?: string; speed: number },
 ): Promise<Ticker> {
   const { app, tick } = service
-  await tick()
+  const logFailure = (err: unknown) => app.log.error({ err }, 'class tick failed')
+  try {
+    await tick()
+  } catch (err) {
+    if (!onlyClassStepsFailed(err)) throw err
+    logFailure(err)
+  }
   await app.listen({ port: p.port, host: p.host ?? '0.0.0.0' })
-  return startTicker(tick, tickIntervalMs(p.speed), (err) => app.log.error({ err }, 'class tick failed'))
+  return startTicker(tick, tickIntervalMs(p.speed), logFailure)
 }

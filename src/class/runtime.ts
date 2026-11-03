@@ -28,8 +28,34 @@ export interface ActiveSession {
   closeAt: Date
 }
 
+/**
+ * A step of one class session failed. The tick runs the other sessions all the same, and tries the step again at the
+ * next one; the session's later steps wait for it.
+ */
+export class ClassStepError extends Error {
+  constructor(
+    readonly sessionId: number,
+    readonly classId: number,
+    readonly step: StepName,
+    cause: unknown,
+  ) {
+    super(`Class step ${step} of session ${sessionId} (class ${classId}) failed`, { cause })
+    this.name = 'ClassStepError'
+  }
+}
+
+/** Whether all that failed in a tick was the steps of some classes (`ClassStepError`), not the tick itself. */
+export function onlyClassStepsFailed(err: unknown): boolean {
+  if (err instanceof ClassStepError) return true
+  return err instanceof AggregateError && err.errors.length > 0 && err.errors.every((e) => e instanceof ClassStepError)
+}
+
 export interface ClassRuntime {
-  /** Opens the sessions whose doors have opened and runs every step that is due and has not run yet, in order. */
+  /**
+   * Opens the sessions whose doors have opened and runs every step that is due and has not run yet, in order. Throws
+   * when anything failed, after doing all the rest: the failure of one session's step, a `ClassStepError`, holds up
+   * none of the others. Several failures come as an `AggregateError`.
+   */
   tick(): Promise<void>
   /** The class's session from its doors until its close, or null. */
   currentSession(classId: number): ActiveSession | null
@@ -596,7 +622,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
       try {
         seqs = await runStep(t, step, now)
       } catch (err) {
-        throw new Error(`Class step ${step} of session ${sessionId} (class ${classId}) failed`, { cause: err })
+        throw new ClassStepError(sessionId, classId, step, err)
       }
       t.done.add(step)
       if (seqs !== null) log({ sessionId, classId, step, seqs }, 'class step')
