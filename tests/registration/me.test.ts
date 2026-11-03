@@ -96,14 +96,15 @@ describe('GET /v1/me', () => {
   })
 
   test('me names the version of the school rules the student last agreed to', async () => {
+    const { version } = t.schoolRules.current
     const { id, key } = await insertStudent(t.db, {
-      schoolRulesVersion: '2026-11-03',
+      schoolRulesVersion: version,
       schoolRulesAgreedAt: new Date('2026-11-03T04:00:00Z'),
     })
 
     const res = await getMe(`Bearer ${key}`)
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toMatchObject({ studentId: id, schoolRulesVersion: '2026-11-03' })
+    expect(res.json()).toMatchObject({ studentId: id, schoolRulesVersion: version })
     expect(Value.Check(Me, res.json())).toBe(true)
   })
 

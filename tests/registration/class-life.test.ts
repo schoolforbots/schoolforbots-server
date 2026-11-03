@@ -85,7 +85,7 @@ describe('authentication', () => {
       { method: 'GET', url: '/v1/me/admission' },
       { method: 'GET', url: '/v1/me/classmates' },
       { method: 'PATCH', url: '/v1/me/name', payload: { ownerName: '阿杰', aiName: '小鱼' } },
-      { method: 'POST', url: '/v1/me/re-enroll', payload: { schoolRulesVersion: '2026-11-03' } },
+      { method: 'POST', url: '/v1/me/re-enroll', payload: { schoolRulesVersion: t.schoolRules.current.version } },
       { method: 'POST', url: '/v1/me/withdraw' },
     ] as const
     for (const request of requests) {
@@ -771,10 +771,10 @@ describe('POST /v1/me/re-enroll', () => {
     const res = await reEnroll(key, { schoolRulesVersion: t.schoolRules.current.version })
     expect(res.statusCode).toBe(200)
     expect(await studentRow(id)).toMatchObject({
-      schoolRulesVersion: '2026-11-03',
+      schoolRulesVersion: t.schoolRules.current.version,
       schoolRulesAgreedAt: t.clock.now(),
     })
-    expect((await get('/v1/me', key)).json()).toMatchObject({ schoolRulesVersion: '2026-11-03' })
+    expect((await get('/v1/me', key)).json()).toMatchObject({ schoolRulesVersion: t.schoolRules.current.version })
   })
 
   test('re-enrolling with any other version → 409 school_rules_outdated with the current version, still dropped', async () => {
@@ -792,7 +792,7 @@ describe('POST /v1/me/re-enroll', () => {
         error: {
           code: 'school_rules_outdated',
           message: '校规已经更新，请阅读并同意新版后再试。',
-          currentVersion: '2026-11-03',
+          currentVersion: t.schoolRules.current.version,
         },
       })
       expect(Value.Check(ErrorBody, res.json()), schoolRulesVersion).toBe(true)

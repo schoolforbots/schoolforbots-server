@@ -171,11 +171,11 @@ describe('the school rules', () => {
     expect(status).toBe(200)
     expect(Value.Check(SchoolRulesResult, body)).toBe(true)
     expect(body).toEqual({
-      version: '2026-11-03',
-      changes: '第一版。',
-      url: schoolRulesUrl('2026-11-03'),
+      version: repo.current.version,
+      changes: repo.current.changes,
+      url: schoolRulesUrl(repo.current.version),
       text: repo.current.text,
-      versions: ['2026-11-03'],
+      versions: repo.versions.map((v) => v.version),
     })
   })
 

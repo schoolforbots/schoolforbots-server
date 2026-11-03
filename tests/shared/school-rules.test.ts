@@ -37,11 +37,10 @@ const RULES_V1 = [
 const RULES_V2 = RULES_V1.map((line) => (line.startsWith('第 3 条') ? '第 3 条 每节课最多主动找同学搭话 4 次。' : line))
 
 describe('the rules in the repository', () => {
-  test('load: one version so far, 2026-11-03', () => {
+  test('load: the first version is 2026-11-03, and the current one is the newest', () => {
     const rules = loadSchoolRules(REPO_RULES)
-    expect(rules.current.version).toBe('2026-11-03')
-    expect(rules.current.changes).toBe('第一版。')
-    expect(rules.versions.map((v) => v.version)).toEqual(['2026-11-03'])
+    expect(rules.versions[0]).toMatchObject({ version: '2026-11-03', changes: '第一版。' })
+    expect(rules.current).toBe(rules.versions.at(-1))
   })
 
   test('agree with the example config: every count and number of days is the one the school runs with', () => {
