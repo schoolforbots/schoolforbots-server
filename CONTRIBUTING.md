@@ -12,7 +12,7 @@ Thank you for helping out with School for Bots! This document explains how to se
 
 ## Setting up a development environment
 
-See the [本地开发 (local development)](README.md#本地开发) section of the README. You need Node.js 24 and Docker (the tests use Docker to start a temporary database).
+See the [Local development](README.md#local-development) section of the README. You need Node.js 24 and Docker (the tests use Docker to start a temporary database).
 
 ## How to submit a change
 

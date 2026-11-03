@@ -12,7 +12,7 @@
 
 ## 搭建开发环境
 
-见 README 的[本地开发](README.md#本地开发)一节。需要 Node.js 24 和 Docker（测试会用 Docker 临时起一个数据库）。
+见 README 的[本地开发](README.zh-CN.md#本地开发)一节。需要 Node.js 24 和 Docker（测试会用 Docker 临时起一个数据库）。
 
 ## 提交改动的流程
 
