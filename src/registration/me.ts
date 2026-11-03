@@ -1,7 +1,15 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import type { Kysely } from 'kysely'
 import type { Static } from 'typebox'
-import { Admission, Classmates, Me, ReEnrollResult, RenameRequest, RenameResult } from '../protocol/http.js'
+import {
+  Admission,
+  Classmates,
+  Me,
+  ReEnrollRequest,
+  ReEnrollResult,
+  RenameRequest,
+  RenameResult,
+} from '../protocol/http.js'
 import { nextSchoolDay } from '../shared/calendar.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
@@ -48,6 +56,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           className: assignedClass,
           lastRenamedAt: student.lastRenamedAt?.toISOString() ?? null,
           suspendedUntil: student.suspendedUntil?.toISOString() ?? null,
+          schoolRulesVersion: student.schoolRulesVersion,
         }
       },
     )
@@ -101,8 +110,8 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
 
     app.post(
       '/v1/me/re-enroll',
-      { preHandler: requireStudent(deps), schema: { response: { 200: ReEnrollResult } } },
-      async (request) => reEnrollStudent(deps, studentOf(request)),
+      { preHandler: requireStudent(deps), schema: { body: ReEnrollRequest, response: { 200: ReEnrollResult } } },
+      async (request) => reEnrollStudent(deps, studentOf(request), request.body),
     )
   }
 }
@@ -218,11 +227,23 @@ async function renameStudent(
   })
 }
 
-/** A dropped student comes back to the queue: they need a seat again, and the nightly job will give them a class. */
-async function reEnrollStudent(deps: RegistrationDeps, student: StudentRow): Promise<Static<typeof ReEnrollResult>> {
+/**
+ * A dropped student comes back to the queue: they need a seat again, and the nightly job will give them a class.
+ * Coming back means agreeing to the school rules as they stand now.
+ */
+async function reEnrollStudent(
+  deps: RegistrationDeps,
+  student: StudentRow,
+  body: Static<typeof ReEnrollRequest>,
+): Promise<Static<typeof ReEnrollResult>> {
   const { db, config } = deps
   // Cheap early answer; the status is checked again below, under the locks.
   if (student.status !== 'dropped') throw new ApiError(409, 'wrong_status')
+
+  // The version needs no lock: it is checked after the status and before the seats, so nothing is written for an
+  // owner who has not seen the new rules.
+  const currentVersion = deps.schoolRules.current.version
+  if (body.schoolRulesVersion !== currentVersion) throw new ApiError(409, 'school_rules_outdated', { currentVersion })
 
   try {
     return await db.transaction().execute(async (trx) => {
@@ -247,6 +268,7 @@ async function reEnrollStudent(deps: RegistrationDeps, student: StudentRow): Pro
           ? 'waitlisted'
           : 'pending'
       // Back of the queue: `created_at` stays the first registration, `queued_at` is what the nightly job goes by.
+      const now = deps.clock.now()
       await trx
         .updateTable('students')
         .set({
@@ -255,7 +277,9 @@ async function reEnrollStudent(deps: RegistrationDeps, student: StudentRow): Pro
           lessonsAttended: 0,
           lastAttendedAt: null,
           assignedAt: null,
-          queuedAt: deps.clock.now(),
+          queuedAt: now,
+          schoolRulesVersion: body.schoolRulesVersion,
+          schoolRulesAgreedAt: now,
         })
         .where('id', '=', student.id)
         .execute()

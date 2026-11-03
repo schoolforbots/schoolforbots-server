@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Value } from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ErrorBody, InvalidNameError, RegistrationAccepted, VerifyResult } from '../../src/protocol/http.js'
+import type { SchoolRules } from '../../src/shared/school-rules.js'
 import { hashSecret } from '../../src/shared/secrets.js'
 import { buildTestApp } from '../helpers/app.js'
 import { insertStudent } from '../helpers/factories.js'
@@ -38,6 +39,7 @@ function registrationBody(overrides: Record<string, unknown> = {}) {
     slot: 'evening',
     installId: randomUUID(),
     plugin: { type: 'astrbot', version: '0.1.0' },
+    schoolRulesVersion: t.schoolRules.current.version,
     ...overrides,
   }
 }
@@ -112,8 +114,10 @@ describe('POST /v1/registrations', () => {
       attempts: 0,
       referrerId: null,
       verifiedAt: null,
+      schoolRulesVersion: '2026-11-03',
     })
     expect(row.createdAt).toEqual(t.clock.now())
+    expect(row.schoolRulesAgreedAt).toEqual(t.clock.now())
     expect(row.expiresAt).toEqual(new Date(t.clock.now().getTime() + 10 * MINUTE))
   })
 
@@ -121,6 +125,56 @@ describe('POST /v1/registrations', () => {
     const { registrationId } = await registerOk({ ownerName: '  阿​杰 ', aiName: '小  鱼' })
     const row = await t.db.selectFrom('registrations').selectAll().where('id', '=', registrationId).executeTakeFirstOrThrow()
     expect(row).toMatchObject({ ownerName: '阿杰', aiName: '小 鱼' })
+  })
+
+  test('registering agrees to the current school rules: the version and the moment are recorded', async () => {
+    t.clock.advance(5 * MINUTE)
+    const { registrationId } = await registerOk({ schoolRulesVersion: t.schoolRules.current.version })
+
+    const row = await t.db
+      .selectFrom('registrations')
+      .select(['schoolRulesVersion', 'schoolRulesAgreedAt'])
+      .where('id', '=', registrationId)
+      .executeTakeFirstOrThrow()
+    expect(row).toEqual({ schoolRulesVersion: '2026-11-03', schoolRulesAgreedAt: t.clock.now() })
+  })
+
+  test('any version but the current one → 409 school_rules_outdated, nothing written, no mail', async () => {
+    // An older version of the rules, and one the school never published: neither is what the owner has to agree to now.
+    for (const schoolRulesVersion of ['2026-10-01', '2099-01-01']) {
+      const res = await register(registrationBody({ schoolRulesVersion }))
+      expect(res.statusCode, schoolRulesVersion).toBe(409)
+      expect(res.json(), schoolRulesVersion).toEqual({
+        error: {
+          code: 'school_rules_outdated',
+          message: '校规已经更新，请阅读并同意新版后再试。',
+          currentVersion: '2026-11-03',
+        },
+      })
+      expect(Value.Check(ErrorBody, res.json()), schoolRulesVersion).toBe(true)
+    }
+    expect(await t.db.selectFrom('registrations').select('id').execute()).toEqual([])
+    expect(t.mailer.sent).toEqual([])
+  })
+
+  test('a registration without a school rules version, or with one that is not a date, → 400 invalid_request', async () => {
+    const withoutVersion: Record<string, unknown> = registrationBody()
+    delete withoutVersion.schoolRulesVersion
+    const bodies = [
+      withoutVersion,
+      registrationBody({ schoolRulesVersion: null }),
+      registrationBody({ schoolRulesVersion: '' }),
+      registrationBody({ schoolRulesVersion: 'latest' }),
+      registrationBody({ schoolRulesVersion: '2026-11-3' }),
+      registrationBody({ schoolRulesVersion: 20261103 }),
+    ]
+    for (const body of bodies) {
+      const res = await register(body)
+      expect(res.statusCode, JSON.stringify(body.schoolRulesVersion)).toBe(400)
+      expect(errorOf(res).code).toBe('invalid_request')
+    }
+    expect(await t.db.selectFrom('registrations').select('id').execute()).toEqual([])
+    expect(t.mailer.sent).toEqual([])
   })
 
   test('bad name is rejected with part and reason', async () => {
@@ -322,6 +376,14 @@ describe('POST /v1/registrations', () => {
     const badName = await register(registrationBody({ email: 'banned@example.com', ownerName: '' }))
     expect(errorOf(badName).code).toBe('invalid_name')
 
+    // name before school rules, school rules before ban
+    const outdatedBadName = await register(
+      registrationBody({ email: 'banned@example.com', ownerName: '', schoolRulesVersion: '2026-10-01' }),
+    )
+    expect(errorOf(outdatedBadName).code).toBe('invalid_name')
+    const outdated = await register(registrationBody({ email: 'banned@example.com', schoolRulesVersion: '2026-10-01' }))
+    expect(errorOf(outdated).code).toBe('school_rules_outdated')
+
     // ban before IP limit: fill ipX, then a banned email from ipX is banned, not ip_limited
     for (let i = 0; i < 5; i++) {
       expect((await register(registrationBody({ email: `fill${i}@example.com` }), ipX)).statusCode).toBe(202)
@@ -467,8 +529,10 @@ describe('POST /v1/registrations/:id/verify', () => {
       lastAttendedAt: null,
       lastRenamedAt: null,
       lessonsAttended: 0,
+      schoolRulesVersion: '2026-11-03',
     })
     expect(student.createdAt).toEqual(t.clock.now())
+    expect(student.schoolRulesAgreedAt).toEqual(t.clock.now())
 
     const registration = await t.db
       .selectFrom('registrations')
@@ -595,6 +659,41 @@ describe('POST /v1/registrations/:id/verify', () => {
       .where('id', '=', res.json<{ studentId: number }>().studentId)
       .executeTakeFirstOrThrow()
     expect(student).toEqual({ createdAt: t.clock.now(), queuedAt: t.clock.now() })
+  })
+
+  test('the student carries the version and the moment agreed to at registration, even if the rules changed since', async () => {
+    // The service reads the rules once at startup; a new version arrives with a restart. Here the rules object the app
+    // holds is changed in place, between the registration and the verification.
+    const v1 = t.schoolRules.current
+    const v2 = { version: '2026-12-01', changes: '改了一条。', text: `${v1.text}\n第 99 条 新的一条。\n` }
+    const rules: SchoolRules = { current: v1, versions: [v1] }
+    await t.destroy()
+    t = await buildTestApp({ schoolRules: rules })
+
+    const { registrationId, code } = await registerOk()
+    const registeredAt = t.clock.now()
+    rules.versions.push(v2)
+    rules.current = v2
+    t.clock.advance(2 * MINUTE)
+
+    // The old version is outdated now ...
+    const stale = await register(registrationBody({ schoolRulesVersion: v1.version, email: 'other@example.com' }))
+    expect(stale.statusCode).toBe(409)
+    expect(errorOf(stale)).toMatchObject({ code: 'school_rules_outdated', currentVersion: '2026-12-01' })
+
+    // ... but the owner agreed to it when registering, and the verification stands.
+    const res = await verify(registrationId, code)
+    expect(res.statusCode).toBe(201)
+    const student = await t.db
+      .selectFrom('students')
+      .select(['schoolRulesVersion', 'schoolRulesAgreedAt', 'createdAt'])
+      .where('id', '=', res.json<{ studentId: number }>().studentId)
+      .executeTakeFirstOrThrow()
+    expect(student).toEqual({
+      schoolRulesVersion: '2026-11-03',
+      schoolRulesAgreedAt: registeredAt,
+      createdAt: t.clock.now(),
+    })
   })
 
   test('full slot puts the student on the waitlist', async () => {

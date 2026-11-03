@@ -295,7 +295,8 @@
         "status",
         "className",
         "lastRenamedAt",
-        "suspendedUntil"
+        "suspendedUntil",
+        "schoolRulesVersion"
       ],
       "properties": {
         "studentId": {
@@ -401,6 +402,29 @@
               "type": "null"
             }
           ]
+        },
+        "schoolRulesVersion": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ReEnrollRequest": {
+      "type": "object",
+      "required": [
+        "schoolRulesVersion"
+      ],
+      "properties": {
+        "schoolRulesVersion": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
         }
       }
     },
@@ -559,7 +583,8 @@
         "division",
         "slot",
         "installId",
-        "plugin"
+        "plugin",
+        "schoolRulesVersion"
       ],
       "properties": {
         "email": {
@@ -634,6 +659,10 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 2147483647
+        },
+        "schoolRulesVersion": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
         }
       }
     },

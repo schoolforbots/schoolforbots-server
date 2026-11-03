@@ -75,6 +75,7 @@ export async function buildTestApp(
     db,
     mailer,
     clock,
+    schoolRules,
     async destroy() {
       await app.close()
       await destroyDb()

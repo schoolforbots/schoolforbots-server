@@ -20,6 +20,7 @@ export type ErrorCode =
   | 'rename_cooldown'
   | 'name_taken'
   | 'wrong_status'
+  | 'school_rules_outdated'
   | 'rate_limited'
 
 /** Chinese text the plugin can show to the owner as is. */
@@ -41,6 +42,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   rename_cooldown: '最近刚改过名字，请过一段时间再改。',
   name_taken: '这个名字已经有人用了，请换一个。',
   wrong_status: '当前状态下不能做这个操作。',
+  school_rules_outdated: '校规已经更新，请阅读并同意新版后再试。',
   rate_limited: '请求太频繁了，请稍后再试。',
 }
 

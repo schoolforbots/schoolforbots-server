@@ -5,6 +5,7 @@ import * as m0001 from '../../src/shared/migrations/0001_init.js'
 import * as m0002 from '../../src/shared/migrations/0002_key_reset_decoys.js'
 import * as m0003 from '../../src/shared/migrations/0003_student_queue_time.js'
 import * as m0004 from '../../src/shared/migrations/0004_class_service.js'
+import * as m0005 from '../../src/shared/migrations/0005_school_rules_agreement.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertStudent } from '../helpers/factories.js'
 
@@ -15,6 +16,7 @@ const provider: MigrationProvider = {
       '0002_key_reset_decoys': m0002,
       '0003_student_queue_time': m0003,
       '0004_class_service': m0004,
+      '0005_school_rules_agreement': m0005,
     }
   },
 }

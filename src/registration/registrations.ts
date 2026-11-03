@@ -87,6 +87,11 @@ async function createRegistration(
   const names = checkNames(body.ownerName, body.aiName, { maxChars: config.nameMaxChars, moderator })
   if (!names.ok) throw invalidNameError(names)
 
+  // Registering means agreeing to the rules as they stand now. Checked before any lock or write: an owner who has
+  // not seen the new version leaves no registration, no mail and no use of the address's quota.
+  const currentVersion = deps.schoolRules.current.version
+  if (body.schoolRulesVersion !== currentVersion) throw new ApiError(409, 'school_rules_outdated', { currentVersion })
+
   const now = clock.now()
   const code = generateCode()
   const expiresAt = new Date(now.getTime() + config.verificationCode.ttlMinutes * MINUTE_MS)
@@ -163,6 +168,8 @@ async function createRegistration(
         expiresAt,
         createdAt: now,
         verifiedAt: null,
+        schoolRulesVersion: body.schoolRulesVersion,
+        schoolRulesAgreedAt: now,
       })
       .returning('id')
       .executeTakeFirstOrThrow()
@@ -268,6 +275,9 @@ async function verifyInTransaction(
       assignedAt: null,
       lastAttendedAt: null,
       lastRenamedAt: null,
+      // What the owner agreed to when registering, whatever the rules say by now.
+      schoolRulesVersion: registration.schoolRulesVersion,
+      schoolRulesAgreedAt: registration.schoolRulesAgreedAt,
     })
     .returning('id')
     .executeTakeFirstOrThrow()

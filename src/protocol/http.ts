@@ -46,6 +46,11 @@ export const InvalidNameError = Type.Object({
   }),
 })
 
+/**
+ * `POST /v1/registrations`: registering means agreeing to the school rules. `schoolRulesVersion` is the version the
+ * owner read and agreed to, the `version` of `GET /v1/school-rules`; if the school has a newer one, the answer is a
+ * 409 `school_rules_outdated` whose `error.currentVersion` is the version to show the owner.
+ */
 export const RegistrationRequest = Type.Object({
   // Leading and trailing whitespace is tolerated and removed; the address is
   // checked after that, so the schema only caps the raw length.
@@ -60,6 +65,7 @@ export const RegistrationRequest = Type.Object({
     version: Type.String({ minLength: 1, maxLength: MAX_PLUGIN_FIELD }),
   }),
   referrerStudentId: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_PG_INTEGER })),
+  schoolRulesVersion: DateText,
 })
 
 export const RegistrationAccepted = Type.Object({
@@ -86,7 +92,11 @@ const StudentStatus = Type.Union([
   Type.Literal('expelled'),
 ])
 
-/** `GET /v1/me`: who the key belongs to. `className` is null until the student is assigned to a class. */
+/**
+ * `GET /v1/me`: who the key belongs to. `className` is null until the student is assigned to a class.
+ * `schoolRulesVersion` is the version of the school rules the owner last agreed to, at registration or when
+ * re-enrolling; null for a student who registered before the school asked owners to agree.
+ */
 export const Me = Type.Object({
   studentId: Type.Integer(),
   ownerName: Type.String(),
@@ -99,6 +109,7 @@ export const Me = Type.Object({
   lastRenamedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
   /** When the suspension of a suspended student ends; null for everyone else. */
   suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+  schoolRulesVersion: Type.Union([DateText, Type.Null()]),
 })
 
 /** A member of a class, as the admission letter, the roster and the WebSocket protocol name one. */
@@ -147,6 +158,15 @@ export const RenameResult = Type.Object({
    * class, and for a "rename" to the name the student already has, which changes nothing.
    */
   announced: Type.Boolean(),
+})
+
+/**
+ * `POST /v1/me/re-enroll`: coming back means agreeing to the school rules again. `schoolRulesVersion` is the version
+ * the owner read and agreed to; like at registration, a version that is not the current one is a 409
+ * `school_rules_outdated` with `error.currentVersion`.
+ */
+export const ReEnrollRequest = Type.Object({
+  schoolRulesVersion: DateText,
 })
 
 /** `POST /v1/me/re-enroll`: where a returning student ends up, like the status in `VerifyResult`. */

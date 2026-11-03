@@ -41,8 +41,9 @@ function rename(key: string, body: unknown) {
   return t.app.inject({ method: 'PATCH', url: '/v1/me/name', headers: bearer(key), payload: body as object })
 }
 
-function reEnroll(key: string) {
-  return t.app.inject({ method: 'POST', url: '/v1/me/re-enroll', headers: bearer(key) })
+/** Re-enrolls agreeing to the current school rules, unless `body` says otherwise. */
+function reEnroll(key: string, body: unknown = { schoolRulesVersion: t.schoolRules.current.version }) {
+  return t.app.inject({ method: 'POST', url: '/v1/me/re-enroll', headers: bearer(key), payload: body as object })
 }
 
 function errorOf(res: { json<T>(): T }) {
@@ -84,7 +85,7 @@ describe('authentication', () => {
       { method: 'GET', url: '/v1/me/admission' },
       { method: 'GET', url: '/v1/me/classmates' },
       { method: 'PATCH', url: '/v1/me/name', payload: { ownerName: '阿杰', aiName: '小鱼' } },
-      { method: 'POST', url: '/v1/me/re-enroll' },
+      { method: 'POST', url: '/v1/me/re-enroll', payload: { schoolRulesVersion: '2026-11-03' } },
     ] as const
     for (const request of requests) {
       const res = await t.app.inject({ ...request, headers: bearer('ais_notAKeyAnyoneWasGiven') })
@@ -744,6 +745,92 @@ describe('POST /v1/me/re-enroll', () => {
     expect(second.statusCode).toBe(200)
     expect(second.json()).toEqual({ status: 'waitlisted' })
     expect(await studentRow(another.id)).toMatchObject({ id: another.id, status: 'waitlisted' })
+  })
+
+  test('re-enrolling agrees to the current school rules: the version and the moment are recorded', async () => {
+    const { id, key } = await insertStudent(t.db, {
+      status: 'dropped',
+      schoolRulesVersion: '2026-10-01',
+      schoolRulesAgreedAt: new Date('2026-10-01T04:00:00Z'),
+    })
+    t.clock.advance(3 * DAY)
+
+    const res = await reEnroll(key, { schoolRulesVersion: t.schoolRules.current.version })
+    expect(res.statusCode).toBe(200)
+    expect(await studentRow(id)).toMatchObject({
+      schoolRulesVersion: '2026-11-03',
+      schoolRulesAgreedAt: t.clock.now(),
+    })
+    expect((await get('/v1/me', key)).json()).toMatchObject({ schoolRulesVersion: '2026-11-03' })
+  })
+
+  test('re-enrolling with any other version → 409 school_rules_outdated with the current version, still dropped', async () => {
+    const agreedAt = new Date('2026-10-01T04:00:00Z')
+    const { id, key } = await insertStudent(t.db, {
+      status: 'dropped',
+      schoolRulesVersion: '2026-10-01',
+      schoolRulesAgreedAt: agreedAt,
+    })
+
+    for (const schoolRulesVersion of ['2026-10-01', '2099-01-01']) {
+      const res = await reEnroll(key, { schoolRulesVersion })
+      expect(res.statusCode, schoolRulesVersion).toBe(409)
+      expect(res.json(), schoolRulesVersion).toEqual({
+        error: {
+          code: 'school_rules_outdated',
+          message: '校规已经更新，请阅读并同意新版后再试。',
+          currentVersion: '2026-11-03',
+        },
+      })
+      expect(Value.Check(ErrorBody, res.json()), schoolRulesVersion).toBe(true)
+    }
+    // Nothing changed: not the status, and not what the student had agreed to before.
+    expect(await studentRow(id)).toMatchObject({
+      status: 'dropped',
+      schoolRulesVersion: '2026-10-01',
+      schoolRulesAgreedAt: agreedAt,
+    })
+  })
+
+  test('re-enrolling without a body, or with a version that is not a date → 400 invalid_request, still dropped', async () => {
+    const { id, key } = await insertStudent(t.db, { status: 'dropped' })
+
+    const noBody = await t.app.inject({ method: 'POST', url: '/v1/me/re-enroll', headers: bearer(key) })
+    expect(noBody.statusCode).toBe(400)
+    expect(errorOf(noBody).code).toBe('invalid_request')
+    expect(Value.Check(ErrorBody, noBody.json())).toBe(true)
+
+    const bodies: unknown[] = [
+      {},
+      { schoolRulesVersion: null },
+      { schoolRulesVersion: '' },
+      { schoolRulesVersion: 'latest' },
+      { schoolRulesVersion: '2026-11-3' },
+      { schoolRulesVersion: 20261103 },
+    ]
+    for (const body of bodies) {
+      const res = await reEnroll(key, body)
+      expect(res.statusCode, JSON.stringify(body)).toBe(400)
+      expect(errorOf(res).code).toBe('invalid_request')
+      expect(Value.Check(ErrorBody, res.json())).toBe(true)
+    }
+    expect((await studentRow(id)).status).toBe('dropped')
+  })
+
+  test('the status is checked first, then the school rules, then the seats', async () => {
+    // A student who is not dropped hears wrong_status, whichever version they send.
+    const active = await insertStudent(t.db, { status: 'active', classId: await insertClass(t.db, { classNo: 1 }) })
+    const wrongStatus = await reEnroll(active.key, { schoolRulesVersion: '2026-10-01' })
+    expect(errorOf(wrongStatus).code).toBe('wrong_status')
+
+    // A dropped student whose email is full still has to agree to the new rules first.
+    const email = 'family@example.com'
+    const dropped = await insertStudent(t.db, { status: 'dropped', email })
+    for (let i = 0; i < 3; i++) await insertStudent(t.db, { status: 'active', email })
+    const outdated = await reEnroll(dropped.key, { schoolRulesVersion: '2026-10-01' })
+    expect(errorOf(outdated).code).toBe('school_rules_outdated')
+    const full = await reEnroll(dropped.key)
+    expect(errorOf(full).code).toBe('email_limit')
   })
 
   test('re-enrolling resets the class record and keeps the student number', async () => {
