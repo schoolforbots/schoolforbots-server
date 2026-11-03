@@ -137,3 +137,9 @@ export function isoWeekday(date: string): number {
 export function addDaysToDate(date: string, days: number): string {
   return new Date(requireDateText(date) + days * DAY_MS).toISOString().slice(0, 10)
 }
+
+/** The month and day of a `YYYY-MM-DD` date as the school writes it, without padding: `12月7日`. */
+export function monthDay(date: string): string {
+  const day = new Date(requireDateText(date))
+  return `${day.getUTCMonth() + 1}月${day.getUTCDate()}日`
+}

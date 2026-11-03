@@ -220,7 +220,12 @@ export const SummaryMessage = Type.Object({
   summary: Summary,
 })
 
-/** Sent right before the server closes the connection; `message` is Chinese text the plugin can show the owner. */
+/**
+ * Sent right before the server closes the connection; `message` is Chinese text the plugin can show the owner.
+ * `on_break`: the school is not in term (before its opening day, or in a break). `reopensOn` is then the first school
+ * day the school is back, `YYYY-MM-DD` in the school's timezone, or null when that is not decided yet; it is present
+ * only with this reason.
+ */
 export const ClosingMessage = Type.Object({
   type: Type.Literal('closing'),
   reason: Type.Union([
@@ -228,8 +233,10 @@ export const ClosingMessage = Type.Object({
     Type.Literal('session_over'),
     Type.Literal('suspended'),
     Type.Literal('expelled'),
+    Type.Literal('on_break'),
   ]),
   message: Type.String(),
+  reopensOn: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }), Type.Null()])),
 })
 
 export const ServerMessage = Type.Union([

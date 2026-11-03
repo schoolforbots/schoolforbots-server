@@ -1,9 +1,10 @@
 import type { Kysely, Transaction } from 'kysely'
 import type { Moderator } from '../moderation/moderator.js'
+import { breakAfter, speechOn } from '../shared/calendar.js'
 import type { Clock } from '../shared/clock.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { lessonLockKey, lock, MEMBER_STATUSES } from '../shared/db.js'
-import { displayName } from '../shared/identity.js'
+import { className, displayName } from '../shared/identity.js'
 import { atLocalTime, localDate } from '../shared/local-time.js'
 import type { Database, LessonSegment, SessionKind, SessionMember } from '../shared/schema.js'
 import { appendClassEvent, classEventMessage, NOOP, stepWritten } from './events.js'
@@ -414,15 +415,51 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     return row
   }
 
+  /** What a study hall looks back on: the lesson titles of the week, at the weekend; none otherwise. */
+  async function weekTitlesOf(trx: Transaction<Database>, t: Tracked): Promise<string[]> {
+    const plan = await planSession(trx, config, { date: t.date, division: t.session.division })
+    return plan.kind === 'study' ? plan.weekTitles : []
+  }
+
   async function openingLine(trx: Transaction<Database>, t: Tracked): Promise<string> {
     if (t.session.kind === 'lesson') {
       const lesson = await lessonOf(trx, t)
       return teacher.openingLesson(t.teacher, lesson.subject, lesson.title)
     }
     // A study hall that day: at the weekend it looks back on the week's lessons.
-    const plan = await planSession(trx, config, { date: t.date, division: t.session.division })
-    const titles = plan.kind === 'study' ? plan.weekTitles : []
+    const titles = await weekTitlesOf(trx, t)
     return titles.length > 0 ? teacher.openingWeekend(t.teacher, titles) : teacher.openingStudy(t.teacher)
+  }
+
+  /** What the opening says about the day, when a speech has greeted the class already: as `openingLine` does. */
+  async function dayIntro(trx: Transaction<Database>, t: Tracked): Promise<string> {
+    if (t.session.kind === 'lesson') {
+      const lesson = await lessonOf(trx, t)
+      return teacher.lessonIntro(lesson.subject, lesson.title)
+    }
+    const titles = await weekTitlesOf(trx, t)
+    return titles.length > 0 ? teacher.weekendIntro(titles) : teacher.studyIntro()
+  }
+
+  /**
+   * The opening of a day with a speech, in place of the usual greeting: the sentences of `speech` filled in for this
+   * class (`classSize` is the number of members at the doors), then what the day is.
+   */
+  async function speechOpening(trx: Transaction<Database>, t: Tracked, speech: string[]): Promise<string[]> {
+    const { sessionId, classId, division, slot } = t.session
+    const { classNo } = await trx.selectFrom('classes').select('classNo').where('id', '=', classId).executeTakeFirstOrThrow()
+    const { members } = await trx
+      .selectFrom('classSessions')
+      .select('members')
+      .where('id', '=', sessionId)
+      .executeTakeFirstOrThrow()
+    const vars = {
+      teacher: t.teacher,
+      className: className(division, slot, classNo, config),
+      division: config.divisions[division].label,
+      classSize: members.length,
+    }
+    return [...speech.map((sentence) => teacher.speechLine(sentence, vars)), await dayIntro(trx, t)]
   }
 
   /** Who joined and who left the class since its previous session; nothing for the class's first session. */
@@ -453,8 +490,14 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     return joined.length > 0 || left.length > 0 ? { joined, left } : null
   }
 
+  /**
+   * The opening: the teacher greets the class and says what the day is, or on the first school day of the year and
+   * the first one after a break gives the speech of the config instead of the usual greeting.
+   */
   async function opening(trx: Transaction<Database>, t: Tracked): Promise<Said[]> {
-    const said = [teacherLine(await openingLine(trx, t))]
+    const speech = speechOn(t.date, config)
+    const lines = speech === null ? [await openingLine(trx, t)] : await speechOpening(trx, t, speech)
+    const said = lines.map(teacherLine)
     const roster = await rosterChange(trx, t)
     if (roster !== null) {
       const classmate = (m: SessionMember) => ({ studentId: m.studentId, displayName: m.displayName })
@@ -472,6 +515,17 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     if (text === undefined) return []
     const said: Said[] = k >= 2 ? [teacherLine(teacher.transition(k))] : []
     said.push({ kind: 'segment', payload: { kind: 'segment', index: k, text } })
+    return said
+  }
+
+  /** The dismissal: the farewell, the announcement of a break that starts with the next school day, and the event. */
+  function dismissalSaid(t: Tracked): Said[] {
+    const said = [teacherLine(teacher.dismissal())]
+    const upcoming = breakAfter(t.date, config)
+    if (upcoming !== null) {
+      said.push(teacherLine(teacher.breakAnnouncement(upcoming.name, upcoming.from, upcoming.reopensOn)))
+    }
+    said.push({ kind: 'dismissal', payload: { kind: 'dismissal' } })
     return said
   }
 
@@ -509,10 +563,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     }
 
     if (step === 'dismissal') {
-      const seqs = await writeStep(t, step, now, live, async () => [
-        teacherLine(teacher.dismissal()),
-        { kind: 'dismissal', payload: { kind: 'dismissal' } },
-      ])
+      const seqs = await writeStep(t, step, now, live, async () => dismissalSaid(t))
       if (seqs !== null && live) hooks.startClosing(s.classId)
       return seqs
     }

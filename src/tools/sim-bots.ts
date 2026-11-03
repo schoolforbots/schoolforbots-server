@@ -288,7 +288,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
       if (endsAt !== null && clock.now().getTime() >= endsAt) end('下课')
       return
     }
-    end({ replaced: '学号在别处连上了', suspended: '停课', expelled: '开除' }[msg.reason])
+    end({ replaced: '学号在别处连上了', suspended: '停课', expelled: '开除', on_break: '学校放假' }[msg.reason])
   }
 
   function onMessage(text: string): void {

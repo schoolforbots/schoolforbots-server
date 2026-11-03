@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  breakAnnouncement,
   calloutInitiations,
   calloutRounds,
   calloutSchoolRule,
@@ -7,12 +8,16 @@ import {
   callOnNoAnswer,
   callOnThanks,
   dismissal,
+  lessonIntro,
   openingLesson,
   openingStudy,
   openingWeekend,
   questionReceived,
   renameAnnouncement,
+  speechLine,
+  studyIntro,
   transition,
+  weekendIntro,
   welcomeNewcomers,
 } from '../../src/class/teacher.js'
 
@@ -87,5 +92,69 @@ describe('the teacher lines', () => {
 
   test('dismissal ends the lesson', () => {
     expect(dismissal()).toBe('今天就上到这里，下课！')
+  })
+
+  test('lessonIntro gives the subject and the title, without a greeting', () => {
+    expect(lessonIntro('科学', '光的折射')).toBe('今天我们上科学课，题目是《光的折射》。')
+  })
+
+  test('studyIntro announces a study hall, without a greeting', () => {
+    expect(studyIntro()).toBe('今天是自习课，大家可以自由交流。')
+  })
+
+  test('weekendIntro lists what the week taught, without a greeting', () => {
+    expect(weekendIntro(['春晓', '分数加法', 'My Family'])).toBe(
+      '周末自习，这周我们学了：春晓、分数加法、My Family。大家聊聊最喜欢哪一节吧。',
+    )
+    expect(weekendIntro(['春晓'])).toBe('周末自习，这周我们学了：春晓。大家聊聊最喜欢哪一节吧。')
+  })
+
+  test('the intros are what the plain openings say after the greeting', () => {
+    expect(openingLesson('林老师', '科学', '光的折射')).toBe(`同学们好，我是林老师。${lessonIntro('科学', '光的折射')}`)
+    expect(openingStudy('林老师')).toBe(`同学们好，我是林老师。${studyIntro()}`)
+    expect(openingWeekend('林老师', ['春晓'])).toBe(`同学们好，我是林老师。${weekendIntro(['春晓'])}`)
+  })
+
+  describe('speechLine', () => {
+    const vars = { teacher: '林老师', className: '初中部·晚班·2 班', division: '初中部', classSize: 87 }
+
+    test('fills in the teacher, the class name, the division and the class size', () => {
+      expect(speechLine('我是{teacher}，{className}一共有{classSize}位同学', vars)).toBe(
+        '我是林老师，初中部·晚班·2 班一共有87位同学',
+      )
+      expect(speechLine('欢迎来到{division}！', vars)).toBe('欢迎来到初中部！')
+    })
+
+    test('fills in a placeholder every time it comes', () => {
+      expect(speechLine('{teacher}说：我是{teacher}。', vars)).toBe('林老师说：我是林老师。')
+    })
+
+    test('leaves a sentence without placeholders as it is', () => {
+      expect(speechLine('好了，我们的第一节课马上开始。', vars)).toBe('好了，我们的第一节课马上开始。')
+    })
+
+    test('does not read the placeholders in what it filled in', () => {
+      expect(speechLine('{className}，{classSize}', { ...vars, className: '{classSize} 班' })).toBe('{classSize} 班，87')
+    })
+  })
+
+  describe('breakAnnouncement', () => {
+    test('gives the name, the first day of the break and the day the school is back', () => {
+      expect(breakAnnouncement('寒假', '2026-12-21', '2027-01-04')).toBe('从12月21日开始放寒假，1月4日开学。')
+      expect(breakAnnouncement('暑假', '2027-07-05', '2027-08-30')).toBe('从7月5日开始放暑假，8月30日开学。')
+    })
+
+    test('says plain 放假 for a break with no name', () => {
+      expect(breakAnnouncement(null, '2026-12-21', '2027-01-04')).toBe('从12月21日开始放假，1月4日开学。')
+    })
+
+    test('says the day is not decided when the break has no end yet', () => {
+      expect(breakAnnouncement(null, '2026-12-21', null)).toBe('从12月21日开始放假，开学时间另行通知。')
+      expect(breakAnnouncement('寒假', '2026-12-21', null)).toBe('从12月21日开始放寒假，开学时间另行通知。')
+    })
+
+    test('does not say 明天, as the break may start after a weekend', () => {
+      expect(breakAnnouncement('寒假', '2026-12-21', '2027-01-04')).not.toContain('明天')
+    })
   })
 })

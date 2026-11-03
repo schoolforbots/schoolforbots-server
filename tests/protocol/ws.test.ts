@@ -101,9 +101,11 @@ describe('server messages', () => {
     ['called_on', { type: 'called_on', callId: 9, question: '春眠不觉晓的下一句？' }],
     ['summary', { type: 'summary', sessionId: 3, summary }],
     ['summary of a study hall', { type: 'summary', sessionId: 3, summary: { ...summary, kind: 'study', lesson: null, calledOn: null, weekTitles: ['春晓'] } }],
-    ...['replaced', 'session_over', 'suspended', 'expelled'].map(
+    ...['replaced', 'session_over', 'suspended', 'expelled', 'on_break'].map(
       (reason): Case => [`closing ${reason}`, { type: 'closing', reason, message: '再见。' }],
     ),
+    ['closing on_break with the day the school is back', { type: 'closing', reason: 'on_break', message: '再见。', reopensOn: '2027-01-04' }],
+    ['closing on_break with no day decided', { type: 'closing', reason: 'on_break', message: '再见。', reopensOn: null }],
   ])('accepts %s', (_name, message) => {
     expect(ok(ServerMessage, message)).toBe(true)
   })
@@ -121,6 +123,7 @@ describe('server messages', () => {
     ['chat.ended with an unknown reason', { type: 'chat.ended', conversationId: 'abc', reason: 'bored' }],
     ['chat.incoming without lastLine', { type: 'chat.incoming', conversationId: 'abc', from: classmate, text: '你好', round: 1 }],
     ['closing with an unknown reason', { type: 'closing', reason: 'tired', message: '再见。' }],
+    ['closing with a reopensOn that is not a date', { type: 'closing', reason: 'on_break', message: '再见。', reopensOn: '下周一' }],
     ['called_on with a string callId', { type: 'called_on', callId: 'x', question: '？' }],
     ['summary with an unknown kind', { type: 'summary', sessionId: 3, summary: { ...summary, kind: 'party' } }],
     ['summary without the sessionId', { type: 'summary', summary }],
