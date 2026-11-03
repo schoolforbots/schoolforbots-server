@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, inject, test, vi } fr
 import type { Database } from '../../src/shared/schema.js'
 import { migrateToLatest } from '../../src/shared/db.js'
 import { hashSecret } from '../../src/shared/secrets.js'
-import { createTestDb } from '../helpers/db.js'
+import { connectTo, createTestDb } from '../helpers/db.js'
 import { insertClass, insertStudent } from '../helpers/factories.js'
 
 describe('database schema', () => {
@@ -100,13 +100,6 @@ describe('timeouts', () => {
   const setting = async (db: Kysely<Database>, name: 'statement_timeout' | 'lock_timeout') =>
     (await sql<{ value: string }>`select current_setting(${name}) as value`.execute(db)).rows[0]?.value
 
-  /** A connection of the test's own to the database at `url`, closed by `end()`. */
-  async function client(url: string) {
-    const c = new pg.Client({ connectionString: url })
-    await c.connect()
-    return c
-  }
-
   test('every connection has the default statement and lock timeouts', async () => {
     const { db, destroy } = await createTestDb()
     try {
@@ -129,7 +122,7 @@ describe('timeouts', () => {
 
   test('a statement waiting for a lock past the lock timeout gives up', async () => {
     const { db, url, destroy } = await createTestDb({ timeouts: { statementMs: 5000, lockMs: 100 } })
-    const holder = await client(url)
+    const holder = await connectTo(url)
     try {
       const { id } = await insertStudent(db, { status: 'active' })
       await holder.query('begin')
@@ -160,7 +153,7 @@ describe('timeouts', () => {
     const { db, url, destroy } = await createTestDb({ timeouts: { statementMs: 300, lockMs: 100 }, migrate: false })
     // Kysely's migration lock (see its PostgresAdapter), held for longer than the statement timeout: the migration
     // waits for it, which its statement would not survive under a statement timeout.
-    const holder = await client(url)
+    const holder = await connectTo(url)
     try {
       await holder.query('select pg_advisory_lock(3853314791062309107)')
       const migrated = migrateToLatest(db)

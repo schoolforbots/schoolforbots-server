@@ -23,6 +23,16 @@ async function runAdmin(adminUrl: string, statement: string): Promise<void> {
 }
 
 /**
+ * A connection of the test's own to the database at `url`, outside any pool, for holding a lock or a transaction
+ * open while the code under test runs. Close it with `end()`.
+ */
+export async function connectTo(url: string): Promise<pg.Client> {
+  const client = new pg.Client({ connectionString: url })
+  await client.connect()
+  return client
+}
+
+/**
  * Creates a fresh database with a random name inside the test container, migrated unless `migrate` is false. Its
  * connections have the service's default timeouts, or `timeouts`. `url` reaches the same database, for a connection
  * of a test's own.

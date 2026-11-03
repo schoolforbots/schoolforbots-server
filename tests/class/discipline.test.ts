@@ -5,13 +5,14 @@ import { applyPenalties, calloutsForWindow, disciplineRecorder } from '../../src
 import type { ActiveSession } from '../../src/class/runtime.js'
 import { calloutInitiations, calloutRounds, calloutSchoolRule } from '../../src/class/teacher.js'
 import { runDailyJob } from '../../src/registration/daily-job.js'
+import { createDb } from '../../src/shared/db.js'
 import { displayName } from '../../src/shared/identity.js'
 import { addDaysToDate } from '../../src/shared/local-time.js'
 import type { Database, DisciplineKind, SessionMember, StudentStatus } from '../../src/shared/schema.js'
 import { buildTestClassApp } from '../helpers/class-app.js'
 import { exampleConfig } from '../helpers/app.js'
 import { createTestClock } from '../helpers/clock.js'
-import { createTestDb } from '../helpers/db.js'
+import { connectTo, createTestDb } from '../helpers/db.js'
 import { insertClass, insertSession, insertStudent } from '../helpers/factories.js'
 
 const DAY = 24 * 60 * 60_000
@@ -37,11 +38,12 @@ function names() {
 
 describe('discipline', () => {
   let db: Kysely<Database>
+  let url: string
   let destroy: () => Promise<void>
   let clock: ReturnType<typeof createTestClock>
 
   beforeEach(async () => {
-    ;({ db, destroy } = await createTestDb())
+    ;({ db, url, destroy } = await createTestDb())
     clock = createTestClock(at('20:31'))
   })
 
@@ -387,6 +389,34 @@ describe('discipline', () => {
         },
       ])
       expect(await recordsOf(s.id, 'expulsion')).toEqual([])
+    })
+
+    test('do not wait for a message of the student still being written as class ends', async () => {
+      const classId = await seedClass()
+      const s = await seedStudent(classId)
+      const sessions = [await newSession(classId, MON), await newSession(classId, TUE), await newSession(classId, WED)]
+      for (const [i, session] of sessions.entries()) await record(s, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+      for (const session of sessions.slice(0, 2)) await close(session)
+
+      // The student's last line of the lesson is still being written: its foreign key shares the student's row.
+      const writer = await connectTo(url)
+      // A lock wait of more than half a second fails the penalties, rather than waiting for the line to commit.
+      const impatient = createDb(url, { statementMs: 5000, lockMs: 500 })
+      try {
+        await writer.query('begin')
+        await writer.query(
+          `insert into messages (session_id, class_id, kind, sender_id, text, delivered, plugin_type, plugin_version, created_at)
+           values ($1, $2, 'closing', $3, '下次再聊', true, 'openclaw', '1.2.3', $4)`,
+          [sessions[2]!.sessionId, classId, s.id, at('20:30:30', WED)],
+        )
+        clock.set(sessions[2]!.closeAt)
+        expect(await applyPenalties(impatient, config, clock, sessions[2]!)).toEqual({ ...NOTHING, suspended: [s.id] })
+        await writer.query('commit')
+      } finally {
+        await writer.end()
+        await impatient.destroy()
+      }
+      expect(await student(s.id)).toMatchObject({ status: 'suspended' })
     })
 
     test('records that were revoked do not count', async () => {

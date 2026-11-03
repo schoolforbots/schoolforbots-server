@@ -17,9 +17,13 @@ export interface StoredEvent {
   at: Date
 }
 
-/** Locks the session's row until the transaction ends: its events are written and numbered by one writer at a time. */
+/**
+ * Locks the session's row until the transaction ends: its events are written and numbered by one writer at a time.
+ * The lock is `FOR NO KEY UPDATE`, which another writer of events waits for but a row that refers to the session (a
+ * message, an attendance, a discipline record, a summary) does not: its foreign key only takes `FOR KEY SHARE`.
+ */
 async function lockSession(trx: Transaction<Database>, sessionId: number): Promise<void> {
-  await trx.selectFrom('classSessions').select('id').where('id', '=', sessionId).forUpdate().executeTakeFirstOrThrow()
+  await trx.selectFrom('classSessions').select('id').where('id', '=', sessionId).forNoKeyUpdate().executeTakeFirstOrThrow()
 }
 
 /**
