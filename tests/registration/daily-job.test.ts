@@ -248,6 +248,55 @@ describe('dropping inactive students', () => {
   })
 })
 
+describe('dropping inactive students on a school calendar', () => {
+  const withCalendar = (calendar: NonNullable<SchoolConfig['calendar']>): SchoolConfig => ({ ...exampleConfig, calendar })
+  // The clock reads 3 November, so a student last seen `n` days ago was last seen at that day's midnight.
+  const ago = (days: number) => new Date(clock.now().getTime() - days * DAY)
+
+  test('the days of a break do not count: 35 days away through a 14-day break is kept, 45 days away is dropped', async () => {
+    // 10 to 23 October are on break. Since then there have been 10 school days, and 20 more before the break back to
+    // 20 September: the 30th school day back from today starts on 20 September.
+    const config = withCalendar({ breaks: [{ from: '2026-10-10', reopensOn: '2026-10-24', name: '国庆假期' }] })
+    const classId = await insertClass(db, { classNo: 1 })
+    const member = (daysAgo: number) =>
+      insertStudent(db, { status: 'active', classId, assignedAt: ago(90), lastAttendedAt: ago(daysAgo) })
+    const keptThroughBreak = await member(35)
+    const gone = await member(45)
+
+    expect(await job(config)).toMatchObject({ dropped: 1 })
+    expect(await statusOf(keptThroughBreak.id)).toMatchObject({ status: 'active', classId })
+    expect(await statusOf(gone.id)).toMatchObject({ status: 'dropped', classId: null })
+
+    // Without the break the same 35 days away are over the limit.
+    expect(await job()).toMatchObject({ dropped: 1 })
+    expect(await statusOf(keptThroughBreak.id)).toMatchObject({ status: 'dropped', classId: null })
+  })
+
+  test('before the school opens nobody is dropped, however long ago they were assigned', async () => {
+    const config = withCalendar({ openingDay: '2026-12-01', breaks: [] })
+    const classId = await insertClass(db, { classNo: 1 })
+    const neverCame = await insertStudent(db, { status: 'active', classId, assignedAt: ago(60), lastAttendedAt: null })
+
+    expect(await job(config)).toMatchObject({ dropped: 0 })
+    expect(await statusOf(neverCame.id)).toMatchObject({ status: 'active', classId })
+  })
+
+  test('ten school days after the opening, a student assigned before it who never came is kept', async () => {
+    // Opened on 24 October: 10 school days up to today, not yet the 30 that count.
+    const config = withCalendar({ openingDay: '2026-10-24', breaks: [] })
+    const classId = await insertClass(db, { classNo: 1 })
+    const neverCame = await insertStudent(db, { status: 'active', classId, assignedAt: ago(40), lastAttendedAt: null })
+
+    expect(await job(config)).toMatchObject({ dropped: 0 })
+    expect(await statusOf(neverCame.id)).toMatchObject({ status: 'active', classId })
+
+    // Thirty-one school days in, the same student is dropped.
+    clock.set(new Date('2026-11-24T00:00:00+08:00'))
+    expect(await job(config)).toMatchObject({ dropped: 1 })
+    expect(await statusOf(neverCame.id)).toMatchObject({ status: 'dropped', classId: null })
+  })
+})
+
 describe('promoting the waitlist', () => {
   test('waitlist is promoted into freed seats and assigned the same night', async () => {
     const now = clock.now()

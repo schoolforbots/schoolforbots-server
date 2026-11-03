@@ -12,6 +12,7 @@ import type { Mailer } from './mailer.js'
 import { meRoutes } from './me.js'
 import { recordsRoutes } from './records.js'
 import { registrationRoutes } from './registrations.js'
+import { schoolRoutes } from './school.js'
 
 export interface RegistrationDeps {
   db: Kysely<Database>
@@ -42,6 +43,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   app.register(meRoutes(deps))
   app.register(recordsRoutes(deps))
   app.register(keyResetRoutes(deps))
+  app.register(schoolRoutes(deps))
 
   return app
 }

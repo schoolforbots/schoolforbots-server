@@ -19,6 +19,7 @@ const PUBLISHED = [
   'RegistrationRequest',
   'RenameRequest',
   'RenameResult',
+  'SchoolCalendar',
   'SummariesResult',
   'Summary',
   'VerifyRequest',
