@@ -47,6 +47,10 @@ export interface RegistrationsTable {
   expiresAt: Date
   createdAt: Date
   verifiedAt: Date | null
+  /** The version of the school rules the owner agreed to when registering; null before the school asked for it. */
+  schoolRulesVersion: string | null
+  /** When the owner agreed to it. */
+  schoolRulesAgreedAt: Date | null
 }
 
 export interface StudentsTable {
@@ -75,6 +79,10 @@ export interface StudentsTable {
   lessonsAttended: Generated<number>
   /** Until when a suspended student stays out of class; null when not suspended. */
   suspendedUntil: Date | null
+  /** The school rules version the student last agreed to, at registration or re-enrolling; null before the school asked. */
+  schoolRulesVersion: string | null
+  /** When the student agreed to it. */
+  schoolRulesAgreedAt: Date | null
 }
 
 export interface KeyResetsTable {

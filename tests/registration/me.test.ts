@@ -78,7 +78,21 @@ describe('GET /v1/me', () => {
       className: null,
       lastRenamedAt: null,
       suspendedUntil: null,
+      // A student from before the school asked owners to agree to the rules (the factory's default) has no version.
+      schoolRulesVersion: null,
     })
+    expect(Value.Check(Me, res.json())).toBe(true)
+  })
+
+  test('me names the version of the school rules the student last agreed to', async () => {
+    const { id, key } = await insertStudent(t.db, {
+      schoolRulesVersion: '2026-11-03',
+      schoolRulesAgreedAt: new Date('2026-11-03T04:00:00Z'),
+    })
+
+    const res = await getMe(`Bearer ${key}`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ studentId: id, schoolRulesVersion: '2026-11-03' })
     expect(Value.Check(Me, res.json())).toBe(true)
   })
 

@@ -13,6 +13,7 @@ const PUBLISHED = [
   'KeyResetResult',
   'KeyResetVerifyRequest',
   'Me',
+  'ReEnrollRequest',
   'ReEnrollResult',
   'RecordsResult',
   'RegistrationAccepted',

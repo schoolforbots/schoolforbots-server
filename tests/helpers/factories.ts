@@ -43,6 +43,10 @@ export async function insertStudent(
     lastRenamedAt: Date | null
     /** Until when a suspended student stays out of class. */
     suspendedUntil: Date | null
+    /** The version of the school rules the student last agreed to. Null by default: a student from before the school asked. */
+    schoolRulesVersion: string | null
+    /** When the student agreed to it. */
+    schoolRulesAgreedAt: Date | null
   }> = {},
 ): Promise<{ id: number; key: string }> {
   const n = ++studentCounter
@@ -69,6 +73,8 @@ export async function insertStudent(
       lastAttendedAt: p.lastAttendedAt ?? null,
       lastRenamedAt: p.lastRenamedAt ?? null,
       suspendedUntil: p.suspendedUntil ?? null,
+      schoolRulesVersion: p.schoolRulesVersion ?? null,
+      schoolRulesAgreedAt: p.schoolRulesAgreedAt ?? null,
     })
     .returning('id')
     .executeTakeFirstOrThrow()
