@@ -5,6 +5,7 @@ import { recordText } from '../shared/record-text.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf } from './auth.js'
 import { ApiError } from './errors.js'
+import { runningSuspensionEnd } from './me.js'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -61,7 +62,8 @@ export function recordsRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox
       async (request) => {
         const student = studentOf(request)
         const days = wholeNumber(request.query.days, { fallback: 30, min: 1, max: 90 })
-        const since = new Date(deps.clock.now().getTime() - days * DAY_MS)
+        const now = deps.clock.now()
+        const since = new Date(now.getTime() - days * DAY_MS)
         const rows = await deps.db
           .selectFrom('disciplineRecords')
           .select(['id', 'kind', 'detail', 'createdAt', 'revokedAt'])
@@ -72,7 +74,7 @@ export function recordsRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox
           .execute()
         return {
           status: student.status,
-          suspendedUntil: student.suspendedUntil?.toISOString() ?? null,
+          suspendedUntil: runningSuspensionEnd(student, now),
           records: rows.map((r) => ({
             id: r.id,
             kind: r.kind,

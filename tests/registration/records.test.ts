@@ -383,6 +383,19 @@ describe('GET /v1/me/records', () => {
     expect((await get('/v1/me/records', expelled.key)).json()).toEqual({ status: 'expelled', suspendedUntil: null, records: [] })
   })
 
+  test('the end of a suspension is shown only while it runs, for a student who withdrew too', async () => {
+    const ends = new Date(t.clock.now().getTime() + DAY)
+    const suspended = await enroll({ status: 'suspended', suspendedUntil: ends })
+    const dropped = await enroll({ status: 'dropped', classId: null, suspendedUntil: ends })
+
+    for (const { key } of [suspended, dropped]) {
+      expect((await get('/v1/me/records', key)).json()).toMatchObject({ suspendedUntil: ends.toISOString() })
+    }
+    t.clock.set(ends)
+    expect((await get('/v1/me/records', suspended.key)).json()).toEqual({ status: 'suspended', suspendedUntil: null, records: [] })
+    expect((await get('/v1/me/records', dropped.key)).json()).toEqual({ status: 'dropped', suspendedUntil: null, records: [] })
+  })
+
   test('a stopped line is quoted as the chat engine kept it: the phone number masked, the banned word as it was said', async () => {
     const me = await enroll()
     const classmate = await insertStudent(t.db, { classId: me.classId, status: 'active' })
