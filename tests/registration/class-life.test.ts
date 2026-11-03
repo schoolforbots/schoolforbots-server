@@ -164,6 +164,18 @@ describe('GET /v1/me/admission', () => {
     expect((await get('/v1/me/admission', other.key)).json()).toMatchObject({ suspendedUntil: null })
   })
 
+  test('the letter shows the end of the suspension only while it runs', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const ends = new Date(t.clock.now().getTime() + DAY)
+    const { key } = await insertStudent(t.db, { status: 'suspended', classId, assignedAt: t.clock.now(), suspendedUntil: ends })
+
+    t.clock.set(new Date(ends.getTime() - 1))
+    expect((await get('/v1/me/admission', key)).json()).toMatchObject({ suspendedUntil: ends.toISOString() })
+    // Over, though the nightly job has not made the student active again yet.
+    t.clock.set(ends)
+    expect((await get('/v1/me/admission', key)).json()).toMatchObject({ suspendedUntil: null })
+  })
+
   test('an expelled student has no class, so there is no letter → 409 not_assigned', async () => {
     const { key } = await insertStudent(t.db, { status: 'expelled' })
 

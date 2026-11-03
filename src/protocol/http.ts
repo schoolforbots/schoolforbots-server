@@ -111,8 +111,9 @@ export const Me = Type.Object({
   className: Type.Union([Type.String(), Type.Null()]),
   lastRenamedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
   /**
-   * When the suspension of a suspended student ends. A student who withdrew in a suspension keeps the date: they cannot
-   * re-enroll before it, and may once it has passed. Null for everyone else.
+   * When the suspension of a suspended student ends, while it has not ended yet. A dropped student whose suspension,
+   * from before or after withdrawing, has not ended has it too: they cannot re-enroll before it. Null for everyone
+   * else, and from the moment the suspension ends (before the nightly job makes a suspended student active again too).
    */
   suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
   schoolRulesVersion: Type.Union([DateText, Type.Null()]),
@@ -141,7 +142,10 @@ export const Admission = Type.Object({
   startsOn: Type.Union([DateText, Type.Null()]),
   /** Active and suspended members of the class, the student included, by student number. */
   classmates: Type.Array(Classmate),
-  /** When the suspension of a suspended student ends; null for an active one. A suspended student stays in the class. */
+  /**
+   * When the suspension of a suspended student ends, while it has not ended yet; null for anyone else. A suspended
+   * student stays in the class.
+   */
   suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
 })
 
@@ -262,8 +266,8 @@ export const SummariesResult = Type.Object({
 /**
  * `GET /v1/me/records?days=30`: what the school has on record about the student over the last `days` days (a whole
  * number from 1 to 90), newest first. `text` says it as the owner should read it; a revoked record is listed too, with
- * `revoked` set. `suspendedUntil` is the end of the suspension of a suspended student, or of a student who withdrew in
- * one (see `Me`); null for everyone else.
+ * `revoked` set. `suspendedUntil` is the end of a suspension that has not ended yet, of a suspended student or of a
+ * dropped student suspended before or after withdrawing (see `Me`); null for everyone else.
  */
 export const RecordsResult = Type.Object({
   status: StudentStatus,

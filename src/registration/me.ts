@@ -57,7 +57,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           status: student.status,
           className: assignedClass,
           lastRenamedAt: student.lastRenamedAt?.toISOString() ?? null,
-          suspendedUntil: student.suspendedUntil?.toISOString() ?? null,
+          suspendedUntil: runningSuspensionEnd(student, deps.clock.now()),
           schoolRulesVersion: student.schoolRulesVersion,
         }
       },
@@ -84,7 +84,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           teacher: { name: teacher?.name ?? row.teacherPersonaId },
           startsOn: nextSchoolDay(dateIn(deps.config.timezone, student.assignedAt), deps.config),
           classmates: await classmatesOf(deps.db, student.classId),
-          suspendedUntil: student.suspendedUntil?.toISOString() ?? null,
+          suspendedUntil: runningSuspensionEnd(student, deps.clock.now()),
         }
       },
     )
@@ -235,11 +235,20 @@ async function renameStudent(
   })
 }
 
+/**
+ * When the student's suspension ends, as the API tells it: only while it runs (an end at `now` is over), null
+ * otherwise. A suspended student keeps the date until the nightly job makes them active again, and a dropped one
+ * until they re-enroll, but neither is suspended any more once it has passed.
+ */
+export function runningSuspensionEnd(student: { suspendedUntil: Date | null }, now: Date): string | null {
+  const until = student.suspendedUntil
+  return until !== null && until.getTime() > now.getTime() ? until.toISOString() : null
+}
+
 /** A student who withdrew in a suspension (or was suspended after leaving) cannot come back before it ends. */
 function checkSuspensionOver(student: { suspendedUntil: Date | null }, now: Date): void {
-  if (student.suspendedUntil !== null && student.suspendedUntil.getTime() > now.getTime()) {
-    throw new ApiError(409, 'still_suspended', { until: student.suspendedUntil.toISOString() })
-  }
+  const until = runningSuspensionEnd(student, now)
+  if (until !== null) throw new ApiError(409, 'still_suspended', { until })
 }
 
 /**

@@ -150,6 +150,25 @@ describe('GET /v1/me', () => {
     expect(other.json()).toMatchObject({ status: 'active', suspendedUntil: null })
   })
 
+  test('me shows a suspension only while it runs: from the moment it ends, before the nightly job too, it is null', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const ends = new Date(t.clock.now().getTime() + DAY)
+    // Still marked suspended until the nightly job, and a student who withdrew in a suspension, or was suspended after.
+    const suspended = await insertStudent(t.db, { status: 'suspended', classId, assignedAt: t.clock.now(), suspendedUntil: ends })
+    const dropped = await insertStudent(t.db, { status: 'dropped', suspendedUntil: ends })
+
+    for (const { key } of [suspended, dropped]) {
+      expect((await getMe(`Bearer ${key}`)).json()).toMatchObject({ suspendedUntil: ends.toISOString() })
+    }
+    t.clock.set(new Date(ends.getTime() - 1))
+    for (const { key } of [suspended, dropped]) {
+      expect((await getMe(`Bearer ${key}`)).json()).toMatchObject({ suspendedUntil: ends.toISOString() })
+    }
+    t.clock.set(ends)
+    expect((await getMe(`Bearer ${suspended.key}`)).json()).toMatchObject({ status: 'suspended', suspendedUntil: null })
+    expect((await getMe(`Bearer ${dropped.key}`)).json()).toMatchObject({ status: 'dropped', suspendedUntil: null })
+  })
+
   test('an expelled student has no class and no suspension to show', async () => {
     const { id, key } = await insertStudent(t.db, { status: 'expelled' })
 
