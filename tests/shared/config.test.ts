@@ -345,3 +345,146 @@ describe('loadClassEnv', () => {
     }
   })
 })
+
+describe('calendar', () => {
+  const calendarConfig = (calendar: Record<string, unknown>) =>
+    writeTmpConfig((c) => {
+      c.calendar = calendar
+    })
+  const WINTER = { from: '2026-12-21', reopensOn: '2027-01-04', name: '寒假', speech: ['寒假结束啦，{teacher}想你们了'] }
+
+  test('the example config has no opening day and no breaks, but an opening speech', () => {
+    const { calendar } = loadSchoolConfig('config/school.example.json')
+    expect(calendar).toBeDefined()
+    expect(calendar?.openingDay).toBeUndefined()
+    expect(calendar?.breaks).toEqual([])
+    expect(calendar?.openingSpeech?.length).toBeGreaterThan(0)
+  })
+
+  test('the calendar is optional, and may have no opening speech', () => {
+    expect(loadSchoolConfig(writeTmpConfig((c) => delete c.calendar)).calendar).toBeUndefined()
+    const bare = loadSchoolConfig(calendarConfig({ breaks: [] })).calendar
+    expect(bare).toEqual({ breaks: [] })
+  })
+
+  test('a full calendar loads as written, with the reopening day left undecided on the last break', () => {
+    const calendar = {
+      openingDay: '2026-12-05',
+      openingSpeech: ['开学啦，我是{teacher}，欢迎{className}（{division}，共{classSize}人）'],
+      breaks: [WINTER, { from: '2027-07-01', reopensOn: null }],
+    }
+    expect(loadSchoolConfig(calendarConfig(calendar)).calendar).toEqual(calendar)
+  })
+
+  test('breaks listed in any order load, and breaks that follow each other are not an overlap', () => {
+    const breaks = [
+      { from: '2027-01-04', reopensOn: '2027-01-11' },
+      { from: '2026-12-21', reopensOn: '2027-01-04' },
+    ]
+    expect(loadSchoolConfig(calendarConfig({ breaks })).calendar?.breaks).toEqual(breaks)
+  })
+
+  test('a break may begin on the opening day', () => {
+    const config = loadSchoolConfig(
+      calendarConfig({ openingDay: '2026-12-07', breaks: [{ from: '2026-12-07', reopensOn: '2026-12-14' }] }),
+    )
+    expect(config.calendar?.openingDay).toBe('2026-12-07')
+  })
+
+  test('openingDay must be a real date, written YYYY-MM-DD', () => {
+    for (const day of ['2026-02-30', '2026-13-01', '2026-1-5', '12/05/2026', '2026-12-05T00:00', '', 20261205, null]) {
+      expect(() => loadSchoolConfig(calendarConfig({ openingDay: day, breaks: [] })), String(day)).toThrow(
+        /calendar\.openingDay/,
+      )
+    }
+  })
+
+  test('the dates of a break must be real dates too', () => {
+    for (const bad of [
+      { from: '2026-02-30', reopensOn: '2027-01-04' },
+      { from: '2026-12-21', reopensOn: '2027-02-29' },
+      { from: '21 Dec', reopensOn: '2027-01-04' },
+      { from: '2026-12-21' },
+      { reopensOn: '2027-01-04' },
+      { from: '2026-12-21', reopensOn: 20270104 },
+    ]) {
+      expect(() => loadSchoolConfig(calendarConfig({ breaks: [bad] })), JSON.stringify(bad)).toThrow(/calendar\.breaks/)
+    }
+  })
+
+  test('a break must reopen after it starts', () => {
+    for (const reopensOn of ['2026-12-21', '2026-12-20', '2025-01-01']) {
+      const tmpPath = calendarConfig({ breaks: [{ from: '2026-12-21', reopensOn }] })
+      expect(() => loadSchoolConfig(tmpPath), reopensOn).toThrow(/calendar\.breaks/)
+    }
+  })
+
+  test('breaks must not overlap, whatever order they are listed in', () => {
+    const first = { from: '2026-12-21', reopensOn: '2027-01-04' }
+    for (const second of [
+      { from: '2026-12-31', reopensOn: '2027-01-11' },
+      { from: '2026-12-21', reopensOn: '2027-01-04' },
+      { from: '2026-12-25', reopensOn: '2026-12-28' },
+    ]) {
+      for (const breaks of [[first, second], [second, first]]) {
+        expect(() => loadSchoolConfig(calendarConfig({ breaks })), JSON.stringify(breaks)).toThrow(/calendar\.breaks/)
+      }
+    }
+  })
+
+  test('only the last break may have no reopening day, whatever order they are listed in', () => {
+    const undecided = { from: '2026-12-21', reopensOn: null }
+    const later = { from: '2027-03-01', reopensOn: '2027-03-08' }
+    // The break with no reopening day comes first in time, with another after it: the reopening day cannot be unknown.
+    for (const breaks of [[undecided, later], [later, undecided]]) {
+      expect(() => loadSchoolConfig(calendarConfig({ breaks })), JSON.stringify(breaks)).toThrow(/calendar\.breaks/)
+    }
+    // Last in time it is fine, listed first or last.
+    const earlier = { from: '2026-10-01', reopensOn: '2026-10-08' }
+    for (const breaks of [[earlier, undecided], [undecided, earlier]]) {
+      expect(loadSchoolConfig(calendarConfig({ breaks })).calendar?.breaks).toEqual(breaks)
+    }
+  })
+
+  test('a break may not start before the opening day', () => {
+    const tmpPath = calendarConfig({ openingDay: '2026-12-22', breaks: [WINTER] })
+    expect(() => loadSchoolConfig(tmpPath)).toThrow(/calendar\.breaks/)
+    expect(loadSchoolConfig(calendarConfig({ openingDay: '2026-12-21', breaks: [WINTER] })).calendar?.openingDay).toBe(
+      '2026-12-21',
+    )
+  })
+
+  test('a speech may use {teacher}, {className}, {division} and {classSize}, and no other placeholder', () => {
+    for (const line of ['你好{name}', '{teacher}和{ teacher }', '{}', '{Teacher}', '{teacher}{student}']) {
+      const opening = calendarConfig({ openingSpeech: ['大家好', line], breaks: [] })
+      expect(() => loadSchoolConfig(opening), line).toThrow(/calendar\.openingSpeech/)
+      const onBreak = calendarConfig({ breaks: [{ ...WINTER, speech: [line] }] })
+      expect(() => loadSchoolConfig(onBreak), line).toThrow(/calendar\.breaks/)
+    }
+  })
+
+  test('a speech is a list of non-empty sentences, and a break name is not empty', () => {
+    for (const calendar of [
+      { openingSpeech: '开学啦', breaks: [] },
+      { openingSpeech: [''], breaks: [] },
+      { openingSpeech: [1], breaks: [] },
+      { breaks: [{ ...WINTER, speech: '寒假结束啦' }] },
+      { breaks: [{ ...WINTER, name: '' }] },
+      { breaks: 'none' },
+      {},
+    ]) {
+      expect(() => loadSchoolConfig(calendarConfig(calendar)), JSON.stringify(calendar)).toThrow(/calendar/)
+    }
+  })
+
+  test('every calendar problem is reported together', () => {
+    const tmpPath = calendarConfig({
+      openingDay: '2026-02-30',
+      openingSpeech: ['{name}'],
+      breaks: [{ from: '2026-12-21', reopensOn: '2026-12-21' }],
+    })
+    for (const path of ['calendar.openingDay', 'calendar.openingSpeech', 'calendar.breaks']) {
+      expect(() => loadSchoolConfig(tmpPath), path).toThrow(path)
+    }
+  })
+})
