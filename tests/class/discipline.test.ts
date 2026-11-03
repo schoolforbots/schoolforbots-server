@@ -56,10 +56,13 @@ describe('discipline', () => {
     display: string
   }
 
-  async function seedStudent(classId: number | null, p: { status?: StudentStatus; suspendedUntil?: Date } = {}): Promise<Seeded> {
+  async function seedStudent(
+    classId: number | null,
+    p: { status?: StudentStatus; suspendedUntil?: Date; email?: string; installId?: string } = {},
+  ): Promise<Seeded> {
     const { ownerName, aiName, display } = names()
-    const email = `student${counter}@example.com`
-    const installId = randomUUID()
+    const email = p.email ?? `student${counter}@example.com`
+    const installId = p.installId ?? randomUUID()
     const { id } = await insertStudent(db, {
       ownerName,
       aiName,
@@ -542,14 +545,14 @@ describe('discipline', () => {
       expect(bans.map((b) => b.until)).toEqual(Array(2).fill(later(at('20:31', TUE), 45 * DAY)))
     })
 
-    describe('a student who is no longer in the class', () => {
-      /** Three lessons in which `s` breaks the school rule, the last one still to close. */
-      async function threeBreaks(classId: number, s: Seeded) {
-        const sessions = [await newSession(classId, MON), await newSession(classId, TUE), await newSession(classId, WED)]
-        for (const [i, session] of sessions.entries()) await record(s, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
-        return sessions
-      }
+    /** Three lessons in which `s` breaks the school rule, the last one still to close. */
+    async function threeBreaks(classId: number, s: Seeded) {
+      const sessions = [await newSession(classId, MON), await newSession(classId, TUE), await newSession(classId, WED)]
+      for (const [i, session] of sessions.entries()) await record(s, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+      return sessions
+    }
 
+    describe('a student who is no longer in the class', () => {
       test('one who withdrew is suspended all the same: still dropped, with the date and the record', async () => {
         const classId = await seedClass()
         const gone = await seedStudent(null, { status: 'dropped' })
@@ -650,6 +653,124 @@ describe('discipline', () => {
         expect((await recordsOf(gone.id, 'parent_notice')).map((r) => r.sessionId)).toEqual([session.sessionId])
         // Class rules never suspend.
         expect(await student(gone.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: null })
+      })
+    })
+
+    describe('the install of a penalised student: one plugin install is one AI', () => {
+      const sorted = (ids: number[]) => [...ids].sort((a, b) => a - b)
+      const strict = {
+        ...config,
+        discipline: { ...config.discipline, expulsion: { schoolRuleCount: 2, windowDays: 30, banDays: 45 } },
+      }
+
+      /**
+       * An install whose student `gone` left before the lesson closed, an older student `older` who dropped out of it
+       * long ago, and the AI `again` that the owner registered on the same install since, under another mailbox;
+       * `other` is of the same mailbox as `gone` on an install of its own, and `banned` an expelled student of this install.
+       */
+      async function install(againStatus: 'pending' | 'waitlisted' | 'active') {
+        const classId = await seedClass()
+        const installId = randomUUID()
+        const gone = await seedStudent(null, { status: 'dropped', installId, email: 'owner@example.com' })
+        const older = await seedStudent(null, { status: 'dropped', installId, email: 'owner@example.com' })
+        const banned = await seedStudent(null, { status: 'expelled', installId, email: 'owner@example.com' })
+        const again = await seedStudent(againStatus === 'active' ? classId : null, {
+          status: againStatus,
+          installId,
+          email: 'new-mailbox@example.com',
+        })
+        const other = await seedStudent(classId, { status: 'active', email: 'owner@example.com' })
+        return { classId, installId, gone, older, banned, again, other }
+      }
+
+      test.each(['pending', 'waitlisted', 'active'] as const)(
+        'a suspension reaches the AI that registered again on the install (%s) and the ones that dropped out',
+        async (againStatus) => {
+          const { classId, gone, older, banned, again, other } = await install(againStatus)
+          const sessions = await threeBreaks(classId, gone)
+
+          const report = await close(sessions[2]!)
+          expect(sorted(report.suspended)).toEqual(sorted([gone.id, older.id, again.id]))
+          expect({ ...report, suspended: [] }).toEqual(NOTHING)
+
+          const until = later(at('20:31', WED), 3 * DAY)
+          expect(await student(gone.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: until })
+          expect(await student(older.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: until })
+          // The newcomer is in no class (a queue place is void) unless the nightly job had given it one: then it is suspended in it.
+          expect(await student(again.id)).toEqual(
+            againStatus === 'active'
+              ? { status: 'suspended', classId, suspendedUntil: until }
+              : { status: 'dropped', classId: null, suspendedUntil: until },
+          )
+          // The mailbox's other AI on another install, and a student expelled earlier, are not touched.
+          expect(await student(other.id)).toEqual({ status: 'active', classId, suspendedUntil: null })
+          expect(await student(banned.id)).toEqual({ status: 'expelled', classId: null, suspendedUntil: null })
+          // One record, on the one who broke the rule.
+          expect((await recordsOf(gone.id, 'suspension')).map((r) => r.sessionId)).toEqual([sessions[2]!.sessionId])
+          for (const s of [older, again, other, banned]) expect(await recordsOf(s.id, 'suspension')).toEqual([])
+        },
+      )
+
+      test('an expulsion reaches them all: expelled, with no class, and one pair of bans', async () => {
+        const { classId, gone, older, banned, again, other } = await install('active')
+        const sessions = [await newSession(classId, MON), await newSession(classId, TUE)]
+        for (const [i, session] of sessions.entries()) await record(gone, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+
+        const report = await close(sessions[1]!, strict)
+        expect(report.suspended).toEqual([])
+        expect(sorted(report.expelled)).toEqual(sorted([gone.id, older.id, again.id]))
+
+        const expelled = { status: 'expelled', classId: null, suspendedUntil: null }
+        for (const s of [gone, older, again, banned]) expect(await student(s.id)).toEqual(expelled)
+        expect(await student(other.id)).toEqual({ status: 'active', classId, suspendedUntil: null })
+
+        // The bans are the offender's mailbox and the install, once; the new mailbox is not banned, the install is.
+        const closedAt = at('20:31', TUE)
+        const banUntil = later(closedAt, 45 * DAY)
+        const bans = await db.selectFrom('bans').select(['email', 'installId', 'until', 'reason', 'createdAt']).execute()
+        expect(bans).toHaveLength(2)
+        expect(bans).toEqual(
+          expect.arrayContaining([
+            { email: gone.email, installId: null, until: banUntil, reason: 'expelled', createdAt: closedAt },
+            { email: null, installId: gone.installId, until: banUntil, reason: 'expelled', createdAt: closedAt },
+          ]),
+        )
+        expect((await recordsOf(gone.id, 'expulsion')).map((r) => r.sessionId)).toEqual([sessions[1]!.sessionId])
+        for (const s of [older, again, other, banned]) expect(await recordsOf(s.id, 'expulsion')).toEqual([])
+      })
+
+      test('running it again for the same lesson changes nothing', async () => {
+        const { classId, gone, again } = await install('pending')
+        const sessions = await threeBreaks(classId, gone)
+        await close(sessions[2]!)
+        const snapshot = async () => ({
+          students: await db.selectFrom('students').select(['id', 'status', 'classId', 'suspendedUntil']).orderBy('id').execute(),
+          records: await db.selectFrom('disciplineRecords').selectAll().orderBy('id').execute(),
+        })
+        const before = await snapshot()
+        expect(await student(again.id)).toMatchObject({ status: 'dropped' })
+
+        clock.set(later(sessions[2]!.closeAt, 60 * 60_000))
+        expect(await applyPenalties(db, config, clock, sessions[2]!)).toEqual(NOTHING)
+        expect(await snapshot()).toEqual(before)
+      })
+
+      test('two students of the install who both broke the rule are each penalised once', async () => {
+        const { classId, gone, older, again } = await install('active')
+        const sessions = [await newSession(classId, MON), await newSession(classId, TUE), await newSession(classId, WED)]
+        for (const [i, session] of sessions.entries()) {
+          await record(gone, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+          await record(again, session, 'school_rule', at('20:10', addDaysToDate(MON, i)))
+        }
+
+        const report = await close(sessions[2]!)
+        expect(sorted(report.suspended)).toEqual(sorted([gone.id, older.id, again.id]))
+        expect(new Set(report.suspended).size).toBe(report.suspended.length)
+        for (const s of [gone, again]) expect((await recordsOf(s.id, 'suspension')).map((r) => r.sessionId)).toEqual([sessions[2]!.sessionId])
+        expect(await recordsOf(older.id, 'suspension')).toEqual([])
+        const until = later(at('20:31', WED), 3 * DAY)
+        expect(await student(again.id)).toEqual({ status: 'suspended', classId, suspendedUntil: until })
+        expect(await student(gone.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: until })
       })
     })
 

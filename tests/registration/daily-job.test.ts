@@ -53,6 +53,34 @@ async function insertPending(n: number, p: { division?: Division; slot?: Slot } 
 const statusOf = async (id: number) =>
   db.selectFrom('students').select(['status', 'classId', 'assignedAt']).where('id', '=', id).executeTakeFirstOrThrow()
 
+/** Resolves once a query of this database is waiting for a lock that another transaction holds. */
+async function waitForBlockedQuery(): Promise<void> {
+  for (let i = 0; i < 250; i++) {
+    const { rows } = await sql<{ blocked: string }>`
+      select count(*) as blocked from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`.execute(db)
+    if (Number(rows[0]!.blocked) > 0) return
+    await sleep(20)
+  }
+  throw new Error('no query is waiting for a lock')
+}
+
+/**
+ * Runs the job while an open transaction holds the changes `change` makes to some students, not yet committed. The job
+ * reads those students as they still are, and its write to them has to wait; when the transaction commits, the job
+ * goes on, and gives its report. This stages a student whose status changes between the job's read and its write
+ * (a penalty from the class service, say), which the job's locks do not keep out.
+ */
+async function jobWhile(change: (trx: Kysely<Database>) => Promise<void>, config: SchoolConfig = exampleConfig) {
+  let running!: ReturnType<typeof job>
+  await db.transaction().execute(async (trx) => {
+    await change(trx)
+    running = job(config)
+    await waitForBlockedQuery()
+  })
+  return running
+}
+
 test('spec five-day example through the database', async () => {
   const sizesAfterEachDay: number[][] = []
   for (const n of [120, 70, 10, 150, 40]) {
@@ -353,6 +381,18 @@ describe('promoting the waitlist', () => {
     expect(morningStatuses).toEqual(['active', 'active', 'active', 'waitlisted'])
   })
 
+  test('a waitlisted student who is no longer waiting when the job writes is not promoted', async () => {
+    const waiting = await insertStudent(db, { status: 'waitlisted', createdAt: lastEvening() })
+
+    // The class service expels them, say, just as the job promotes the waitlist.
+    const report = await jobWhile(async (trx) => {
+      await trx.updateTable('students').set({ status: 'expelled' }).where('id', '=', waiting.id).execute()
+    })
+
+    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(await statusOf(waiting.id)).toMatchObject({ status: 'expelled', classId: null, assignedAt: null })
+  })
+
   test('a full slot promotes nobody', async () => {
     const config = { ...exampleConfig, slotCapacity: 2 }
     await insertPending(2)
@@ -386,6 +426,53 @@ describe('placing pending students', () => {
     expect(await job(config)).toMatchObject({ assigned: 2, classesCreated: 1 })
     expect((await statusOf(earlier.id)).classId).toBe(classId)
     expect((await statusOf(later.id)).classId).not.toBe(classId)
+  })
+})
+
+describe('placing pending students who change under the job', () => {
+  test('a student who is no longer pending when the job writes is not seated, and no empty class is left', async () => {
+    const gone = await insertStudent(db, { status: 'pending', createdAt: lastEvening() })
+
+    // The class service suspends them back to dropped, say, just as the job places the pending students.
+    const report = await jobWhile(async (trx) => {
+      await trx.updateTable('students').set({ status: 'dropped' }).where('id', '=', gone.id).execute()
+    })
+
+    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(await statusOf(gone.id)).toMatchObject({ status: 'dropped', classId: null, assignedAt: null })
+    expect(await db.selectFrom('classes').select('id').execute()).toEqual([])
+  })
+
+  test('a class opened only for students who were skipped is taken back: numbers and teachers go on as if it had not been', async () => {
+    const personas = exampleConfig.teacherPersonas.map((p) => p.id)
+    // One student to a class: the first in the queue gets the first new class, the second the second.
+    const config = { ...exampleConfig, classSize: { standard: 1, max: 1 } }
+    const gone = await insertStudent(db, { status: 'pending', createdAt: new Date(lastEvening().getTime() - HOUR) })
+    const stays = await insertStudent(db, { status: 'pending', createdAt: lastEvening() })
+
+    const report = await jobWhile(async (trx) => {
+      await trx.updateTable('students').set({ status: 'dropped' }).where('id', '=', gone.id).execute()
+    }, config)
+
+    expect(report).toMatchObject({ assigned: 1, classesCreated: 1 })
+    expect(await statusOf(gone.id)).toMatchObject({ status: 'dropped', classId: null })
+    const classes = await db.selectFrom('classes').select(['id', 'classNo', 'teacherPersonaId']).execute()
+    expect(classes).toEqual([{ id: expect.any(Number), classNo: 1, teacherPersonaId: personas[0] }])
+    expect(await statusOf(stays.id)).toMatchObject({ status: 'active', classId: classes[0]!.id, assignedAt: clock.now() })
+  })
+
+  test('a class that still gets someone keeps its place: only the skipped student is left out', async () => {
+    const gone = await insertStudent(db, { status: 'pending', createdAt: new Date(lastEvening().getTime() - HOUR) })
+    const stays = await insertStudent(db, { status: 'pending', createdAt: lastEvening() })
+
+    const report = await jobWhile(async (trx) => {
+      await trx.updateTable('students').set({ status: 'dropped' }).where('id', '=', gone.id).execute()
+    })
+
+    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 1, classesCreated: 1, reinstated: 0, messagesPurged: 0 })
+    expect(await classSizes('junior', 'evening')).toEqual([1])
+    expect(await statusOf(gone.id)).toMatchObject({ status: 'dropped', classId: null })
+    expect(await statusOf(stays.id)).toMatchObject({ status: 'active' })
   })
 })
 

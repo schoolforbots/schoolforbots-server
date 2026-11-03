@@ -204,18 +204,16 @@ describe('POST /v1/me/withdraw', () => {
   const studentRow = (id: number) =>
     t.db.selectFrom('students').selectAll().where('id', '=', id).executeTakeFirstOrThrow()
 
-  test.each(['pending', 'waitlisted', 'active', 'suspended'] as const)(
+  test.each(['pending', 'waitlisted', 'active'] as const)(
     'a student who is %s can withdraw: dropped, no class, the seat is free again',
     async (status) => {
-      const inClass = status === 'active' || status === 'suspended'
-      const classId = inClass ? await insertClass(t.db, { classNo: 1 }) : null
+      const classId = status === 'active' ? await insertClass(t.db, { classNo: 1 }) : null
       const installId = randomUUID()
       const { id, key } = await insertStudent(t.db, {
         status,
         classId,
         installId,
-        assignedAt: inClass ? t.clock.now() : null,
-        suspendedUntil: status === 'suspended' ? new Date(t.clock.now().getTime() + 3 * DAY) : null,
+        assignedAt: classId === null ? null : t.clock.now(),
       })
       // While the seat is held, the install cannot take another AI.
       expect(errorOf(await registerOn(installId)).code).toBe('install_has_seat')
@@ -229,6 +227,40 @@ describe('POST /v1/me/withdraw', () => {
       expect((await registerOn(installId)).statusCode).toBe(202)
     },
   )
+
+  test('a suspended student can withdraw too, but the install stays closed until the suspension ends', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const installId = randomUUID()
+    const suspendedUntil = new Date(t.clock.now().getTime() + 3 * DAY)
+    const { id, key } = await insertStudent(t.db, {
+      status: 'suspended',
+      classId,
+      installId,
+      assignedAt: t.clock.now(),
+      suspendedUntil,
+    })
+    expect(errorOf(await registerOn(installId)).code).toBe('install_has_seat')
+
+    const res = await withdraw(key)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ status: 'dropped' })
+    expect(await studentRow(id)).toMatchObject({ status: 'dropped', classId: null, suspendedUntil })
+
+    // The seat is free, but a new registration on the same install would be a clean AI in the middle of the suspension.
+    const early = await registerOn(installId)
+    expect(early.statusCode).toBe(409)
+    expect(early.json()).toEqual({
+      error: {
+        code: 'still_suspended',
+        message: '停课还没结束，结束后才能重新入学。',
+        until: suspendedUntil.toISOString(),
+      },
+    })
+    expect(t.mailer.sent).toEqual([])
+
+    t.clock.set(suspendedUntil)
+    expect((await registerOn(installId)).statusCode).toBe(202)
+  })
 
   test('withdrawing leaves the student number, the key and the names as they were', async () => {
     const classId = await insertClass(t.db, { classNo: 1 })
