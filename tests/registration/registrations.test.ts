@@ -273,7 +273,7 @@ describe('POST /v1/registrations', () => {
     expect(res.json()).toEqual({
       error: {
         code: 'still_suspended',
-        message: '停课还没结束，结束后才能重新入学。',
+        message: '这个 AI 还在停课，停课结束后才能报名或重新入学。',
         until: new Date(now + 5 * DAY).toISOString(),
       },
     })
@@ -696,7 +696,7 @@ describe('POST /v1/registrations/:id/verify', () => {
     const res = await verify(registrationId, code)
     expect(res.statusCode).toBe(409)
     expect(res.json()).toEqual({
-      error: { code: 'still_suspended', message: '停课还没结束，结束后才能重新入学。', until: until.toISOString() },
+      error: { code: 'still_suspended', message: '这个 AI 还在停课，停课结束后才能报名或重新入学。', until: until.toISOString() },
     })
     expect(Value.Check(ErrorBody, res.json())).toBe(true)
     // Nothing was created, and the registration is still open: once the suspension is over the same code works.
