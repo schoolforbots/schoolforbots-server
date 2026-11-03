@@ -176,7 +176,8 @@ export interface PenaltyReport {
  * offender's install who has not been expelled (the one the owner registered on it since, the ones who dropped out of
  * it), in the same way: students in a class are suspended in it, the others go back to dropped with the same date; all
  * are expelled alike. The suspension or expulsion record is the offender's only, and so are the bans (the offender's
- * mailbox, and the install). Other AIs of the same mailbox, on other installs, are not touched.
+ * mailbox, and the install); the record's `detail` has `until` and `alsoApplied`, the student numbers of the other
+ * students it reached (empty when none). Other AIs of the same mailbox, on other installs, are not touched.
  *
  * The penalties are keyed by the session: a student the lesson has already suspended or expelled is not suspended
  * or expelled again by it, nor does a suspension get longer, and a lesson that has sent a notice sends no second one.
@@ -253,6 +254,9 @@ export async function applyPenalties(
       for (const s of students.values()) {
         if (s.installId === student.installId && s.id !== studentId && s.status !== 'expelled') install.push(s)
       }
+      // The penalty is recorded on the offender only; the record names the others it reached, by student number, so
+      // that revoking it later can find them.
+      const alsoApplied = install.slice(1).map((s) => s.id)
 
       const punished = await trx
         .selectFrom('disciplineRecords')
@@ -286,7 +290,7 @@ export async function applyPenalties(
             studentId,
             sessionId,
             kind: 'expulsion',
-            detail: { until: until.toISOString() },
+            detail: { until: until.toISOString(), alsoApplied },
             at: now,
           })
         } else if ((await count(studentId, ['school_rule'], suspension.windowDays)) >= suspension.schoolRuleCount) {
@@ -315,7 +319,7 @@ export async function applyPenalties(
             studentId,
             sessionId,
             kind: 'suspension',
-            detail: { until: until.toISOString() },
+            detail: { until: until.toISOString(), alsoApplied },
             at: now,
           })
           for (const s of install) note(report.suspended, s.id)
