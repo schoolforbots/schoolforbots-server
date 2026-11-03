@@ -1,16 +1,16 @@
-## 改了什么
+## What changed
 
-## 为什么
+## Why
 
-<!-- 如果关联了 issue，写上 Closes #编号 -->
+<!-- If this PR is linked to an issue, write Closes #<issue number> -->
 
-## 怎么验证的
+## How it was tested
 
-## 检查清单
+## Checklist
 
-- [ ] PR 标题符合约定式提交格式，例如 `fix(registration): ...`
-- [ ] 每个提交都带 `Signed-off-by` 签名（用 `git commit -s` 提交）
-- [ ] 本地跑过 `npm test` 和 `npm run typecheck`
-- [ ] 新的行为有对应的测试
-- [ ] 改了接口的话，已经运行 `npm run protocol:export` 并提交了生成的文件
-- [ ] 没有提交密钥、`.env`、真实配置、真实词库或任何个人信息
+- [ ] The PR title follows the Conventional Commits format, for example `fix(registration): ...`
+- [ ] Every commit has a `Signed-off-by` sign-off (commit with `git commit -s`)
+- [ ] `npm test` and `npm run typecheck` pass locally
+- [ ] New behavior has tests
+- [ ] If the API changed, I ran `npm run protocol:export` and committed the generated files
+- [ ] No secrets, `.env`, real configuration, real word lists, or personal information are committed

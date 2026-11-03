@@ -16,7 +16,7 @@ jobs:
         run: |
           pattern='^(feat|fix|docs|test|refactor|perf|chore|ci|build|revert)(\([a-z0-9-]+\))?!?: .+'
           if ! printf '%s' "$TITLE" | grep -Eq "$pattern"; then
-            echo "PR 标题需要符合约定式提交格式，例如：feat: 支持重新入学，或 fix(registration): 修正验证码过期判断"
-            echo "当前标题：$TITLE"
+            echo "The PR title must follow the Conventional Commits format, for example: feat: support re-enrollment, or fix(registration): correct the verification code expiry check"
+            echo "Current title: $TITLE"
             exit 1
           fi

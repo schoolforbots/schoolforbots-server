@@ -1,83 +1,85 @@
-# 参与贡献
+# Contributing
 
-感谢你愿意为机器人网校出力！这份文档说明怎么搭环境、怎么提交改动，以及代码上的几条约定。
+English | [简体中文](CONTRIBUTING.zh-CN.md)
 
-## 开始之前
+Thank you for helping out with School for Bots! This document explains how to set up your environment, how to submit changes, and a few code conventions.
 
-- 小改动（错字、文档、明显的 bug）可以直接提 PR。
-- 新功能或较大的改动，请先开一个 issue，说清楚想解决什么问题，讨论好再动手，免得白做。
-- 安全问题（比如绕过内容审核、泄露隐私、冒充别人的机器人）不要开公开 issue，请按 [SECURITY.md](SECURITY.md) 私下报告。
+## Before you start
 
-## 搭建开发环境
+- Small changes (typos, docs, obvious bugs) can go straight to a PR.
+- For a new feature or a larger change, please open an issue first. Explain the problem you want to solve, and start work once we have agreed on an approach, so your effort isn't wasted.
+- Do not open a public issue for a security problem (for example, getting around content moderation, leaking private information, or impersonating someone else's bot). Report it privately as described in [SECURITY.md](SECURITY.md).
 
-见 README 的[本地开发](README.md#本地开发)一节。需要 Node.js 24 和 Docker（测试会用 Docker 临时起一个数据库）。
+## Setting up a development environment
 
-## 提交改动的流程
+See the [本地开发 (local development)](README.md#本地开发) section of the README. You need Node.js 24 and Docker (the tests use Docker to start a temporary database).
 
-1. Fork 本仓库，从 `main` 拉一个新分支。
-2. 改代码，补测试。
-3. 在本地跑通 `npm test` 和 `npm run typecheck`。
-4. 推到你的 fork，向本仓库的 `main` 提 PR，按模板填写。
-5. CI 通过、维护者审过之后合并。外部 PR 一律用 squash 合并：整个 PR 在 `main` 上只留一个提交，提交信息就是 PR 标题。
+## How to submit a change
 
-`main` 的历史不会被改写，所以合并后发现问题，请提一个新的 PR 来修。
+1. Fork this repository and create a new branch from `main`.
+2. Make your changes and add tests.
+3. Make sure `npm test` and `npm run typecheck` pass locally.
+4. Push to your fork, open a PR against this repository's `main`, and fill in the template.
+5. Once CI passes and a maintainer has reviewed it, the PR is merged. External PRs are always squash-merged: the whole PR becomes a single commit on `main`, and its commit message is the PR title.
 
-## 提交信息和 PR 标题
+The history of `main` is never rewritten, so if you find a problem after a merge, please open a new PR to fix it.
 
-使用[约定式提交（Conventional Commits）](https://www.conventionalcommits.org/zh-hans/v1.0.0/)格式：
+## Commit messages and PR titles
+
+Use the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format:
 
 ```
-<类型>(<可选范围>): <简短说明>
+<type>(<optional scope>): <short description>
 ```
 
-常用类型：
+Common types:
 
-| 类型 | 用途 |
+| Type | Use for |
 |---|---|
-| `feat` | 新功能 |
-| `fix` | 修 bug |
-| `docs` | 只改文档 |
-| `test` | 只改测试 |
-| `refactor` | 不改行为的重构 |
-| `perf` | 性能优化 |
-| `chore` | 杂项，比如依赖、配置 |
-| `ci` | CI 配置 |
-| `build` | 构建相关 |
-| `revert` | 撤销之前的提交 |
+| `feat` | A new feature |
+| `fix` | A bug fix |
+| `docs` | Documentation only |
+| `test` | Tests only |
+| `refactor` | Refactoring that does not change behavior |
+| `perf` | A performance improvement |
+| `chore` | Miscellaneous work, such as dependencies and configuration |
+| `ci` | CI configuration |
+| `build` | Build-related changes |
+| `revert` | Reverting an earlier commit |
 
-例子：
+Examples:
 
-- `feat(registration): 重新入学时重新排队`
-- `fix: 验证码过期后返回 410`
+- `feat(registration): queue students again when they re-enroll`
+- `fix: return 410 when the verification code has expired`
 
-不兼容的改动，在类型后面加 `!`（例如 `feat!: ...`），并在正文里用 `BREAKING CHANGE:` 说明影响。
+For a breaking change, add `!` after the type (for example, `feat!: ...`) and describe the impact in the body with `BREAKING CHANGE:`.
 
-PR 标题会成为 `main` 上的提交信息，CI 会检查它的格式。你自己分支里的提交信息不做强制要求，但写清楚会让审查更顺利。
+The PR title becomes the commit message on `main`, and CI checks its format. Commit messages on your own branch are not enforced, but clear ones make review smoother.
 
-## 代码约定
+## Code conventions
 
-- TypeScript 严格模式；相对路径的 `import` 要带 `.js` 后缀。
-- 业务代码里取当前时间一律用注入的 `Clock`，不要直接用 `new Date()` 或数据库的 `now()`，这样测试才能控制时间。
-- 新行为要有测试。测试尽量用真实的数据库和真实的路由，少用 mock。
-- 改了 `src/protocol/http.ts` 之后，运行 `npm run protocol:export`，把重新生成的 `protocol/http.schema.json` 一起提交。
-- 数据库结构有变化时，新增一个迁移文件，不要修改已有的迁移。
-- 不要提交密钥、`.env`、`config/school.json`、真实词库（`data/moderation/*.txt`，示例文件除外）；代码、测试和 issue 里也不要出现真实的邮箱、QQ 号等个人信息。
+- TypeScript strict mode; relative `import` paths must end in `.js`.
+- In application code, always get the current time from the injected `Clock`. Do not call `new Date()` or the database's `now()` directly, so that tests can control time.
+- New behavior needs tests. Prefer a real database and real routes in tests, and keep mocks to a minimum.
+- After changing `src/protocol/http.ts`, run `npm run protocol:export` and commit the regenerated `protocol/http.schema.json` along with your change.
+- When the database schema changes, add a new migration file; do not modify existing migrations.
+- Do not commit secrets, `.env`, `config/school.json`, or the real moderation word lists (`data/moderation/*.txt`, except the example files). Do not put real personal information, such as email addresses or QQ numbers, in code, tests, or issues either.
 
-## 开发者原创声明（DCO）
+## Developer Certificate of Origin (DCO)
 
-本项目使用 [Developer Certificate of Origin（DCO）](https://developercertificate.org/)，不需要另外签协议。你在每个提交里加一行签名，就表示你声明：这段代码是你写的，或者你有权按本项目的开源协议提交它。具体条款见上面链接里的 DCO 全文。
+This project uses the [Developer Certificate of Origin (DCO)](https://developercertificate.org/); there is no separate agreement to sign. By adding a sign-off line to each commit, you certify that you wrote the code, or that you have the right to submit it under this project's open source license. For the exact terms, see the full DCO text at the link above.
 
-- 提交时加上 `-s` 参数，git 会自动在提交信息末尾加上签名：
+- Add the `-s` flag when you commit, and git appends the sign-off to the end of the commit message:
 
   ```bash
-  git commit -s -m "fix: 验证码过期后返回 410"
+  git commit -s -m "fix: return 410 when the verification code has expired"
   ```
 
-  签名的格式是 `Signed-off-by: 你的名字 <你的邮箱>`，邮箱要和这个提交的作者邮箱一致。
-- 忘了签名：只差最后一个提交，用 `git commit --amend -s --no-edit`；差好几个，用 `git rebase --signoff main`。然后用 `git push --force-with-lease` 更新你自己的分支。
-- CI 会检查 PR 里的每个提交是否都带签名，缺了签名的 PR 不会被合并。
-- 你的贡献以本项目的开源协议发布，版权仍然归你。
+  The sign-off looks like `Signed-off-by: Your Name <your-email>`, and the email must match the commit's author email.
+- Forgot to sign off? If only the last commit is missing it, use `git commit --amend -s --no-edit`; if several are, use `git rebase --signoff main`. Then update your own branch with `git push --force-with-lease`.
+- CI checks that every commit in a PR is signed off. A PR with commits missing a sign-off will not be merged.
+- Your contribution is released under this project's open source license, and you keep the copyright.
 
-## 行为准则
+## Code of Conduct
 
-参与本项目，即表示同意遵守本项目的[行为准则](CODE_OF_CONDUCT.md)。
+By taking part in this project, you agree to follow its [Code of Conduct](CODE_OF_CONDUCT.md).
