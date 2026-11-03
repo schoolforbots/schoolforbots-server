@@ -5,7 +5,7 @@ import { ErrorBody, InvalidNameError, RegistrationAccepted, VerifyResult } from 
 import type { SchoolRules } from '../../src/shared/school-rules.js'
 import { hashSecret } from '../../src/shared/secrets.js'
 import { buildTestApp } from '../helpers/app.js'
-import { insertStudent } from '../helpers/factories.js'
+import { insertClass, insertStudent } from '../helpers/factories.js'
 import { captureLogs } from '../helpers/logs.js'
 
 type TestApp = Awaited<ReturnType<typeof buildTestApp>>
@@ -258,6 +258,55 @@ describe('POST /v1/registrations', () => {
     const installId = randomUUID()
     await insertStudent(t.db, { installId, status: 'dropped' })
     expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+  })
+
+  test('an install with a student in a suspension is refused until it ends: 409 still_suspended with the latest end', async () => {
+    const installId = randomUUID()
+    const now = t.clock.now().getTime()
+    // The suspension reaches every student of the install, the ones who dropped out included (see applyPenalties).
+    await insertStudent(t.db, { installId, status: 'dropped', suspendedUntil: new Date(now + 2 * DAY) })
+    await insertStudent(t.db, { installId, status: 'dropped', suspendedUntil: new Date(now + 5 * DAY) })
+    await insertStudent(t.db, { installId, status: 'dropped', suspendedUntil: new Date(now - DAY) })
+
+    const res = await register(registrationBody({ installId }))
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({
+      error: {
+        code: 'still_suspended',
+        message: '停课还没结束，结束后才能重新入学。',
+        until: new Date(now + 5 * DAY).toISOString(),
+      },
+    })
+    expect(Value.Check(ErrorBody, res.json())).toBe(true)
+    expect(t.mailer.sent).toEqual([])
+    expect(await t.db.selectFrom('registrations').selectAll().execute()).toEqual([])
+
+    // Only a suspension still running counts: one that ends exactly now is over.
+    t.clock.set(new Date(now + 5 * DAY - 1))
+    expect(errorOf(await register(registrationBody({ installId }))).code).toBe('still_suspended')
+    t.clock.set(new Date(now + 5 * DAY))
+    expect((await register(registrationBody({ installId }))).statusCode).toBe(202)
+  })
+
+  test('a suspension on one install does not stop the same mailbox on another, nor another mailbox on a fresh install', async () => {
+    const suspended = randomUUID()
+    await insertStudent(t.db, {
+      email: 'a@example.com',
+      installId: suspended,
+      status: 'dropped',
+      suspendedUntil: new Date(t.clock.now().getTime() + 3 * DAY),
+    })
+
+    expect((await register(registrationBody({ email: 'a@example.com', installId: randomUUID() }))).statusCode).toBe(202)
+    expect((await register(registrationBody({ email: 'b@example.com', installId: randomUUID() }))).statusCode).toBe(202)
+    // The install's own seat answer wins when the suspended student still holds one.
+    await insertStudent(t.db, {
+      installId: suspended,
+      status: 'suspended',
+      classId: await insertClass(t.db, { classNo: 1 }),
+      suspendedUntil: new Date(t.clock.now().getTime() + 3 * DAY),
+    })
+    expect(errorOf(await register(registrationBody({ installId: suspended }))).code).toBe('install_has_seat')
   })
 
   test.each(['email', 'installId'] as const)('active ban on the %s blocks, expired ban does not', async (kind) => {
@@ -634,6 +683,25 @@ describe('POST /v1/registrations/:id/verify', () => {
 
     // A ban that ends exactly now is over, as at the registration; the code is still good.
     t.clock.advance(5 * MINUTE)
+    expect((await verify(registrationId, code)).statusCode).toBe(201)
+  })
+
+  test('a suspension that reaches the install after the registration refuses the verify: 409 still_suspended', async () => {
+    const installId = randomUUID()
+    const { registrationId, code } = await registerOk({ installId })
+    // The class service suspends the install's student (who left before the lesson ended) as the owner is typing the code.
+    const until = new Date(t.clock.now().getTime() + 5 * MINUTE)
+    await insertStudent(t.db, { installId, status: 'dropped', suspendedUntil: until })
+
+    const res = await verify(registrationId, code)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toEqual({
+      error: { code: 'still_suspended', message: '停课还没结束，结束后才能重新入学。', until: until.toISOString() },
+    })
+    expect(Value.Check(ErrorBody, res.json())).toBe(true)
+    // Nothing was created, and the registration is still open: once the suspension is over the same code works.
+    expect(await t.db.selectFrom('students').select('id').where('installId', '=', installId).execute()).toHaveLength(1)
+    t.clock.set(until)
     expect((await verify(registrationId, code)).statusCode).toBe(201)
   })
 

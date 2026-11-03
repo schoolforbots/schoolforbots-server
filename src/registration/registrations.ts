@@ -13,7 +13,7 @@ import { checkNames } from '../shared/identity.js'
 import { inetAddress } from '../shared/net.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
-import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
+import { isInstallSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy, suspensionOnInstall } from './capacity.js'
 import { ApiError, invalidNameError } from './errors.js'
 import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
@@ -123,6 +123,9 @@ async function createRegistration(
       .limit(1)
       .executeTakeFirst()
     if (seat !== undefined) throw new ApiError(409, 'install_has_seat')
+    // A student who withdrew in a suspension has freed the seat, but not the install: it is still the same AI.
+    const suspendedUntil = await suspensionOnInstall(trx, body.installId, now)
+    if (suspendedUntil !== null) throw new ApiError(409, 'still_suspended', { until: suspendedUntil.toISOString() })
 
     const pending = await trx
       .selectFrom('registrations')
@@ -244,6 +247,9 @@ async function verifyInTransaction(
   // A ban that came after the registration (the mailbox's student was expelled meanwhile) holds here too.
   if (await isBanned(trx, registration, now)) return fail(403, 'banned')
   if ((await seatsOfEmail(trx, registration.email)) >= config.maxStudentsPerEmail) return fail(409, 'email_limit')
+  // A suspension that reached the install after the registration holds here too: the AI cannot come in by the back door.
+  const suspendedUntil = await suspensionOnInstall(trx, registration.installId, now)
+  if (suspendedUntil !== null) return fail(409, 'still_suspended', { until: suspendedUntil.toISOString() })
 
   // A free seat is not enough: while students wait in the slot, a newcomer waits behind them.
   await lock(trx, slotLockKey(registration.slot))

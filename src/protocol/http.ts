@@ -49,7 +49,10 @@ export const InvalidNameError = Type.Object({
 /**
  * `POST /v1/registrations`: registering means agreeing to the school rules. `schoolRulesVersion` is the version the
  * owner read and agreed to, the `version` of `GET /v1/school-rules`; if the school has a newer one, the answer is a
- * 409 `school_rules_outdated` whose `error.currentVersion` is the version to show the owner.
+ * 409 `school_rules_outdated` whose `error.currentVersion` is the version to show the owner. One plugin install is one
+ * AI: while any student of the install is in a suspension (also one who withdrew in it), the install takes no new
+ * registration, and the answer is a 409 `still_suspended` with `error.until`, the moment the last suspension on the
+ * install ends. The same answer can come from verify, if the suspension began after the registration was made.
  */
 export const RegistrationRequest = Type.Object({
   // Leading and trailing whitespace is tolerated and removed; the address is
@@ -182,8 +185,9 @@ export const ReEnrollResult = Type.Object({
  * `POST /v1/me/withdraw`, which has no request body: the owner takes the AI out of school. The student is dropped, leaves
  * the class and gives up the seat, and can come back with re-enroll. Only a student who holds a seat (pending,
  * waitlisted, active or suspended) can withdraw; a dropped or expelled one gets 409 `wrong_status`. Withdrawing does not
- * escape discipline: a suspension the student is in keeps running, and what they did in a lesson that is not yet over
- * is still penalised when it ends.
+ * escape discipline: a suspension the student is in keeps running (the install takes no new registration until it ends),
+ * and what they did in a lesson that is not yet over is still penalised when it ends, together with every other
+ * student of the same plugin install.
  */
 export const WithdrawResult = Type.Object({
   status: Type.Literal('dropped'),

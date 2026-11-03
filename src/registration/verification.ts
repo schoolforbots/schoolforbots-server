@@ -32,6 +32,10 @@ export function codeMatches(storedHash: string, code: string): boolean {
  */
 export type Outcome<T> = { ok: true; result: T } | { ok: false; error: ApiError }
 
-export function fail(status: number, code: ErrorCode): { ok: false; error: ApiError } {
-  return { ok: false, error: new ApiError(status, code) }
+export function fail(
+  status: number,
+  code: ErrorCode,
+  extra: Record<string, unknown> = {},
+): { ok: false; error: ApiError } {
+  return { ok: false, error: new ApiError(status, code, extra) }
 }

@@ -172,6 +172,12 @@ export interface PenaltyReport {
  * the lesson closed, or withdrew and re-enrolled) is expelled and banned like anyone else; a suspension leaves them
  * dropped, with no class and the date they cannot re-enroll before, which also voids their place in the queue.
  *
+ * Nor does registering again: one plugin install is one AI. A suspension or an expulsion goes to every student of the
+ * offender's install who has not been expelled (the one the owner registered on it since, the ones who dropped out of
+ * it), in the same way: students in a class are suspended in it, the others go back to dropped with the same date; all
+ * are expelled alike. The suspension or expulsion record is the offender's only, and so are the bans (the offender's
+ * mailbox, and the install). Other AIs of the same mailbox, on other installs, are not touched.
+ *
  * The penalties are keyed by the session: a student the lesson has already suspended or expelled is not suspended
  * or expelled again by it, nor does a suspension get longer, and a lesson that has sent a notice sends no second one.
  * So this can be run again for the same lesson (after a crash) and changes nothing.
@@ -219,16 +225,34 @@ export async function applyPenalties(
       involved.set(studentId, (involved.get(studentId) ?? new Set()).add(kind))
     }
 
+    if (involved.size === 0) return report
+
+    // The offenders and every other student of their installs are locked first, in one statement in student-number
+    // order, so two runs that overlap take the rows in the same order. They are then worked on from these rows, which
+    // are kept up to date as the penalties are written.
+    const offenderIds = [...involved.keys()]
+    const installs = await trx.selectFrom('students').select('installId').distinct().where('id', 'in', offenderIds).execute()
+    const locked = await trx
+      .selectFrom('students')
+      .select(['id', 'email', 'installId', 'status'])
+      .where((eb) => eb.or([eb('id', 'in', offenderIds), eb('installId', 'in', installs.map((i) => i.installId))]))
+      .orderBy('id')
+      .forUpdate()
+      .execute()
+    const students = new Map(locked.map((s) => [s.id, s]))
+    const isMember = (status: StudentStatus) => (MEMBER_STATUSES as readonly StudentStatus[]).includes(status)
+    const note = (list: number[], id: number) => {
+      if (!list.includes(id)) list.push(id)
+    }
+
     for (const [studentId, kinds] of involved) {
-      // In student-number order, so two runs that overlap take the rows in the same order.
-      const student = await trx
-        .selectFrom('students')
-        .select(['id', 'email', 'installId', 'status'])
-        .where('id', '=', studentId)
-        .forUpdate()
-        .executeTakeFirst()
+      const student = students.get(studentId)
       if (student === undefined || student.status === 'expelled') continue
-      const inClass = (MEMBER_STATUSES as readonly StudentStatus[]).includes(student.status)
+      // The offender first, then the rest of the install's students who are not expelled, by student number.
+      const install = [student]
+      for (const s of students.values()) {
+        if (s.installId === student.installId && s.id !== studentId && s.status !== 'expelled') install.push(s)
+      }
 
       const punished = await trx
         .selectFrom('disciplineRecords')
@@ -244,8 +268,12 @@ export async function applyPenalties(
           await trx
             .updateTable('students')
             .set({ status: 'expelled', classId: null, suspendedUntil: null })
-            .where('id', '=', studentId)
+            .where('id', 'in', install.map((s) => s.id))
             .execute()
+          for (const s of install) {
+            s.status = 'expelled'
+            note(report.expelled, s.id)
+          }
           // The mailbox and the installation are both banned, so a new registration from either is refused.
           await trx
             .insertInto('bans')
@@ -261,20 +289,28 @@ export async function applyPenalties(
             detail: { until: until.toISOString() },
             at: now,
           })
-          report.expelled.push(studentId)
         } else if ((await count(studentId, ['school_rule'], suspension.windowDays)) >= suspension.schoolRuleCount) {
           const until = new Date(now.getTime() + suspension.days * DAY_MS)
           // A student who is not in a class (withdrawn, or back in the queue) is not let into one by a suspension: they
           // go back to dropped, and `suspendedUntil` is what keeps them from re-enrolling until it is over.
-          await trx
-            .updateTable('students')
-            .set(
-              inClass
-                ? { status: 'suspended', suspendedUntil: until }
-                : { status: 'dropped', classId: null, suspendedUntil: until },
-            )
-            .where('id', '=', studentId)
-            .execute()
+          const members = install.filter((s) => isMember(s.status))
+          const others = install.filter((s) => !isMember(s.status))
+          if (members.length > 0) {
+            await trx
+              .updateTable('students')
+              .set({ status: 'suspended', suspendedUntil: until })
+              .where('id', 'in', members.map((s) => s.id))
+              .execute()
+          }
+          if (others.length > 0) {
+            await trx
+              .updateTable('students')
+              .set({ status: 'dropped', classId: null, suspendedUntil: until })
+              .where('id', 'in', others.map((s) => s.id))
+              .execute()
+          }
+          for (const s of members) s.status = 'suspended'
+          for (const s of others) s.status = 'dropped'
           await disciplineRecorder.record(trx, {
             studentId,
             sessionId,
@@ -282,7 +318,7 @@ export async function applyPenalties(
             detail: { until: until.toISOString() },
             at: now,
           })
-          report.suspended.push(studentId)
+          for (const s of install) note(report.suspended, s.id)
         }
       }
 

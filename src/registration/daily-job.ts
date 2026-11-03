@@ -90,9 +90,12 @@ async function promoteWaitlist(trx: Trx, config: SchoolConfig): Promise<number> 
     const free = config.slotCapacity - (await slotOccupancy(trx, slot))
     if (free <= 0) continue
 
+    // The outer `status` is checked as well as the subquery's: the class service takes no slot lock, so a penalty can
+    // drop or expel a waiting student after the subquery picked them, and the job must not undo it.
     const result = await trx
       .updateTable('students')
       .set({ status: 'pending' })
+      .where('status', '=', 'waitlisted')
       .where(
         'id',
         'in',
@@ -173,32 +176,47 @@ async function assignPending(
         config.classSize,
       )
 
-      const highestClassNo = classes.at(-1)?.classNo ?? 0
-      const newClassIds: number[] = []
-      for (let i = 0; i < newClassCount; i++) {
-        const persona = teacherPersonaFor(config, classesBefore + classesCreated)
-        const row = await trx
-          .insertInto('classes')
-          .values({ division, slot, classNo: highestClassNo + 1 + i, teacherPersonaId: persona.id, createdAt: now })
-          .returning('id')
-          .executeTakeFirstOrThrow()
-        newClassIds.push(row.id)
-        classesCreated++
-      }
-
-      const studentsByClass = new Map<number, number[]>()
-      for (const { studentId, target } of placements) {
-        const classId = target.kind === 'existing' ? target.classId : newClassIds[target.index]!
-        studentsByClass.set(classId, [...(studentsByClass.get(classId) ?? []), studentId])
-      }
-      for (const [classId, studentIds] of studentsByClass) {
-        await trx
+      // A student is seated only if they are still pending: the class service takes no slot lock, so a penalty can drop
+      // or expel one of them after the list above was read, and the job must not undo it. What was written is counted.
+      const seat = async (studentIds: number[], classId: number): Promise<number> => {
+        if (studentIds.length === 0) return 0
+        const result = await trx
           .updateTable('students')
           .set({ status: 'active', classId, assignedAt: now })
           .where('id', 'in', studentIds)
-          .execute()
+          .where('status', '=', 'pending')
+          .executeTakeFirstOrThrow()
+        return Number(result.numUpdatedRows)
       }
-      assigned += placements.length
+
+      const studentsByClass = new Map<number, number[]>()
+      const studentsByNewClass = new Map<number, number[]>()
+      for (const { studentId, target } of placements) {
+        const byClass = target.kind === 'existing' ? studentsByClass : studentsByNewClass
+        const key = target.kind === 'existing' ? target.classId : target.index
+        byClass.set(key, [...(byClass.get(key) ?? []), studentId])
+      }
+      for (const [classId, studentIds] of studentsByClass) assigned += await seat(studentIds, classId)
+
+      // A new class exists only if someone is seated in it: one whose students were all skipped is taken back, and
+      // the next one takes its number and its teacher.
+      let nextClassNo = (classes.at(-1)?.classNo ?? 0) + 1
+      for (let index = 0; index < newClassCount; index++) {
+        const persona = teacherPersonaFor(config, classesBefore + classesCreated)
+        const row = await trx
+          .insertInto('classes')
+          .values({ division, slot, classNo: nextClassNo, teacherPersonaId: persona.id, createdAt: now })
+          .returning('id')
+          .executeTakeFirstOrThrow()
+        const seated = await seat(studentsByNewClass.get(index) ?? [], row.id)
+        if (seated === 0) {
+          await trx.deleteFrom('classes').where('id', '=', row.id).execute()
+          continue
+        }
+        nextClassNo++
+        classesCreated++
+        assigned += seated
+      }
     }
   }
   return { assigned, classesCreated }
