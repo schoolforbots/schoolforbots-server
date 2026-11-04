@@ -153,29 +153,24 @@ export function createLlm(deps: {
     prompt: { system: string; user: string },
     opts: { json?: boolean; maxOutputTokens?: number },
     deadline: number,
-    release: () => void,
   ): Promise<LlmResponse> {
     const { provider, model } = config.llm.purposes[purpose]
     const vendor = providers[provider]
     if (vendor === undefined) throw new Error(`No provider ${provider} is set up`)
-    try {
-      for (let attempt = 0; ; attempt++) {
-        const remaining = deadline - performance.now()
-        try {
-          return await within(remaining, (signal) =>
-            vendor.complete(
-              model,
-              { ...prompt, json: opts.json ?? false, maxOutputTokens: opts.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS, timeoutMs: remaining },
-              signal,
-            ),
-          )
-        } catch (err) {
-          const canRetry = err instanceof LlmUnavailable && !(err instanceof TimedOut) && attempt < config.llm.retries && deadline - performance.now() > 0
-          if (!canRetry) throw err
-        }
+    for (let attempt = 0; ; attempt++) {
+      const remaining = deadline - performance.now()
+      try {
+        return await within(remaining, (signal) =>
+          vendor.complete(
+            model,
+            { ...prompt, json: opts.json ?? false, maxOutputTokens: opts.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS, timeoutMs: remaining },
+            signal,
+          ),
+        )
+      } catch (err) {
+        const canRetry = err instanceof LlmUnavailable && !(err instanceof TimedOut) && attempt < config.llm.retries && deadline - performance.now() > 0
+        if (!canRetry) throw err
       }
-    } finally {
-      release()
     }
   }
 
@@ -192,7 +187,11 @@ export function createLlm(deps: {
       let res: LlmResponse
       try {
         const release = await gate.acquire(deadline - performance.now())
-        res = await attempts(purpose, prompt, opts, deadline, release)
+        try {
+          res = await attempts(purpose, prompt, opts, deadline)
+        } finally {
+          release()
+        }
       } catch (err) {
         const outcome = err instanceof LlmContentRefused ? 'refused' : 'failed'
         if (!(err instanceof LlmContentRefused) && !(err instanceof LlmUnavailable)) {

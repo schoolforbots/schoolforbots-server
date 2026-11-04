@@ -159,6 +159,57 @@ describe('concurrency and time budget', () => {
   })
 })
 
+describe('the slot is released on every path', () => {
+  const one = { ...config, llm: { ...config.llm, maxConcurrent: 1, retries: 0 } }
+  const later = (llm: ReturnType<typeof createLlm>) => llm.call('lesson', prompt, { timeoutMs: 500 })
+
+  test('a purpose whose provider is missing', async () => {
+    const a = createFakeLlm(() => ok('fine'))
+    const llm = createLlm({ db, config: one, clock, providers: { a } })
+    for (let i = 0; i < 3; i++) await expect(llm.call('answer', prompt)).rejects.toThrow()
+    await expect(later(llm)).resolves.toMatchObject({ text: 'fine' })
+  })
+
+  test.each([
+    ['a refusal', () => new LlmContentRefused('x')],
+    ['a non-Llm error', () => new TypeError('bug')],
+  ])('after %s', async (_name, error) => {
+    let fail = true
+    const a = createFakeLlm(() => (fail ? error() : ok('fine')))
+    const llm = createLlm({ db, config: one, clock, providers: { a } })
+    await expect(llm.call('lesson', prompt)).rejects.toThrow()
+    fail = false
+    await expect(later(llm)).resolves.toMatchObject({ text: 'fine' })
+  })
+
+  test('after a timeout', async () => {
+    let hang = true
+    const a = createFakeLlm(() => (hang ? new Promise<LlmResponse>(() => {}) : ok('fine')))
+    const llm = createLlm({ db, config: one, clock, providers: { a } })
+    await expect(llm.call('lesson', prompt, { timeoutMs: 50 })).rejects.toBeInstanceOf(LlmUnavailable)
+    hang = false
+    await expect(later(llm)).resolves.toMatchObject({ text: 'fine' })
+  })
+
+  test('a waiter that timed out in the queue leaves the queue intact', async () => {
+    let finish: () => void = () => {}
+    let first = true
+    const a = createFakeLlm(() => {
+      if (!first) return ok('fine')
+      first = false
+      return new Promise<LlmResponse>((resolve) => (finish = () => resolve(ok('held'))))
+    })
+    const llm = createLlm({ db, config: one, clock, providers: { a } })
+    const holder = llm.call('lesson', prompt, { timeoutMs: 2000 })
+    await expect(llm.call('lesson', prompt, { timeoutMs: 50 })).rejects.toBeInstanceOf(LlmUnavailable)
+    const third = llm.call('lesson', prompt, { timeoutMs: 2000 })
+    finish()
+    await expect(holder).resolves.toMatchObject({ text: 'held' })
+    await expect(third).resolves.toMatchObject({ text: 'fine' })
+    expect(a.calls).toHaveLength(2)
+  })
+})
+
 describe('budget notice after a call', () => {
   test('crossing the budget mails once; a failing mailer does not fail the call', async () => {
     const tight = { ...config, llm: { ...config.llm, monthlyBudgetYuan: 0.001 } }
