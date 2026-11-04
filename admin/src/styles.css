@@ -14,6 +14,7 @@ body {
 
 /* Every control says it can be clicked; one that cannot be used says that. */
 button:not(:disabled),
+select:not(:disabled),
 [role='tab'],
 [role='radio'],
 label[for],
@@ -32,6 +33,19 @@ button:disabled {
 
 p {
   margin: 0;
+}
+
+/* Out of sight, still read out: a live region with nothing to say yet. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
 }
 
 .topbar {
@@ -177,8 +191,13 @@ p {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
-.stale {
-  opacity: 0.5;
+/* While another range is read, the lines of the one shown fade; the words keep their full contrast. */
+.stale .chart-line {
+  opacity: 0.35;
+}
+.range-loading {
+  margin-bottom: 8px;
+  color: #4a4a4a;
 }
 
 .chart {
@@ -245,9 +264,6 @@ p {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   font-size: 12px;
   pointer-events: none;
-}
-.chart-readout:empty {
-  display: none;
 }
 .chart-readout ul {
   margin: 4px 0 0;
@@ -555,7 +571,8 @@ p {
 }
 .pen-note p {
   color: #c8312b;
-  font-family: 'Kaiti SC', STKaiti, KaiTi, 'AR PL UKai CN', 'PingFang SC', 'Microsoft YaHei', serif;
+  font-family: 'Kaiti SC', STKaiti, KaiTi, 'AR PL UKai CN', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC',
+    system-ui, sans-serif;
   font-size: 15px;
 }
 .pen-none {
@@ -667,4 +684,301 @@ p {
   border-radius: 6px;
   background: #f0efe9;
   font-weight: 600;
+}
+
+/* Tables of numbers (the weekly review, a student's messages and record): the caption names the table, hairlines
+   between rows, numbers on the right in figures of one width. */
+.numbers {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.numbers caption {
+  margin-bottom: 6px;
+  font-weight: 600;
+  text-align: left;
+}
+.numbers th,
+.numbers td {
+  padding: 6px 12px;
+  border-bottom: 1px solid #e3e2dc;
+  text-align: left;
+  vertical-align: top;
+}
+.numbers th:first-child,
+.numbers td:first-child {
+  padding-left: 0;
+}
+.numbers thead th {
+  border-bottom-color: #b9b8ae;
+  color: #4a4a4a;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.numbers tbody th {
+  font-weight: 400;
+}
+.numbers .num {
+  text-align: right;
+  white-space: nowrap;
+}
+.numbers .total th,
+.numbers .total td {
+  border-bottom: 0;
+  font-weight: 600;
+}
+.numbers.wide {
+  width: 100%;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.line {
+  overflow-wrap: anywhere;
+}
+.tables {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 48px;
+  margin: 12px 0;
+}
+.lead {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* A dialog that asks before an action: what it does, a paragraph a consequence. */
+.confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* What an action did, said where it was done. */
+.action-done {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f0efe9;
+}
+
+/* The weekly review. */
+.week-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 32px;
+}
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.picker-row .field-label {
+  margin: 0;
+}
+.picker-failure {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #4a4a4a;
+}
+.native-select {
+  min-width: 340px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #8a8980;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f1f1f;
+  font: inherit;
+}
+.native-select:hover {
+  border-color: #2f5d50;
+}
+.week-note {
+  color: #4a4a4a;
+}
+.listed {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e3e2dc;
+}
+/* Right under the block's heading, a list needs no rule above it. */
+.panel-title + .listed {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.listed + .tables {
+  padding-top: 12px;
+  border-top: 1px solid #e3e2dc;
+}
+.scroll-box {
+  max-height: 320px;
+  overflow: auto;
+}
+.scroll-box:focus-visible {
+  outline-offset: -2px;
+}
+.sub-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.listed .field-hint {
+  margin-bottom: 8px;
+}
+.plain-list {
+  margin: 0;
+  padding-left: 20px;
+}
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.suggestions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.suggestion {
+  padding: 12px 0;
+}
+.suggestion + .suggestion {
+  border-top: 1px solid #e3e2dc;
+}
+.suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+.suggestion-rule {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.suggestion-head .ant-btn {
+  margin-left: auto;
+}
+/* Students' lines, each with when it was said. */
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lines li {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+}
+.line-when {
+  color: #5c5c5c;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Looking up a student. */
+.lookup .field-label {
+  margin-top: 0;
+}
+.lookup-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lookup-field {
+  width: 200px;
+}
+.lookup .field-hint {
+  margin: 6px 0 0;
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 24px;
+  margin: 0;
+}
+.fact dt {
+  color: #5c5c5c;
+  font-size: 12px;
+}
+.fact dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.student-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e3e2dc;
+}
+.suspend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 16px;
+}
+.suspend-label {
+  font-weight: 600;
+}
+.actions-hint {
+  margin: 6px 0 0;
+}
+.table-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.table-foot .action-error {
+  margin-top: 0;
+}
+
+/* The runtime switches: one row each; the effect in force now reads darker than the other. */
+.switch + .switch {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e3e2dc;
+}
+.switch-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.switch-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.switch-state {
+  font-weight: 600;
+}
+.switch-head .ant-btn {
+  margin-left: auto;
+}
+.switch-effects {
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  color: #5c5c5c;
+}
+.switch-effects .switch-now {
+  color: #1f1f1f;
+}
+.switch-when {
+  color: #5c5c5c;
+  font-size: 13px;
 }

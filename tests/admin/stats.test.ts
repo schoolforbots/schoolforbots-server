@@ -396,3 +396,8 @@ test('the switch changes are the ones made over the days of the curves', async (
   ])
   expect((await daily(30)).json().switchChanges).toHaveLength(3)
 })
+
+test('the answer names the school’s time zone, the clock its times and days are read on', async () => {
+  await start({ ...exampleConfig(), timezone: 'Europe/London' })
+  expect((await daily(7)).json().timeZone).toBe('Europe/London')
+})

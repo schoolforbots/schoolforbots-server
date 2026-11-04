@@ -8,8 +8,11 @@ interface Fields {
   code: string
 }
 
-/** The password and the one-time code from the authenticator app. `notice` says why the page is back, if it is. */
-export function Login({ onLoggedIn, notice }: { onLoggedIn: () => void; notice?: string }) {
+/**
+ * The password and the one-time code from the authenticator app. `notice` says why the page is back, if it is.
+ * `onLoggedIn` is given the school's time zone, which comes with the session.
+ */
+export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) => void; notice?: string }) {
   const [form] = Form.useForm<Fields>()
   const codeField = useRef<InputRef>(null)
   const [sending, setSending] = useState(false)
@@ -18,17 +21,19 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: () => void; notice?:
   async function send({ password, code }: Fields) {
     setSending(true)
     setRefusal(undefined)
+    let session
     try {
-      await login(password, code.trim())
+      session = await login(password, code.trim())
     } catch (error) {
       setRefusal(error as ApiError)
       setSending(false)
-      // A code is good for one login only, right or wrong: the next try needs the next one.
+      // Only a login that succeeds uses a code up. But the code may be what was wrong, and the one shown changes
+      // every 30 seconds anyway: the field is emptied for the one showing now.
       form.setFieldValue('code', '')
       codeField.current?.focus()
       return
     }
-    onLoggedIn()
+    onLoggedIn(session.timeZone)
   }
 
   return (
@@ -56,12 +61,13 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: () => void; notice?:
               <div className="login-refusal" role="alert">
                 <p>{refusal.message}</p>
                 {refusal.code === 'admin_login_failed' && (
-                  <p>每组验证码只能用一次。用错或用过的，等验证器换到下一组再登录。</p>
+                  <p>每组验证码只能成功登录一次。刚用它登录过的话，等验证器换到下一组再试。</p>
                 )}
               </div>
             )}
-            <Button type="primary" htmlType="submit" loading={sending} block>
-              登录
+            {/* No spinner: the label says what is going on. */}
+            <Button type="primary" htmlType="submit" disabled={sending} block>
+              {sending ? '正在登录' : '登录'}
             </Button>
           </Form>
         </section>

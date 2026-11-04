@@ -495,6 +495,29 @@ describe('the review page', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '通过，审下一节' })).toHaveFocus())
   })
 
+  it('puts the focus on why 通过 is held after the last 这是误伤, while the lesson is being remade', async () => {
+    let lesson = lessonDetail({ topic: '落叶', flags: [{ part: 'segment', index: 2, kind: 'word', rule: '花青素' }] })
+    fakeServer({
+      [QUEUE]: ok(oneLesson({ status: 'flagged', flags: 1, topic: '冬至' })),
+      'GET api/lessons/1': () => ok(lesson),
+      'POST api/lessons/1/false-positive': () => {
+        lesson = { ...lesson, version: 2, flags: [] }
+        return ok(lesson)
+      },
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    const region = within(await screen.findByRole('region', { name: '第 3 段' }))
+    region.getByRole('button', { name: '这是误伤' }).focus()
+    await user.keyboard('{Enter}')
+
+    await waitFor(() =>
+      expect(screen.getByText('这节课正在按新题目重新生成，等新稿出来再审。')).toHaveFocus(),
+    )
+    expect(screen.getByRole('button', { name: '通过，审下一节' })).toBeDisabled()
+  })
+
   it('reads the lesson again after a refused 这是误伤, and puts the focus back on the part', async () => {
     fakeServer({
       [QUEUE]: ok(oneLesson({ status: 'flagged', flags: 3 })),
@@ -822,6 +845,21 @@ describe('giving a day a topic', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       '已给 11/6 周五 初中部指定题目《冬至为什么吃饺子》。这节课已经回到待审，正在按新题目重新生成，新稿出来以后再审。',
     )
+  })
+
+  it('offers the days after the school’s today, whatever this computer’s clock says', async () => {
+    // The computer still says Wednesday; the school has reached Thursday.
+    today()
+    fakeServer({ [QUEUE]: ok({ ...topicQueue(), today: THU }), 'GET api/lessons/1': ok(lessonDetail()) })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    await user.click(await screen.findByRole('button', { name: '给某一天指定题目' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
+    const days = dialog.getByRole('group', { name: '日期' })
+    expect(within(days).getAllByRole('radio').map((radio) => radio.closest('label')?.textContent)).toEqual([
+      '11/6 周五',
+    ])
   })
 
   it('takes a topic away, shows the server’s reason for a refusal, and closes with Esc', async () => {

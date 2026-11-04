@@ -2,7 +2,18 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { Layout } from './Layout.js'
-import { dailyStats, dayNumbers, fakeServer, lessonQueue, ok, queueSlot, show, YESTERDAY } from './test-api.js'
+import {
+  dailyStats,
+  dayNumbers,
+  fakeServer,
+  lessonQueue,
+  ok,
+  queueSlot,
+  show,
+  switches,
+  weeklyPage,
+  YESTERDAY,
+} from './test-api.js'
 
 function serve(queue = lessonQueue(), stats = dailyStats(7)) {
   return fakeServer({ 'GET api/stats/daily?days=7': ok(stats), 'GET api/lessons/queue': ok(queue) })
@@ -46,15 +57,34 @@ describe('the layout', () => {
     expect(await screen.findByRole('tab', { name: '审课 · 待审 3' })).toBeInTheDocument()
   })
 
-  it('shows an honest placeholder on the pages still being built', async () => {
-    serve()
+  it('says the count of lessons to review was not read, rather than showing none', async () => {
+    fakeServer({ 'GET api/stats/daily?days=7': ok(dailyStats(7)), 'GET api/lessons/queue': { networkError: true } })
+    show(<Layout onLoggedOut={vi.fn()} />)
+
+    expect(await screen.findByRole('tab', { name: '审课 · 待审数没读到' })).toBeInTheDocument()
+  })
+
+  it('shows the weekly review, the student lookup and the switches on their tabs', async () => {
+    fakeServer({
+      'GET api/stats/daily?days=7': ok(dailyStats(7)),
+      'GET api/lessons/queue': ok(lessonQueue()),
+      'GET api/weekly': ok(weeklyPage()),
+      'GET api/weekly/weeks': ok({ weeks: [] }),
+      'GET api/switches': ok(switches()),
+    })
     const user = userEvent.setup()
     show(<Layout onLoggedOut={vi.fn()} />)
 
-    for (const name of ['每周复盘', '查学生', '开关']) {
-      await user.click(screen.getByRole('tab', { name }))
-      expect(within(screen.getByRole('tabpanel', { name })).getByText('这一页还在做。')).toBeInTheDocument()
-    }
+    await user.click(screen.getByRole('tab', { name: '每周复盘' }))
+    expect(await within(screen.getByRole('tabpanel', { name: '每周复盘' })).findByRole('combobox', { name: '看哪一周' }))
+      .toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '查学生' }))
+    expect(within(screen.getByRole('tabpanel', { name: '查学生' })).getByRole('textbox', { name: '学号' }))
+      .toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '开关' }))
+    expect(await within(screen.getByRole('tabpanel', { name: '开关' })).findByRole('region', { name: '老师用大模型' }))
+      .toBeInTheDocument()
+    expect(screen.queryByText('这一页还在做。')).not.toBeInTheDocument()
   })
 
   it('shows the review page on the review tab, from the same list the tab counts', async () => {
@@ -100,7 +130,11 @@ describe('the layout', () => {
   })
 
   it('opens the tab named in the address', async () => {
-    serve()
+    fakeServer({
+      'GET api/stats/daily?days=7': ok(dailyStats(7)),
+      'GET api/lessons/queue': ok(lessonQueue()),
+      'GET api/switches': { pending: true },
+    })
     window.history.replaceState(null, '', '/#switches')
     show(<Layout onLoggedOut={vi.fn()} />)
 

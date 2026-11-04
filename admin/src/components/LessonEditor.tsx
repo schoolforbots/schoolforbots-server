@@ -534,7 +534,8 @@ function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void }) {
         通过，审下一节
       </Button>
       {reasons.length > 0 && (
-        <p id={reasonId} className="foot-note">
+        // Takes the focus when the last 这是误伤 leaves 通过 still held for another reason.
+        <p id={reasonId} className="foot-note" tabIndex={-1}>
           {reasons.join('')}
         </p>
       )}
@@ -650,12 +651,15 @@ export function LessonEditor({
   const article = useRef<HTMLElement>(null)
   const [marked, setMarked] = useState<{ at: number; n: number }>()
   // After a 这是误伤, the focus goes to the next one in reading order (its own and any other of the same rule are gone),
-  // or, when none are left, to approving.
+  // or, when none are left, to approving; or, when approving is held for another reason, to that reason.
   useEffect(() => {
     if (marked === undefined) return
     const rest = [...(article.current?.querySelectorAll<HTMLButtonElement>('.false-positive') ?? [])]
-    const next = rest[Math.min(marked.at, rest.length - 1)]
-    ;(next ?? article.current?.querySelector<HTMLButtonElement>('.lesson-foot button:not(:disabled)'))?.focus()
+    const next =
+      rest[Math.min(marked.at, rest.length - 1)] ??
+      article.current?.querySelector<HTMLButtonElement>('.lesson-foot button:not(:disabled)') ??
+      article.current?.querySelector<HTMLElement>('.lesson-foot .foot-note')
+    next?.focus()
   }, [marked])
   const markedWrong = (at: number) => setMarked((last) => ({ at, n: (last?.n ?? 0) + 1 }))
   const refocus = (opener: Box) => setClosed(({ n }) => ({ box: opener, n: n + 1 }))

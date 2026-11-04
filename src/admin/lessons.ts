@@ -325,8 +325,10 @@ export function lessonRoutes(deps: AdminDeps): FastifyPluginAsync {
       return lesson
     }
 
+    // `today` is the school's calendar day: topics can be given from the day after it.
     app.get('/lessons/queue', async () => ({
       mode: deps.config.lessonGeneration.mode,
+      today: localDate(deps.clock.now(), deps.config.timezone),
       callOns: deps.config.lesson.callOns.map((c) => ({ kind: c.kind, afterSegment: c.afterSegment })),
       days: await reviewQueue(deps),
     }))

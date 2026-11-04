@@ -2,7 +2,7 @@ import { Button, Input, Modal, Radio } from 'antd'
 import { useId, useState, type ReactNode } from 'react'
 import { putTopic, type ApiError, type Division, type LessonQueue, type QueueSlot } from '../api.js'
 import { useFocusOnMount } from '../focus.js'
-import { DIVISION_NAMES, localDay, shortDayName } from '../labels.js'
+import { DIVISION_NAMES, shortDayName } from '../labels.js'
 
 // 给某一天指定题目: a topic for one division on one lesson day after today. The days to choose from are the queue's; a
 // lesson already approved is made again for a new topic, so that is asked first.
@@ -22,10 +22,9 @@ function Said({ children, className }: { children: ReactNode; className: string 
   )
 }
 
-/** The lesson days of the queue after today, by this computer's clock: today's lessons are settled already. */
+/** The lesson days of the queue after the school's today: today's lessons are settled already. */
 function laterDays(queue: LessonQueue) {
-  const today = localDay(new Date().toISOString())
-  return queue.days.filter((day) => day.date > today)
+  return queue.days.filter((day) => day.date > queue.today)
 }
 
 export function TopicDialog({

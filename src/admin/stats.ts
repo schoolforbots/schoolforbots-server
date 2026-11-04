@@ -69,6 +69,8 @@ export interface DailyStats {
   series: SeriesDay[]
   /** The switches changed over the days of `series`. */
   switchChanges: { name: SwitchName; on: boolean; at: string }[]
+  /** The school's time zone (IANA): the clock the deadlines and the switch changes are read on. */
+  timeZone: string
 }
 
 /** What one day holds before rounding. */
@@ -284,6 +286,7 @@ export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'
     reminders: { unreviewed, generationFailed },
     series,
     switchChanges: changes.map((c) => ({ name: c.name, on: c.on, at: c.at.toISOString() })),
+    timeZone: tz,
   }
 }
 

@@ -162,7 +162,11 @@ interface PlotProps {
 
 function Plot({ title, dates, series, markers, markerDates, format, formatTick, counts, namesAtEnds }: PlotProps) {
   const [box, width] = useWidth(560)
-  const [active, setActive] = useState<number | null>(null)
+  // The day the keyboard is on (while the chart has the focus) and the day under the pointer; the pointer's shows
+  // while it is over the plot, and leaving the plot gives the readout back to the keyboard.
+  const [keyed, setKeyed] = useState<number | null>(null)
+  const [pointed, setPointed] = useState<number | null>(null)
+  const active = pointed ?? keyed
   const readoutId = useId()
 
   const n = dates.length
@@ -187,7 +191,7 @@ function Plot({ title, dates, series, markers, markerDates, format, formatTick, 
   function pick(event: PointerEvent<SVGRectElement>) {
     const left = event.currentTarget.ownerSVGElement?.getBoundingClientRect().left ?? 0
     const at = (event.clientX - left - MARGIN.left) / plotWidth
-    setActive(Math.min(last, Math.max(0, Math.round(at * (n - 1)))))
+    setPointed(Math.min(last, Math.max(0, Math.round(at * (n - 1)))))
   }
 
   function step(event: KeyboardEvent<HTMLDivElement>) {
@@ -213,7 +217,8 @@ function Plot({ title, dates, series, markers, markerDates, format, formatTick, 
         return
     }
     event.preventDefault()
-    setActive(next)
+    setKeyed(next)
+    setPointed(null)
   }
 
   const activeDate = active === null ? undefined : dates[active]
@@ -228,8 +233,8 @@ function Plot({ title, dates, series, markers, markerDates, format, formatTick, 
       role="group"
       aria-label={`${title}，用左右方向键逐天查看`}
       aria-describedby={readoutId}
-      onFocus={() => setActive((current) => current ?? last)}
-      onBlur={() => setActive(null)}
+      onFocus={() => setKeyed((current) => current ?? last)}
+      onBlur={() => setKeyed(null)}
       onKeyDown={step}
     >
       <svg width={width} height={HEIGHT} aria-hidden="true">
@@ -276,6 +281,7 @@ function Plot({ title, dates, series, markers, markerDates, format, formatTick, 
         {series.map((line) => (
           <path
             key={line.key}
+            className="chart-line"
             d={line.values
               .map((value, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(value).toFixed(1)}`)
               .join(' ')}
@@ -290,6 +296,7 @@ function Plot({ title, dates, series, markers, markerDates, format, formatTick, 
           // The end of each line, or the day the readout shows.
           <circle
             key={line.key}
+            className="chart-line"
             cx={x(active ?? last)}
             cy={y(line.values[active ?? last] ?? 0)}
             r={4}
@@ -319,13 +326,14 @@ function Plot({ title, dates, series, markers, markerDates, format, formatTick, 
           height={plotHeight}
           fill="transparent"
           onPointerMove={pick}
-          onPointerLeave={() => setActive(null)}
+          onPointerLeave={() => setPointed(null)}
         />
       </svg>
+      {/* A live region: always in the page, so a day read out is announced; out of sight while it shows none. */}
       <div
         id={readoutId}
         role="status"
-        className="chart-readout"
+        className={activeDate === undefined ? 'chart-readout visually-hidden' : 'chart-readout'}
         style={{ left: readoutLeft, transform: flip ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)' }}
       >
         {activeDate !== undefined && active !== null && (

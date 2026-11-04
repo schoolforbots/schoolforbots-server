@@ -1,9 +1,11 @@
 import { Tabs } from 'antd'
 import { useEffect, useState, type ReactNode } from 'react'
 import { LESSON_QUEUE_PATH, lessonsToReview, logout, useLoad, type ApiError, type LessonQueue } from './api.js'
-import { Empty } from './components/States.js'
 import { Data } from './pages/Data.js'
 import { Review } from './pages/Review.js'
+import { Students } from './pages/Students.js'
+import { Switches } from './pages/Switches.js'
+import { Weekly } from './pages/Weekly.js'
 
 /** The green bar on top of every page: the school's name, and whatever acts on the whole session. */
 export function TopBar({ children }: { children?: ReactNode }) {
@@ -44,7 +46,12 @@ function useTab(): [Tab, (tab: Tab) => void] {
 export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [tab, setTab] = useTab()
   const queue = useLoad<LessonQueue>(LESSON_QUEUE_PATH)
-  const toReview = queue.data === undefined ? 0 : lessonsToReview(queue.data)
+  // The count on the tab; a list that could not be read says so, rather than looking like nothing to review.
+  let reviewLabel = '审课'
+  if (queue.data !== undefined) {
+    const toReview = lessonsToReview(queue.data)
+    if (toReview > 0) reviewLabel = `审课 · 待审 ${toReview}`
+  } else if (queue.error !== undefined && !queue.loading) reviewLabel = '审课 · 待审数没读到'
   const [leaving, setLeaving] = useState(false)
   const [leaveFailure, setLeaveFailure] = useState<string>()
 
@@ -60,17 +67,12 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
     }
   }
 
-  const notYet = (
-    <div className="panel">
-      <Empty why="这一页还在做。" />
-    </div>
-  )
   const items = [
     { key: 'data', label: '学校数据', children: <Data onGoReview={() => setTab('review')} /> },
-    { key: 'review', label: toReview > 0 ? `审课 · 待审 ${toReview}` : '审课', children: <Review queue={queue} /> },
-    { key: 'weekly', label: '每周复盘', children: notYet },
-    { key: 'students', label: '查学生', children: notYet },
-    { key: 'switches', label: '开关', children: notYet },
+    { key: 'review', label: reviewLabel, children: <Review queue={queue} /> },
+    { key: 'weekly', label: '每周复盘', children: <Weekly /> },
+    { key: 'students', label: '查学生', children: <Students /> },
+    { key: 'switches', label: '开关', children: <Switches /> },
   ]
 
   return (

@@ -53,6 +53,16 @@ describe('the api client', () => {
     })
   })
 
+  it('says so when a 200 answer is not JSON, instead of handing on nothing', async () => {
+    fakeServer({ 'GET api/session': { status: 200, raw: '<html>Login to the proxy</html>' } })
+
+    await expect(getSession()).rejects.toMatchObject({
+      status: 200,
+      code: 'bad_response',
+      message: '服务器没有正常回应（200），稍后再试。',
+    })
+  })
+
   it('tells the app when the session has ended, but not when a login is refused', async () => {
     fakeServer({
       'GET api/stats/daily?days=7': fail(401, 'admin_login_required', '请先登录。'),

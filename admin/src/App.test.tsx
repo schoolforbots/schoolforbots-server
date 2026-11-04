@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { App } from './App.js'
-import { dailyStats, fail, fakeServer, lessonQueue, ok, show } from './test-api.js'
+import { dailyStats, fail, fakeServer, lessonQueue, ok, SESSION, show, switches } from './test-api.js'
 
 const loginRequired = fail(401, 'admin_login_required', '请先登录。')
 
@@ -10,10 +10,10 @@ describe('the admin app', () => {
   it('shows the login page without a session, then the school data once logged in', async () => {
     let loggedIn = false
     fakeServer({
-      'GET api/session': () => (loggedIn ? ok({ expiresAt: '2026-11-04T12:00:00.000Z' }) : loginRequired),
+      'GET api/session': () => (loggedIn ? ok(SESSION) : loginRequired),
       'POST api/login': () => {
         loggedIn = true
-        return ok({ expiresAt: '2026-11-04T12:00:00.000Z' })
+        return ok(SESSION)
       },
       'GET api/stats/daily?days=7': () => (loggedIn ? ok(dailyStats(7)) : loginRequired),
       'GET api/lessons/queue': () => (loggedIn ? ok(lessonQueue()) : loginRequired),
@@ -31,7 +31,7 @@ describe('the admin app', () => {
 
   it('goes back to the login page when a request finds the session gone', async () => {
     fakeServer({
-      'GET api/session': ok({ expiresAt: '2026-11-04T12:00:00.000Z' }),
+      'GET api/session': ok(SESSION),
       'GET api/stats/daily?days=7': loginRequired,
       'GET api/lessons/queue': ok(lessonQueue()),
     })
@@ -44,7 +44,7 @@ describe('the admin app', () => {
 
   it('logs out', async () => {
     const server = fakeServer({
-      'GET api/session': ok({ expiresAt: '2026-11-04T12:00:00.000Z' }),
+      'GET api/session': ok(SESSION),
       'GET api/stats/daily?days=7': ok(dailyStats(7)),
       'GET api/lessons/queue': ok(lessonQueue()),
       'POST api/logout': ok({ ok: true }),
@@ -72,5 +72,17 @@ describe('the admin app', () => {
     await user.click(screen.getByRole('button', { name: '重新读取' }))
 
     expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument()
+  })
+
+  it('shows times on the school’s clock, the time zone the session names', async () => {
+    window.history.replaceState(null, '', '/#switches')
+    fakeServer({
+      'GET api/session': ok({ ...SESSION, timeZone: 'Asia/Tokyo' }),
+      'GET api/lessons/queue': ok(lessonQueue()),
+      'GET api/switches': ok(switches({ teacherLlm: { on: false, updatedAt: '2026-11-03T12:05:00.000Z' } })),
+    })
+    show(<App />)
+
+    expect(await screen.findByText('最近一次切换：2026 年 11 月 3 日 21:05')).toBeInTheDocument()
   })
 })

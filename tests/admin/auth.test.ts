@@ -111,11 +111,12 @@ describe('login', () => {
       maxAge: 12 * 3600,
     })
     const expiresAt = new Date(t.clock.now().getTime() + 12 * 3600_000).toISOString()
-    expect(res.json()).toEqual({ expiresAt })
+    // The school's time zone comes with the session: the pages show every time on the school's clock.
+    expect(res.json()).toEqual({ expiresAt, timeZone: 'Asia/Shanghai' })
 
     const session = await t.app.inject({ method: 'GET', url: t.url('api/session'), headers: { cookie: `sfb_admin=${cookie.value}` } })
     expect(session.statusCode).toBe(200)
-    expect(session.json()).toEqual({ expiresAt })
+    expect(session.json()).toEqual({ expiresAt, timeZone: 'Asia/Shanghai' })
   })
 
   test('only the hash of the token is stored', async () => {
