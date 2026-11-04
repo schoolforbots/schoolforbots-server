@@ -44,6 +44,11 @@ function readDataFile(dir: string, name: string): string {
   return readFileSync(example, 'utf8')
 }
 
+/** Just the word list, read the way `loadModerationData` reads it. */
+export function loadBlockedWords(dir: string): string[] {
+  return parseWordList(readDataFile(dir, 'blocked-words'))
+}
+
 export function loadModerationData(dir: string): ModerationData {
   return {
     blockedWords: parseWordList(readDataFile(dir, 'blocked-words')),

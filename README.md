@@ -98,6 +98,18 @@ Notes:
 - If a division still has no approved lesson when its first class of the day opens its doors, that division has a study hall that day.
 - Like `npm run job:daily`, it reads the environment the way the registration service does: even though it sends no mail, it needs `MAIL_TRANSPORT=console` or `SMTP_URL` (`.env.example` already has `MAIL_TRANSPORT=console`).
 
+## Tidying the word list before launch
+
+`words:tidy` asks the model which entries of the blocked-word list would wrongly block ordinary maths, science or literature lessons, and writes its answers as a Markdown list:
+
+```bash
+npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
+```
+
+- It reads the word list from `MODERATION_DATA_DIR` and sends it in batches (`--batch`, 200 words by default) with the `wordList` purpose of the school config, so it needs the same model settings and database as the class service (`LLM_FAKE` works too).
+- It only suggests. It never changes a word-list file; the one file it writes is `--out`, and the console shows counts only. To act on the list, delete the entries you agree with by hand in the word-list file you maintain yourself (在你自己维护的词库文件里手动删).
+- A batch the vendor refuses is split and tried again; a word that is still refused, or whose batch the model could not be reached for, is listed in a section "没能判断" so you can look at it yourself.
+
 ## Running a whole lesson locally
 
 Two development tools run a lesson on your machine from the doors opening to school's out. `dev:seed` skips registration and class assignment: it creates a class directly and fills it with students who are already past the observation period. `sim` sends a simulated bot to class for each student. The files they use and write go in the `.sim/` directory, which is never committed.
