@@ -145,6 +145,12 @@ function flagsOf(moderator: Moderator, content: LessonContent, falsePositives: r
   return flags
 }
 
+/** Whether two lists hold the same marks in the same order (the stored ones come back with their keys reordered). */
+function sameFlags(a: readonly LessonFlag[], b: readonly LessonFlag[]): boolean {
+  const key = (f: LessonFlag) => JSON.stringify([f.part, f.index, f.kind, f.rule])
+  return a.length === b.length && a.every((f, i) => key(f) === key(b[i]!))
+}
+
 interface VersionMeta {
   change: LessonChange
   reason?: string | null
@@ -445,9 +451,11 @@ export async function markFalsePositive(
 }
 
 /**
- * Approves the lesson for teaching, as it is at `baseVersion`. Refused with `LessonHasFlags` while it has red marks,
- * and with `LessonLocked` once its day is decided (by `lockedWhen`, see `LockRule`). A lesson approved already keeps
- * the time of its approval.
+ * Approves the lesson for teaching, as it is at `baseVersion`. The red marks are worked out again with the word list
+ * as it is now: a rule dropped since no longer stands in the way, a word listed since does. While it has any, the
+ * approval is refused with `LessonHasFlags`; marks that changed are stored all the same, on the next version number,
+ * so a tab that shows the old ones has to reload. Refused with `LessonLocked` once its day is decided (by
+ * `lockedWhen`, see `LockRule`). A lesson approved already keeps the time of its approval.
  */
 export async function approve(
   deps: LessonStoreDeps,
@@ -455,10 +463,22 @@ export async function approve(
   baseVersion: number,
   opts: { lockedWhen?: LockRule } = {},
 ): Promise<void> {
-  const write = async (trx: Transaction<Database>, lesson: LessonRow) => {
-    if (lesson.flags.length > 0) throw new LessonHasFlags(lessonId, lesson.flags.length)
-    if (lesson.approvedAt !== null) return
-    await trx.updateTable('lessons').set({ approvedAt: deps.clock.now() }).where('id', '=', lessonId).execute()
+  const write = async (trx: Transaction<Database>, lesson: LessonRow): Promise<number> => {
+    const flags = flagsOf(deps.moderator, contentOf(lesson), lesson.falsePositives)
+    if (!sameFlags(flags, lesson.flags)) {
+      await trx
+        .updateTable('lessons')
+        .set({ flags: JSON.stringify(flags), version: lesson.version + 1, updatedAt: deps.clock.now() })
+        .where('id', '=', lessonId)
+        .execute()
+    }
+    if (flags.length > 0) return flags.length
+    if (lesson.approvedAt === null) {
+      await trx.updateTable('lessons').set({ approvedAt: deps.clock.now() }).where('id', '=', lessonId).execute()
+    }
+    return 0
   }
-  await changeLesson(deps, lessonId, baseVersion, write, opts.lockedWhen)
+  // Thrown once the marks are stored: inside the transaction it would take them back.
+  const marks = await changeLesson(deps, lessonId, baseVersion, write, opts.lockedWhen)
+  if (marks > 0) throw new LessonHasFlags(lessonId, marks)
 }

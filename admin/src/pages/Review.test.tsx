@@ -448,6 +448,26 @@ describe('the review page', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('这节课已经开课，不能再改。')
   })
 
+  it('reads the lesson again when approving finds a red mark the word list has gained since, and shows it', async () => {
+    let reads = 0
+    const marked = { part: 'title' as const, index: null, kind: 'word' as const, rule: '新词' }
+    fakeServer({
+      [QUEUE]: ok(oneLesson()),
+      'GET api/lessons/1': () => {
+        reads++
+        return ok(lessonDetail(reads > 1 ? { version: 2, flags: [marked] } : {}))
+      },
+      'POST api/lessons/1/approve': fail(409, 'lesson_has_flags', '这节课还有 1 处红笔标记，改掉或标为误伤以后才能通过'),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    await user.click(await screen.findByRole('button', { name: '通过，审下一节' }))
+
+    expect(await screen.findByRole('button', { name: /这是误伤/ })).toBeInTheDocument()
+    expect(reads).toBe(2)
+  })
+
   it('says the day has begun, with the focus, once the lesson read again is locked', async () => {
     let reads = 0
     fakeServer({
