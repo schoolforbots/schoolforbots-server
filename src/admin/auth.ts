@@ -54,21 +54,25 @@ export function totpNow(secretBase32: string, at: Date, digits = 6): string {
   return hotp(base32Decode(secretBase32), stepOf(at), digits)
 }
 
-/** Whether `code` is the code of the step at `at` or of the one before or after it. Every candidate is compared. */
-export function verifyTotp(secretBase32: string, code: string, at: Date): boolean {
+/**
+ * The time step whose code `code` is, among the step at `at` and the one before and after it; null when it is none of
+ * them. Every candidate is compared. The caller refuses a step it has already accepted (RFC 6238, 5.2).
+ */
+export function verifyTotp(secretBase32: string, code: string, at: Date): number | null {
   let key: Buffer
   try {
     key = base32Decode(secretBase32)
   } catch {
-    return false
+    return null
   }
   const given = Buffer.from(code)
-  let ok = false
+  let matched: number | null = null
   for (const offset of [-1, 0, 1]) {
-    const expected = Buffer.from(hotp(key, stepOf(at) + offset, 6))
-    if (given.length === expected.length && timingSafeEqual(given, expected)) ok = true
+    const step = stepOf(at) + offset
+    const expected = Buffer.from(hotp(key, step, 6))
+    if (given.length === expected.length && timingSafeEqual(given, expected)) matched = step
   }
-  return ok
+  return matched
 }
 
 const SCRYPT = { N: 16384, r: 8, p: 1, keyLength: 32, saltLength: 16 }
