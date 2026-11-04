@@ -6,7 +6,7 @@ import type { ActiveSession } from '../../src/class/runtime.js'
 import { addDaysToDate } from '../../src/shared/local-time.js'
 import type { MessageModeration } from '../../src/shared/schema.js'
 import { runWeeklyReview } from '../../src/weekly/review.js'
-import { weeklyStats } from '../../src/weekly/stats.js'
+import { storedStats, weeklyStats } from '../../src/weekly/stats.js'
 import { buildAdminTestApp, CSRF } from '../helpers/admin.js'
 import { createTestClock } from '../helpers/clock.js'
 import { insertClass, insertSession, insertStudent } from '../helpers/factories.js'
@@ -94,10 +94,12 @@ test('without a review, the last week’s numbers are counted as they stand and 
 
 test('a stored review is shown as it was stored, with the lines of its examples', async () => {
   await start()
-  const [first, second, third] = await blockedLines('2026-10-27', [
+  const [first, second, third, kept, purged] = await blockedLines('2026-10-27', [
     { text: '今天学正常的话', moderation: 'sensitive', rule: WORD },
     { text: '另一句正常的话', moderation: 'sensitive', rule: WORD },
     { text: '第三句正常的话', moderation: 'sensitive', rule: WORD },
+    { text: '第二层拦下的一句', moderation: 'second_layer', rule: null },
+    { text: '第二层拦下的另一句', moderation: 'second_layer', rule: null },
   ])
   const llm = scripted([
     (call) =>
@@ -107,13 +109,21 @@ test('a stored review is shown as it was stored, with the lines of its examples'
   ]).llm
   const clock = createTestClock(at('2026-11-02', '00:00:30'))
   await runWeeklyReview({ db: t.db, config: t.config, clock, llm, prompts: examplePrompts() })
-  const stored = JSON.parse(JSON.stringify(await weeklyStats(t.db, t.config, WEEK)))
-  // A line blocked after the review, and an example purged since: the page shows the review as it was stored.
+  const counted = JSON.parse(JSON.stringify(await weeklyStats(t.db, t.config, WEEK)))
+  expect(counted.moderation.secondLayerChat.map((l: { messageId: number }) => l.messageId)).toEqual([kept, purged])
+  // A line blocked after the review, and lines purged since (an example, one the second layer stopped): the page shows
+  // the review as it was stored, less the lines that are gone.
   await blockedLines('2026-10-28', [{ text: '后来补上的', moderation: 'sensitive', rule: WORD }])
-  await t.db.deleteFrom('messages').where('id', '=', third!).execute()
+  await t.db.deleteFrom('messages').where('id', 'in', [third!, purged!]).execute()
 
   const body = (await get(`api/weekly?weekStart=${WEEK}`)).json()
-  expect(body.stats).toEqual(stored)
+  expect(body.stats).toEqual({
+    ...counted,
+    moderation: {
+      ...counted.moderation,
+      secondLayerChat: [{ messageId: kept, text: '第二层拦下的一句', at: at('2026-10-27').toISOString() }],
+    },
+  })
   expect(body.suggestions).toEqual({
     removeRules: [
       {
@@ -126,23 +136,24 @@ test('a stored review is shown as it was stored, with the lines of its examples'
       },
     ],
     directions: [],
+    failures: { removeRules: null, directions: null },
   })
 })
 
 test('the weeks with a review, newest first', async () => {
   await start()
   expect((await get('api/weekly/weeks')).json()).toEqual({ weeks: [] })
+  const failures = { removeRules: '大模型暂时调不通', directions: '大模型的回复格式不对' }
   for (const weekStart of ['2026-10-12', WEEK, '2026-10-19']) {
-    await t.db
-      .insertInto('weeklyReviews')
-      .values({ weekStart, stats: '{}', suggestions: '{"removeRules":null,"directions":null}', createdAt: NOW })
-      .execute()
+    const stats = JSON.stringify(storedStats(await weeklyStats(t.db, t.config, weekStart)))
+    const suggestions = JSON.stringify({ removeRules: null, directions: null, failures })
+    await t.db.insertInto('weeklyReviews').values({ weekStart, stats, suggestions, createdAt: NOW }).execute()
   }
   expect((await get('api/weekly/weeks')).json()).toEqual({ weeks: [WEEK, '2026-10-19', '2026-10-12'] })
 
-  // A stored review whose model tasks both failed.
+  // A stored review whose model tasks both failed: each says why.
   const body = (await get('api/weekly?weekStart=2026-10-19')).json()
-  expect(body.suggestions).toEqual({ removeRules: null, directions: null })
+  expect(body.suggestions).toEqual({ removeRules: null, directions: null, failures })
 })
 
 const NOT_WEEKS = ['2026-10-27', '2026-11-01', '2026-02-30', '2026-1-05', 'monday', '']

@@ -4,23 +4,28 @@ import { PRIVACY_FLAG_RULE } from '../lessons/store.js'
 import type { Llm } from '../llm/client.js'
 import { extractJson } from '../llm/json.js'
 import { fillPrompt, neutralizeStudentText, type PromptName, type PromptTemplate } from '../llm/prompts.js'
+import { LlmContentRefused, LlmUnavailable } from '../llm/provider.js'
+import { normalizeForPrivacy } from '../moderation/normalize.js'
+import { findPrivacyLeak } from '../moderation/privacy.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { addDaysToDate, atLocalTime } from '../shared/local-time.js'
 import type { Database } from '../shared/schema.js'
-import { lastCompletedWeek, RULE_KIND, weeklyStats } from './stats.js'
+import { lastCompletedWeek, RULE_KIND, storedStats, weeklyStats } from './stats.js'
 
 // The weekly review: after the midnight job of a Monday, the numbers of the week that has just ended, and what the
 // model makes of two things in it. Only these two go to the model:
 //
 // - The lines a word-list entry or a phrase rule blocked (never a privacy hit, nor the second layer's, nor any line
-//   that went through), grouped by the rule, so it can point out the rules that mostly stop ordinary talk. What it
-//   suggests is kept only for the rules it was shown, with the kind of their group and examples from that group.
+//   that went through), grouped by the rule, so it can point out the rules that mostly stop ordinary talk. A rule's hit
+//   comes before the privacy check, so such a line may also hold private data: that line is not shown. What the
+//   model suggests is kept only for the rules it was shown, with the kind of their group and examples from that
+//   group.
 // - The reasons given for the week's lesson rewrites, for a few directions to change the lessons by.
 //
 // Each may fail on its own (the model unavailable or refusing, a reply that does not read); its item is then stored
-// as null and the numbers are stored all the same. Nothing waits on the model inside a transaction. A week is reviewed
-// once: a run finds its review and stops, and two runs at once store one.
+// as null with the reason, and the numbers are stored all the same. Nothing waits on the model inside a transaction.
+// A week is reviewed once: a run finds its review and stops, and two runs at once store one.
 
 export interface WeeklySuggestions {
   removeRules: { kind: 'word' | 'pattern'; value: string; examples: number[] }[]
@@ -28,7 +33,10 @@ export interface WeeklySuggestions {
 }
 
 /** The suggestions as stored with a review: an item is null when its model task failed. */
-export type StoredSuggestions = { [K in keyof WeeklySuggestions]: WeeklySuggestions[K] | null }
+export type StoredSuggestions = { [K in keyof WeeklySuggestions]: WeeklySuggestions[K] | null } & {
+  /** Why an item is null, as the page says it; null for an item that was made. */
+  failures: Record<keyof WeeklySuggestions, string | null>
+}
 
 export interface WeeklyReviewDeps {
   db: Kysely<Database>
@@ -42,11 +50,21 @@ export interface WeeklyReviewDeps {
 
 /** The lines shown to the model for one rule, at most. */
 const LINES_PER_GROUP = 20
+/** The lines read for one rule, so that some left out for private data still leave enough to show. */
+const LINES_READ_PER_GROUP = 2 * LINES_PER_GROUP
 /** The rules shown, at most: the ones that blocked the most lines. */
 const MAX_GROUPS = 50
 /** The reasons shown, at most: the latest. */
 const MAX_REASONS = 100
 const MAX_DIRECTIONS = 10
+
+/** Why a model task gave nothing, as the page says it. */
+const FAILED = {
+  unavailable: '大模型暂时调不通',
+  refused: '厂商拒绝处理这批内容',
+  unreadable: '大模型的回复格式不对',
+  other: '生成时出错',
+} as const
 
 const RULES_FORMAT =
   '只回复一个 JSON 对象，格式为 {"removeRules":[{"kind":"word"或"pattern","value":"<规则>","examples":[<消息编号>]}]}。' +
@@ -72,9 +90,13 @@ interface Week {
   to: Date
 }
 
+/** Whether a line holds what the privacy rules look for (a phone or ID number, an address, a chat log...). */
+const holdsPrivateData = (text: string): boolean => findPrivacyLeak(normalizeForPrivacy(text)) !== null
+
 /**
  * The rules of the word list and the phrase rules that blocked lines in the week, and not dropped since: the ones that
- * blocked the most first, each with the first lines it blocked that read differently.
+ * blocked the most first, each with the first lines it blocked that read differently and hold no private data. A rule
+ * left with no such line is not among them.
  */
 async function blockedGroups(db: Kysely<Database>, w: Week): Promise<Group[]> {
   type Row = { id: number; category: 'sensitive' | 'injection'; rule: string; text: string; hits: string }
@@ -102,7 +124,7 @@ async function blockedGroups(db: Kysely<Database>, w: Week): Promise<Group[]> {
     )
     select r.id, r.category, r.rule, r.text, c.hits
     from ranked r join counted c on c.category = r.category and c.rule = r.rule
-    where r.n <= ${LINES_PER_GROUP}
+    where r.n <= ${LINES_READ_PER_GROUP}
     order by r.id
   `.execute(db)
 
@@ -110,6 +132,7 @@ async function blockedGroups(db: Kysely<Database>, w: Week): Promise<Group[]> {
   for (const r of rows) {
     const key = JSON.stringify([r.category, r.rule])
     const group = groups.get(key) ?? { kind: RULE_KIND[r.category], rule: r.rule, hits: Number(r.hits), lines: [] }
+    if (group.lines.length >= LINES_PER_GROUP || holdsPrivateData(r.text)) continue
     group.lines.push({ id: r.id, text: r.text })
     groups.set(key, group)
   }
@@ -202,22 +225,29 @@ function parseDirections(text: string): string[] | null {
     .slice(0, MAX_DIRECTIONS)
 }
 
-/** Asks the model one of the two tasks; null when the call fails or the reply does not read. */
+type Outcome<T> = { value: T; failure: null } | { value: null; failure: string }
+
+const made = <T>(value: T): Outcome<T> => ({ value, failure: null })
+
+/** Asks the model one of the two tasks: what it made, or why there is nothing. */
 async function ask<T>(
   deps: WeeklyReviewDeps,
   what: { weekStart: string; task: keyof WeeklySuggestions },
   prompt: () => { system: string; user: string },
   parse: (text: string) => T | null,
-): Promise<T | null> {
+): Promise<Outcome<T>> {
   try {
     const reply = await deps.llm.call('weekly', prompt(), { json: true })
     const value = parse(reply.text)
-    if (value === null) deps.log?.warn({ ...what, err: 'UnreadableReply' }, 'weekly review task failed')
-    return value
+    if (value !== null) return made(value)
+    deps.log?.warn({ ...what, err: 'UnreadableReply' }, 'weekly review task failed')
+    return { value: null, failure: FAILED.unreadable }
   } catch (err) {
     const name = err instanceof Error ? err.constructor.name : 'unknown'
     deps.log?.warn({ ...what, err: name }, 'weekly review task failed')
-    return null
+    if (err instanceof LlmContentRefused) return { value: null, failure: FAILED.refused }
+    if (err instanceof LlmUnavailable) return { value: null, failure: FAILED.unavailable }
+    return { value: null, failure: FAILED.other }
   }
 }
 
@@ -248,23 +278,27 @@ export async function runWeeklyReview(deps: WeeklyReviewDeps): Promise<void> {
   const reasons = await rewriteReasons(db, week)
 
   const marked = new Set(stats.moderation.falsePositiveMarks)
-  const removeRules =
+  const rules =
     groups.length === 0
-      ? []
+      ? made([])
       : await ask(deps, { weekStart, task: 'removeRules' }, () => rulesPrompt(deps, groups, marked), (text) =>
           parseRemoveRules(text, groups),
         )
   const directions =
     reasons.length === 0
-      ? []
+      ? made([])
       : await ask(deps, { weekStart, task: 'directions' }, () => reasonsPrompt(deps, reasons), parseDirections)
 
-  const suggestions: StoredSuggestions = { removeRules, directions }
+  const suggestions: StoredSuggestions = {
+    removeRules: rules.value,
+    directions: directions.value,
+    failures: { removeRules: rules.failure, directions: directions.failure },
+  }
   const stored = await db
     .insertInto('weeklyReviews')
     .values({
       weekStart,
-      stats: JSON.stringify(stats),
+      stats: JSON.stringify(storedStats(stats)),
       suggestions: JSON.stringify(suggestions),
       createdAt: clock.now(),
     })
@@ -278,8 +312,8 @@ export async function runWeeklyReview(deps: WeeklyReviewDeps): Promise<void> {
       groups: groups.length,
       lines: groups.reduce((n, g) => n + g.lines.length, 0),
       reasons: reasons.length,
-      removeRules: removeRules?.length ?? null,
-      directions: directions?.length ?? null,
+      removeRules: rules.value?.length ?? null,
+      directions: directions.value?.length ?? null,
     },
     'weekly review',
   )
