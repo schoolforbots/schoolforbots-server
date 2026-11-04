@@ -14,6 +14,7 @@
     "dev:class": "tsx watch --env-file=.env src/class/main.ts",
     "job:daily": "tsx --env-file-if-exists=.env src/registration/run-daily-job.ts",
     "lesson:import": "tsx --env-file-if-exists=.env src/tools/import-lesson.ts",
+    "words:tidy": "tsx --env-file-if-exists=.env src/tools/tidy-word-list.ts",
     "dev:seed": "tsx --env-file-if-exists=.env src/tools/dev-seed.ts",
     "admin:password": "tsx src/tools/admin-password.ts",
     "admin:dev": "npm --prefix admin run dev",
