@@ -478,6 +478,9 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
         expire(at.getTime())
         refusal = startRefusal(from, to, peerClass, loaded, at.getTime())
         if (refusal !== null) return refuseStart(from, refusal, at)
+        // The sender may have left while the line waited: nothing is reserved for them, and nothing is forwarded. The
+        // line opened no conversation, which is what `conversation_ended` says (as when the sender's own side ends one).
+        if (!online(from.classId, from.studentId)) return fail('conversation_ended')
       }
       const s = startsOf(from)
       const used = s.count.get(from.studentId) ?? loaded

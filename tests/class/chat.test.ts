@@ -932,6 +932,33 @@ describe('the chat engine', () => {
       expect(await engine.initiationsLeft(a)).toBe(3)
     })
 
+    test('the sender goes offline while a first line waits: nothing is reserved, forwarded or counted', async () => {
+      const { secondLayer, waiting } = held()
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const c3 = await joined()
+      const first = engine.start(a, b.studentId, '在吗')
+      await settle()
+      hub.leave(a.studentId)
+      engine.onDisconnect(a.studentId)
+      waiting[0]!.verdict('pass')
+      expect(await first).toEqual(failure('conversation_ended'))
+      expect(sent()).toEqual([])
+      expect(await messageRows()).toEqual([])
+      expect(await engine.initiationsLeft(a)).toBe(3)
+
+      // b is not held for a gone sender, and a's reconnect is not busy.
+      hub.join(classId, a.studentId)
+      await engine.join(a)
+      const open2 = engine.start(c3, b.studentId, '你好')
+      await settle()
+      waiting[1]!.verdict('pass')
+      expect((await open2).ok).toBe(true)
+      // peer_busy, not self_busy: that one is checked first.
+      expect(await engine.start(a, c3.studentId, '我回来了')).toEqual(failure('peer_busy'))
+    })
+
     test('the class is dismissed while a first line waits: not_in_session', async () => {
       const { secondLayer, waiting } = held()
       engine = newEngine({ secondLayer })
