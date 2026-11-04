@@ -1,4 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify'
+import { generateMissing, type GeneratorDeps } from '../lessons/generator.js'
+import { buildProviders, createLlm } from '../llm/client.js'
+import { loadPrompts } from '../llm/prompts.js'
 import { loadModerationData } from '../moderation/load.js'
 import { startLiveModerator } from '../moderation/rules.js'
 import { systemClock } from '../shared/clock.js'
@@ -10,12 +13,15 @@ import { startSwitches } from '../shared/switches.js'
 import { buildRegistrationApp } from './app.js'
 import { runDailyJob } from './daily-job.js'
 import { ConsoleMailer, createSmtpMailer, type Mailer } from './mailer.js'
-import { startDailyJob } from './scheduler.js'
+import { startDailyJob, startPeriodicJob } from './scheduler.js'
 
 async function main(): Promise<void> {
   const env = loadEnv(process.env)
   const config = loadSchoolConfig(env.configPath)
   const schoolRules = loadSchoolRules(env.schoolRulesDir)
+  // The model's prompts and providers are read before anything starts: a missing prompt file or key stops the start.
+  const prompts = loadPrompts(env.promptsDir)
+  const providers = env.llmFake ? {} : buildProviders(config, process.env)
 
   const db = createDb(env.databaseUrl, env.databaseTimeouts)
   await migrateToLatest(db)
@@ -52,6 +58,19 @@ async function main(): Promise<void> {
   })
   logger = app.log
 
+  // The model, with its costs recorded and the monthly budget watched. The lessons are made with it here; the admin
+  // will be given it and the prompts too.
+  const llm = createLlm({
+    db,
+    config,
+    clock: systemClock,
+    providers,
+    fake: env.llmFake,
+    budget: { mailer, operatorEmail: env.operatorEmail },
+    log: app.log,
+  })
+  const lessons: GeneratorDeps = { db, config, clock: systemClock, moderator, llm, prompts, log: app.log }
+
   // Read from the database, so a change made in the admin reaches this service within a few seconds. Nothing reads it
   // yet; the admin will be given it.
   const switches = await startSwitches({ db, config, clock: systemClock, log: app.log })
@@ -74,11 +93,27 @@ async function main(): Promise<void> {
 
   await app.listen({ port: env.registrationPort, host: '0.0.0.0' })
 
-  const dailyJob = startDailyJob(() => runAndLog('midnight'), config.timezone)
+  // The lessons of the days ahead: made after each midnight job, then every retryMinutes, which retries the ones that
+  // failed; a run only acts on missing lessons, so one with nothing to do is cheap. Every start runs it once too.
+  const lessonGeneration = startPeriodicJob(
+    async () => app.log.info({ report: await generateMissing(lessons) }, 'lesson generation finished'),
+    config.lessonGeneration.retryMinutes,
+    (err) => app.log.error({ err: err instanceof Error ? err.constructor.name : 'unknown' }, 'lesson generation failed'),
+  )
+  void lessonGeneration.runNow()
+
+  const dailyJob = startDailyJob(async () => {
+    try {
+      await runAndLog('midnight')
+    } finally {
+      await lessonGeneration.runNow()
+    }
+  }, config.timezone)
 
   const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
     dailyJob.stop()
+    lessonGeneration.stop()
     switches.stop()
     moderator.stop()
     await app.close() // waits for requests and key-reset mails still in flight

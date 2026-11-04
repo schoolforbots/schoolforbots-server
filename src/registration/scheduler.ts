@@ -21,3 +21,39 @@ export function startDailyJob(run: () => Promise<unknown>, timezone: string): { 
   })
   return { stop: () => void cron.stop() }
 }
+
+/**
+ * Runs `run` every `minutes` minutes, counted from the end of the last run, and at once when `runNow` is called (the
+ * count starts again after that run). A failed run goes to `onError` and the next one still comes; it never takes the
+ * process down. After `stop`, no run is scheduled any more.
+ */
+export function startPeriodicJob(
+  run: () => Promise<unknown>,
+  minutes: number,
+  onError: (err: unknown) => void,
+): { runNow(): Promise<void>; stop(): void } {
+  let timer: NodeJS.Timeout | undefined
+  let stopped = false
+  const schedule = () => {
+    clearTimeout(timer)
+    if (!stopped) timer = setTimeout(() => void runNow(), minutes * 60_000)
+  }
+  async function runNow(): Promise<void> {
+    clearTimeout(timer)
+    try {
+      await run()
+    } catch (err) {
+      onError(err)
+    } finally {
+      schedule()
+    }
+  }
+  schedule()
+  return {
+    runNow,
+    stop() {
+      stopped = true
+      clearTimeout(timer)
+    },
+  }
+}

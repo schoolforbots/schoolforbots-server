@@ -142,7 +142,7 @@ export const SchoolConfigSchema = Type.Object({
   lessonGeneration: Type.Object({
     // `api` has the model write the lessons; `manual` leaves them to be pasted in.
     mode: Type.Union([Type.Literal('api'), Type.Literal('manual')]),
-    // How many school days ahead lessons are made.
+    // Lessons are made for the school days among this many days after today.
     horizonDays: PositiveInt,
     // A pasted lesson is due when this many school days are left before the class.
     manualDeadlineSchoolDays: PositiveInt,
