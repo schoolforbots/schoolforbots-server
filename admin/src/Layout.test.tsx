@@ -51,10 +51,32 @@ describe('the layout', () => {
     const user = userEvent.setup()
     show(<Layout onLoggedOut={vi.fn()} />)
 
-    for (const name of ['审课', '每周复盘', '查学生', '开关']) {
+    for (const name of ['每周复盘', '查学生', '开关']) {
       await user.click(screen.getByRole('tab', { name }))
       expect(within(screen.getByRole('tabpanel', { name })).getByText('这一页还在做。')).toBeInTheDocument()
     }
+  })
+
+  it('shows the review page on the review tab, from the same list the tab counts', async () => {
+    const server = serve(
+      lessonQueue([
+        {
+          date: '2026-11-05',
+          divisions: [
+            queueSlot('primary', { status: 'approved' }),
+            queueSlot('junior', { status: 'missing', lessonId: null, version: null }),
+            queueSlot('senior', { status: 'approved', lessonId: 3 }),
+          ],
+        },
+      ]),
+    )
+    window.history.replaceState(null, '', '/#review')
+    show(<Layout onLoggedOut={vi.fn()} />)
+
+    const panel = within(await screen.findByRole('tabpanel', { name: '审课 · 待审 1' }))
+    expect(panel.getByRole('button', { name: '初中部 待生成' })).toBeInTheDocument()
+    expect(panel.getByText('这几天要审的课都审完了。')).toBeInTheDocument()
+    expect(server.calls.filter((call) => call.path === 'api/lessons/queue')).toHaveLength(1)
   })
 
   it('goes to the review tab from the reminder', async () => {

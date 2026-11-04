@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { LESSON_QUEUE_PATH, lessonsToReview, logout, useLoad, type ApiError, type LessonQueue } from './api.js'
 import { Empty } from './components/States.js'
 import { Data } from './pages/Data.js'
+import { Review } from './pages/Review.js'
 
 /** The green bar on top of every page: the school's name, and whatever acts on the whole session. */
 export function TopBar({ children }: { children?: ReactNode }) {
@@ -66,7 +67,7 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
   )
   const items = [
     { key: 'data', label: '学校数据', children: <Data onGoReview={() => setTab('review')} /> },
-    { key: 'review', label: toReview > 0 ? `审课 · 待审 ${toReview}` : '审课', children: notYet },
+    { key: 'review', label: toReview > 0 ? `审课 · 待审 ${toReview}` : '审课', children: <Review queue={queue} /> },
     { key: 'weekly', label: '每周复盘', children: notYet },
     { key: 'students', label: '查学生', children: notYet },
     { key: 'switches', label: '开关', children: notYet },

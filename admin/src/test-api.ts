@@ -2,7 +2,7 @@ import { render } from '@testing-library/react'
 import { ConfigProvider } from 'antd'
 import { createElement, type ReactElement, type ReactNode } from 'react'
 import { vi } from 'vitest'
-import type { DailyStats, DayNumbers, LessonQueue, QueueSlot, SeriesDay } from './api.js'
+import type { DailyStats, DayNumbers, LessonDetail, LessonQueue, QueueSlot, SeriesDay } from './api.js'
 import { antdSettings } from './theme.js'
 
 /** Renders `ui` inside the same Ant Design settings as the real pages. */
@@ -143,4 +143,41 @@ export function lessonQueue(days: LessonQueue['days'] = []): LessonQueue {
     ],
     days,
   }
+}
+
+/** A lesson of five segments with both call-on questions, version 1, not approved, no red marks. */
+export function lessonDetail(lesson: Partial<LessonDetail> = {}): LessonDetail {
+  const detail: LessonDetail = {
+    id: 1,
+    date: '2026-11-05',
+    division: 'primary',
+    subject: '自然',
+    title: '秋天的叶子为什么会变色',
+    topic: null,
+    source: 'api',
+    version: 1,
+    approvedAt: null,
+    locked: false,
+    content: {
+      title: '秋天的叶子为什么会变色',
+      subject: '自然',
+      segments: [
+        { text: '天气变冷以后，叶子里的叶绿素慢慢分解，绿色就退了。', gist: '绿色退去是叶绿素分解了' },
+        { text: '叶子里本来就有黄色的胡萝卜素，夏天被绿色盖住了。', gist: '黄色一直都在' },
+        { text: '枫叶变红，是因为秋天叶子里生成了花青素。', gist: '红色是秋天新生成的' },
+        { text: '树在冬天前落叶，可以少丢一些水分。', gist: '落叶为了保住水分' },
+        { text: '落下的叶子烂在土里，又变成树的养料。', gist: '落叶回到土里' },
+      ],
+      callOnQuestions: { review: '叶子变黄，是因为什么东西分解了？', extension: '为什么松树冬天也不落叶？' },
+    },
+    flags: [],
+    falsePositives: [],
+    versions: [
+      { version: 1, change: 'generate', reason: null, segmentIndex: null, createdAt: '2026-11-04T16:00:00.000Z' },
+    ],
+    ...lesson,
+  }
+  // A title given on its own is the content's title too.
+  if (lesson.title !== undefined && lesson.content === undefined) detail.content.title = lesson.title
+  return detail
 }
