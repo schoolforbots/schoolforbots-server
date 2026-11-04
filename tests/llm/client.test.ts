@@ -126,6 +126,38 @@ describe('concurrency and time budget', () => {
     expect(await rows()).toHaveLength(17)
   })
 
+  test('when a slot frees, waiting checks and comments go before waiting answers, lessons and the rest', async () => {
+    const one = { ...config, llm: { ...config.llm, maxConcurrent: 1, purposes: { ...config.llm.purposes, answer: { provider: 'a', model: 'a-1' } } } }
+    let finish: () => void = () => {}
+    const a = createFakeLlm((_m, req) => (req.user === 'lesson' ? new Promise<LlmResponse>((resolve) => (finish = () => resolve(ok()))) : ok()))
+    const llm = createLlm({ db, config: one, clock, providers: { a } })
+    const run = (purpose: LlmPurpose) => llm.call(purpose, { system: '', user: purpose })
+    const holder = run('lesson')
+    const waiting = (['answer', 'secondLayerTeacher', 'weekly', 'comment', 'answer', 'secondLayerChat', 'wordList'] as const).map(run)
+    await new Promise((r) => setTimeout(r, 20))
+    finish()
+    await Promise.all([holder, ...waiting])
+    expect(a.calls.map((c) => c.req.user)).toEqual(['lesson', 'secondLayerTeacher', 'comment', 'secondLayerChat', 'answer', 'weekly', 'answer', 'wordList'])
+  })
+
+  test('a burst of answers holding every slot does not push a second-layer check past its budget', async () => {
+    const answer = createFakeLlm(async () => {
+      await new Promise((r) => setTimeout(r, 200))
+      return ok()
+    })
+    const check = createFakeLlm(() => ok('{"results":[]}'))
+    const routed = { ...config, llm: { ...config.llm, purposes: { ...config.llm.purposes, answer: { provider: 'b', model: 'b-1' }, secondLayerTeacher: { provider: 'a', model: 'a-1' } } } }
+    const llm = createLlm({ db, config: routed, clock, providers: { a: check, b: answer } })
+    // Five waves of answers for the 16 slots: in a first-come line the check would wait for four of them.
+    const answers = Array.from({ length: 80 }, () => llm.call('answer', prompt, { timeoutMs: 5000 }))
+    try {
+      await new Promise((r) => setTimeout(r, 20))
+      await expect(llm.call('secondLayerTeacher', prompt, { timeoutMs: 500 })).resolves.toMatchObject({ text: '{"results":[]}' })
+    } finally {
+      await Promise.allSettled(answers)
+    }
+  })
+
   test('queue wait counts against the timeout and no request is started for it', async () => {
     const one = { ...config, llm: { ...config.llm, maxConcurrent: 1, retries: 0 } }
     const a = createFakeLlm(() => new Promise<LlmResponse>(() => {})) // hangs forever

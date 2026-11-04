@@ -646,6 +646,7 @@ describe('the teacher answering in the class service', () => {
   type Received = Record<string, any>
   let service: Service | undefined
   let logs: ReturnType<typeof captureLogs>
+  let secondLayerWarnings: string[] = []
   const sockets: WebSocket[] = []
   const QUESTION = '光为什么会弯？'
 
@@ -834,5 +835,81 @@ describe('the teacher answering in the class service', () => {
     const outcomes = logs.entries().filter((e) => e.msg === 'teacher answer').map((e) => e.outcome)
     expect(outcomes.filter((o) => o === 'answered')).toHaveLength(20)
     expect(outcomes.filter((o) => o === 'dropped')).toHaveLength(20)
+  }, 30_000)
+
+  test('40 classes with slow answers holding the slots: every answer still gets the second layer\'s verdict in time', async () => {
+    logs = captureLogs()
+    let answerCalls = 0
+    const checked: number[] = []
+    const provider = createFakeLlm(async (_m, req) => {
+      if (req.user.includes('[待检查内容开始]')) {
+        const ids = [...req.user.matchAll(/"id":\s*(\d+)/g)].map((m) => Number(m[1]))
+        checked.push(ids.length)
+        return { text: JSON.stringify({ results: ids.map((id) => ({ id, verdict: 'pass' })) }), inputTokens: 1, outputTokens: 1 }
+      }
+      // The answers come back one after another, each a little later than the one before: a slot frees every 50 ms
+      // while the line of answers waiting is longer than the second layer's budget would last in a first-come line.
+      await sleep(500 + 50 * ++answerCalls)
+      return { text: reply(1, ANSWER), inputTokens: 1, outputTokens: 1 }
+    })
+    const base = exampleConfig()
+    const s = await buildTestClassApp({
+      logger: { level: 'info', stream: logs.stream },
+      config: {
+        llm: { ...base.llm, maxConcurrent: 16 },
+        lesson: { ...base.lesson, callOns: [{ kind: 'review', afterSegment: 3 }, { kind: 'extension', afterSegment: 4 }] },
+        secondLayer: { implementation: 'llm', batchMillis: 50, timeoutSeconds: 1 },
+      },
+      model: ({ db, config, clock }) => {
+        const llm = createLlm({ db, config, clock, providers: { [config.llm.purposes.answer.provider]: provider } })
+        const sw = switches({ secondLayerTeacher: true })
+        const warned: string[] = []
+        const secondLayer = createSecondLayer({ config, llm, switches: sw, prompts, log: { warn: (_o: object, msg: string) => void warned.push(msg) } as never })
+        secondLayerWarnings = warned
+        return { llm, prompts, secondLayer, switches: sw }
+      },
+    })
+    service = s
+    await insertLesson(s.db, { date: MON, segments: SEGMENTS })
+    for (let n = 1; n <= 40; n++) {
+      const classId = await insertClass(s.db, { classNo: n })
+      await insertStudent(s.db, { classId, status: 'active' })
+    }
+    s.clock.set(at('19:50'))
+    await s.runtime.tick()
+    s.clock.set(at('20:05'))
+    await s.runtime.tick()
+    const sessions = await s.db.selectFrom('classSessions').select(['id', 'classId', 'members']).execute()
+    for (const session of sessions) {
+      await s.db
+        .insertInto('messages')
+        .values({
+          sessionId: session.id,
+          classId: session.classId,
+          kind: 'question',
+          conversationId: null,
+          senderId: session.members[0]!.studentId,
+          recipientId: null,
+          text: QUESTION,
+          moderation: null,
+          matchedTerm: null,
+          delivered: true,
+          ip: null,
+          pluginType: 'test',
+          pluginVersion: '0.0.0',
+          createdAt: at('20:06'),
+        })
+        .execute()
+    }
+
+    s.clock.set(at('20:09'))
+    await s.runtime.tick()
+    await s.teacherAi!.idle()
+
+    expect(answerCalls).toBe(40)
+    expect(secondLayerWarnings).toEqual([])
+    expect(checked.reduce((a, b) => a + b, 0)).toBe(40)
+    const answered = await s.db.selectFrom('classEvents').select('sessionId').where('step', '=', 'qa-1#2').execute()
+    expect(answered).toHaveLength(40)
   }, 30_000)
 })

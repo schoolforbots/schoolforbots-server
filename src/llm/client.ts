@@ -42,15 +42,26 @@ export function buildProviders(config: SchoolConfig, processEnv: NodeJS.ProcessE
   return providers
 }
 
-/** Limits how many run at once (per process); a waiter gives up when its deadline passes. */
+/**
+ * The purposes whose calls a lesson is waiting on right now with a short budget: the checks of lines about to be said
+ * or sent, and the comment due before the next segment. When a slot frees they go before the others waiting, so a
+ * burst of answers or lessons holding the slots cannot run their budgets out in the line.
+ */
+const FIRST_IN_LINE: ReadonlySet<LlmPurpose> = new Set<LlmPurpose>(['secondLayerTeacher', 'secondLayerChat', 'comment'])
+
+/**
+ * Limits how many run at once (per process). A freed slot goes to the longest waiting call of the first line, else of
+ * the second; a waiter gives up when its deadline passes.
+ */
 function createGate(limit: number) {
   let running = 0
-  const waiting: (() => void)[] = []
+  const first: (() => void)[] = []
+  const rest: (() => void)[] = []
   return {
     /** Resolves with a release function, or rejects with LlmUnavailable when `ms` passes first. */
-    acquire(ms: number): Promise<() => void> {
+    acquire(ms: number, ahead: boolean): Promise<() => void> {
       const release = () => {
-        const next = waiting.shift()
+        const next = first.shift() ?? rest.shift()
         if (next !== undefined) next()
         else running--
       }
@@ -58,16 +69,17 @@ function createGate(limit: number) {
         running++
         return Promise.resolve(release)
       }
+      const line = ahead ? first : rest
       return new Promise((resolve, reject) => {
         const grant = () => {
           clearTimeout(timer)
           resolve(release)
         }
         const timer = setTimeout(() => {
-          waiting.splice(waiting.indexOf(grant), 1)
+          line.splice(line.indexOf(grant), 1)
           reject(new LlmUnavailable('大模型调用超时（排队中）'))
         }, Math.max(ms, 0))
-        waiting.push(grant)
+        line.push(grant)
       })
     },
   }
@@ -94,8 +106,8 @@ async function within<T>(ms: number, work: (signal: AbortSignal) => Promise<T>):
 }
 
 /**
- * Routes each model call to the provider and model of its purpose, within the concurrency limit and a total time
- * budget (queue wait and every attempt), retrying only `LlmUnavailable`. Writes one `llm_calls` row per call. Elapsed
+ * Routes each model call to the provider and model of its purpose, within the concurrency limit (checks and comments
+ * first in line) and a total time budget (queue wait and every attempt), retrying only `LlmUnavailable`. Writes one `llm_calls` row per call. Elapsed
  * time is measured with a monotonic timer, not the injected clock, because timeouts run on real timers; `createdAt`
  * comes from the injected clock. Logs hold only purpose, provider, model, outcome, token counts and time.
  */
@@ -189,7 +201,7 @@ export function createLlm(deps: {
       const deadline = started + (opts.timeoutMs ?? config.llm.timeoutSeconds * 1000)
       let res: LlmResponse
       try {
-        const release = await gate.acquire(deadline - performance.now())
+        const release = await gate.acquire(deadline - performance.now(), FIRST_IN_LINE.has(purpose))
         try {
           res = await attempts(purpose, prompt, opts, deadline)
         } finally {
