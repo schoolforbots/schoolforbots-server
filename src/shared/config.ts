@@ -158,7 +158,8 @@ export const SchoolConfigSchema = Type.Object({
     commentTimeoutSeconds: PositiveInt,
   }),
   secondLayer: Type.Object({
-    implementation: Type.Literal('llm'),
+    // 'off' turns the second layer off for good; the runtime switches only matter when it is 'llm'.
+    implementation: Type.Union([Type.Literal('off'), Type.Literal('llm')]),
     // Lines wait this long to be checked together.
     batchMillis: PositiveInt,
     timeoutSeconds: PositiveInt,

@@ -71,8 +71,14 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
 
   async function checkChunk(source: SecondLayerSource, texts: string[]): Promise<SecondVerdict[]> {
     const pass = () => texts.map((): SecondVerdict => 'pass')
-    const items = texts.map((text, i) => ({ id: i + 1, text: neutralizeStudentText(text) }))
-    const prompt = fillPrompt(prompts['second-layer'], { source: SOURCES[source].label, items: JSON.stringify(items), format: FORMAT })
+    let prompt: { system: string; user: string }
+    try {
+      const items = texts.map((text, i) => ({ id: i + 1, text: neutralizeStudentText(text) }))
+      prompt = fillPrompt(prompts['second-layer'], { source: SOURCES[source].label, items: JSON.stringify(items), format: FORMAT })
+    } catch (err) {
+      log?.warn({ source, items: texts.length, err: err instanceof Error ? err.name : 'unknown' }, 'second layer prompt could not be built, the lines pass')
+      return pass()
+    }
     try {
       const reply = await llm!.call(SOURCES[source].purpose, prompt, {
         json: true,
@@ -115,7 +121,7 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
 
   return {
     check(source, text) {
-      if (llm === null || (config.secondLayer.implementation as string) !== 'llm' || !switches.isOn(SOURCES[source].switch)) {
+      if (llm === null || config.secondLayer.implementation !== 'llm' || !switches.isOn(SOURCES[source].switch)) {
         return Promise.resolve('pass')
       }
       return new Promise<SecondVerdict>((resolve) => {
