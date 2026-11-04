@@ -85,6 +85,7 @@
     "horizonDays": 7,
     "manualDeadlineSchoolDays": 3,
     "retryMinutes": 60,
+    "timeoutSeconds": 180,
     "direction": [
       "有趣",
       "正面积极向上",

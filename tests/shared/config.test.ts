@@ -588,13 +588,28 @@ test('the example config has the model, lesson generation, switch and revocation
     contentRefusalMarkers: ['content refused'],
   })
   expect(c.llm).toMatchObject({ timeoutSeconds: 60, retries: 1, maxConcurrent: 16, monthlyBudgetYuan: 300 })
-  expect(c.lessonGeneration).toMatchObject({ mode: 'api', horizonDays: 7, manualDeadlineSchoolDays: 3, retryMinutes: 60 })
+  expect(c.lessonGeneration).toMatchObject({
+    mode: 'api',
+    horizonDays: 7,
+    manualDeadlineSchoolDays: 3,
+    retryMinutes: 60,
+    timeoutSeconds: 180,
+  })
   expect(c.lessonGeneration.direction).toHaveLength(3)
   expect(c.teacherAi).toEqual({ questionSampleSize: 30, answerLeadSeconds: 60, commentTimeoutSeconds: 20 })
   expect(c.secondLayer).toEqual({ implementation: 'llm', batchMillis: 1500, timeoutSeconds: 10 })
   expect(c.switchDefaults).toEqual({ teacherLlm: true, secondLayerTeacher: true, secondLayerChat: false })
   expect(c.switchRefreshSeconds).toBe(5)
   expect(c.revocationWindowDays).toBe(30)
+})
+
+test('lessonGeneration.timeoutSeconds is a positive whole number of seconds', () => {
+  for (const value of [0, 1.5, '180']) {
+    const tmpPath = writeTmpConfig((c) => ((c.lessonGeneration as any).timeoutSeconds = value))
+    expect(() => loadSchoolConfig(tmpPath), String(value)).toThrow(/lessonGeneration\.timeoutSeconds/)
+  }
+  const missing = writeTmpConfig((c) => delete (c.lessonGeneration as any).timeoutSeconds)
+  expect(() => loadSchoolConfig(missing)).toThrow(/lessonGeneration: .*timeoutSeconds/)
 })
 
 test('llm.purposes must name a provider and a model that exist', () => {
