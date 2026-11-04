@@ -63,8 +63,8 @@ export interface TeacherAi {
   /**
    * Starts the comment on the answer to call-on `n` (`callId`), just taken; once per session and call-on. Returns at
    * once. The comment is the model's, when it passes the checks before the next segment starts; else the template
-   * thanks, said at once. Should the work fail otherwise, the call-on's close says the template thanks (see
-   * questions.ts, which also decides which of the two is the one said).
+   * thanks, said at once (see questions.ts for which of the two is the one said). Should the work fail before it
+   * writes either, the call-on's close says the template thanks.
    */
   startComment(session: Pick<ActiveSession, 'sessionId' | 'classId' | 'closeAt'>, n: number, callId: number): void
   /** Resolves once no work is going on: for tests, and for the shutdown. */
@@ -89,8 +89,8 @@ type Outcome =
 /** How the comment on an answer ended, as the program log says it. */
 type CommentOutcome = 'commented' | 'template' | 'dropped' | 'no_answer'
 
-/** Why the comment is the template thanks and not the model's. */
-type TemplateReason = 'switched_off' | 'no_lesson' | 'no_time' | 'refused' | 'unavailable' | LineProblem
+/** Why the comment is the template thanks and not the model's; `failed` is an unforeseen error, logged by its name. */
+type TemplateReason = 'switched_off' | 'no_lesson' | 'no_time' | 'refused' | 'unavailable' | 'failed' | LineProblem
 
 interface Question {
   studentId: number
@@ -466,7 +466,7 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
   /**
    * The model's comment on `answer`, the answer to `call`, when it passes `checkLine` (as the class hears it), else why
    * there is none. A comment that does not pass is not generated again: the template thanks is there instead. No call
-   * is made without the time for it before the deadline.
+   * is made without the time for it before the deadline. The calls made are counted in `tally`, should it throw.
    */
   async function modelComment(
     sessionId: number,
@@ -474,12 +474,13 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
     answer: string,
     ctx: CommentContext,
     deadline: Date,
-  ): Promise<{ comment: string; calls: number } | { reason: TemplateReason; calls: number }> {
-    if (!switches.isOn('teacherLlm')) return { reason: 'switched_off', calls: 0 }
-    if (ctx.question === null || ctx.segmentText === null) return { reason: 'no_lesson', calls: 0 }
+    tally: { calls: number },
+  ): Promise<{ comment: string } | { reason: TemplateReason }> {
+    if (!switches.isOn('teacherLlm')) return { reason: 'switched_off' }
+    if (ctx.question === null || ctx.segmentText === null) return { reason: 'no_lesson' }
     const left = deadline.getTime() - clock.now().getTime()
     const timeoutMs = Math.min(left, config.teacherAi.commentTimeoutSeconds * 1000)
-    if (timeoutMs < MIN_CALL_MS) return { reason: 'no_time', calls: 0 }
+    if (timeoutMs < MIN_CALL_MS) return { reason: 'no_time' }
     const max = config.chat.maxMessageChars
     const prompt = fillPrompt(prompts['teacher-comment'], {
       teacherName: ctx.teacherName,
@@ -492,22 +493,25 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
       maxChars: String(max),
     })
     let comment: string
+    tally.calls++
     try {
       const reply = await llm.call('comment', prompt, { json: false, timeoutMs, maxOutputTokens: commentTokens })
       comment = reply.text.trim()
     } catch (err) {
-      if (err instanceof LlmUnavailable) return { reason: 'unavailable', calls: 1 }
-      if (err instanceof LlmContentRefused) return { reason: 'refused', calls: 1 }
+      if (err instanceof LlmUnavailable) return { reason: 'unavailable' }
+      if (err instanceof LlmContentRefused) return { reason: 'refused' }
       throw err
     }
     const problem = await checkLine(sessionId, 'comment', comment, { pieces: commentPieces, aloud: comment })
-    return problem === null ? { comment, calls: 1 } : { reason: problem, calls: 1 }
+    return problem === null ? { comment } : { reason: problem }
   }
 
   /**
    * The comment on the answer to call-on `n`: the model's when it passes, else the template thanks, written at once
-   * unless it is too late for it (see `writeComment`). Nothing is asked of the model once the call has its comment or
-   * has closed.
+   * unless it is too late for it (see `writeComment`). The template is said too when getting the model's fails in a way
+   * nobody foresaw (a reply the client cannot read, a prompt file that does not fit the code): logged by the error's
+   * name, it does not leave the answer without a reply until the next segment. Nothing is asked of the model once the
+   * call has its comment or has closed.
    */
   async function commentOn(
     session: Pick<ActiveSession, 'sessionId' | 'classId'>,
@@ -519,11 +523,19 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
     if (call.comment !== null || call.timeUp) return { outcome: 'dropped', calls: 0 }
     const ctx = await commentContextOf(session.sessionId, call)
     if (ctx.deadline === null) return { outcome: 'dropped', calls: 0 }
-    const said = await modelComment(session.sessionId, call, call.answer, ctx, ctx.deadline)
+    const tally = { calls: 0 }
+    let said: { comment: string } | { reason: TemplateReason }
+    try {
+      said = await modelComment(session.sessionId, call, call.answer, ctx, ctx.deadline, tally)
+    } catch (err) {
+      const what = { sessionId: session.sessionId, classId: session.classId, n, callId }
+      log?.error({ ...what, err: err instanceof Error ? err.name : 'unknown' }, 'teacher work failed')
+      said = { reason: 'failed' }
+    }
     const text = 'comment' in said ? said.comment : teacher.callOnThanks()
     const written = await writeComment({ db, clock, hub }, session, n, text, ctx.deadline)
     const outcome = !written ? 'dropped' : 'comment' in said ? 'commented' : 'template'
-    return { outcome, calls: said.calls, ...('reason' in said ? { reason: said.reason } : {}) }
+    return { outcome, calls: tally.calls, ...('reason' in said ? { reason: said.reason } : {}) }
   }
 
   return {

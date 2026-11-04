@@ -131,6 +131,8 @@ describe('questions and the call-on', () => {
   let clock: ReturnType<typeof createTestClock>
   let hub: RecordingHub
   let logged: Record<string, unknown>[]
+  /** The error lines the program log is to have: none, unless a test says otherwise. */
+  let errorsLogged: unknown[]
   /** The day's lesson, which every class of the test is taught. */
   let lessonId: number | undefined
   let counter = 0
@@ -141,12 +143,13 @@ describe('questions and the call-on', () => {
     clock = createTestClock(at('20:15'))
     hub = new RecordingHub()
     logged = []
+    errorsLogged = []
     lessonId = undefined
   })
 
   afterEach(async () => {
     await destroy()
-    expect(logged.filter((e) => e.level === 'error')).toEqual([])
+    expect(logged.filter((e) => e.level === 'error')).toEqual(errorsLogged)
   })
 
   /**
@@ -750,16 +753,21 @@ describe('questions and the call-on', () => {
       for (const k of [1, 2, 3, 4]) expect(call.user).not.toContain(`光的折射第${k}段`)
     })
 
-    const fallbacks: [string, { replies?: Reply[]; verdicts?: SecondVerdict[]; teacherLlm?: boolean; calls: number; block?: string }][] = [
-      ['has a word the word list stops', { replies: [`说得好，${BANNED}`], calls: 1, block: 'word_list' }],
-      ['is stopped by the second layer', { replies: [COMMENT], verdicts: ['blocked'], calls: 1, block: 'second_layer' }],
-      ['is empty', { replies: ['   '], calls: 1 }],
-      ['is longer than a chat line', { replies: ['好'.repeat(config.chat.maxMessageChars + 1)], calls: 1 }],
-      ['speaks as a machine', { replies: ['作为AI，我觉得你说得不错。'], calls: 1 }],
-      ['repeats its prompt', { replies: ['你刚刚点名让一位学生回答了问题，现在要用一两句话点评这个回答。'], calls: 1 }],
-      ['does not come in time (the model times out)', { replies: [new LlmUnavailable('timeout')], calls: 1 }],
-      ['is refused by the vendor', { replies: [new LlmContentRefused('refused')], calls: 1 }],
-      ['is not asked for: the teacher model is switched off', { teacherLlm: false, calls: 0 }],
+    const fallbacks: [
+      string,
+      { replies?: Reply[]; verdicts?: SecondVerdict[]; teacherLlm?: boolean; calls: number; block?: string; reason: string },
+    ][] = [
+      ['has a word the word list stops', { replies: [`说得好，${BANNED}`], calls: 1, block: 'word_list', reason: 'word_list' }],
+      ['is stopped by the second layer', { replies: [COMMENT], verdicts: ['blocked'], calls: 1, block: 'second_layer', reason: 'second_layer' }],
+      ['is empty', { replies: ['   '], calls: 1, reason: 'length' }],
+      ['is longer than a chat line', { replies: ['好'.repeat(config.chat.maxMessageChars + 1)], calls: 1, reason: 'length' }],
+      ['speaks as a machine', { replies: ['作为AI，我觉得你说得不错。'], calls: 1, reason: 'self_reference' }],
+      ['repeats its prompt', { replies: ['你刚刚点名让一位学生回答了问题，现在要用一两句话点评这个回答。'], calls: 1, reason: 'prompt_text' }],
+      ['does not come in time (the model times out)', { replies: [new LlmUnavailable('timeout')], calls: 1, reason: 'unavailable' }],
+      ['is refused by the vendor', { replies: [new LlmContentRefused('refused')], calls: 1, reason: 'refused' }],
+      ['is not asked for: the teacher model is switched off', { teacherLlm: false, calls: 0, reason: 'switched_off' }],
+      // Anything else that goes wrong getting it, as a reply the client cannot read: logged by its name only.
+      ['fails in a way nobody foresaw', { replies: [new Error('boom')], calls: 1, reason: 'failed' }],
     ]
     for (const [what, c] of fallbacks) {
       test(`is 好，请坐。 at once when the model's ${what}`, async () => {
@@ -781,7 +789,13 @@ describe('questions and the call-on', () => {
         expect(sent()).toEqual([classEvent(session, 4, teacherSays(THANKS), at('20:11'))])
         expect(model.calls).toHaveLength(c.calls)
         expect(await blocks()).toEqual(c.block === undefined ? [] : [{ sessionId: session.sessionId, purpose: 'comment', layer: c.block }])
-        expect(commentLogs()).toEqual([expect.objectContaining({ n: 1, outcome: 'template' })])
+        expect(commentLogs()).toEqual([
+          expect.objectContaining({ n: 1, outcome: 'template', reason: c.reason, calls: c.calls }),
+        ])
+        if (c.reason === 'failed') {
+          const what = { sessionId: session.sessionId, classId: session.classId, n: 1, callId: 2 }
+          errorsLogged = [{ ...what, err: 'Error', msg: 'teacher work failed', level: 'error' }]
+        }
         clock.set(at('20:15'))
         await callOnCloseStep(d, session, 1)
         expect(sent()).toEqual([])
