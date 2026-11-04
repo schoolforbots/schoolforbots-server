@@ -150,6 +150,7 @@ describe('the teacher answers a question after a segment', () => {
       moderator: exampleModerator(),
       secondLayer: p.secondLayer ?? layer().secondLayer,
       switches: p.switches ?? switches(),
+      speed: 1,
       random: p.random ?? (() => 0),
       log: {
         info: (obj, msg) => void logged.push({ ...obj, msg, level: 'info' }),

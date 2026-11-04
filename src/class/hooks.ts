@@ -15,8 +15,9 @@ import type { TeacherAi } from './teacher-ai.js'
  * the parts that fill them in (discipline, chat, call-on, summaries) come in later and are assembled here.
  *
  * `callOn` and `callOnClose` may write class events of their own step: the first under the step's name (`call-on-1`,
- * `call-on-close-1`), any more as `<step>#2`, `<step>#3` ... (see events.ts), and push them after committing. When
- * the hook wrote none, the runtime records the step with a `noop` marker after it returns. A step that has run is not
+ * `call-on-close-1`), any more as `<step>#2`, `<step>#3` ... (see events.ts), and push them after committing. The close
+ * may write the teacher's comment on the answer instead (`comment-1`, see questions.ts). When the hook wrote nothing
+ * under the step's name, the runtime records the step with a `noop` marker after it returns. A step that has run is not
  * run again after a restart.
  *
  * A session the service catches up after its close (it was down through it), or after its class has opened a newer
@@ -28,7 +29,7 @@ export interface LessonHooks {
   callouts(session: ActiveSession, from: Date, to: Date): Promise<string[]>
   /** The teacher calls on a student with the `n`th call-on of the config (from 1) and its lesson question. */
   callOn(session: ActiveSession, n: number, question: { kind: 'review' | 'extension'; text: string }): Promise<void>
-  /** The time to answer the `n`th call-on is up. */
+  /** The time to answer the `n`th call-on is up: the next segment starts. */
   callOnClose(session: ActiveSession, n: number): Promise<void>
   /**
    * The teacher starts answering the students' questions of segment `k`: those asked in `window.from` to `window.to`,
@@ -67,7 +68,10 @@ export interface LessonHooksDeps {
   clock: Clock
   /** The chat engine the class app relays conversations through; without one, the chat hooks do nothing. */
   chat?: Pick<ChatEngine, 'startClosing' | 'endAll' | 'onDisconnect'>
-  /** What the call-on is built from, as the class app's question handlers are; without it, nobody is called on. */
+  /**
+   * What the call-ons are built from, as the class app's question handlers are (the teacher's comments on the answers
+   * included); without it, nobody is called on.
+   */
   questions?: QuestionsDeps
   /** The hub the take-home summaries are pushed through (to whoever is online, when the session ends live). */
   hub: Hub
@@ -79,8 +83,8 @@ export interface LessonHooksDeps {
 
 /**
  * The hooks of the running class service: `noopHooks` with each part's real hook put in its place as it is built.
- * So far: the teacher's discipline callouts, the call-on and its close, the answers to the students' questions, the
- * conversations' closing grace and end, and the penalties and the take-home summaries after class.
+ * So far: the teacher's discipline callouts, the call-ons and their closes, the answers to the students' questions,
+ * the conversations' closing grace and end, and the penalties and the take-home summaries after class.
  */
 export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
   const { db, config, clock, chat, questions, hub, teacherAi, log } = deps

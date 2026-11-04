@@ -128,9 +128,17 @@ export function isValidText(text: string, maxChars: number): boolean {
   return true
 }
 
-/** Writes a line to the messages table: forwarded when `blocked` is null, else stopped for its category. */
-export async function writeLine(trx: Kysely<Database>, line: Line, blocked: Blocked | null): Promise<number> {
+/**
+ * Writes a line to the messages table: forwarded when `blocked` is null, else stopped: by the word list for its
+ * category, or by the second layer (`second_layer`).
+ */
+export async function writeLine(
+  trx: Kysely<Database>,
+  line: Line,
+  blocked: Blocked | 'second_layer' | null,
+): Promise<number> {
   const { from } = line
+  const byWordList = blocked === 'second_layer' ? null : blocked
   const row = await trx
     .insertInto('messages')
     .values({
@@ -141,10 +149,10 @@ export async function writeLine(trx: Kysely<Database>, line: Line, blocked: Bloc
       senderId: from.studentId,
       recipientId: line.recipientId,
       text: line.text,
-      moderation: blocked?.category ?? null,
+      moderation: blocked === 'second_layer' ? blocked : (byWordList?.category ?? null),
       // The rule that hit, never what it matched: a privacy hit names no rule, so the number or address that matched is
-      // not kept apart from the text.
-      matchedTerm: blocked?.rule ?? null,
+      // not kept apart from the text. The second layer names none either.
+      matchedTerm: byWordList?.rule ?? null,
       delivered: blocked === null,
       ip: from.ip,
       pluginType: from.pluginType,

@@ -647,7 +647,8 @@
           "required": [
             "kind",
             "studentId",
-            "displayName"
+            "displayName",
+            "questionKind"
           ],
           "properties": {
             "kind": {
@@ -659,6 +660,18 @@
             },
             "displayName": {
               "type": "string"
+            },
+            "questionKind": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "review"
+                },
+                {
+                  "type": "string",
+                  "const": "extension"
+                }
+              ]
             }
           }
         },
@@ -874,7 +887,8 @@
               "required": [
                 "kind",
                 "studentId",
-                "displayName"
+                "displayName",
+                "questionKind"
               ],
               "properties": {
                 "kind": {
@@ -886,6 +900,18 @@
                 },
                 "displayName": {
                   "type": "string"
+                },
+                "questionKind": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "review"
+                    },
+                    {
+                      "type": "string",
+                      "const": "extension"
+                    }
+                  ]
                 }
               }
             },
@@ -1775,7 +1801,8 @@
                   "required": [
                     "kind",
                     "studentId",
-                    "displayName"
+                    "displayName",
+                    "questionKind"
                   ],
                   "properties": {
                     "kind": {
@@ -1787,6 +1814,18 @@
                     },
                     "displayName": {
                       "type": "string"
+                    },
+                    "questionKind": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "review"
+                        },
+                        {
+                          "type": "string",
+                          "const": "extension"
+                        }
+                      ]
                     }
                   }
                 },

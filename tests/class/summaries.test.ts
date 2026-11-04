@@ -427,10 +427,10 @@ describe('writeSummaries', () => {
       const { session, students } = await room()
       const [a, b] = students as [Student, Student]
       await attend(session, students)
-      await event(session, 'call-on', { kind: 'teacher', text: callOn(a.name) })
-      await event(session, 'call-on#2', { kind: 'called_on', studentId: a.id, displayName: a.name })
-      await event(session, 'answer', { kind: 'answer', studentId: a.id, displayName: a.name, text: '光会拐弯' })
-      await event(session, 'answer#2', { kind: 'teacher', text: '好，请坐。' })
+      await event(session, 'call-on-1', { kind: 'teacher', text: callOn(a.name) })
+      await event(session, 'call-on-1#2', { kind: 'called_on', studentId: a.id, displayName: a.name, questionKind: 'review' })
+      await event(session, 'answer-1', { kind: 'answer', studentId: a.id, displayName: a.name, text: '光会拐弯' })
+      await event(session, 'comment-1', { kind: 'teacher', text: '好，请坐。' })
 
       await writeSummaries(deps(), session, { live: false })
 
@@ -443,9 +443,9 @@ describe('writeSummaries', () => {
       const { session, students } = await room()
       const [a, b] = students as [Student, Student]
       await attend(session, students)
-      await event(session, 'call-on', { kind: 'teacher', text: callOn(a.name) })
-      await event(session, 'call-on#2', { kind: 'called_on', studentId: a.id, displayName: a.name })
-      await event(session, 'call-on-close', { kind: 'teacher', text: '老师等不到回答' })
+      await event(session, 'call-on-1', { kind: 'teacher', text: callOn(a.name) })
+      await event(session, 'call-on-1#2', { kind: 'called_on', studentId: a.id, displayName: a.name, questionKind: 'review' })
+      await event(session, 'call-on-close-1', { kind: 'teacher', text: '老师等不到回答' })
 
       await writeSummaries(deps(), session, { live: false })
 
@@ -523,8 +523,8 @@ describe('writeSummaries', () => {
     test('a call-on whose events cannot be read is left out, so the session can still close; only its number is logged', async () => {
       const { session, students } = await room()
       await attend(session, students)
-      await event(session, 'call-on', { kind: 'teacher', text: '这是不该进日志的问题' })
-      await event(session, 'call-on#2', { kind: 'called_on', studentId: '不是学号', displayName: students[0]!.name })
+      await event(session, 'call-on-1', { kind: 'teacher', text: '这是不该进日志的问题' })
+      await event(session, 'call-on-1#2', { kind: 'called_on', studentId: '不是学号', displayName: students[0]!.name, questionKind: 'review' })
 
       await hooks().afterClass(session, { live: false })
 
@@ -687,9 +687,10 @@ describe('after class, through the lesson hooks', () => {
         { kind: 'school_rule', text: `想发言被老师批评违反校规了，我当时想说："${BANNED}"` },
       ],
     }
+    // b, online at the second call-on and not called on yet, is called on then, and does not answer.
     const forB = {
       ...expected,
-      calledOn: null,
+      calledOn: { question: callOnQuestion(b.displayName, '还有什么类似的事？'), answer: null },
       chattedWith: [{ studentId: a.studentId, displayName: a.displayName }],
       criticisms: [],
     }
