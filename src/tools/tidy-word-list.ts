@@ -155,41 +155,64 @@ function parseTidyArgs(argv: string[]): { out: string; batch: number } | null {
   return { out, batch: batch === undefined ? DEFAULT_BATCH : Number(batch) }
 }
 
-/** Returns the process exit code: 0 when the list was written, 1 when something failed. */
-async function main(argv: string[]): Promise<number> {
+/** What the tool says: counts and the file on `log`, what went wrong on `error`. */
+export interface TidyConsole {
+  log(line: string): void
+  error(line: string): void
+}
+
+/**
+ * Runs the tool with `argv` and the variables of `processEnv`. Returns the process exit code: 0 when the list was
+ * written, 1 when something failed. With LLM_FAKE set it refuses to run: the fake model suggests nothing, and an empty
+ * list would read as a word list with nothing to drop.
+ */
+export async function runTidy(argv: string[], processEnv: NodeJS.ProcessEnv, out: TidyConsole): Promise<number> {
   const args = parseTidyArgs(argv)
   if (args === null) {
-    console.error(USAGE)
+    out.error(USAGE)
     return 1
   }
+  let setup
   try {
-    // The database is only for recording what the calls cost.
-    const env = loadClassEnv(process.env)
+    const env = loadClassEnv(processEnv)
+    if (env.llmFake) {
+      out.error('LLM_FAKE 开着，大模型只会给写死的回复，整理出来的清单是空的。去掉 LLM_FAKE、设好大模型的钥匙再运行。')
+      return 1
+    }
     const config = loadSchoolConfig(env.configPath)
     const prompts = loadPrompts(env.promptsDir)
     const words = loadBlockedWords(env.moderationDataDir)
-    const providers = env.llmFake ? {} : buildProviders(config, process.env)
+    setup = { env, config, prompt: prompts['word-list-tidy'], words, providers: buildProviders(config, processEnv) }
+  } catch (err) {
+    // Before any call: the environment, the config, the prompt or the word list will not do, and the message says
+    // which (a path, a variable or a field, never a word of the list).
+    out.error(`整理失败：${err instanceof Error ? err.message : String(err)}`)
+    return 1
+  }
+  const { env, config, prompt, words, providers } = setup
+  try {
+    // The database is only for recording what the calls cost.
     const db = createDb(env.databaseUrl, env.databaseTimeouts)
     try {
-      const llm = createLlm({ db, config, clock: systemClock, providers, fake: env.llmFake })
-      const result = await tidyWordList({ llm, prompt: prompts['word-list-tidy'] }, words, { batchSize: args.batch })
+      const llm = createLlm({ db, config, clock: systemClock, providers })
+      const result = await tidyWordList({ llm, prompt }, words, { batchSize: args.batch })
       writeSuggestionList(args.out, renderSuggestionList(result, localDate(systemClock.now(), config.timezone)))
-      console.log(`共 ${result.batches} 批，建议删除 ${result.suggestions.length} 个，没能判断 ${result.undecided.length} 个`)
-      if (result.undecided.length > 0) console.log('没能判断的词在清单的最后一节，可以换个时间再跑一次')
-      console.log(`清单写在 ${args.out}`)
+      out.log(`共 ${result.batches} 批，建议删除 ${result.suggestions.length} 个，没能判断 ${result.undecided.length} 个`)
+      if (result.undecided.length > 0) out.log('没能判断的词在清单的最后一节，可以换个时间再跑一次')
+      out.log(`清单写在 ${args.out}`)
     } finally {
       await db.destroy()
     }
     return 0
   } catch (err) {
-    // Only the error's name: a message could carry a word or a reply.
-    console.error(`整理失败（${err instanceof Error ? err.name : '未知错误'}）`)
+    // Only the error's name: once the model is asked, a message could carry a word or a reply.
+    out.error(`整理失败（${err instanceof Error ? err.name : '未知错误'}）`)
     return 1
   }
 }
 
 if (isEntryPoint(import.meta.url)) {
-  main(process.argv.slice(2)).then(
+  runTidy(process.argv.slice(2), process.env, console).then(
     (code) => process.exit(code),
     () => {
       console.error('整理失败')
