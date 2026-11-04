@@ -13,8 +13,8 @@ import { writeSummaries } from './summaries.js'
  * What the lesson runtime leaves to the other parts of the class service. The runtime calls each hook at its step;
  * the parts that fill them in (discipline, chat, call-on, summaries) come in later and are assembled here.
  *
- * `callOn` and `callOnClose` may write class events of their own step: the first under the step's name (`call-on`,
- * `call-on-close`), any more as `<step>#2`, `<step>#3` ... (see events.ts), and push them after committing. When
+ * `callOn` and `callOnClose` may write class events of their own step: the first under the step's name (`call-on-1`,
+ * `call-on-close-1`), any more as `<step>#2`, `<step>#3` ... (see events.ts), and push them after committing. When
  * the hook wrote none, the runtime records the step with a `noop` marker after it returns. A step that has run is not
  * run again after a restart.
  *
@@ -25,10 +25,15 @@ import { writeSummaries } from './summaries.js'
 export interface LessonHooks {
   /** The teacher's discipline callouts for what was recorded in [from, to); empty when there is nothing to say. */
   callouts(session: ActiveSession, from: Date, to: Date): Promise<string[]>
-  /** The teacher calls on a student (after the segment the config names). */
-  callOn(session: ActiveSession): Promise<void>
-  /** The time to answer the call-on is up. */
-  callOnClose(session: ActiveSession): Promise<void>
+  /** The teacher calls on a student with the `n`th call-on of the config (from 1) and its lesson question. */
+  callOn(session: ActiveSession, n: number, question: { kind: 'review' | 'extension'; text: string }): Promise<void>
+  /** The time to answer the `n`th call-on is up. */
+  callOnClose(session: ActiveSession, n: number): Promise<void>
+  /**
+   * The teacher starts answering the students' questions of segment `k`: those asked in `window.from` to `window.to`,
+   * to be answered by `window.deadline`. Returns at once; the work goes on in the background.
+   */
+  startAnswering(session: ActiveSession, k: number, window: { from: Date; to: Date; deadline: Date }): void
   /** Dismissal: conversations still going get the closing grace period for a last line. */
   startClosing(classId: number): void
   /** The end of the session: whatever conversation is left ends now. */
@@ -47,6 +52,7 @@ export const noopHooks: LessonHooks = {
   callouts: async () => [],
   callOn: async () => {},
   callOnClose: async () => {},
+  startAnswering: () => {},
   startClosing: () => {},
   endAll: () => {},
   onDisconnect: () => {},
@@ -82,8 +88,9 @@ export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
     ...(questions === undefined
       ? {}
       : {
-          callOn: (session: ActiveSession) => callOnStep(questions, session),
-          callOnClose: (session: ActiveSession) => callOnCloseStep(questions, session),
+          callOn: (session: ActiveSession, n: number, question: { kind: 'review' | 'extension'; text: string }) =>
+            callOnStep(questions, session, n, question),
+          callOnClose: (session: ActiveSession, n: number) => callOnCloseStep(questions, session, n),
         }),
     // All three are synchronous, as the runtime and the connection layer call them.
     ...(chat === undefined

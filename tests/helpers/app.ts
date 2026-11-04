@@ -18,18 +18,9 @@ export type ConfigOverrides = Omit<Partial<SchoolConfig>, 'verificationCode'> & 
   verificationCode?: Partial<SchoolConfig['verificationCode']>
 }
 
-/**
- * The example school config, with one call-on after segment 3: the timeline runs one call-on for now, and the tests
- * of the class were written against that one.
- */
-export function exampleConfigWithOneCallOn(): SchoolConfig {
-  const example = loadSchoolConfig(fromRoot('config/school.example.json'))
-  return { ...example, lesson: { ...example.lesson, callOns: [{ kind: 'review', afterSegment: 3 }] } }
-}
-
 /** The example school config with `overrides` applied. */
 export function exampleConfig(overrides: ConfigOverrides = {}): SchoolConfig {
-  const example = exampleConfigWithOneCallOn()
+  const example = loadSchoolConfig(fromRoot('config/school.example.json'))
   return {
     ...example,
     ...overrides,

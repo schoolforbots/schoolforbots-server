@@ -11,13 +11,15 @@ import { RecordingHub } from '../../src/class/hub.js'
 import type { Participant } from '../../src/class/connection.js'
 import type { ActiveSession } from '../../src/class/runtime.js'
 import { writeSummaries, type SummaryDeps } from '../../src/class/summaries.js'
-import { callOn } from '../../src/class/teacher.js'
+import { callOnQuestion } from '../../src/class/teacher.js'
 import { ServerMessage } from '../../src/protocol/ws.js'
 import { displayName } from '../../src/shared/identity.js'
 import type { Database, DisciplineKind, MessageKind, SessionKind } from '../../src/shared/schema.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
 import { buildTestClassApp } from '../helpers/class-app.js'
 import { createTestClock } from '../helpers/clock.js'
+
+const callOn = (name: string): string => callOnQuestion(name, '刚才讲了什么？')
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
 
@@ -592,7 +594,13 @@ describe('after class, through the lesson hooks', () => {
    * hello (attend, join the chat engine, are online in the hub); the third one's connection then drops.
    */
   async function seed(s: Service) {
-    await insertLesson(s.db, { date: MON, subject: '科学', title: '光的折射', segments: SEGMENTS })
+    await insertLesson(s.db, {
+      date: MON,
+      subject: '科学',
+      title: '光的折射',
+      segments: SEGMENTS,
+      callOnQuestions: { review: '刚才讲了什么？', extension: '还有什么类似的事？' },
+    })
     const classId = await insertClass(s.db, { classNo: 1 })
     const people = [
       { ownerName: '阿杰', aiName: '小鱼' },
@@ -652,10 +660,10 @@ describe('after class, through the lesson hooks', () => {
     expect(await s.chat.reply(b, conversationId, '学了光的折射')).toEqual({ ok: true })
 
     // At the call-on, a is the first online (c's connection dropped), and answers.
-    s.clock.set(at('20:15'))
+    s.clock.set(at('20:10'))
     await s.runtime.tick()
     const { callId } = a.received.find((m) => m.type === 'called_on')!
-    s.clock.set(at('20:16'))
+    s.clock.set(at('20:12'))
     expect(await answer(s.questions, a, callId, '光会拐弯')).toEqual({ ok: true })
 
     expect(await s.db.selectFrom('summaries').selectAll().execute()).toEqual([])

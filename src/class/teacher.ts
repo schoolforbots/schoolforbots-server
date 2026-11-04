@@ -75,8 +75,8 @@ export function renameAnnouncement(oldName: string, newName: string): string {
   return `${oldName}以后叫${newName}啦，大家记一下。`
 }
 
-export function callOn(name: string): string {
-  return `${name}同学，你来说说这一段讲了什么？`
+export function callOnQuestion(name: string, question: string): string {
+  return `${name}同学，${question}`
 }
 
 export function callOnThanks(): string {

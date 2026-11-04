@@ -98,6 +98,8 @@ export async function insertLesson(
     /** Defaults to a moment on the lesson's day; pass `null` for a draft that is not yet approved. */
     approvedAt?: Date | null
     subject?: string
+    /** Defaults to a pair of questions; `null` is a lesson without them, which calls on nobody. */
+    callOnQuestions?: { review: string; extension: string } | null
   },
 ): Promise<number> {
   const n = ++lessonCounter
@@ -112,6 +114,10 @@ export async function insertLesson(
         p.segments ??
           Array.from({ length: 5 }, (_, i) => ({ text: `第${n}课第${i + 1}段正文`, gist: `第${i + 1}段要点` })),
       ),
+      // Left out of the insert when there are none: a database from before the column has no such column.
+      ...(p.callOnQuestions === null
+        ? {}
+        : { callOnQuestions: JSON.stringify(p.callOnQuestions ?? { review: `第${n}课复习题`, extension: `第${n}课引申题` }) }),
       approvedAt: p.approvedAt === undefined ? new Date(`${p.date}T00:00:00Z`) : p.approvedAt,
       createdAt: new Date(`${p.date}T00:00:00Z`),
     })
