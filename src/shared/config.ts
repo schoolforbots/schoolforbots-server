@@ -403,6 +403,8 @@ export type ClassEnv = Pick<
   | 'trustProxy'
   | 'classPort'
   | 'classTimelineSpeed'
+  | 'promptsDir'
+  | 'llmFake'
 >
 
 type Get = (name: string) => string | undefined
@@ -463,6 +465,7 @@ const moderationDataDirOf = (get: Get) => get('MODERATION_DATA_DIR') ?? 'data/mo
 const configPathOf = (get: Get) => get('SCHOOL_CONFIG') ?? 'config/school.json'
 const classPortOf = (get: Get) => parsePort('CLASS_PORT', get('CLASS_PORT'), 8081)
 const trustProxyOf = (get: Get) => get('TRUST_PROXY') === '1'
+const promptsDirOf = (get: Get) => get('PROMPTS_DIR') ?? 'data/prompts'
 
 /** The environment of the class service, read as `loadEnv` reads the same variables. */
 export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {
@@ -471,6 +474,7 @@ export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {
   const databaseTimeouts = databaseTimeoutsOf(get)
   const classPort = classPortOf(get)
   const classTimelineSpeed = parseTimelineSpeed(get)
+  const llmFake = parseLlmFake(get)
   return {
     databaseUrl,
     databaseTimeouts,
@@ -479,6 +483,8 @@ export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {
     trustProxy: trustProxyOf(get),
     classPort,
     classTimelineSpeed,
+    promptsDir: promptsDirOf(get),
+    llmFake,
   }
 }
 
@@ -559,7 +565,7 @@ export function loadEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void 
     trustProxy: trustProxyOf(get),
     classPort,
     classTimelineSpeed,
-    promptsDir: get('PROMPTS_DIR') ?? 'data/prompts',
+    promptsDir: promptsDirOf(get),
     operatorEmail: get('OPERATOR_EMAIL') ?? null,
     admin,
     llmFake,

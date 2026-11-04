@@ -383,6 +383,8 @@ describe('loadClassEnv', () => {
       trustProxy: false,
       classPort: 8081,
       classTimelineSpeed: 1,
+      promptsDir: 'data/prompts',
+      llmFake: false,
     })
     // Mail settings that would stop the registration service are none of its business.
     for (const mail of [{ MAIL_TRANSPORT: 'smtp' }, { MAIL_TRANSPORT: 'sendmail' }, { SMTP_URL: '' }]) {
@@ -401,6 +403,8 @@ describe('loadClassEnv', () => {
         DATABASE_STATEMENT_TIMEOUT_MS: '0',
         DATABASE_LOCK_TIMEOUT_MS: '2500',
         TRUST_PROXY: '1',
+        PROMPTS_DIR: '/p',
+        LLM_FAKE: '1',
         // The school rules are the registration service's; the class service never reads them.
         SCHOOL_RULES_DIR: '/r',
       }),
@@ -412,12 +416,22 @@ describe('loadClassEnv', () => {
       trustProxy: true,
       classPort: 9091,
       classTimelineSpeed: 60,
+      promptsDir: '/p',
+      llmFake: true,
     })
     expect(loadClassEnv({ DATABASE_URL: 'postgres://x', TRUST_PROXY: '0' }).trustProxy).toBe(false)
-    expect(loadClassEnv({ DATABASE_URL: 'postgres://x', CLASS_PORT: '', CLASS_TIMELINE_SPEED: '' })).toMatchObject({
+    expect(loadClassEnv({ DATABASE_URL: 'postgres://x', CLASS_PORT: '', CLASS_TIMELINE_SPEED: '', PROMPTS_DIR: '' })).toMatchObject({
       classPort: 8081,
       classTimelineSpeed: 1,
+      promptsDir: 'data/prompts',
     })
+  })
+
+  test('LLM_FAKE=1 turns the fake model on, but never with NODE_ENV=production, as loadEnv does', () => {
+    expect(loadClassEnv({ DATABASE_URL: 'postgres://x', LLM_FAKE: '0' }).llmFake).toBe(false)
+    expect(() => loadClassEnv({ DATABASE_URL: 'postgres://x', LLM_FAKE: '1', NODE_ENV: 'production' })).toThrow(
+      /LLM_FAKE.*NODE_ENV=production/,
+    )
   })
 
   test('rejects an invalid CLASS_PORT or CLASS_TIMELINE_SPEED as loadEnv does', () => {

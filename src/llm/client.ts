@@ -104,7 +104,7 @@ export function createLlm(deps: {
   config: SchoolConfig
   clock: Clock
   providers: Record<string, LlmProvider>
-  log?: FastifyBaseLogger
+  log?: Pick<FastifyBaseLogger, 'info' | 'error'>
   /** From `env.llmFake`: no provider is called, every call gets the fixed reply of its purpose. */
   fake?: boolean
   /** When given, the monthly budget is checked after each successful call. */

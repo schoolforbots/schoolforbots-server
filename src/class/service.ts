@@ -1,9 +1,13 @@
 import type { FastifyInstance, FastifyServerOptions } from 'fastify'
 import type { Kysely } from 'kysely'
+import type { Llm } from '../llm/client.js'
+import type { PromptName, PromptTemplate } from '../llm/prompts.js'
 import type { Moderator } from '../moderation/moderator.js'
+import type { SecondLayer } from '../moderation/second-layer.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/schema.js'
+import type { Switches } from '../shared/switches.js'
 import { buildClassApp } from './app.js'
 import { chatHandlers, createChatEngine, type ChatEngine } from './chat.js'
 import { MAINTENANCE, type MessageHandlers } from './connection.js'
@@ -12,7 +16,16 @@ import { createLessonHooks, type LessonHooks } from './hooks.js'
 import { createHub, type MemoryHub } from './hub.js'
 import { questionHandlers, type QuestionsDeps } from './questions.js'
 import { createClassRuntime, LIVE_TOLERANCE_MS, onlyClassStepsFailed, type ClassRuntime } from './runtime.js'
+import { createTeacherAi, type TeacherAi } from './teacher-ai.js'
 import { startTicker, type Ticker } from './ticker.js'
+
+/** What the service's work with the model is done with: the model, its prompts, the second layer and the switches. */
+export interface ModelDeps {
+  llm: Llm
+  prompts: Record<PromptName, PromptTemplate>
+  secondLayer: SecondLayer
+  switches: Switches
+}
 
 export interface ClassServiceDeps {
   db: Kysely<Database>
@@ -25,8 +38,13 @@ export interface ClassServiceDeps {
   trustProxy?: boolean
   /** Fastify logger options; unset means no logging. */
   logger?: FastifyServerOptions['logger']
-  /** Picks whom the teacher calls on (see `QuestionsDeps.random`); `Math.random` when unset. */
+  /**
+   * Picks whom the teacher calls on (see `QuestionsDeps.random`) and which questions the teacher reads when there are
+   * too many (see `TeacherAiDeps.random`); `Math.random` when unset.
+   */
   random?: () => number
+  /** The model the teacher answers questions with; without it, the teacher answers none. */
+  model?: ModelDeps
   /** Put in place of the real lesson hooks, for the runtime and the app alike (tests). */
   hooks?: Partial<LessonHooks>
   /** Put in place of the real message handlers (tests). */
@@ -47,6 +65,8 @@ export interface ClassService {
   chat: ChatEngine
   questions: QuestionsDeps
   hooks: LessonHooks
+  /** The teacher's work with the model, null without a model. Its `idle()` waits for the answers being worked on. */
+  teacherAi: TeacherAi | null
   /** What the service runs on its interval: the lesson runtime's steps, then the conversations overdue by the clock. */
   tick(): Promise<void>
   /**
@@ -57,14 +77,16 @@ export interface ClassService {
 }
 
 /**
- * The class service on one database: the hub, the chat engine, the questions and the call-on, the lesson hooks,
- * the lesson runtime and the WebSocket app. One chat engine serves both the hooks and the app's handlers, as do the
- * questions; the same hooks go to the runtime and to the app. Nothing runs until something calls `tick()`.
+ * The class service on one database: the hub, the chat engine, the questions and the call-on, the teacher's answers
+ * (with a model), the lesson hooks, the lesson runtime and the WebSocket app. One chat engine serves both the hooks
+ * and the app's handlers, as do the questions; the same hooks go to the runtime and to the app. Nothing runs until
+ * something calls `tick()`.
  */
 export function createClassService(deps: ClassServiceDeps): ClassService {
   const { db, config, moderator, clock, speed } = deps
   // The app's logger: the parts only log while the app is serving.
   const log = (obj: object, msg: string) => app.log.info(obj, msg)
+  const logError = (obj: object, msg: string) => app.log.error(obj, msg)
   // Set by `disconnectAll`, for good.
   let stopping = false
 
@@ -80,8 +102,21 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     random: deps.random,
     log,
   }
+  const teacherAi =
+    deps.model === undefined
+      ? null
+      : createTeacherAi({
+          db,
+          config,
+          clock,
+          hub,
+          moderator,
+          ...deps.model,
+          random: deps.random,
+          log: { info: log, error: logError },
+        })
   const hooks: LessonHooks = {
-    ...createLessonHooks({ db, config, clock, chat, questions, hub, log }),
+    ...createLessonHooks({ db, config, clock, chat, questions, hub, teacherAi: teacherAi ?? undefined, log }),
     ...deps.hooks,
   }
   const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks, log })
@@ -111,6 +146,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     chat,
     questions,
     hooks,
+    teacherAi,
     async tick() {
       // The runtime first: the close of a session ends its conversations as a dismissal. A failed tick of the runtime
       // does not hold up the conversations.
