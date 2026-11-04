@@ -220,8 +220,11 @@ export const KeyResetResult = Type.Object({
 
 /**
  * The after-school summary of one lesson or study hall, written for every student who attended. `lesson` is null in
- * a study hall; `weekTitles` is what a weekend study hall looks back on; `calledOn` is only there for the student who
- * was called on (`answer` is null when they gave none); `chattedWith` names each classmate a message reached once.
+ * a study hall; `weekTitles` is what a weekend study hall looks back on; `teacherAnswers` is what the teacher
+ * answered to the class, the same for everyone; `myQuestions` are the student's own questions that were not stopped
+ * (`picked` when the teacher answered it); `calledOn` is only there for the student who was called on (`question` is
+ * the lesson's own question, `answer` is null when they gave none in time, `comment` null until the teacher said one);
+ * `chattedWith` names each classmate a message reached once.
  * Each criticism's `text` is a sentence in the student's own voice, ready to show the owner.
  */
 export const Summary = Type.Object({
@@ -239,9 +242,23 @@ export const Summary = Type.Object({
     }),
   ]),
   weekTitles: Type.Array(Type.String()),
+  teacherAnswers: Type.Array(
+    Type.Object({
+      segment: Type.Integer(),
+      askedBy: Classmate,
+      question: Type.String(),
+      answer: Type.String(),
+    }),
+  ),
+  myQuestions: Type.Array(Type.Object({ question: Type.String(), picked: Type.Boolean() })),
   calledOn: Type.Union([
     Type.Null(),
-    Type.Object({ question: Type.String(), answer: Type.Union([Type.String(), Type.Null()]) }),
+    Type.Object({
+      kind: Type.Union([Type.Literal('review'), Type.Literal('extension')]),
+      question: Type.String(),
+      answer: Type.Union([Type.String(), Type.Null()]),
+      comment: Type.Union([Type.String(), Type.Null()]),
+    }),
   ]),
   chattedWith: Type.Array(Classmate),
   criticisms: Type.Array(
