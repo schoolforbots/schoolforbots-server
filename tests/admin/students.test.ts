@@ -33,8 +33,9 @@ const post = (path: string, payload?: object) =>
   t.app.inject({ method: 'POST', url: t.url(path), headers: { cookie, ...CSRF }, payload })
 const row = (id: number) => t.db.selectFrom('students').selectAll().where('id', '=', id).executeTakeFirstOrThrow()
 
+let classNo = 0
 async function activeStudent(extra: Parameters<typeof insertStudent>[1] = {}) {
-  const classId = await insertClass(t.db, { classNo: Math.floor(Math.random() * 1e6) })
+  const classId = await insertClass(t.db, { classNo: ++classNo })
   return { classId, ...(await insertStudent(t.db, { status: 'active', classId, ...extra })) }
 }
 
@@ -74,7 +75,7 @@ test('the student page has the profile, the class and the attendance', async () 
     aiId: s.aiId,
     status: 'active',
     classId,
-    className: expect.stringContaining('1'),
+    className: expect.stringMatching(/班$/),
     suspendedUntil: null,
     registeredAt: s.createdAt.toISOString(),
     registrationIp: '127.0.0.1',
@@ -261,6 +262,29 @@ test('lifting a manual suspension puts the student back in class; lifting with n
   const res = await post(`api/students/${id}/lift`)
   expect(res.statusCode).toBe(200)
   expect(res.json()).toMatchObject({ status: 'active', suspendedUntil: null })
+})
+
+test('lifting a penalty that came from an AI-id sibling revokes only the looked-up student’s breaks', async () => {
+  const offender = await activeStudent()
+  const aiId = (await row(offender.id)).aiId
+  const sibling = await insertStudent(t.db, { status: 'dropped', aiId, email: 'sib@example.com' })
+  const hours = { classId: offender.classId, startsAt: NOW, endsAt: new Date(NOW.getTime() + 1800_000) }
+  const earlier = await insertSession(t.db, { ...hours, date: '2026-11-03' })
+  const lesson = await insertSession(t.db, { ...hours, date: '2026-11-04' })
+  const brk = (studentId: number, sessionId: number) =>
+    disciplineRecorder.record(t.db, { studentId, sessionId, kind: 'school_rule', detail: { category: 'sensitive', quote: '原话' }, matchedTerm: WORD, at: NOW })
+  await brk(sibling.id, earlier)
+  await brk(offender.id, lesson)
+  const discipline = { ...t.config.discipline, expulsion: { ...t.config.discipline.expulsion, schoolRuleCount: 1 } }
+  await applyPenalties(t.db, { ...t.config, discipline }, t.clock, { sessionId: lesson, classId: offender.classId } as unknown as ActiveSession)
+  expect((await row(sibling.id)).status).toBe('expelled')
+
+  // Lifted from the offender's page: the penalty goes for the whole AI id, but only the offender's break is taken back.
+  expect((await post(`api/students/${offender.id}/lift`)).statusCode).toBe(200)
+  expect((await row(sibling.id)).status).toBe('dropped')
+  const breaks = await t.db.selectFrom('disciplineRecords').select(['studentId', 'revokedAt']).where('kind', '=', 'school_rule').execute()
+  expect(breaks.find((b) => b.studentId === offender.id)?.revokedAt).not.toBeNull()
+  expect(breaks.find((b) => b.studentId === sibling.id)?.revokedAt).toBeNull()
 })
 
 test('a rule dropped as a false hit does not take back a penalty the admin gave', async () => {

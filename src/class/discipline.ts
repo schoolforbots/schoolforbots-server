@@ -221,6 +221,34 @@ export async function lockStudentsOfAiIds(trx: Kysely<Database>, ids: number[]):
   return new Map(locked.map((s) => [s.id, s]))
 }
 
+/**
+ * Suspends the students (an offender's AI id, none expelled) until `until`, updating the rows too. A student in a class
+ * is suspended in it; one who is not (withdrawn, or back in the queue) is not let into a class by a suspension: they go
+ * back to dropped, and `suspendedUntil` is what keeps them from re-enrolling until it is over. The automatic
+ * suspension and the admin's by hand both land this way.
+ */
+export async function suspendAiStudents(trx: Kysely<Database>, students: LockedStudent[], until: Date): Promise<void> {
+  const members = students.filter((s) => (MEMBER_STATUSES as readonly StudentStatus[]).includes(s.status))
+  const others = students.filter((s) => !members.includes(s))
+  if (members.length > 0) {
+    await trx
+      .updateTable('students')
+      .set({ status: 'suspended', suspendedUntil: until })
+      .where('id', 'in', members.map((s) => s.id))
+      .execute()
+  }
+  if (others.length > 0) {
+    await trx
+      .updateTable('students')
+      .set({ status: 'dropped', classId: null, suspendedUntil: until })
+      .where('id', 'in', others.map((s) => s.id))
+      .execute()
+  }
+  for (const s of members) s.status = 'suspended'
+  for (const s of others) s.status = 'dropped'
+  for (const s of students) s.suspendedUntil = until
+}
+
 export interface PenaltyReport {
   /** The students suspended after this lesson. */
   suspended: number[]
@@ -289,7 +317,6 @@ export async function applyPenalties(
     // The offenders and every other student of their AI ids are locked first (see `lockStudentsOfAiIds`). They are
     // then worked on from these rows, which are kept up to date as the penalties are written.
     const students = await lockStudentsOfAiIds(trx, [...involved.keys()])
-    const isMember = (status: StudentStatus) => (MEMBER_STATUSES as readonly StudentStatus[]).includes(status)
     const note = (list: number[], id: number) => {
       if (!list.includes(id)) list.push(id)
     }
@@ -344,26 +371,7 @@ export async function applyPenalties(
           })
         } else if (due === 'suspension') {
           const until = new Date(now.getTime() + suspension.days * DAY_MS)
-          // A student who is not in a class (withdrawn, or back in the queue) is not let into one by a suspension: they
-          // go back to dropped, and `suspendedUntil` is what keeps them from re-enrolling until it is over.
-          const members = sameAi.filter((s) => isMember(s.status))
-          const others = sameAi.filter((s) => !isMember(s.status))
-          if (members.length > 0) {
-            await trx
-              .updateTable('students')
-              .set({ status: 'suspended', suspendedUntil: until })
-              .where('id', 'in', members.map((s) => s.id))
-              .execute()
-          }
-          if (others.length > 0) {
-            await trx
-              .updateTable('students')
-              .set({ status: 'dropped', classId: null, suspendedUntil: until })
-              .where('id', 'in', others.map((s) => s.id))
-              .execute()
-          }
-          for (const s of members) s.status = 'suspended'
-          for (const s of others) s.status = 'dropped'
+          await suspendAiStudents(trx, sameAi, until)
           await disciplineRecorder.record(trx, {
             studentId,
             sessionId,
