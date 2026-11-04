@@ -6,7 +6,7 @@ import { monthSpend, schoolMonth } from '../llm/budget.js'
 import type { LlmPurpose } from '../llm/client.js'
 import type { ModerationCategory } from '../moderation/moderator.js'
 import { LLM_PURPOSES, type Division, type SchoolConfig, type Slot } from '../shared/config.js'
-import { addDaysToDate, atLocalTime, localDate } from '../shared/local-time.js'
+import { addDaysToDate, atLocalTime, localDate, startOfLocalDay } from '../shared/local-time.js'
 import type { Database } from '../shared/schema.js'
 import { switchChanges, type SwitchName } from '../shared/switches.js'
 import type { AdminDeps } from './app.js'
@@ -20,7 +20,7 @@ import { reviewQueue } from './lessons.js'
 // - Chat messages: every row of `messages`, of every kind. Blocked: not delivered and stopped by a check; the second
 //   layer's count in the total but in none of the three categories.
 // - Violations, suspensions and expulsions: the school-rule records and the penalties made that day, less the ones
-//   revoked since (a revoked record was a mistake).
+//   revoked since: a revoked record was a false hit, so it is not counted, the school-rule records included.
 // - New registrations: the registrations verified that day.
 // - Model spend: the cost of the calls made that day, in yuan.
 
@@ -57,8 +57,12 @@ export interface DailyStats {
   sameDayLastWeek: DayNumbers | null
   month: { costYuan: number; budgetYuan: number; overBudget: boolean }
   reminders: {
-    /** Lessons not approved and not begun, each with the time its day becomes a study hall if it stays so. */
+    /**
+     * Lessons not approved whose day is still open: no class of the division has begun it and its doors have not
+     * opened. `deadline` is when they open, and the day becomes a study hall if the lesson is still not approved.
+     */
     unreviewed: { date: string; division: Division; deadline: string }[]
+    /** Lessons of the queue that could not be made, from the day after the first failure (it is retried before). */
     generationFailed: { date: string; division: Division; attempts: number; lastError: string }[]
   }
   /** The `days` days up to yesterday, oldest first. */
@@ -160,6 +164,7 @@ async function tallies(db: Kysely<Database>, timeZone: string, from: string, to:
     for (const category of CATEGORIES) day.blockedByCategory[category] = Number(r[category])
   }
 
+  // Revoked records are left out of all three counts (see the definitions at the top).
   const records = await db
     .selectFrom('disciplineRecords')
     .select([localDay('createdAt').as('day'), 'kind', count().as('records')])
@@ -246,11 +251,25 @@ export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'
 
   const queue = await reviewQueue(deps)
   const slots = queue.flatMap((day) => day.divisions.map((slot) => ({ date: day.date, ...slot })))
-  const unreviewed = slots
-    .filter((s) => s.status !== 'approved' && !s.locked)
-    .map((s) => ({ date: s.date, division: s.division, deadline: doorsOf(s.date, config).toISOString() }))
+  const unreviewed = slots.flatMap((s) => {
+    const deadline = doorsOf(s.date, config)
+    if (s.status === 'approved' || s.locked || deadline.getTime() <= now.getTime()) return []
+    return [{ date: s.date, division: s.division, deadline: deadline.toISOString() }]
+  })
+  // A failure is retried every `retryMinutes`; it is worth a reminder once it has lasted into a new day.
+  const lasting =
+    queue.length === 0
+      ? []
+      : await db
+          .selectFrom('lessonGeneration')
+          .select(['date', 'division'])
+          .where('date', 'in', queue.map((day) => day.date))
+          .where('firstFailedAt', '<', startOfLocalDay(now, tz))
+          .execute()
   const generationFailed = slots.flatMap((s) =>
-    s.generationFailed === null ? [] : [{ date: s.date, division: s.division, ...s.generationFailed }],
+    s.generationFailed === null || !lasting.some((f) => f.date === s.date && f.division === s.division)
+      ? []
+      : [{ date: s.date, division: s.division, ...s.generationFailed }],
   )
 
   const series: SeriesDay[] = []

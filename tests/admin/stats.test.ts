@@ -14,6 +14,8 @@ const NOW = new Date('2026-11-04T12:00:00+08:00')
 const TODAY = '2026-11-04'
 const YESTERDAY = '2026-11-03'
 const LAST_WEEK = '2026-10-27'
+const THURSDAY = '2026-11-05'
+const FRIDAY = '2026-11-06'
 
 let t: Awaited<ReturnType<typeof buildAdminTestApp>>
 let cookie: string
@@ -288,50 +290,57 @@ test('with nothing recorded every number is zero; the same day last week is null
   expect(body.switchChanges).toEqual([])
 })
 
-test('the reminders: lessons not reviewed with the time their day turns into a study hall, failures, the budget', async () => {
-  const example = exampleConfig()
-  // Two days ahead: today (Wednesday), Thursday and Friday.
-  await start({
-    ...example,
-    lessonGeneration: { ...example.lessonGeneration, horizonDays: 2 },
-    llm: { ...example.llm, monthlyBudgetYuan: 1 },
-  })
+const LESSON: LessonContent = {
+  title: '一课',
+  subject: '科学',
+  segments: Array.from({ length: 5 }, (_, i) => ({ text: `第${i + 1}段`, gist: `要点${i + 1}` })),
+  callOnQuestions: { review: '复习题？', extension: '引申题？' },
+}
+
+/** A lesson of that day and division: a draft, or approved; a title with a listed word gives it a red mark. */
+async function lesson(date: string, division: Division, opts: { approved?: boolean; title?: string } = {}) {
   const store: LessonStoreDeps = { db: t.db, clock: t.clock, moderator: t.moderator }
-  const content: LessonContent = {
-    title: '一课',
-    subject: '科学',
-    segments: Array.from({ length: 5 }, (_, i) => ({ text: `第${i + 1}段`, gist: `要点${i + 1}` })),
-    callOnQuestions: { review: '复习题？', extension: '引申题？' },
-  }
-  const lesson = async (date: string, division: Division, opts: { approved?: boolean; title?: string } = {}) => {
-    const { lessonId } = await saveDraft(store, { date, division }, { ...content, title: opts.title ?? '一课' }, {
-      source: 'api',
-      change: 'generate',
-    })
-    if (opts.approved === true) await approve(store, lessonId, 1)
-    return lessonId
-  }
+  const content = { ...LESSON, title: opts.title ?? LESSON.title }
+  const { lessonId } = await saveDraft(store, { date, division }, content, { source: 'api', change: 'generate' })
+  if (opts.approved === true) await approve(store, lessonId, 1)
+  return lessonId
+}
+
+/** The example school, with lessons made `horizonDays` days ahead. */
+function horizon(horizonDays: number, more: Partial<SchoolConfig> = {}): SchoolConfig {
+  const example = exampleConfig()
+  return { ...example, lessonGeneration: { ...example.lessonGeneration, horizonDays }, ...more }
+}
+
+test('the reminders: lessons not reviewed, failures that lasted into a new day, the budget', async () => {
+  const example = exampleConfig()
+  // Two days ahead: today (Wednesday), Thursday and Friday. At noon, today's doors have opened.
+  await start(horizon(2, { llm: { ...example.llm, monthlyBudgetYuan: 1 } }))
   await lesson(TODAY, 'primary')
   await lesson(TODAY, 'junior', { approved: true })
   await lesson(TODAY, 'senior', { approved: true })
-  await lesson('2026-11-05', 'primary', { approved: true })
-  await lesson('2026-11-05', 'junior', { approved: true })
-  await lesson('2026-11-06', 'primary', { title: '示例违禁词' })
-  await lesson('2026-11-06', 'junior', { approved: true })
-  await lesson('2026-11-06', 'senior', { approved: true })
-  const failed = at(TODAY, '01:00:00')
+  await lesson(THURSDAY, 'primary', { approved: true })
+  await lesson(FRIDAY, 'primary', { title: '示例违禁词' })
+  await lesson(FRIDAY, 'junior', { approved: true })
+  await lesson(FRIDAY, 'senior', { approved: true })
+  const failure = (date: string, division: Division, firstFailedAt: Date) => ({
+    date,
+    division,
+    attempts: 3,
+    firstFailedAt,
+    lastFailedAt: at(TODAY, '11:00:00'),
+    lastError: '大模型的回复里没有找到 JSON',
+  })
   await t.db
     .insertInto('lessonGeneration')
-    .values(
-      (['2026-11-05', YESTERDAY, '2026-11-20'] as const).map((date) => ({
-        date,
-        division: 'senior' as const,
-        attempts: 3,
-        firstFailedAt: failed,
-        lastFailedAt: failed,
-        lastError: '大模型的回复里没有找到 JSON',
-      })),
-    )
+    .values([
+      // Failing since the last second of yesterday: a reminder. Since the first second of today: not yet.
+      failure(THURSDAY, 'junior', at(YESTERDAY, '23:59:59')),
+      failure(THURSDAY, 'senior', at(TODAY, '00:00:00')),
+      // Days outside the queue.
+      failure(YESTERDAY, 'senior', at(LAST_WEEK, '01:00:00')),
+      failure('2026-11-20', 'senior', at(LAST_WEEK, '01:00:00')),
+    ])
     .execute()
   await call('lesson', '1.500000', at('2026-11-01', '00:30:00'))
 
@@ -339,13 +348,39 @@ test('the reminders: lessons not reviewed with the time their day turns into a s
   // The doors of the first class of the day open at 09:45 school time (10:00 less 15 minutes), 01:45 UTC.
   expect(body.reminders).toEqual({
     unreviewed: [
-      { date: TODAY, division: 'primary', deadline: '2026-11-04T01:45:00.000Z' },
-      { date: '2026-11-05', division: 'senior', deadline: '2026-11-05T01:45:00.000Z' },
-      { date: '2026-11-06', division: 'primary', deadline: '2026-11-06T01:45:00.000Z' },
+      { date: THURSDAY, division: 'junior', deadline: '2026-11-05T01:45:00.000Z' },
+      { date: THURSDAY, division: 'senior', deadline: '2026-11-05T01:45:00.000Z' },
+      { date: FRIDAY, division: 'primary', deadline: '2026-11-06T01:45:00.000Z' },
     ],
-    generationFailed: [{ date: '2026-11-05', division: 'senior', attempts: 3, lastError: '大模型的回复里没有找到 JSON' }],
+    generationFailed: [{ date: THURSDAY, division: 'junior', attempts: 3, lastError: '大模型的回复里没有找到 JSON' }],
   })
   expect(body.month).toEqual({ costYuan: 1.5, budgetYuan: 1, overBudget: true })
+})
+
+test('a lesson not reviewed is a reminder until the doors open, and not once a class of its division has begun the day', async () => {
+  // One day ahead: today and Thursday, whose lessons are all approved.
+  await start(horizon(1))
+  for (const division of ['primary', 'junior', 'senior'] as const) await lesson(THURSDAY, division, { approved: true })
+  await lesson(TODAY, 'primary')
+  await lesson(TODAY, 'junior', { approved: true })
+  await lesson(TODAY, 'senior')
+  // A senior class holds a study hall today: the day is decided for the division, whatever is approved later.
+  const classId = await insertClass(t.db, { division: 'senior', slot: 'morning', classNo: ++classNo })
+  await insertSession(t.db, {
+    classId,
+    date: TODAY,
+    slot: 'morning',
+    kind: 'study',
+    startsAt: at(TODAY, '10:00:00'),
+    endsAt: at(TODAY, '10:30:00'),
+  })
+
+  t.clock.set(at(TODAY, '09:44:59'))
+  expect((await daily(7)).json().reminders.unreviewed).toEqual([
+    { date: TODAY, division: 'primary', deadline: '2026-11-04T01:45:00.000Z' },
+  ])
+  t.clock.set(at(TODAY, '09:45:00'))
+  expect((await daily(7)).json().reminders.unreviewed).toEqual([])
 })
 
 test('the switch changes are the ones made over the days of the curves', async () => {

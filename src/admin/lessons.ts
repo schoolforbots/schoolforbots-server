@@ -9,7 +9,6 @@ import {
   approve,
   contentOf,
   editPart,
-  hasBegun,
   LessonHasFlags,
   LessonLocked,
   LessonNotFound,
@@ -58,7 +57,10 @@ export interface QueueSlot {
   topic: string | null
   /** The last failure to make the lesson, while it has not been made. */
   generationFailed: { attempts: number; lastError: string } | null
-  /** A class has begun the lesson: it can no longer change. */
+  /**
+   * A class of the division has begun the day, with this lesson or a study hall: the first class decides for the
+   * day, so the lesson can no longer be taught, or changed, for it.
+   */
   locked: boolean
 }
 
@@ -87,10 +89,14 @@ export async function reviewQueue(deps: Pick<AdminDeps, 'db' | 'config' | 'clock
     .selectFrom('lessons as l')
     .select(['l.id', 'l.date', 'l.division', 'l.version', 'l.approvedAt'])
     .select(sql<number>`jsonb_array_length(l.flags)`.as('flagCount'))
-    .select((eb) =>
-      eb.exists(eb.selectFrom('classSessions as s').select('s.id').whereRef('s.lessonId', '=', 'l.id')).as('locked'),
-    )
     .where('l.date', 'in', dates)
+    .execute()
+  const begun = await db
+    .selectFrom('classSessions as s')
+    .innerJoin('classes as c', 'c.id', 's.classId')
+    .select(['s.date', 'c.division'])
+    .distinct()
+    .where('s.date', 'in', dates)
     .execute()
   const topics = await db
     .selectFrom('lessonTopics')
@@ -123,10 +129,27 @@ export async function reviewQueue(deps: Pick<AdminDeps, 'db' | 'config' | 'clock
         version: lesson?.version ?? null,
         topic: find(topics, date, division)?.topic ?? null,
         generationFailed: failure === undefined ? null : { attempts: failure.attempts, lastError: failure.lastError },
-        locked: lesson?.locked === true,
+        locked: find(begun, date, division) !== undefined,
       }
     }),
   }))
+}
+
+/**
+ * Whether a class of the division has begun the day (see `QueueSlot.locked`). A lesson the day's sessions do not teach
+ * is then not taught that day either; the store would still let it change, but the page is told it is locked all the
+ * same.
+ */
+async function dayBegun(db: Kysely<Database>, date: string, division: Division): Promise<boolean> {
+  const session = await db
+    .selectFrom('classSessions as s')
+    .innerJoin('classes as c', 'c.id', 's.classId')
+    .select('s.id')
+    .where('s.date', '=', date)
+    .where('c.division', '=', division)
+    .limit(1)
+    .executeTakeFirst()
+  return session !== undefined
 }
 
 /** A lesson as the review page shows it: its content, red marks and false positives, and its versions, newest first. */
@@ -148,7 +171,7 @@ async function lessonDetail(db: Kysely<Database>, lessonId: number) {
     source: row.source,
     version: row.version,
     approvedAt: row.approvedAt?.toISOString() ?? null,
-    locked: await hasBegun(db, lessonId),
+    locked: await dayBegun(db, row.date, row.division),
     content: contentOf(row),
     flags: row.flags,
     falsePositives: row.falsePositives,

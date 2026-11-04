@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import cookie from '@fastify/cookie'
 import fastifyStatic from '@fastify/static'
 import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
-import type { FastifyPluginAsync, FastifyReply } from 'fastify'
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 import type { Kysely } from 'kysely'
 import { Type } from 'typebox'
 import type { Llm } from '../llm/client.js'
@@ -49,6 +49,8 @@ const API_ROUTES: AdminApiRoutes[] = [switchRoutes, statsRoutes, lessonRoutes]
 export const SESSION_COOKIE = 'sfb_admin'
 const SESSION_HOURS = 12
 const LOGIN_PER_IP_PER_MINUTE = 5
+/** Requests from one address to the API behind the login: one review session makes many. */
+const API_PER_IP_PER_MINUTE = 600
 const LOCK_AFTER_FAILURES = 10
 const LOCK_MINUTES = 15
 
@@ -57,6 +59,15 @@ declare module 'fastify' {
     /** Set on the routes behind the session check. */
     adminSession: { tokenHash: string; expiresAt: Date } | null
   }
+  interface FastifyContextConfig {
+    /** Set on the routes behind the session check: they count against the admin API's own rate limit. */
+    adminApi?: boolean
+  }
+}
+
+/** Whether a request is to the API behind the admin login, which has a rate limit of its own, not the public one. */
+export function isAdminApiRequest(request: FastifyRequest): boolean {
+  return request.routeOptions.config.adminApi === true
 }
 
 const NOT_BUILT_PAGE = `<!doctype html>
@@ -174,6 +185,14 @@ function apiRoutes(deps: AdminDeps, adminPath: string): FastifyPluginAsync {
     })
 
     app.register(async (authed) => {
+      // Every route here counts against one limit of its own, per address, shared by the routes; the public limit
+      // leaves them to it (see `isAdminApiRequest`). It comes before the session check, so it counts the refused too.
+      authed.addHook('onRoute', (route) => {
+        route.config = { ...route.config, adminApi: true }
+      })
+      // The public limit's allow list would let these through: this one has none.
+      const limit = authed.rateLimit({ max: API_PER_IP_PER_MINUTE, timeWindow: '1 minute', allowList: [] })
+      authed.addHook('onRequest', limit)
       authed.addHook('onRequest', async (request) => {
         const token = request.cookies[SESSION_COOKIE]
         if (typeof token !== 'string' || token === '') throw new ApiError(401, 'admin_login_required')
