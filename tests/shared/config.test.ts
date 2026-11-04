@@ -14,6 +14,9 @@ afterAll(() => {
   rmSync(tmpDir, { recursive: true, force: true })
 })
 
+/** One call-on, of the review kind, after `afterSegment`. */
+const one = (afterSegment: number) => ({ kind: 'review', afterSegment })
+
 function writeTmpConfig(mutate: (c: Record<string, unknown>) => void): string {
   const c = JSON.parse(readFileSync('config/school.example.json', 'utf8')) as Record<string, unknown>
   mutate(c)
@@ -52,7 +55,10 @@ test('example config loads with spec defaults', () => {
     segmentMinutes: [5, 10, 15, 20, 25],
     dismissalMinute: 30,
     closingGraceSeconds: 60,
-    callOnAfterSegment: 3,
+    callOns: [
+      { kind: 'review', afterSegment: 2 },
+      { kind: 'extension', afterSegment: 4 },
+    ],
     maxQuestionsPerLesson: 3,
     weekendStudy: true,
   })
@@ -93,6 +99,7 @@ test('loadEnv requires DATABASE_URL and fills defaults', () => {
     mailFrom: '机器人网校 <no-reply@example.com>', moderationDataDir: 'data/moderation',
     configPath: 'config/school.json', schoolRulesDir: 'school-rules', registrationPort: 8080, trustProxy: false,
     classPort: 8081, classTimelineSpeed: 1,
+    promptsDir: 'data/prompts', operatorEmail: null, admin: null, llmFake: false,
   })
 })
 
@@ -107,6 +114,7 @@ test('loadEnv reads overrides', () => {
     mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' }, mailFrom: 'a <a@b.c>',
     moderationDataDir: '/m', configPath: '/c.json', schoolRulesDir: '/r', registrationPort: 9090, trustProxy: true,
     classPort: 9091, classTimelineSpeed: 60,
+    promptsDir: 'data/prompts', operatorEmail: null, admin: null, llmFake: false,
   })
   expect(loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25', TRUST_PROXY: '0' }).trustProxy).toBe(false)
 })
@@ -184,7 +192,7 @@ test('lesson.segmentMinutes holds 1 to 10 positive whole minutes', () => {
   const tooMany = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
   for (const segments of [[], tooMany, [0, 5], [-5, 5], [2.5, 5], ['5', 10]]) {
     const tmpPath = writeTmpConfig((c) => {
-      c.lesson = { ...(c.lesson as object), segmentMinutes: segments, dismissalMinute: 30, callOnAfterSegment: 1 }
+      c.lesson = { ...(c.lesson as object), segmentMinutes: segments, dismissalMinute: 30, callOns: [one(1)] }
     })
     expect(() => loadSchoolConfig(tmpPath), JSON.stringify(segments)).toThrow(/lesson\.segmentMinutes/)
   }
@@ -194,45 +202,64 @@ test('lesson.segmentMinutes holds 1 to 10 positive whole minutes', () => {
       ...(c.lesson as object),
       segmentMinutes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
       dismissalMinute: 11,
-      callOnAfterSegment: 3,
+      callOns: [one(3)],
     }
+    // Every segment is a minute long, so the answer has to start less than a minute before the next one.
+    ;(c.teacherAi as Record<string, number>).answerLeadSeconds = 30
   })
   expect(loadSchoolConfig(ten).lesson.segmentMinutes).toHaveLength(10)
 })
 
-test('lesson.callOnAfterSegment must leave a following segment to answer in', () => {
+test('every lesson.callOns afterSegment must leave a following segment to answer in', () => {
   // The example has 5 segments, so only 1 to 4 are valid.
   for (const after of [0, 5, 6, -1]) {
     const tmpPath = writeTmpConfig((c) => {
-      c.lesson = { ...(c.lesson as object), callOnAfterSegment: after }
+      c.lesson = { ...(c.lesson as object), callOns: [one(after)] }
     })
-    expect(() => loadSchoolConfig(tmpPath), String(after)).toThrow(/lesson\.callOnAfterSegment/)
+    expect(() => loadSchoolConfig(tmpPath), String(after)).toThrow(/lesson\.callOns/)
   }
   for (const after of [1, 4]) {
     const tmpPath = writeTmpConfig((c) => {
-      c.lesson = { ...(c.lesson as object), callOnAfterSegment: after }
+      c.lesson = { ...(c.lesson as object), callOns: [one(after)] }
     })
-    expect(loadSchoolConfig(tmpPath).lesson.callOnAfterSegment, String(after)).toBe(after)
+    expect(loadSchoolConfig(tmpPath).lesson.callOns, String(after)).toEqual([one(after)])
   }
+  // The second call-on is checked as well, with its own path.
+  const second = writeTmpConfig((c) => {
+    c.lesson = { ...(c.lesson as object), callOns: [one(1), { kind: 'extension', afterSegment: 5 }] }
+  })
+  expect(() => loadSchoolConfig(second)).toThrow(/lesson\.callOns\.1\.afterSegment/)
   // The bound follows the number of segments: with 3 segments, 3 is out and 2 is in.
   const three = (after: number) =>
     writeTmpConfig((c) => {
-      c.lesson = { ...(c.lesson as object), segmentMinutes: [10, 20, 25], callOnAfterSegment: after }
+      c.lesson = { ...(c.lesson as object), segmentMinutes: [10, 20, 25], callOns: [one(after)] }
+      ;(c.teacherAi as Record<string, number>).answerLeadSeconds = 60
     })
-  expect(() => loadSchoolConfig(three(3))).toThrow(/lesson\.callOnAfterSegment/)
-  expect(loadSchoolConfig(three(2)).lesson.callOnAfterSegment).toBe(2)
+  expect(() => loadSchoolConfig(three(3))).toThrow(/lesson\.callOns/)
+  expect(loadSchoolConfig(three(2)).lesson.callOns).toEqual([one(2)])
   // A single segment leaves no next segment at all.
   const single = writeTmpConfig((c) => {
-    c.lesson = { ...(c.lesson as object), segmentMinutes: [15], callOnAfterSegment: 1 }
+    c.lesson = { ...(c.lesson as object), segmentMinutes: [15], callOns: [one(1)] }
   })
-  expect(() => loadSchoolConfig(single)).toThrow(/lesson\.callOnAfterSegment/)
+  expect(() => loadSchoolConfig(single)).toThrow(/lesson\.callOns/)
+})
+
+test('two lesson.callOns must not come after the same segment', () => {
+  const tmpPath = writeTmpConfig((c) => {
+    c.lesson = { ...(c.lesson as object), callOns: [one(2), { kind: 'extension', afterSegment: 2 }] }
+  })
+  expect(() => loadSchoolConfig(tmpPath)).toThrow(/lesson\.callOns\.1\.afterSegment: two calls on/)
+  const none = writeTmpConfig((c) => {
+    c.lesson = { ...(c.lesson as object), callOns: [] }
+  })
+  expect(() => loadSchoolConfig(none)).toThrow(/lesson\.callOns/)
 })
 
 test('both lesson cross-field problems are reported together', () => {
   const tmpPath = writeTmpConfig((c) => {
-    c.lesson = { ...(c.lesson as object), segmentMinutes: [5, 5, 15], callOnAfterSegment: 3 }
+    c.lesson = { ...(c.lesson as object), segmentMinutes: [5, 5, 15], callOns: [one(3)] }
   })
-  expect(() => loadSchoolConfig(tmpPath)).toThrow(/lesson\.segmentMinutes[^]*lesson\.callOnAfterSegment/)
+  expect(() => loadSchoolConfig(tmpPath)).toThrow(/lesson\.segmentMinutes[^]*lesson\.callOns/)
 })
 
 test('lesson, chat and discipline numbers are checked with their field paths', () => {
@@ -262,8 +289,8 @@ test('lesson, chat and discipline numbers are checked with their field paths', (
     expect(() => loadSchoolConfig(tmpPath), path).toThrow(new RegExp(path.replace(/\./g, '\\.')))
   }
   // A missing field is reported against its section, naming the field.
-  const missing = writeTmpConfig((c) => delete (c.lesson as Record<string, unknown>).callOnAfterSegment)
-  expect(() => loadSchoolConfig(missing)).toThrow(/lesson: .*callOnAfterSegment/)
+  const missing = writeTmpConfig((c) => delete (c.lesson as Record<string, unknown>).callOns)
+  expect(() => loadSchoolConfig(missing)).toThrow(/lesson: .*callOns/)
   for (const section of ['lesson', 'classConnection', 'chat', 'discipline', 'messageRetentionDays']) {
     const tmpPath = writeTmpConfig((c) => delete c[section])
     expect(() => loadSchoolConfig(tmpPath), section).toThrow(new RegExp(section))
@@ -545,5 +572,109 @@ describe('calendar', () => {
     for (const path of ['calendar.openingDay', 'calendar.openingSpeech', 'calendar.breaks']) {
       expect(() => loadSchoolConfig(tmpPath), path).toThrow(path)
     }
+  })
+})
+
+test('the example config has the model, lesson generation, switch and revocation settings', () => {
+  const c = loadSchoolConfig('config/school.example.json')
+  expect(Object.keys(c.llm.purposes).sort()).toEqual(
+    ['answer', 'comment', 'lesson', 'secondLayerChat', 'secondLayerTeacher', 'weekly', 'wordList'],
+  )
+  expect(c.llm.providers.main).toEqual({
+    kind: 'openai-compatible',
+    baseUrl: 'https://llm.example.com/v1',
+    apiKeyEnv: 'LLM_API_KEY',
+    models: { 'example-model': { inputYuanPerMillion: 1, outputYuanPerMillion: 2 } },
+    contentRefusalMarkers: ['content refused'],
+  })
+  expect(c.llm).toMatchObject({ timeoutSeconds: 60, retries: 1, maxConcurrent: 16, monthlyBudgetYuan: 300 })
+  expect(c.lessonGeneration).toMatchObject({ mode: 'api', horizonDays: 7, manualDeadlineSchoolDays: 3, retryMinutes: 60 })
+  expect(c.lessonGeneration.direction).toHaveLength(3)
+  expect(c.teacherAi).toEqual({ questionSampleSize: 30, answerLeadSeconds: 60, commentTimeoutSeconds: 20 })
+  expect(c.secondLayer).toEqual({ implementation: 'llm', batchMillis: 1500, timeoutSeconds: 10 })
+  expect(c.switchDefaults).toEqual({ teacherLlm: true, secondLayerTeacher: true, secondLayerChat: false })
+  expect(c.switchRefreshSeconds).toBe(5)
+  expect(c.revocationWindowDays).toBe(30)
+})
+
+test('llm.purposes must name a provider and a model that exist', () => {
+  const noProvider = writeTmpConfig((c) => {
+    ;((c.llm as any).purposes.answer as any).provider = 'nobody'
+  })
+  expect(() => loadSchoolConfig(noProvider)).toThrow(/llm\.purposes\.answer\.provider: .*nobody/)
+  const noModel = writeTmpConfig((c) => {
+    ;((c.llm as any).purposes.wordList as any).model = 'no-such-model'
+  })
+  expect(() => loadSchoolConfig(noModel)).toThrow(/llm\.purposes\.wordList\.model: .*no-such-model/)
+  const missingPurpose = writeTmpConfig((c) => delete (c.llm as any).purposes.weekly)
+  expect(() => loadSchoolConfig(missingPurpose)).toThrow(/llm\.purposes/)
+})
+
+test('teacherAi.answerLeadSeconds must be shorter than the shortest segment', () => {
+  // The example's segments are 5 minutes apart, the last one 5 minutes before dismissal.
+  for (const lead of [300, 301]) {
+    const tmpPath = writeTmpConfig((c) => ((c.teacherAi as any).answerLeadSeconds = lead))
+    expect(() => loadSchoolConfig(tmpPath), String(lead)).toThrow(/teacherAi\.answerLeadSeconds/)
+  }
+  const justFits = writeTmpConfig((c) => ((c.teacherAi as any).answerLeadSeconds = 299))
+  expect(loadSchoolConfig(justFits).teacherAi.answerLeadSeconds).toBe(299)
+  // The shortest segment counts, wherever it is: here the last one, from minute 25 to dismissal at minute 26.
+  const shortLast = writeTmpConfig((c) => {
+    c.lesson = { ...(c.lesson as object), dismissalMinute: 26 }
+  })
+  expect(() => loadSchoolConfig(shortLast)).toThrow(/teacherAi\.answerLeadSeconds: .*60 seconds/)
+})
+
+describe('the admin and model variables of loadEnv', () => {
+  const base = { DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25' }
+  const adminAll = { ADMIN_PATH: '/desk', ADMIN_PASSWORD_HASH: 'hash', ADMIN_TOTP_SECRET: 'secret' }
+
+  test('read the prompts directory and the operator email; empty values count as unset', () => {
+    expect(loadEnv({ ...base, PROMPTS_DIR: '/p', OPERATOR_EMAIL: 'ops@example.com' })).toMatchObject({
+      promptsDir: '/p',
+      operatorEmail: 'ops@example.com',
+    })
+    expect(loadEnv({ ...base, PROMPTS_DIR: '', OPERATOR_EMAIL: '' })).toMatchObject({
+      promptsDir: 'data/prompts',
+      operatorEmail: null,
+    })
+  })
+
+  test('admin is on only when all three variables are set', () => {
+    const warnings: string[] = []
+    expect(loadEnv({ ...base, ...adminAll }, (m) => warnings.push(m)).admin).toEqual({
+      path: '/desk',
+      passwordHash: 'hash',
+      totpSecret: 'secret',
+    })
+    expect(warnings).toEqual([])
+  })
+
+  test('admin is off without a warning when none is set, and with one naming what is missing when some are', () => {
+    const warnings: string[] = []
+    expect(loadEnv(base, (m) => warnings.push(m)).admin).toBeNull()
+    expect(warnings).toEqual([])
+    for (const missing of Object.keys(adminAll)) {
+      const { [missing]: _, ...partial } = adminAll as Record<string, string>
+      const seen: string[] = []
+      expect(loadEnv({ ...base, ...partial }, (m) => seen.push(m)).admin, missing).toBeNull()
+      expect(seen, missing).toHaveLength(1)
+      expect(seen[0], missing).toContain(missing)
+    }
+  })
+
+  test('ADMIN_PATH must start with / and not with /v1', () => {
+    for (const path of ['desk', '/v1', '/v1/admin']) {
+      expect(() => loadEnv({ ...base, ...adminAll, ADMIN_PATH: path }), path).toThrow(/ADMIN_PATH/)
+    }
+    expect(loadEnv({ ...base, ...adminAll, ADMIN_PATH: '/v2' }).admin?.path).toBe('/v2')
+  })
+
+  test('LLM_FAKE=1 turns the fake model on, but never with NODE_ENV=production', () => {
+    expect(loadEnv(base).llmFake).toBe(false)
+    expect(loadEnv({ ...base, LLM_FAKE: '1' }).llmFake).toBe(true)
+    expect(loadEnv({ ...base, LLM_FAKE: '0' }).llmFake).toBe(false)
+    expect(() => loadEnv({ ...base, LLM_FAKE: '1', NODE_ENV: 'production' })).toThrow(/LLM_FAKE.*NODE_ENV=production/)
+    expect(loadEnv({ ...base, NODE_ENV: 'production' }).llmFake).toBe(false)
   })
 })

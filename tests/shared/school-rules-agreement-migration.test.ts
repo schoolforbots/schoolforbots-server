@@ -7,6 +7,7 @@ import * as m0003 from '../../src/shared/migrations/0003_student_queue_time.js'
 import * as m0004 from '../../src/shared/migrations/0004_class_service.js'
 import * as m0005 from '../../src/shared/migrations/0005_school_rules_agreement.js'
 import * as m0006 from '../../src/shared/migrations/0006_ai_id.js'
+import * as m0007 from '../../src/shared/migrations/0007_llm.js'
 import { createTestDb } from '../helpers/db.js'
 
 const provider: MigrationProvider = {
@@ -18,6 +19,7 @@ const provider: MigrationProvider = {
       '0004_class_service': m0004,
       '0005_school_rules_agreement': m0005,
       '0006_ai_id': m0006,
+      '0007_llm': m0007,
     }
   },
 }

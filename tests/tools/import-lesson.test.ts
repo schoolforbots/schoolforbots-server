@@ -78,6 +78,14 @@ describe('importLesson', () => {
         segments: segments(),
         approvedAt: null,
         createdAt: clock.now(),
+        // What the columns of a lesson that was imported start with.
+        callOnQuestions: null,
+        topic: null,
+        source: 'import',
+        flags: [],
+        falsePositives: [],
+        version: 1,
+        updatedAt: null,
       },
     ])
   })
@@ -121,7 +129,7 @@ describe('importLesson', () => {
   test('the number of segments follows the config', async () => {
     const three: SchoolConfig = {
       ...config,
-      lesson: { ...config.lesson, segmentMinutes: [10, 20, 25], callOnAfterSegment: 1 },
+      lesson: { ...config.lesson, segmentMinutes: [10, 20, 25], callOns: [{ kind: 'review', afterSegment: 1 }] },
     }
     await importLesson(db, three, moderator, lessonFile({ segments: segments(3) }), { approve: false, clock })
     await expect(

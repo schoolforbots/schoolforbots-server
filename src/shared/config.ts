@@ -15,6 +15,35 @@ const DateText = Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' })
 const Speech = Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })
 const SlotConfig = Type.Object({ label: Type.String({ minLength: 1 }), start: TimeOfDay, end: TimeOfDay })
 const DivisionConfig = Type.Object({ label: Type.String({ minLength: 1 }) })
+const CallOn = Type.Object({
+  kind: Type.Union([Type.Literal('review'), Type.Literal('extension')]),
+  afterSegment: PositiveInt,
+})
+const Price = Type.Object({
+  inputYuanPerMillion: Type.Number({ minimum: 0 }),
+  outputYuanPerMillion: Type.Number({ minimum: 0 }),
+})
+const Provider = Type.Object({
+  kind: Type.Literal('openai-compatible'),
+  baseUrl: Type.String({ minLength: 1 }),
+  // The name of the environment variable holding the key; the key itself never goes in the config.
+  apiKeyEnv: Type.String({ minLength: 1 }),
+  models: Type.Record(Type.String({ minLength: 1 }), Price),
+  // Phrases in a provider's error reply that mean it refused the content, so that is told from a failure.
+  contentRefusalMarkers: Type.Array(Type.String({ minLength: 1 })),
+})
+const Purpose = Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) })
+
+/** What the model is used for; each purpose picks its own provider and model. */
+export const LLM_PURPOSES = [
+  'lesson',
+  'answer',
+  'comment',
+  'weekly',
+  'secondLayerTeacher',
+  'secondLayerChat',
+  'wordList',
+] as const
 
 /** What a speech may name, written in braces: the teacher, the class, the division and the number of students. */
 const SPEECH_PLACEHOLDERS = ['teacher', 'className', 'division', 'classSize']
@@ -61,8 +90,9 @@ export const SchoolConfigSchema = Type.Object({
     dismissalMinute: PositiveInt,
     // After dismissal, conversations still going get this long to say their last line.
     closingGraceSeconds: NonNegativeInt,
-    // The teacher calls on a student after this segment (1-based); the next segment is the answer deadline.
-    callOnAfterSegment: PositiveInt,
+    // The teacher calls on a student after each of these segments (1-based); the next segment is the answer deadline.
+    // Two calls on never come after the same segment.
+    callOns: Type.Array(CallOn, { minItems: 1 }),
     maxQuestionsPerLesson: NonNegativeInt,
     // Whether Saturdays and Sundays have study halls that look back on the week; without them the weekend is a holiday.
     weekendStudy: Type.Boolean(),
@@ -92,6 +122,56 @@ export const SchoolConfigSchema = Type.Object({
     expulsion: Type.Object({ schoolRuleCount: PositiveInt, windowDays: PositiveInt, banDays: PositiveInt }),
   }),
   messageRetentionDays: PositiveInt,
+  llm: Type.Object({
+    providers: Type.Record(Type.String({ minLength: 1 }), Provider),
+    purposes: Type.Object({
+      lesson: Purpose,
+      answer: Purpose,
+      comment: Purpose,
+      weekly: Purpose,
+      secondLayerTeacher: Purpose,
+      secondLayerChat: Purpose,
+      wordList: Purpose,
+    }),
+    timeoutSeconds: PositiveInt,
+    retries: NonNegativeInt,
+    // The most model calls in flight at once; more wait in line.
+    maxConcurrent: PositiveInt,
+    monthlyBudgetYuan: Type.Number({ minimum: 0 }),
+  }),
+  lessonGeneration: Type.Object({
+    // `api` has the model write the lessons; `manual` leaves them to be pasted in.
+    mode: Type.Union([Type.Literal('api'), Type.Literal('manual')]),
+    // How many school days ahead lessons are made.
+    horizonDays: PositiveInt,
+    // A pasted lesson is due when this many school days are left before the class.
+    manualDeadlineSchoolDays: PositiveInt,
+    retryMinutes: PositiveInt,
+    // What a lesson should be like, one point per item; goes into the lesson prompt.
+    direction: Type.Array(Type.String({ minLength: 1 })),
+  }),
+  teacherAi: Type.Object({
+    // How many of the students' questions the teacher picks the answer from.
+    questionSampleSize: PositiveInt,
+    // The answer starts this long before the next segment.
+    answerLeadSeconds: PositiveInt,
+    commentTimeoutSeconds: PositiveInt,
+  }),
+  secondLayer: Type.Object({
+    implementation: Type.Literal('llm'),
+    // Lines wait this long to be checked together.
+    batchMillis: PositiveInt,
+    timeoutSeconds: PositiveInt,
+  }),
+  // The runtime switches' starting values, used until an operator changes one.
+  switchDefaults: Type.Object({
+    teacherLlm: Type.Boolean(),
+    secondLayerTeacher: Type.Boolean(),
+    secondLayerChat: Type.Boolean(),
+  }),
+  switchRefreshSeconds: PositiveInt,
+  // How far back a discipline record can be revoked.
+  revocationWindowDays: PositiveInt,
   // Without a calendar the school has always been open and never takes a break.
   calendar: Type.Optional(
     Type.Object({
@@ -210,7 +290,7 @@ export function loadSchoolConfig(path: string): SchoolConfig {
     )
   }
 
-  const { segmentMinutes, dismissalMinute, callOnAfterSegment } = config.lesson
+  const { segmentMinutes, dismissalMinute, callOns } = config.lesson
   if (segmentMinutes.some((minute, i) => i > 0 && minute <= (segmentMinutes[i - 1] ?? 0))) {
     crossFieldProblems.push(`lesson.segmentMinutes: must be strictly increasing (${segmentMinutes.join(', ')})`)
   }
@@ -219,10 +299,38 @@ export function loadSchoolConfig(path: string): SchoolConfig {
       `lesson.segmentMinutes: every segment must come before lesson.dismissalMinute (${segmentMinutes.join(', ')} vs ${dismissalMinute})`,
     )
   }
-  // The call-on needs a next segment: its start is the deadline for the student's answer.
-  if (callOnAfterSegment > segmentMinutes.length - 1) {
+  // A call-on needs a next segment: its start is the deadline for the student's answer.
+  const seenSegments = new Set<number>()
+  callOns.forEach((callOn, i) => {
+    const path = `lesson.callOns.${i}.afterSegment`
+    if (callOn.afterSegment > segmentMinutes.length - 1) {
+      crossFieldProblems.push(
+        `${path}: must be between 1 and ${segmentMinutes.length - 1} (the number of segments minus one), got ${callOn.afterSegment}`,
+      )
+    }
+    if (seenSegments.has(callOn.afterSegment)) {
+      crossFieldProblems.push(`${path}: two calls on must not come after the same segment (${callOn.afterSegment})`)
+    }
+    seenSegments.add(callOn.afterSegment)
+  })
+
+  const { providers, purposes } = config.llm
+  for (const purpose of LLM_PURPOSES) {
+    const { provider, model } = purposes[purpose]
+    const found = providers[provider]
+    if (found === undefined) {
+      crossFieldProblems.push(`llm.purposes.${purpose}.provider: no such provider in llm.providers (${provider})`)
+    } else if (found.models[model] === undefined) {
+      crossFieldProblems.push(`llm.purposes.${purpose}.model: provider ${provider} has no model ${model}`)
+    }
+  }
+
+  // The answer starts this long before the next segment, so it has to fit in the shortest one.
+  const segmentEnds = [...segmentMinutes.slice(1), dismissalMinute]
+  const shortestSegmentSeconds = Math.min(...segmentEnds.map((end, i) => (end - (segmentMinutes[i] ?? 0)) * 60))
+  if (config.teacherAi.answerLeadSeconds >= shortestSegmentSeconds) {
     crossFieldProblems.push(
-      `lesson.callOnAfterSegment: must be between 1 and ${segmentMinutes.length - 1} (the number of segments minus one), got ${callOnAfterSegment}`,
+      `teacherAi.answerLeadSeconds: must be shorter than the shortest segment (${shortestSegmentSeconds} seconds), got ${config.teacherAi.answerLeadSeconds}`,
     )
   }
 
@@ -267,6 +375,18 @@ export interface Env {
    * With `NODE_ENV=production` it must be 1.
    */
   classTimelineSpeed: number
+  /** Where the prompt files are, one per purpose. */
+  promptsDir: string
+  /** Where the notice goes when the monthly budget is used up; null means it is only shown on the admin page. */
+  operatorEmail: string | null
+  /**
+   * The admin pages: the path they are served under, the password hash and the TOTP secret. Null (no admin pages)
+   * unless all three variables are set. Each provider's key is read from the variable its `apiKeyEnv` names, when the
+   * provider is set up, not here.
+   */
+  admin: { path: string; passwordHash: string; totpSecret: string } | null
+  /** Answers every model call with a canned reply. Only for local development; with `NODE_ENV=production` it is refused. */
+  llmFake: boolean
 }
 
 /** What the class service reads from the environment: what it uses, and no mail settings, which it never does. */
@@ -358,8 +478,41 @@ export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {
   }
 }
 
-/** The environment of the registration service and the tools. */
-export function loadEnv(env: NodeJS.ProcessEnv): Env {
+function parseAdmin(get: Get, warn: (message: string) => void): Env['admin'] {
+  const path = get('ADMIN_PATH')
+  const passwordHash = get('ADMIN_PASSWORD_HASH')
+  const totpSecret = get('ADMIN_TOTP_SECRET')
+  if (path !== undefined && (!path.startsWith('/') || path.startsWith('/v1'))) {
+    throw new Error(`Invalid ADMIN_PATH: it must start with / and must not start with /v1`)
+  }
+  if (path === undefined || passwordHash === undefined || totpSecret === undefined) {
+    const missing = [
+      ['ADMIN_PATH', path],
+      ['ADMIN_PASSWORD_HASH', passwordHash],
+      ['ADMIN_TOTP_SECRET', totpSecret],
+    ].filter(([, value]) => value === undefined)
+    // Nothing set is the ordinary case of a service with no admin pages; only some set looks like a mistake.
+    if (missing.length < 3) {
+      warn(`The admin pages are off: ${missing.map(([name]) => name).join(', ')} not set (all three of ADMIN_PATH, ADMIN_PASSWORD_HASH and ADMIN_TOTP_SECRET are needed)`)
+    }
+    return null
+  }
+  return { path, passwordHash, totpSecret }
+}
+
+function parseLlmFake(get: Get): boolean {
+  const fake = get('LLM_FAKE') === '1'
+  if (fake && get('NODE_ENV') === 'production') {
+    throw new Error('LLM_FAKE=1 is for local development only: with NODE_ENV=production it must not be set')
+  }
+  return fake
+}
+
+/**
+ * The environment of the registration service and the tools. `warn` takes the notices that do not stop the start
+ * (a half-set admin configuration).
+ */
+export function loadEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void = console.warn): Env {
   const get = getter(env)
 
   const databaseUrl = requireDatabaseUrl(get)
@@ -387,6 +540,8 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
   const registrationPort = parsePort('REGISTRATION_PORT', get('REGISTRATION_PORT'), 8080)
   const classPort = classPortOf(get)
   const classTimelineSpeed = parseTimelineSpeed(get)
+  const admin = parseAdmin(get, warn)
+  const llmFake = parseLlmFake(get)
 
   return {
     databaseUrl,
@@ -400,5 +555,9 @@ export function loadEnv(env: NodeJS.ProcessEnv): Env {
     trustProxy: trustProxyOf(get),
     classPort,
     classTimelineSpeed,
+    promptsDir: get('PROMPTS_DIR') ?? 'data/prompts',
+    operatorEmail: get('OPERATOR_EMAIL') ?? null,
+    admin,
+    llmFake,
   }
 }

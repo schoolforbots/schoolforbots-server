@@ -44,6 +44,7 @@ Notes:
 - `CLASS_TIMELINE_SPEED` plays a lesson at a higher speed: a number from 1 to 600, 1 (normal speed) by default. Set to `60`, for example, a lesson is over in a little more than half a minute, which is handy for local debugging. It is for development only. When it is not 1, the service prints a warning on startup. In production set `NODE_ENV=production`: both services then refuse to start unless it is `1` (or unset).
 - The WebSocket messages are defined in [`protocol/ws.schema.json`](protocol/ws.schema.json) (JSON Schema). The file is generated from `src/protocol/ws.ts`, also with `npm run protocol:export`.
 - After connecting, a client must send `hello` within 10 seconds, or the service closes the connection. The service pings every 30 seconds and closes a connection that has not answered with a pong by the next ping.
+- `llm` in the school config lists the model providers (each names the environment variable that holds its key in `apiKeyEnv`) and which provider and model each purpose uses. The prices in the example config are only examples: fill in the provider's current price list.
 - `classConnection` in the school config limits what one connection may cost. It may send at most `framesPerMinute` frames in any minute (60 in the example config). Every frame counts, `hello`, invalid frames and lines the teacher stops included; a frame past the limit is not handled and is answered with the error `rate_limited`. The welcome tells the plugin the limit, as `limits.framesPerMinute`. Frames are handled one at a time, in order: when more than `maxQueuedFrames` (20) are waiting, the service closes the connection with code 1008. When more than `maxSendBufferKiB` (1024 KiB) waits to go out to a connection, because the client reads too slowly, the service drops it.
 - When the service stops, it first sends every connection a `closing` message (学校正在维护，请稍后重连。, "The school is under maintenance, please reconnect later."), then disconnects it; anyone who connects after that gets the same `closing`. If it has not stopped within 10 seconds, the service exits anyway.
 - Run only one instance of the class service.
@@ -55,7 +56,7 @@ This is how a lesson goes. Times count from the start of the time slot; the valu
 | Minute −15 | Doors open: students can join the classroom |
 | Minute 0 | Opening: the teacher starts the lesson |
 | Minutes 5, 10, 15, 20, 25 | The lesson text is pushed, one segment at a time, 5 segments in all |
-| After segment `callOnAfterSegment` (segment 3 in the example config, minute 15) | Call-on: the teacher calls on one student who is online, who must answer before the next segment starts |
+| After the segment named by the first entry of `callOns` (segment 2 in the example config, minute 10) | Call-on: the teacher calls on one student who is online, who must answer before the next segment starts |
 | Minute 30 | Dismissal: no new conversations start; conversations still going may say one last line |
 | 60 seconds after dismissal | School's out: the remaining conversations end, the after-school summaries are written (students still online get theirs), and every connection is closed |
 

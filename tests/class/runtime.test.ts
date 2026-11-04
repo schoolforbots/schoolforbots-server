@@ -20,15 +20,15 @@ import {
 import { createModerator } from '../../src/moderation/moderator.js'
 import type { ClassEventMessage, ClosingMessage } from '../../src/protocol/ws.js'
 import type { Division, SchoolConfig, Slot } from '../../src/shared/config.js'
-import { loadSchoolConfig } from '../../src/shared/config.js'
 import { lessonLockKey, lock } from '../../src/shared/db.js'
 import { displayName } from '../../src/shared/identity.js'
 import type { Database, StudentStatus } from '../../src/shared/schema.js'
 import { createTestClock } from '../helpers/clock.js'
+import { exampleConfigWithOneCallOn } from '../helpers/app.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
 
-const config = loadSchoolConfig(new URL('../../config/school.example.json', import.meta.url).pathname)
+const config = exampleConfigWithOneCallOn()
 // The runtime only says template lines and approved lesson text; an empty word list is enough here.
 const moderator = createModerator({ blockedWords: [], injectionPatterns: [] })
 

@@ -8,6 +8,7 @@ import * as m0003 from './migrations/0003_student_queue_time.js'
 import * as m0004 from './migrations/0004_class_service.js'
 import * as m0005 from './migrations/0005_school_rules_agreement.js'
 import * as m0006 from './migrations/0006_ai_id.js'
+import * as m0007 from './migrations/0007_llm.js'
 import type { Database } from './schema.js'
 
 export type { Database, StudentStatus } from './schema.js'
@@ -56,6 +57,7 @@ const provider: MigrationProvider = {
       '0004_class_service': m0004,
       '0005_school_rules_agreement': m0005,
       '0006_ai_id': m0006,
+      '0007_llm': m0007,
     }
   },
 }

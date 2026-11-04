@@ -137,6 +137,142 @@ export interface LessonsTable {
   /** When the lesson was approved for teaching; null while it is still a draft. */
   approvedAt: Date | null
   createdAt: Date
+  /** The questions for the call-ons; null for a lesson made before the model. */
+  callOnQuestions: Json<CallOnQuestions> | null
+  /** The topic the lesson was asked to be about; null when none was set. */
+  topic: string | null
+  source: Generated<LessonSource>
+  flags: Generated<Json<LessonFlag[]>>
+  /** The rules a reviewer marked as flagged wrongly. */
+  falsePositives: Generated<Json<string[]>>
+  version: Generated<number>
+  updatedAt: Date | null
+}
+
+export type LessonChange =
+  | 'generate'
+  | 'edit'
+  | 'rewrite_segment'
+  | 'rewrite_lesson'
+  | 'rewrite_call_on'
+  | 'restore'
+  | 'topic'
+
+/** What a lesson version holds. */
+export interface LessonContent {
+  title: string
+  subject: string
+  segments: LessonSegment[]
+  callOnQuestions: CallOnQuestions | null
+}
+
+/** One saved version of a lesson. It has no foreign key to lessons: it outlives a deleted draft. */
+export interface LessonVersionsTable {
+  id: Generated<number>
+  lessonId: number
+  version: number
+  content: Json<LessonContent>
+  change: LessonChange
+  /** The segment a `rewrite_segment` changed (0-based); null for the other changes. */
+  segmentIndex: number | null
+  reason: string | null
+  createdAt: Date
+}
+
+export interface LessonTopicsTable {
+  date: DateText
+  division: Division
+  topic: string
+  createdAt: Date
+}
+
+/** Where making a day's lesson stands after it failed. */
+export interface LessonGenerationTable {
+  date: DateText
+  division: Division
+  attempts: number
+  firstFailedAt: Date
+  lastFailedAt: Date
+  lastError: string
+}
+
+export type LlmOutcome = 'ok' | 'refused' | 'failed' | 'manual'
+
+export interface LlmCallsTable {
+  id: Generated<number>
+  purpose: string
+  provider: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  /** numeric(12,6): pg reads it as text. */
+  costYuan: ColumnType<string, string | number, string | number>
+  outcome: LlmOutcome
+  ms: number
+  createdAt: Date
+}
+
+export interface BudgetNoticesTable {
+  /** `YYYY-MM`. */
+  month: string
+  notifiedAt: Date
+}
+
+export interface SwitchesTable {
+  name: string
+  on: boolean
+  updatedAt: Date
+}
+
+export interface SwitchChangesTable {
+  id: Generated<number>
+  name: string
+  on: boolean
+  createdAt: Date
+}
+
+export interface ModerationExclusionsTable {
+  id: Generated<number>
+  kind: 'word' | 'pattern'
+  value: string
+  createdAt: Date
+}
+
+export interface WeeklyReviewsTable {
+  weekStart: DateText
+  stats: Json<Record<string, unknown>>
+  suggestions: Json<unknown[]>
+  createdAt: Date
+}
+
+export interface AdminSessionsTable {
+  tokenHash: string
+  expiresAt: Date
+  createdAt: Date
+}
+
+/** A line the teacher would have said that failed the word list or the second layer. It never holds the text. */
+export interface TeacherLineBlocksTable {
+  id: Generated<number>
+  sessionId: number
+  purpose: 'answer' | 'comment'
+  layer: 'word_list' | 'second_layer'
+  createdAt: Date
+}
+
+export type LessonSource = 'api' | 'manual' | 'import'
+
+/** The call-on questions of a lesson: one to review what was taught, one to extend it. */
+export interface CallOnQuestions {
+  review: string
+  extension: string
+}
+
+/** A place in a lesson that fails the checks (a red mark): `index` is null for a part that has one place. */
+export interface LessonFlag {
+  part: 'segment' | 'review' | 'extension'
+  index: number | null
+  rule: string
 }
 
 export type SessionKind = 'lesson' | 'study'
@@ -179,7 +315,12 @@ export interface AttendanceTable {
   sessionId: number
   studentId: number
   firstSeenAt: Date
+  /** How many times the student connected to this class. */
+  connections: Generated<number>
 }
+
+/** What a message was blocked for: a moderator category, or the second layer's review. */
+export type MessageModeration = ModerationCategory | 'second_layer'
 
 export type MessageKind = 'chat' | 'question' | 'answer' | 'closing'
 
@@ -192,9 +333,9 @@ export interface MessagesTable {
   senderId: number
   recipientId: number | null
   text: string
-  /** The category the moderator blocked it for; null when it passed. */
-  moderation: ModerationCategory | null
-  /** The word-list entry or phrase that matched; null for a privacy hit, so the number or address that matched is not kept apart from the text. */
+  /** The category it was blocked for; null when it passed. */
+  moderation: MessageModeration | null
+  /** The rule that hit: a word-list entry or the text of a phrase rule; null for a privacy hit, so the number or address that matched is not kept apart from the text. */
   matchedTerm: string | null
   delivered: boolean
   ip: string | null
@@ -218,6 +359,7 @@ export interface DisciplineRecordsTable {
   sessionId: number | null
   kind: DisciplineKind
   detail: Json<Record<string, unknown>>
+  /** The rule that hit: a word-list entry or the text of a phrase rule. */
   matchedTerm: string | null
   createdAt: Date
   revokedAt: Date | null
@@ -244,4 +386,15 @@ export interface Database {
   messages: MessagesTable
   disciplineRecords: DisciplineRecordsTable
   summaries: SummariesTable
+  lessonVersions: LessonVersionsTable
+  lessonTopics: LessonTopicsTable
+  lessonGeneration: LessonGenerationTable
+  llmCalls: LlmCallsTable
+  budgetNotices: BudgetNoticesTable
+  switches: SwitchesTable
+  switchChanges: SwitchChangesTable
+  moderationExclusions: ModerationExclusionsTable
+  weeklyReviews: WeeklyReviewsTable
+  adminSessions: AdminSessionsTable
+  teacherLineBlocks: TeacherLineBlocksTable
 }

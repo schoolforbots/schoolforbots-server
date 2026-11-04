@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import { lessonSteps } from '../../src/class/timeline.js'
-import { loadSchoolConfig, type SchoolConfig } from '../../src/shared/config.js'
+import type { SchoolConfig } from '../../src/shared/config.js'
+import { exampleConfigWithOneCallOn } from '../helpers/app.js'
 
-const { lesson } = loadSchoolConfig(new URL('../../config/school.example.json', import.meta.url).pathname)
+const { lesson } = exampleConfigWithOneCallOn()
 
 // A lesson starting at 20:00 Beijing time (UTC+8).
 const STARTS_AT = new Date('2026-11-02T20:00:00+08:00')
@@ -70,7 +71,7 @@ describe('lessonSteps for a lesson', () => {
       segmentMinutes: [4, 8, 12],
       dismissalMinute: 20,
       closingGraceSeconds: 30,
-      callOnAfterSegment: 1,
+      callOns: [{ kind: 'review', afterSegment: 1 }],
     })
     expect(show(lessonSteps(STARTS_AT, 'lesson', custom, 1))).toEqual([
       'doors 19:50:00.000',
@@ -96,14 +97,14 @@ describe('lessonSteps for a lesson', () => {
   })
 
   test('rounds a compressed offset to a whole millisecond', () => {
-    const custom = withLesson({ segmentMinutes: [1, 2], dismissalMinute: 3, callOnAfterSegment: 1 })
+    const custom = withLesson({ segmentMinutes: [1, 2], dismissalMinute: 3, callOns: [{ kind: 'review', afterSegment: 1 }] })
     const steps = lessonSteps(STARTS_AT, 'lesson', custom, 7)
     // 60 000 ms / 7 = 8 571.43 ms
     expect(steps.find((s) => s.step === 'segment-1')?.at.getTime()).toBe(STARTS_AT.getTime() + 8571)
   })
 
   test('has no call-on pair when no segment follows the call-on segment', () => {
-    const custom = withLesson({ callOnAfterSegment: 5 })
+    const custom = withLesson({ callOns: [{ kind: 'review', afterSegment: 5 }] })
     const names = lessonSteps(STARTS_AT, 'lesson', custom, 1).map((s) => s.step)
     expect(names).not.toContain('call-on')
     expect(names).not.toContain('call-on-close')

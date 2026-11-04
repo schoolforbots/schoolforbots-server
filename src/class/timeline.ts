@@ -54,7 +54,8 @@ export function lessonSteps(
   })
 
   // The call-on needs a next segment (the config guarantees one): that segment's start is the deadline to answer.
-  const callOnAfter = lesson.callOnAfterSegment
+  // One call-on for now, after the first one the config lists.
+  const callOnAfter = lesson.callOns[0]?.afterSegment ?? 0
   if (kind === 'lesson' && callOnAfter >= 1 && callOnAfter < segmentCount) {
     const after = lesson.segmentMinutes[callOnAfter - 1]
     const next = lesson.segmentMinutes[callOnAfter]
