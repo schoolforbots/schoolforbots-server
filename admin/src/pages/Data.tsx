@@ -127,7 +127,10 @@ function Reminders({ stats, onGoReview }: { stats: DailyStats; onGoReview: () =>
       {generationFailed.map((failure) => (
         <p key={`${failure.date}-${failure.division}`} className="reminder">
           {`${dayName(failure.date)}${DIVISION_NAMES[failure.division]}的课没生成出来，试了 ${failure.attempts} 次，`}
-          {`最后一次的原因：${sentence(failure.lastError)}系统会接着重试；等不及的话，到审课页手动粘贴。`}
+          {`最后一次的原因：${sentence(failure.lastError)}`}
+          {failure.date === stats.today
+            ? '今天的课系统不会再生成了：要今天上这节课，到审课页手动粘贴，赶在开门前审过。'
+            : '系统会接着重试；等不及的话，到审课页手动粘贴。'}
         </p>
       ))}
       {month.overBudget && (
@@ -186,7 +189,16 @@ function Charts({ stats }: { stats: DailyStats }) {
       <LineChart
         {...shared}
         title="每天拦下了多少条消息，各是因为什么？"
-        series={lines(series, BLOCK_NAMES, (day, category) => day.blockedByCategory[category])}
+        series={[
+          ...lines(series, BLOCK_NAMES, (day, category) => day.blockedByCategory[category]),
+          // The second layer gives no category: its own line, so that the lines add up to the day's number.
+          {
+            key: 'secondLayer',
+            name: '第二层',
+            color: LINE_COLORS[Object.keys(BLOCK_NAMES).length] ?? '#5c5c5c',
+            values: series.map((day) => day.blockedBySecondLayer),
+          },
+        ]}
         format={count}
         formatTick={compactCount}
         counts
@@ -199,7 +211,7 @@ function Charts({ stats }: { stats: DailyStats }) {
         format={preciseYuan}
         formatTick={tickYuan}
         counts={false}
-        empty={`最近 ${days} 天没有调用大模型，没有花钱。`}
+        empty={`最近 ${days} 天大模型没有花钱。`}
       />
     </div>
   )
@@ -213,6 +225,7 @@ function blank(series: SeriesDay[]): boolean {
       [
         ...Object.values(day.dauBySlot),
         ...Object.values(day.blockedByCategory),
+        day.blockedBySecondLayer,
         ...Object.values(day.costByPurpose),
       ].every((value) => value === 0),
   )

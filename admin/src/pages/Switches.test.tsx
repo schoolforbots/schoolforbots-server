@@ -67,7 +67,7 @@ describe('the switches page', () => {
 
     const chat = row('第二层·审查同学')
     expect(chat.getByText('现在开着')).toBeInTheDocument()
-    expect(chat.getByText(/^开着：同学之间的消息.*晚一两秒/)).toBeInTheDocument()
+    expect(chat.getByText(/^开着：同学之间的消息.*晚几秒/)).toBeInTheDocument()
     // Off, chat is still delivered: only the second check stops.
     expect(chat.getByText('关着：同学之间的消息只用词库审，不再送去第三方 AI 服务。')).toBeInTheDocument()
     expect(chat.getByText('最近一次切换：2026 年 11 月 3 日 20:05')).toBeInTheDocument()

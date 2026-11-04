@@ -136,6 +136,7 @@ const emptyDay = (date: string) => ({
   dauBySlot: zeroSlots,
   chat: 0,
   blockedByCategory: zeroCategories,
+  blockedBySecondLayer: 0,
   costByPurpose: zeroCosts,
 })
 
@@ -246,7 +247,9 @@ test('yesterday, the same day last week and 7 days of curves, counted from a see
       date: YESTERDAY,
       dauBySlot: { morning: 3, afternoon: 1, evening: 2 },
       chat: 9,
+      // With the second layer's one, the five of the day's tile.
       blockedByCategory: { sensitive: 2, injection: 1, privacy: 1 },
+      blockedBySecondLayer: 1,
       costByPurpose: { ...zeroCosts, lesson: 0.1235, answer: 0.5, secondLayerChat: 0.0004 },
     },
   ])
@@ -413,7 +416,11 @@ test('the switch changes are the ones made over the days of the curves', async (
   expect((await daily(30)).json().switchChanges).toHaveLength(3)
 })
 
-test('the answer names the school’s time zone, the clock its times and days are read on', async () => {
+test('the answer names the school’s time zone, the clock its times and days are read on, and its today', async () => {
   await start({ ...exampleConfig(), timezone: 'Europe/London' })
-  expect((await daily(7)).json().timeZone).toBe('Europe/London')
+  expect((await daily(7)).json()).toMatchObject({ timeZone: 'Europe/London', today: TODAY })
+  await t.destroy()
+  // Noon in Beijing is still the evening before in Los Angeles.
+  await start({ ...exampleConfig(), timezone: 'America/Los_Angeles' })
+  expect((await daily(7)).json()).toMatchObject({ timeZone: 'America/Los_Angeles', today: YESTERDAY })
 })

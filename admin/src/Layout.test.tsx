@@ -31,6 +31,19 @@ describe('the layout', () => {
     expect(screen.getByRole('tab', { name: '学校数据' })).toHaveAttribute('aria-selected', 'true')
   })
 
+  it('says it is logging out while it does', async () => {
+    fakeServer({
+      'GET api/stats/daily?days=7': ok(dailyStats(7)),
+      'GET api/lessons/queue': ok(lessonQueue()),
+      'POST api/logout': { pending: true },
+    })
+    const user = userEvent.setup()
+    show(<Layout onLoggedOut={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: '退出登录' }))
+    expect(screen.getByRole('button', { name: '正在退出' })).toBeDisabled()
+  })
+
   it('counts the lessons still to review on the review tab', async () => {
     serve(
       lessonQueue([

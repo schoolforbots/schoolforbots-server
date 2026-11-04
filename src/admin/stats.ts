@@ -47,6 +47,8 @@ export interface SeriesDay {
   dauBySlot: Record<Slot, number>
   chat: number
   blockedByCategory: Record<ModerationCategory, number>
+  /** The lines the second layer stopped, which have no category: with the three above they make up `blocked`. */
+  blockedBySecondLayer: number
   /** Rounded to 4 decimal places, so the small purposes do not vanish from the curve. */
   costByPurpose: Record<LlmPurpose, number>
 }
@@ -71,6 +73,8 @@ export interface DailyStats {
   switchChanges: { name: SwitchName; on: boolean; at: string }[]
   /** The school's time zone (IANA): the clock the deadlines and the switch changes are read on. */
   timeZone: string
+  /** The school's calendar day today (`YYYY-MM-DD`): its lessons are not made any more, only pasted in. */
+  today: string
 }
 
 /** What one day holds before rounding. */
@@ -80,6 +84,7 @@ interface Tally {
   chat: number
   blocked: number
   blockedByCategory: Record<ModerationCategory, number>
+  blockedBySecondLayer: number
   violations: number
   suspensions: number
   expulsions: number
@@ -93,6 +98,7 @@ const emptyTally = (): Tally => ({
   chat: 0,
   blocked: 0,
   blockedByCategory: { sensitive: 0, injection: 0, privacy: 0 },
+  blockedBySecondLayer: 0,
   violations: 0,
   suspensions: 0,
   expulsions: 0,
@@ -153,6 +159,7 @@ async function tallies(db: Kysely<Database>, timeZone: string, from: string, to:
       sql<string>`count(*) filter (where not delivered and moderation = 'sensitive')`.as('sensitive'),
       sql<string>`count(*) filter (where not delivered and moderation = 'injection')`.as('injection'),
       sql<string>`count(*) filter (where not delivered and moderation = 'privacy')`.as('privacy'),
+      sql<string>`count(*) filter (where not delivered and moderation = 'second_layer')`.as('secondLayer'),
     ])
     .where('createdAt', '>=', fromAt)
     .where('createdAt', '<', toAt)
@@ -164,6 +171,7 @@ async function tallies(db: Kysely<Database>, timeZone: string, from: string, to:
     day.chat = Number(r.chat)
     day.blocked = Number(r.blocked)
     for (const category of CATEGORIES) day.blockedByCategory[category] = Number(r[category])
+    day.blockedBySecondLayer = Number(r.secondLayer)
   }
 
   // Revoked records are left out of all three counts (see the definitions at the top).
@@ -212,7 +220,8 @@ async function tallies(db: Kysely<Database>, timeZone: string, from: string, to:
 }
 
 function dayNumbers(date: string, tally: Tally): DayNumbers {
-  const { costByPurpose, ...counts } = tally
+  // The second layer's own count is for the curves; the day's tile has it in `blocked`.
+  const { costByPurpose, blockedBySecondLayer, ...counts } = tally
   const cost = Object.values(costByPurpose).reduce((sum, c) => sum + c, 0)
   return { date, ...counts, costYuan: round(cost, 2) }
 }
@@ -221,8 +230,8 @@ function seriesDay(date: string, tally: Tally): SeriesDay {
   const costByPurpose = Object.fromEntries(
     LLM_PURPOSES.map((purpose) => [purpose, round(tally.costByPurpose[purpose] ?? 0, 4)]),
   ) as Record<LlmPurpose, number>
-  const { dauBySlot, chat, blockedByCategory } = tally
-  return { date, dauBySlot, chat, blockedByCategory, costByPurpose }
+  const { dauBySlot, chat, blockedByCategory, blockedBySecondLayer } = tally
+  return { date, dauBySlot, chat, blockedByCategory, blockedBySecondLayer, costByPurpose }
 }
 
 /**
@@ -290,6 +299,7 @@ export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'
     series,
     switchChanges: changes.map((c) => ({ name: c.name, on: c.on, at: c.at.toISOString() })),
     timeZone: tz,
+    today,
   }
 }
 

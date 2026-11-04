@@ -38,6 +38,8 @@ export interface SeriesDay {
   dauBySlot: Record<Slot, number>
   chat: number
   blockedByCategory: Record<BlockCategory, number>
+  /** The lines the second layer stopped: with the three categories they make up a day's `blocked`. */
+  blockedBySecondLayer: number
   /** In yuan, to 4 decimal places. */
   costByPurpose: Record<LlmPurpose, number>
 }
@@ -57,6 +59,8 @@ export interface DailyStats {
   switchChanges: { name: SwitchName; on: boolean; at: string }[]
   /** The school's time zone: the clock the deadlines and the switch changes are read on. */
   timeZone: string
+  /** The school's calendar day today (`YYYY-MM-DD`): its lessons are not made any more, only pasted in. */
+  today: string
 }
 
 export type StatsDays = 7 | 30 | 90
@@ -90,6 +94,15 @@ export function lessonsToReview(queue: LessonQueue): number {
 
 /** Names one slot of the queue: a day and a division. */
 export const slotKey = (date: string, division: Division) => `${date}/${division}`
+
+/**
+ * A lesson not made yet that can be pasted in by hand: in manual mode, after the model failed to make it, or today's,
+ * which the model no longer makes (it makes the days after today).
+ */
+export const pastable = (queue: LessonQueue, date: string, slot: QueueSlot) =>
+  slot.status === 'missing' &&
+  !slot.locked &&
+  (queue.mode === 'manual' || slot.generationFailed !== null || date === queue.today)
 
 /** A lesson there to read and approve: made, not approved, on a day still open. */
 export const awaitsReview = (slot: QueueSlot) =>
@@ -393,7 +406,8 @@ export interface WeeklyStats {
   }
   students: { newcomers: number; cameBackForSecond: number; dropped: number; suspended: number; expelled: number }
   /** In yuan, to 4 decimal places. */
-  cost: { byPurpose: Record<LlmPurpose, number>; perAttendee: number }
+  /** `attendees`: the students who came to class in the week; `perAttendee` is 0 when none did. */
+  cost: { byPurpose: Record<LlmPurpose, number>; perAttendee: number; attendees: number }
 }
 
 export interface SuggestedRule {

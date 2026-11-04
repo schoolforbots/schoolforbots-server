@@ -38,7 +38,8 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       include: ['src/**/*.test.tsx'],
       setupFiles: ['src/test-setup.ts'],
-      // The pages show times on the browser's clock; the tests expect the school's (UTC+8), wherever they run.
+      // A page shown on its own, as most tests show one, reads times in this computer's zone (see src/zone.ts); the
+      // tests expect the school's (UTC+8), wherever they run.
       env: { TZ: 'Asia/Shanghai' },
     },
   }
