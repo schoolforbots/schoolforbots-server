@@ -4,6 +4,7 @@ import { systemClock } from '../shared/clock.js'
 import { loadClassEnv, loadSchoolConfig } from '../shared/config.js'
 import { assertMigrationsUpToDate, createDb } from '../shared/db.js'
 import { createShutdown } from '../shared/shutdown.js'
+import { startSwitches } from '../shared/switches.js'
 import { createClassService, startClassService } from './service.js'
 
 async function main(): Promise<void> {
@@ -33,11 +34,16 @@ async function main(): Promise<void> {
   })
   const { app } = service
 
+  // Read from the database, so a change made in the admin reaches this service within a few seconds. Nothing reads it
+  // yet; the teacher and the second layer will be given it.
+  const switches = await startSwitches({ db, config, clock: systemClock, log: app.log })
+
   // Ticks once before it listens (a failure ends the start here), then on every interval.
   const ticker = await startClassService(service, { port: env.classPort, speed })
 
   const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
+    switches.stop()
     await ticker.stop() // waits for a tick still running
     service.disconnectAll() // and from now on nobody comes in
     await app.close()
