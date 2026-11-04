@@ -123,6 +123,13 @@ const FALLBACK_TEACHER = '老师'
 /** With less than this left before the deadline the model is not called: its answer could not come back in time. */
 const MIN_CALL_MS = 1000
 
+/**
+ * With the second layer checking the teacher's lines, the time kept back from the model's call, on top of the second
+ * layer's wait for its batch, for the second layer's own call to come back in the usual case: a line that passes it
+ * after the deadline is dropped, and the model's work with it.
+ */
+export const CHECK_MARGIN_MS = 2000
+
 const ANSWER_FORMAT =
   '只回复一个 JSON 对象，格式为 {"pick": <编号或 null>, "answer": "<回答>"}。' +
   'pick 写你要回答的那个问题的编号，answer 写你当众说的回答；' +
@@ -200,6 +207,12 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
   const answerTokens = 200 + 2 * config.chat.maxMessageChars
   // Room for the longest comment allowed, in plain text.
   const commentTokens = 100 + 2 * config.chat.maxMessageChars
+
+  /** The time a line of the model's needs after its reply, before the deadline, for the checks it goes through. */
+  const checkReserve = (): number =>
+    config.secondLayer.implementation === 'llm' && switches.isOn('secondLayerTeacher')
+      ? config.secondLayer.batchMillis + CHECK_MARGIN_MS
+      : 0
 
   const running = new Set<Promise<void>>()
   /**
@@ -408,7 +421,7 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
   /**
    * One segment's answering: one call with the questions, then the checks. A reply that does not pass is generated
    * again once; the vendor refusing the questions has a random half of them tried once. No call is made without the
-   * time for it before the deadline.
+   * time for it before the deadline, the checks after it included (`checkReserve`).
    */
   async function answerSegment(
     session: ActiveSession,
@@ -426,7 +439,8 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
 
     let halved = false
     for (;;) {
-      const timeoutMs = Math.min(window.deadline.getTime() - clock.now().getTime(), config.llm.timeoutSeconds * 1000)
+      const left = window.deadline.getTime() - clock.now().getTime() - checkReserve()
+      const timeoutMs = Math.min(left, config.llm.timeoutSeconds * 1000)
       if (timeoutMs < MIN_CALL_MS) return end('late')
       let reply: string
       calls++
@@ -466,7 +480,8 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
   /**
    * The model's comment on `answer`, the answer to `call`, when it passes `checkLine` (as the class hears it), else why
    * there is none. A comment that does not pass is not generated again: the template thanks is there instead. No call
-   * is made without the time for it before the deadline. The calls made are counted in `tally`, should it throw.
+   * is made without the time for it before the deadline, the checks after it included (`checkReserve`). The calls made
+   * are counted in `tally`, should it throw.
    */
   async function modelComment(
     sessionId: number,
@@ -478,7 +493,7 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
   ): Promise<{ comment: string } | { reason: TemplateReason }> {
     if (!switches.isOn('teacherLlm')) return { reason: 'switched_off' }
     if (ctx.question === null || ctx.segmentText === null) return { reason: 'no_lesson' }
-    const left = deadline.getTime() - clock.now().getTime()
+    const left = deadline.getTime() - clock.now().getTime() - checkReserve()
     const timeoutMs = Math.min(left, config.teacherAi.commentTimeoutSeconds * 1000)
     if (timeoutMs < MIN_CALL_MS) return { reason: 'no_time' }
     const max = config.chat.maxMessageChars
