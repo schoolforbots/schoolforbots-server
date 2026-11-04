@@ -140,7 +140,7 @@ describe('the weekly review page', () => {
     expect(within(moderation.getByRole('list', { name: '审课时点过“这是误伤”的词' })).getByText('叶绿素'))
       .toBeInTheDocument()
     expect(
-      within(moderation.getByRole('list', { name: '第二层拦下的同学消息' })).getByText('你家住哪里呀'),
+      within(moderation.getByRole('region', { name: '第二层拦下的同学消息' })).getByText('你家住哪里呀'),
     ).toBeInTheDocument()
     // On the school's clock (UTC+8).
     expect(moderation.getByText('10/27 周二 20:15')).toBeInTheDocument()
