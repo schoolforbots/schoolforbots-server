@@ -275,11 +275,11 @@ export interface CallOnQuestions {
 }
 
 /**
- * A place in a lesson that fails the checks (a red mark): `index` is the segment (0-based; its text and gist are one
- * place), and null for a part that has one place (the title, a call-on question).
+ * A place in a lesson that fails the checks (a red mark): `segment` is a segment's text and `gist` its gist, with
+ * `index` the segment (0-based); `index` is null for a part that has one place (the title, a call-on question).
  */
 export interface LessonFlag {
-  part: 'title' | 'segment' | 'review' | 'extension'
+  part: 'title' | 'segment' | 'gist' | 'review' | 'extension'
   index: number | null
   rule: string
 }

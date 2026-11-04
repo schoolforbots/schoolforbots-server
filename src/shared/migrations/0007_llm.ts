@@ -5,9 +5,9 @@ import { sql, type Kysely } from 'kysely'
 // sessions. Like 0004, no column defaults to `now()`: the service passes every timestamp in from its clock.
 export async function up(db: Kysely<any>): Promise<void> {
   // call_on_questions: { "review": string, "extension": string }, null for lessons made before the model.
-  // flags: [{ "part": "title" | "segment" | "review" | "extension", "index": number | null, "rule": string }], the
-  // places a lesson fails the checks and must be looked at. false_positives: the rules a reviewer said were wrong to
-  // flag.
+  // flags: [{ "part": "title" | "segment" | "gist" | "review" | "extension", "index": number | null, "rule": string }],
+  // the places a lesson fails the checks and must be looked at ("segment" is a segment's text). false_positives: the
+  // rules a reviewer said were wrong to flag.
   await db.schema
     .alterTable('lessons')
     .addColumn('call_on_questions', 'jsonb')

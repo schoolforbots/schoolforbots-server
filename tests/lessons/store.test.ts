@@ -171,7 +171,7 @@ describe('saveDraft', () => {
 })
 
 describe('red-pen flags', () => {
-  test('mark the part each rule hits: the title, the segment of a text or a gist, each call-on question', async () => {
+  test('mark the part each rule hits: the title, a segment text, a gist, each call-on question', async () => {
     const c = content({
       title: `今天讲${WORD}`,
       segments: [
@@ -187,7 +187,7 @@ describe('red-pen flags', () => {
     const expected = [
       { part: 'title', index: null, rule: WORD },
       { part: 'segment', index: 1, rule: OTHER_WORD },
-      { part: 'segment', index: 3, rule: PATTERN },
+      { part: 'gist', index: 3, rule: PATTERN },
       { part: 'review', index: null, rule: WORD },
       { part: 'extension', index: null, rule: PRIVACY_FLAG_RULE },
     ]
@@ -196,11 +196,12 @@ describe('red-pen flags', () => {
     expect((await lessonRow(saved.lessonId)).flags).toEqual(expected)
   })
 
-  test('every rule of a part is flagged once, from its text and its gist together', async () => {
+  test('every rule of a part is flagged once; the text and the gist of a segment are parts of their own', async () => {
     const saved = await draft(withSegment(1, { text: `${WORD}，${OTHER_WORD}，又是${WORD}`, gist: `${WORD}要点` }))
     expect(saved.flags).toEqual([
       { part: 'segment', index: 0, rule: WORD },
       { part: 'segment', index: 0, rule: OTHER_WORD },
+      { part: 'gist', index: 0, rule: WORD },
     ])
   })
 
@@ -223,6 +224,27 @@ describe('red-pen flags', () => {
     expect(edited.flags).toEqual([])
     expect((await lessonRow(saved.lessonId)).flags).toEqual([])
   })
+
+  test('a gist flag stays when the text is edited, and goes when the gist is', async () => {
+    const saved = await draft(withSegment(2, { text: `讲到${WORD}`, gist: `${OTHER_WORD}要点` }))
+    expect(saved.flags).toEqual([
+      { part: 'segment', index: 1, rule: WORD },
+      { part: 'gist', index: 1, rule: OTHER_WORD },
+    ])
+    const textEdited = await editPart(deps, saved.lessonId, 1, { part: 'segment', index: 1 }, '讲到光')
+    expect(textEdited.flags).toEqual([{ part: 'gist', index: 1, rule: OTHER_WORD }])
+    const gistEdited = await editPart(deps, saved.lessonId, 2, { part: 'gist', index: 1 }, '光的要点')
+    expect(gistEdited.flags).toEqual([])
+    await approve(deps, saved.lessonId, 3)
+  })
+
+  test('editing the title clears a title flag', async () => {
+    const saved = await draft(content({ title: `讲${WORD}` }))
+    expect(saved.flags).toEqual([{ part: 'title', index: null, rule: WORD }])
+    const edited = await editPart(deps, saved.lessonId, 1, { part: 'title' }, '光的折射')
+    expect(edited.flags).toEqual([])
+    await approve(deps, saved.lessonId, 2)
+  })
 })
 
 describe('a save from an old version', () => {
@@ -235,6 +257,8 @@ describe('a save from an old version', () => {
     const errors = await Promise.all(
       [
         editPart(deps, lessonId, 1, { part: 'segment', index: 0 }, '旧标签页改的'),
+        editPart(deps, lessonId, 1, { part: 'title' }, '旧标签页改的标题'),
+        editPart(deps, lessonId, 1, { part: 'gist', index: 0 }, '旧标签页改的要点'),
         replaceContent(deps, lessonId, 1, content(), { change: 'rewrite_lesson', reason: '重写' }),
         restoreVersion(deps, lessonId, 1, 1),
         markFalsePositive(deps, lessonId, 1, WORD),
@@ -323,10 +347,13 @@ describe('editPart', () => {
     const { lessonId } = await draft()
     clock.advance(60_000)
     await editPart(deps, lessonId, 1, { part: 'segment', index: 4 }, '  新的第5段\n')
-    await editPart(deps, lessonId, 2, { part: 'review' }, '新的复习题')
-    await editPart(deps, lessonId, 3, { part: 'extension' }, '新的引申题')
+    await editPart(deps, lessonId, 2, { part: 'gist', index: 4 }, ' 新的第5段要点')
+    await editPart(deps, lessonId, 3, { part: 'title' }, ' 新标题 ')
+    await editPart(deps, lessonId, 4, { part: 'review' }, '新的复习题')
+    await editPart(deps, lessonId, 5, { part: 'extension' }, '新的引申题')
 
-    const expected = withSegment(5, { text: '新的第5段', gist: '第5段要点' }, {
+    const expected = withSegment(5, { text: '新的第5段', gist: '新的第5段要点' }, {
+      title: '新标题',
       callOnQuestions: { review: '新的复习题', extension: '新的引申题' },
     })
     expect(await contentOf(lessonId)).toEqual(expected)
@@ -336,9 +363,11 @@ describe('editPart', () => {
       [2, 'edit', null],
       [3, 'edit', null],
       [4, 'edit', null],
+      [5, 'edit', null],
+      [6, 'edit', null],
     ])
-    expect(versions[3]?.content).toEqual(expected)
-    expect(versions[3]?.createdAt).toEqual(clock.now())
+    expect(versions[5]?.content).toEqual(expected)
+    expect(versions[5]?.createdAt).toEqual(clock.now())
   })
 
   test.each([
@@ -346,6 +375,11 @@ describe('editPart', () => {
     ['a segment text over 800 characters', { part: 'segment', index: 1 }, '字'.repeat(801), /第 2 段的正文.*800/],
     ['a segment that does not exist', { part: 'segment', index: 5 }, '正文', /第 6 段/],
     ['a negative segment index', { part: 'segment', index: -1 }, '正文', /段/],
+    ['a blank title', { part: 'title' }, ' ', /标题.*不能为空/],
+    ['a title over 40 characters', { part: 'title' }, '题'.repeat(41), /标题.*40/],
+    ['a blank gist', { part: 'gist', index: 2 }, '', /第 3 段的要点.*不能为空/],
+    ['a gist over 60 characters', { part: 'gist', index: 3 }, '要'.repeat(61), /第 4 段的要点.*60/],
+    ['the gist of a segment that does not exist', { part: 'gist', index: 5 }, '要点', /第 6 段/],
     ['a call-on question over 120 characters', { part: 'review' }, '字'.repeat(121), /复习题.*120/],
     ['a blank call-on question', { part: 'extension' }, '', /引申题.*不能为空/],
   ] as const)('refuses %s with a reason, and saves nothing', async (_name, part, text, pattern) => {
@@ -432,6 +466,8 @@ describe('a lesson a class has begun', () => {
     const errors = await Promise.all(
       [
         editPart(deps, lessonId, 1, { part: 'review' }, '新问题'),
+        editPart(deps, lessonId, 1, { part: 'title' }, '新标题'),
+        editPart(deps, lessonId, 1, { part: 'gist', index: 2 }, '新要点'),
         replaceContent(deps, lessonId, 1, content(), { change: 'rewrite_lesson', reason: '重写' }),
         restoreVersion(deps, lessonId, 1, 1),
         markFalsePositive(deps, lessonId, 1, WORD),
@@ -479,10 +515,16 @@ describe('approval and the doors opening at the same moment', () => {
       return msg.type === 'class.event' && msg.event?.kind === 'segment' ? [msg.event.text] : []
     })
 
-  /** Waits until some connection waits for a lock (`n` of them). */
+  /**
+   * Waits until `n` connections to this test's database wait for a lock. The container is shared by the test files
+   * running alongside, so waits elsewhere must not count; by the backend, since a wait for a transaction has no
+   * database of its own in `pg_locks`.
+   */
   async function waitForLockWaits(n: number): Promise<void> {
     for (let waited = 0; waited < 5000; waited += 10) {
-      const { rows } = await sql<{ n: number }>`select count(*)::int as n from pg_locks where not granted`.execute(db)
+      const { rows } = await sql<{ n: number }>`
+        select count(*)::int as n from pg_locks
+        where not granted and pid in (select pid from pg_stat_activity where datname = current_database())`.execute(db)
       if (rows[0]!.n >= n) return
       await new Promise((resolve) => setTimeout(resolve, 10))
     }

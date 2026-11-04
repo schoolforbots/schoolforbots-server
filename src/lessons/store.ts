@@ -15,7 +15,9 @@ import {
   LessonFormatError,
   lessonText,
   MAX_CALL_ON_QUESTION_CHARS,
+  MAX_GIST_CHARS,
   MAX_SEGMENT_TEXT_CHARS,
+  MAX_TITLE_CHARS,
   PART_NAMES,
 } from './format.js'
 
@@ -28,8 +30,16 @@ export type { LessonFlag } from '../shared/schema.js'
 // teach it: a lesson is approved either before its doors open, and taught as approved, or after, and the day is a
 // study hall. Once a class has begun the lesson, nothing about it changes.
 
-/** A text of a lesson that can be edited by hand: a segment's text (`index` is 0-based) or a call-on question. */
-export type LessonPart = { part: 'segment'; index: number } | { part: 'review' } | { part: 'extension' }
+/**
+ * A text of a lesson that can be edited by hand: the title, a segment's text (`segment`) or gist (`gist`), with
+ * `index` the segment (0-based), or a call-on question. The parts are the places a red mark can be on.
+ */
+export type LessonPart =
+  | { part: 'title' }
+  | { part: 'segment'; index: number }
+  | { part: 'gist'; index: number }
+  | { part: 'review' }
+  | { part: 'extension' }
 
 /** The rule a privacy hit is flagged under: privacy hits name no rule of their own. */
 export const PRIVACY_FLAG_RULE = '隐私信息'
@@ -93,25 +103,25 @@ const contentColumns = (content: LessonContent) => ({
 })
 
 /**
- * The red marks of a lesson: one for each rule that hits a part, in the order of the parts (the title, the segments,
- * the review and the extension question), less the rules marked false positives. A segment's text and gist are one
- * part. Every rule is looked for, so a false positive never hides another rule of the same part.
+ * The red marks of a lesson: one for each rule that hits a part, in the order a reviewer reads them (the title, each
+ * segment's text and then its gist, the review and the extension question), less the rules marked false positives.
+ * Every rule is looked for, so a false positive never hides another rule of the same part.
  */
 function flagsOf(moderator: Moderator, content: LessonContent, falsePositives: readonly string[]): LessonFlag[] {
   const skipped = new Set(falsePositives)
   const flags: LessonFlag[] = []
-  const mark = (part: LessonFlag['part'], index: number | null, texts: string[]) => {
-    const rules = new Set<string>()
-    for (const text of texts) {
-      for (const hit of moderator.checkAll(text)) rules.add(hit.rule ?? PRIVACY_FLAG_RULE)
-    }
+  const mark = (part: LessonFlag['part'], index: number | null, text: string) => {
+    const rules = new Set(moderator.checkAll(text).map((hit) => hit.rule ?? PRIVACY_FLAG_RULE))
     for (const rule of rules) if (!skipped.has(rule)) flags.push({ part, index, rule })
   }
-  mark('title', null, [content.title])
-  content.segments.forEach((s, i) => mark('segment', i, [s.text, s.gist]))
+  mark('title', null, content.title)
+  content.segments.forEach((s, i) => {
+    mark('segment', i, s.text)
+    mark('gist', i, s.gist)
+  })
   if (content.callOnQuestions !== null) {
-    mark('review', null, [content.callOnQuestions.review])
-    mark('extension', null, [content.callOnQuestions.extension])
+    mark('review', null, content.callOnQuestions.review)
+    mark('extension', null, content.callOnQuestions.extension)
   }
   return flags
 }
@@ -272,18 +282,29 @@ export async function saveDraft(
 
 /** `content` with one part replaced by `text`; throws a `LessonFormatError` when the text or the part will not do. */
 function withPart(content: LessonContent, part: LessonPart, text: string): LessonContent {
-  if (part.part === 'segment') {
-    const { index } = part
-    const count = content.segments.length
-    if (!Number.isInteger(index) || index < 0) throw new LessonFormatError(`段号必须是 0 到 ${count - 1} 的整数`)
-    if (index >= count) throw new LessonFormatError(`没有第 ${index + 1} 段，这节课只有 ${count} 段`)
-    const segmentText = lessonText(text, PART_NAMES.segmentText(index), MAX_SEGMENT_TEXT_CHARS)
-    return { ...content, segments: content.segments.map((s, i) => (i === index ? { ...s, text: segmentText } : s)) }
+  switch (part.part) {
+    case 'title':
+      return { ...content, title: lessonText(text, PART_NAMES.title, MAX_TITLE_CHARS) }
+    case 'segment':
+    case 'gist': {
+      const { index } = part
+      const count = content.segments.length
+      if (!Number.isInteger(index) || index < 0) throw new LessonFormatError(`段号必须是 0 到 ${count - 1} 的整数`)
+      if (index >= count) throw new LessonFormatError(`没有第 ${index + 1} 段，这节课只有 ${count} 段`)
+      const changed =
+        part.part === 'segment'
+          ? { text: lessonText(text, PART_NAMES.segmentText(index), MAX_SEGMENT_TEXT_CHARS) }
+          : { gist: lessonText(text, PART_NAMES.segmentGist(index), MAX_GIST_CHARS) }
+      return { ...content, segments: content.segments.map((s, i) => (i === index ? { ...s, ...changed } : s)) }
+    }
+    case 'review':
+    case 'extension': {
+      const questions = content.callOnQuestions
+      if (questions === null) throw new LessonFormatError('这节课没有点名题，没有可改的题目')
+      const question = lessonText(text, PART_NAMES[part.part], MAX_CALL_ON_QUESTION_CHARS)
+      return { ...content, callOnQuestions: { ...questions, [part.part]: question } }
+    }
   }
-  const questions = content.callOnQuestions
-  if (questions === null) throw new LessonFormatError('这节课没有点名题，没有可改的题目')
-  const question = lessonText(text, PART_NAMES[part.part], MAX_CALL_ON_QUESTION_CHARS)
-  return { ...content, callOnQuestions: { ...questions, [part.part]: question } }
 }
 
 /** Changes one text of the lesson by hand (an `edit`). */

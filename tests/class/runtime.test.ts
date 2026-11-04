@@ -124,6 +124,18 @@ function recordingHooks(trace: string[], lines: (from: Date, to: Date) => string
   }
 }
 
+/**
+ * How many connections to this test's database wait for a lock. The container is shared by the test files running
+ * alongside, so waits elsewhere must not count; by the backend, since a wait for a transaction has no database of its
+ * own in `pg_locks`.
+ */
+async function lockWaits(): Promise<number> {
+  const { rows } = await sql<{ n: number }>`
+    select count(*)::int as n from pg_locks
+    where not granted and pid in (select pid from pg_stat_activity where datname = current_database())`.execute(db)
+  return rows[0]!.n
+}
+
 /** Polls `check` until it holds (for waiting on another database connection), failing after 5 seconds. */
 async function waitFor(check: () => Promise<boolean>): Promise<void> {
   for (let waited = 0; waited < 5000; waited += 10) {
@@ -773,10 +785,7 @@ describe('the day plan', () => {
     // The runtime still reads the lesson as approved, then waits for the importer.
     const ticking = runtime.tick()
     try {
-      await waitFor(async () => {
-        const { rows } = await sql<{ n: number }>`select count(*)::int as n from pg_locks where not granted`.execute(db)
-        return rows[0]!.n > 0
-      })
+      await waitFor(async () => (await lockWaits()) > 0)
     } finally {
       commit()
       await importer
@@ -979,10 +988,7 @@ describe('the locks', () => {
     const ticking = runtime.tick()
     let renameFree: boolean
     try {
-      await waitFor(async () => {
-        const { rows } = await sql<{ n: number }>`select count(*)::int as n from pg_locks where not granted`.execute(db)
-        return rows[0]!.n > 0
-      })
+      await waitFor(async () => (await lockWaits()) > 0)
       // The call-on waits for the session and holds nothing else yet: the rename is not locked by it.
       renameFree = await db
         .transaction()
