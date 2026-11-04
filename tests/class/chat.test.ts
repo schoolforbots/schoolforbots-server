@@ -7,6 +7,7 @@ import type { AckResult, Participant } from '../../src/class/connection.js'
 import { disciplineRecorder } from '../../src/class/discipline.js'
 import { RecordingHub } from '../../src/class/hub.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from '../../src/class/ws-errors.js'
+import { createSecondLayer, type SecondLayer } from '../../src/moderation/second-layer.js'
 import { ServerMessage } from '../../src/protocol/ws.js'
 import type { Database } from '../../src/shared/schema.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
@@ -14,6 +15,7 @@ import { buildTestClassApp } from '../helpers/class-app.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertSession, insertStudent } from '../helpers/factories.js'
+import { deferred, examplePrompts, layer, scripted, switches } from '../helpers/llm.js'
 import { captureLogs } from '../helpers/logs.js'
 
 const MON = '2026-11-02'
@@ -74,13 +76,14 @@ describe('the chat engine', () => {
   })
 
   /** An engine on the test database (or `p.db`) and hub; a new one is what the service has after a restart. */
-  function newEngine(p: { speed?: number; db?: Kysely<Database> } = {}): ChatEngine {
+  function newEngine(p: { speed?: number; db?: Kysely<Database>; secondLayer?: SecondLayer } = {}): ChatEngine {
     return createChatEngine({
       db: p.db ?? db,
       config,
       clock,
       hub,
       moderator: exampleModerator(),
+      secondLayer: p.secondLayer,
       discipline: disciplineRecorder,
       speed: p.speed ?? 1,
       log: (obj, msg) => void logged.push({ ...obj, msg }),
@@ -813,6 +816,269 @@ describe('the chat engine', () => {
       expect(logged).toContainEqual(expect.objectContaining({ category: 'privacy' }))
       const text = JSON.stringify(logged)
       for (const said of ['光为什么会弯', BANNED, PHONE, '13812345678', '因为介质不同', INJECTION]) expect(text).not.toContain(said)
+    })
+  })
+  describe('the second layer for chat', () => {
+    /** A second layer whose verdicts are given by the test, one at a time, in the order the lines come. */
+    function held() {
+      const waiting: { text: string; verdict: (v: 'pass' | 'blocked') => void }[] = []
+      const secondLayer: SecondLayer = {
+        async check(_source, text) {
+          const d = deferred<'pass' | 'blocked'>()
+          waiting.push({ text, verdict: d.resolve })
+          return d.promise
+        },
+      }
+      return { secondLayer, waiting }
+    }
+    const settle = () => new Promise<void>((r) => setImmediate(r))
+
+    test('a first line is forwarded only when the second layer has passed it; nothing is reserved while it waits', async () => {
+      const { secondLayer, waiting } = held()
+      engine = newEngine({ secondLayer })
+      const [a, b, c3] = [await joined(), await joined(), await joined()] as [Participant, Participant, Participant]
+
+      const first = engine.start(a, b.studentId, '一起预习吗')
+      await settle()
+      expect(waiting.map((w) => w.text)).toEqual(['一起预习吗'])
+      expect(sent()).toEqual([])
+      expect(await messageRows()).toEqual([])
+
+      // Neither side is held: a classmate may start with b meanwhile, and then b is busy when a's line comes back.
+      const second = engine.start(c3, b.studentId, '我先来')
+      await settle()
+      waiting[1]!.verdict('pass')
+      const cb = await second
+      expect(cb).toEqual({ ok: true, result: { conversationId: expect.any(String) } })
+      waiting[0]!.verdict('pass')
+      expect(await first).toEqual(failure('peer_busy'))
+      expect(sent()).toEqual([to(b, incoming((cb as { result: { conversationId: string } }).result.conversationId, c3, '我先来', 1))])
+      expect(await engine.initiationsLeft(a)).toBe(3)
+      expect(await messageRows()).toEqual([row(c3, b, '我先来', { conversationId: expect.any(String) })])
+    })
+
+    test('a passed first line is written and forwarded after the wait', async () => {
+      const { secondLayer, checked } = layer()
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const c = await open(a, b, '你好')
+      expect(checked).toEqual([{ source: 'chat', text: '你好' }])
+      expect(sent()).toEqual([to(b, incoming(c, a, '你好', 1))])
+      expect(await engine.initiationsLeft(a)).toBe(2)
+      expect(await engine.reply(b, c, '你好呀')).toEqual({ ok: true })
+      expect(checked.map((x) => x.text)).toEqual(['你好', '你好呀'])
+      expect(sent()).toEqual([to(a, incoming(c, b, '你好呀', 1))])
+    })
+
+    test('a first line it blocks is kept undelivered, with no violation, no start used and nobody busy', async () => {
+      const { secondLayer } = layer(['blocked'])
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      expect(await engine.start(a, b.studentId, '一句不合适的话')).toEqual(failure('blocked', { category: 'sensitive' }))
+      expect(sent()).toEqual([])
+      expect(await messageRows()).toEqual([row(a, b, '一句不合适的话', { delivered: false, moderation: 'second_layer' })])
+      expect(await records()).toEqual([])
+      expect(await engine.initiationsLeft(a)).toBe(3)
+      // Neither is in a conversation: both may start one.
+      await open(b, a, '重新来')
+    })
+
+    test('a reply it blocks is kept undelivered, with no violation, and leaves the turn with the same side', async () => {
+      const { secondLayer } = layer(['pass', 'blocked'])
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const c = await open(a, b)
+      sent()
+      expect(await engine.reply(b, c, '一句不合适的话')).toEqual(failure('blocked', { category: 'sensitive' }))
+      expect(sent()).toEqual([])
+      expect(await records()).toEqual([])
+      expect(await engine.reply(a, c, '轮不到我')).toEqual(failure('not_your_turn'))
+      // Still round 1 and b's turn.
+      expect(await engine.reply(b, c, '好的')).toEqual({ ok: true })
+      expect(sent()).toEqual([to(a, incoming(c, b, '好的', 1))])
+      expect(await messageRows()).toEqual([
+        row(a, b, '你好', { conversationId: c }),
+        row(b, a, '一句不合适的话', { conversationId: c, delivered: false, moderation: 'second_layer' }),
+        row(b, a, '好的', { conversationId: c }),
+      ])
+    })
+
+    test('the word list still goes first: a line it stops never reaches the second layer, and is a violation', async () => {
+      const { secondLayer, checked } = layer()
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      expect(await engine.start(a, b.studentId, BANNED)).toEqual(failure('blocked', { category: 'sensitive' }))
+      expect(checked).toEqual([])
+      expect(await records()).toHaveLength(1)
+    })
+
+    test('the peer goes offline while a first line waits: peer_offline, and nothing is kept as delivered', async () => {
+      const { secondLayer, waiting } = held()
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const first = engine.start(a, b.studentId, '在吗')
+      await settle()
+      hub.leave(b.studentId)
+      engine.onDisconnect(b.studentId)
+      waiting[0]!.verdict('pass')
+      expect(await first).toEqual(failure('peer_offline'))
+      expect(sent()).toEqual([])
+      expect(await messageRows()).toEqual([])
+      expect(await engine.initiationsLeft(a)).toBe(3)
+    })
+
+    test('the class is dismissed while a first line waits: not_in_session', async () => {
+      const { secondLayer, waiting } = held()
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const first = engine.start(a, b.studentId, '在吗')
+      await settle()
+      engine.startClosing(classId)
+      waiting[0]!.verdict('pass')
+      expect(await first).toEqual(failure('not_in_session'))
+      expect(sent()).toEqual([])
+      expect(await messageRows()).toEqual([])
+    })
+
+    test('the initiation allowance used up while a first line waits: initiation_cap, with its record', async () => {
+      const gate = { open: true }
+      const waiting: { verdict: (v: 'pass' | 'blocked') => void }[] = []
+      const secondLayer: SecondLayer = {
+        async check() {
+          if (gate.open) return 'pass'
+          const d = deferred<'pass' | 'blocked'>()
+          waiting.push({ verdict: d.resolve })
+          return d.promise
+        },
+      }
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const d = await joined()
+      const e = await joined()
+      await converse(a, b)
+      await converse(a, b)
+
+      gate.open = false
+      const slow = engine.start(a, e.studentId, '慢一点的')
+      await settle()
+      const third = engine.start(a, d.studentId, '第三次')
+      await settle()
+      waiting[1]!.verdict('pass')
+      expect((await third).ok).toBe(true)
+      waiting[0]!.verdict('pass')
+      expect(await slow).toEqual(failure('initiation_cap'))
+      expect(await records()).toEqual([expect.objectContaining({ studentId: a.studentId, kind: 'initiations' })])
+    })
+
+    test('the peer goes offline while a reply waits: the conversation has ended, and the line is not forwarded', async () => {
+      const { secondLayer, waiting } = held()
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const opening = engine.start(a, b.studentId, '你好')
+      await settle()
+      waiting[0]!.verdict('pass')
+      const c = ((await opening) as { result: { conversationId: string } }).result.conversationId
+      sent()
+      const answer = engine.reply(b, c, '你好呀')
+      await settle()
+      hub.leave(a.studentId)
+      engine.onDisconnect(a.studentId)
+      sent()
+      waiting[1]!.verdict('pass')
+      expect(await answer).toEqual(failure('conversation_ended'))
+      expect(sent()).toEqual([])
+      expect(await messageRows()).toEqual([row(a, b, '你好', { conversationId: c })])
+    })
+
+    test('the class ends while a reply waits: it is not forwarded', async () => {
+      const { secondLayer, waiting } = held()
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const opening = engine.start(a, b.studentId, '你好')
+      await settle()
+      waiting[0]!.verdict('pass')
+      const c = ((await opening) as { result: { conversationId: string } }).result.conversationId
+      sent()
+      const answer = engine.reply(b, c, '你好呀')
+      await settle()
+      clock.set(CLOSE_AT)
+      engine.endAll(classId)
+      sent()
+      waiting[1]!.verdict('pass')
+      expect(await answer).toEqual(failure('conversation_ended'))
+      expect(sent()).toEqual([])
+      expect(await messageRows()).toEqual([row(a, b, '你好', { conversationId: c })])
+    })
+
+    test('the dismissal comes while a reply waits: it is kept and forwarded as the closing line', async () => {
+      const { secondLayer, waiting } = held()
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      const opening = engine.start(a, b.studentId, '你好')
+      await settle()
+      waiting[0]!.verdict('pass')
+      const c = ((await opening) as { result: { conversationId: string } }).result.conversationId
+      sent()
+      const answer = engine.reply(b, c, '再见')
+      await settle()
+      engine.startClosing(classId)
+      sent()
+      waiting[1]!.verdict('pass')
+      expect(await answer).toEqual({ ok: true })
+      expect(sent()).toEqual([to(a, incoming(c, b, '再见', 1)), to(a, ended(c, 'dismissal')), to(b, ended(c, 'dismissal'))])
+      expect((await messageRows()).at(-1)).toEqual(row(b, a, '再见', { conversationId: c, kind: 'closing' }))
+    })
+
+    describe('with the real second layer', () => {
+      const quick = { secondLayer: { ...config.secondLayer, batchMillis: 10 } }
+
+      test('the switch on: the model judges the line and a block comes back as sensitive; a pass is forwarded', async () => {
+        const model = scripted([
+          '{"results":[{"id":1,"verdict":"block"}]}',
+          '{"results":[{"id":1,"verdict":"pass"}]}',
+        ])
+        const layerOn = createSecondLayer({ config: quick, llm: model.llm, switches: switches({ secondLayerChat: true }), prompts: examplePrompts() })
+        engine = newEngine({ secondLayer: layerOn })
+        const a = await joined()
+        const b = await joined()
+        expect(await engine.start(a, b.studentId, '第一句')).toEqual(failure('blocked', { category: 'sensitive' }))
+        expect(sent()).toEqual([])
+        const c = await open(a, b, '第二句')
+        expect(sent()).toEqual([to(b, incoming(c, a, '第二句', 1))])
+        expect(model.calls.map((x) => x.purpose)).toEqual(['secondLayerChat', 'secondLayerChat'])
+      })
+
+      test('the switch off: the model is not called and the line goes on at once', async () => {
+        const model = scripted([])
+        const layerOff = createSecondLayer({ config: quick, llm: model.llm, switches: switches({ secondLayerChat: false }), prompts: examplePrompts() })
+        engine = newEngine({ secondLayer: layerOff })
+        const a = await joined()
+        const b = await joined()
+        const c = await open(a, b, '你好')
+        expect(await engine.reply(b, c, '你好呀')).toEqual({ ok: true })
+        expect(model.calls).toEqual([])
+        expect(sent().length).toBe(2)
+      })
+    })
+
+    test('the program log names ids and the category, never the line', async () => {
+      const { secondLayer } = layer(['blocked'])
+      engine = newEngine({ secondLayer })
+      const a = await joined()
+      const b = await joined()
+      await engine.start(a, b.studentId, '一句不合适的话')
+      expect(logged).toContainEqual(expect.objectContaining({ layer: 'second_layer', studentId: a.studentId }))
+      expect(JSON.stringify(logged)).not.toContain('不合适')
     })
   })
 })

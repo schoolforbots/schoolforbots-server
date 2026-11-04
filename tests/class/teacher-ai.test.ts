@@ -7,19 +7,19 @@ import { appendClassEvent, eventsAfter } from '../../src/class/events.js'
 import { RecordingHub } from '../../src/class/hub.js'
 import type { ActiveSession } from '../../src/class/runtime.js'
 import { createTeacherAi, type TeacherAi } from '../../src/class/teacher-ai.js'
-import { createLlm, type Llm, type LlmPurpose } from '../../src/llm/client.js'
+import { createLlm, type Llm } from '../../src/llm/client.js'
 import { createFakeLlm } from '../../src/llm/fake.js'
-import { loadPrompts, type PromptName, type PromptTemplate } from '../../src/llm/prompts.js'
 import { LlmContentRefused, LlmUnavailable } from '../../src/llm/provider.js'
-import { createSecondLayer, type SecondLayer, type SecondVerdict } from '../../src/moderation/second-layer.js'
+import { createSecondLayer, type SecondLayer } from '../../src/moderation/second-layer.js'
 import { ServerMessage } from '../../src/protocol/ws.js'
 import type { Database, MessageModeration } from '../../src/shared/schema.js'
-import type { SwitchName, Switches } from '../../src/shared/switches.js'
+import type { Switches } from '../../src/shared/switches.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
 import { buildTestClassApp } from '../helpers/class-app.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
+import { deferred, examplePrompts, layer, scripted, switches } from '../helpers/llm.js'
 import { captureLogs } from '../helpers/logs.js'
 
 const MON = '2026-11-02'
@@ -37,73 +37,13 @@ const SEGMENTS = [1, 2, 3, 4, 5].map((i) => ({ text: `光的折射第${i}段`, g
 const BANNED = '示例违禁词'
 const ANSWER = '因为光从空气进入水里时会改变方向。'
 
-/** The example prompt files, read without the warning that no real ones are there. */
-function examplePrompts(): Record<PromptName, PromptTemplate> {
-  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-  try {
-    return loadPrompts(new URL('../../data/prompts', import.meta.url).pathname)
-  } finally {
-    stderr.mockRestore()
-  }
-}
 const prompts = examplePrompts()
 
-function switches(on: Partial<Record<SwitchName, boolean>> = {}): Switches {
-  const all = { teacherLlm: true, secondLayerTeacher: true, secondLayerChat: false, ...on }
-  return { isOn: (n) => all[n], refresh: async () => {}, stop: () => {} }
-}
-
 const reply = (pick: number | null, answer = '') => JSON.stringify({ pick, answer })
-
-interface ModelCall {
-  purpose: LlmPurpose
-  system: string
-  user: string
-  opts: { json?: boolean; maxOutputTokens?: number; timeoutMs?: number } | undefined
-}
-type Reply = string | Error | Promise<string | Error>
-
-/** A model that gives the replies in order, one per call; a call past the last one fails the test. */
-function scripted(replies: (Reply | ((call: ModelCall) => Reply))[]) {
-  const calls: ModelCall[] = []
-  const llm: Llm = {
-    async call(purpose, prompt, opts) {
-      const call = { purpose, system: prompt.system, user: prompt.user, opts }
-      calls.push(call)
-      const next = replies.shift()
-      if (next === undefined) throw new Error('The model was called once too often')
-      const out = await (typeof next === 'function' ? next(call) : next)
-      if (out instanceof Error) throw out
-      return { text: out, inputTokens: 1, outputTokens: 1 }
-    },
-    async recordManual() {},
-  }
-  return { llm, calls }
-}
-
-/** A second layer that gives the verdicts in order, then passes. */
-function layer(verdicts: SecondVerdict[] = []) {
-  const checked: { source: string; text: string }[] = []
-  const secondLayer: SecondLayer = {
-    async check(source, text) {
-      checked.push({ source, text })
-      return verdicts.shift() ?? 'pass'
-    },
-  }
-  return { secondLayer, checked }
-}
 
 /** The numbered questions of the data block of the user prompt, one line each. */
 const questionsIn = (user: string): string[] =>
   user.split('[学生问题开始]\n')[1]!.split('\n[学生问题结束]')[0]!.split('\n')
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((r) => {
-    resolve = r
-  })
-  return { promise, resolve }
-}
 
 describe('the teacher answers a question after a segment', () => {
   const config = exampleConfig()

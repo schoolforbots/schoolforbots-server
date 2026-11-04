@@ -97,7 +97,17 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
   let stopping = false
 
   const hub = createHub()
-  const chat = createChatEngine({ db, config, clock, hub, moderator, discipline: disciplineRecorder, speed, log })
+  const chat = createChatEngine({
+    db,
+    config,
+    clock,
+    hub,
+    moderator,
+    secondLayer: deps.model?.secondLayer,
+    discipline: disciplineRecorder,
+    speed,
+    log,
+  })
   const teacherAi =
     deps.model === undefined
       ? null

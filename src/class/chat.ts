@@ -3,6 +3,7 @@ import type { Kysely } from 'kysely'
 import type { Static } from 'typebox'
 import { maskPrivacy } from '../moderation/mask.js'
 import type { ModerationResult, Moderator } from '../moderation/moderator.js'
+import type { SecondLayer } from '../moderation/second-layer.js'
 import type { ChatClosingMessage, ChatEndedMessage, ChatIncomingMessage } from '../protocol/ws.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
@@ -23,6 +24,11 @@ import type { WsErrorCode } from './ws-errors.js'
 // Two connections may call the engine at the same time. Every check of turns, partners and allowances, and the
 // reservation that follows from it, runs with no `await` in between, so whoever comes second sees what the first one
 // took. After each `await` the conversation is looked at again before anything is forwarded.
+//
+// When the second layer for chat is on, a line that passed the word list waits for it (a batch of lines, some
+// seconds). Nothing is reserved meanwhile, no transaction is open and no lock is held; when the verdict is in, every
+// check is made again against what the state is by then, and the line is reserved, written and forwarded, or refused
+// with the error that now applies.
 
 /** A line a student said, as the messages table keeps it. */
 export interface Line {
@@ -68,6 +74,8 @@ export interface ChatEngineDeps {
   clock: Clock
   hub: Hub
   moderator: Moderator
+  /** The second layer; absent (or with its chat switch off) a line goes on as soon as the word list lets it. */
+  secondLayer?: SecondLayer
   discipline: DisciplineRecorder
   /** Timeline speed (1 is real time): it divides the reply timeout as it does every lesson duration. */
   speed: number
@@ -233,7 +241,7 @@ export function chatHandlers(
 }
 
 export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
-  const { db, config, clock, hub, moderator, discipline } = deps
+  const { db, config, clock, hub, moderator, secondLayer, discipline } = deps
   const log = deps.log ?? (() => {})
   const limits = config.chat
   const replyTimeoutMs = (limits.replyTimeoutSeconds * 1000) / deps.speed
@@ -366,6 +374,52 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
     return fail('blocked', { category: blocked.category })
   }
 
+  /** A line the second layer stopped: kept undelivered, with no violation and no count, and told as `sensitive`. */
+  async function blockBySecondLayer(line: Line): Promise<AckResult> {
+    await writeLine(db, line, 'second_layer')
+    const { studentId, sessionId } = line.from
+    log({ studentId, sessionId, conversationId: line.conversationId, layer: 'second_layer' }, 'chat line blocked')
+    return fail('blocked', { category: 'sensitive' })
+  }
+
+  /**
+   * Why a first line cannot be started now, from the state as it is: null when it can. Synchronous, so that what it
+   * finds still holds when the reservation follows; the caller has expired what is overdue.
+   */
+  function startRefusal(
+    from: Participant,
+    to: number,
+    peerClass: number | null,
+    loaded: number,
+    now: number,
+  ): WsErrorCode | null {
+    if (sessionOver(from, now)) return 'not_in_session'
+    if ((startsOf(from).count.get(from.studentId) ?? loaded) >= limits.maxInitiationsPerLesson) return 'initiation_cap'
+    if (to === from.studentId || peerClass !== from.classId) return 'not_classmate'
+    if (!online(from.classId, to)) return 'peer_offline'
+    if (busy.has(from.studentId)) return 'self_busy'
+    if (busy.has(to)) return 'peer_busy'
+    return null
+  }
+
+  /** The answer to a refused start: the initiation cap is a record of its own. */
+  async function refuseStart(from: Participant, code: WsErrorCode, at: Date): Promise<AckResult> {
+    if (code === 'initiation_cap') {
+      const { studentId, sessionId } = from
+      const detail = { cap: limits.maxInitiationsPerLesson }
+      await discipline.record(db, { studentId, sessionId, kind: 'initiations', detail, at })
+    }
+    return fail(code)
+  }
+
+  /** The conversation the student may speak in now, or why not. Synchronous, like `startRefusal`. */
+  function turnOf(from: Participant, conversationId: string, now: number): Conversation | WsErrorCode {
+    expire(now)
+    const c = conversations.get(conversationId)
+    if (c === undefined || !isParty(c, from.studentId)) return 'conversation_ended'
+    return c.turn === from.studentId ? c : 'not_your_turn'
+  }
+
   /**
    * Writes the reply that ends a conversation at the school's limit together with a class-rule record for each side,
    * naming the other, before it is forwarded: a line delivered always has its records. They stand if the classmate
@@ -407,27 +461,26 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
 
       // From here every check and the reservation run with no await between them. The only awaits are those of a
       // refusal (recording the initiation cap, writing a stopped line), and it returns right after.
-      const at = clock.now()
-      const now = at.getTime()
-      expire(now)
-      if (sessionOver(from, now)) return fail('not_in_session')
-      const s = startsOf(from)
-      const used = s.count.get(from.studentId) ?? loaded
-      if (used >= limits.maxInitiationsPerLesson) {
-        const { studentId, sessionId } = from
-        const detail = { cap: limits.maxInitiationsPerLesson }
-        await discipline.record(db, { studentId, sessionId, kind: 'initiations', detail, at })
-        return fail('initiation_cap')
-      }
-      if (to === from.studentId || peerClass !== from.classId) return fail('not_classmate')
-      if (!online(from.classId, to)) return fail('peer_offline')
-      if (busy.has(from.studentId)) return fail('self_busy')
-      if (busy.has(to)) return fail('peer_busy')
+      let at = clock.now()
+      expire(at.getTime())
+      let refusal = startRefusal(from, to, peerClass, loaded, at.getTime())
+      if (refusal !== null) return refuseStart(from, refusal, at)
       const verdict = moderator.check(text)
       // A stopped first line opens nothing, so it uses no start.
       if (verdict.verdict === 'blocked') {
         return block({ from, kind: 'chat', conversationId: null, recipientId: to, text, at }, verdict)
       }
+      if (secondLayer !== undefined) {
+        // Nothing is reserved while the line waits: whatever changed by then decides, so every check is made again.
+        const line: Line = { from, kind: 'chat', conversationId: null, recipientId: to, text, at }
+        if ((await secondLayer.check('chat', text)) === 'blocked') return blockBySecondLayer(line)
+        at = clock.now()
+        expire(at.getTime())
+        refusal = startRefusal(from, to, peerClass, loaded, at.getTime())
+        if (refusal !== null) return refuseStart(from, refusal, at)
+      }
+      const s = startsOf(from)
+      const used = s.count.get(from.studentId) ?? loaded
 
       const c: Conversation = {
         id: randomUUID(),
@@ -476,19 +529,33 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
 
       // From here every check and the reservation run with no await between them; only a stopped line awaits (its
       // writing), and it returns right after.
-      const at = clock.now()
-      expire(at.getTime())
-      const c = conversations.get(conversationId)
-      if (c === undefined || !isParty(c, from.studentId)) return fail('conversation_ended')
-      if (c.turn !== from.studentId) return fail('not_your_turn')
-      const to = otherSide(c, from.studentId)
-      const closingLine = c.closing
-      // The last line of the closing grace is kept as a `closing` message.
-      const kind = closingLine ? 'closing' : 'chat'
-      const line: Line = { from, kind, conversationId: c.id, recipientId: to, text, at }
+      let at = clock.now()
+      let found = turnOf(from, conversationId, at.getTime())
+      if (typeof found === 'string') return fail(found)
+      let c = found
+      const lineOf = (c: Conversation): Line => ({
+        from,
+        // The last line of the closing grace is kept as a `closing` message.
+        kind: c.closing ? 'closing' : 'chat',
+        conversationId: c.id,
+        recipientId: otherSide(c, from.studentId),
+        text,
+        at,
+      })
       const verdict = moderator.check(text)
       // A stopped line changes nothing in the conversation: it is not a round, and the same side may try again.
-      if (verdict.verdict === 'blocked') return block(line, verdict)
+      if (verdict.verdict === 'blocked') return block(lineOf(c), verdict)
+      if (secondLayer !== undefined) {
+        // Nothing is reserved while the line waits: the turn stays where it is, and every check is made again.
+        if ((await secondLayer.check('chat', text)) === 'blocked') return blockBySecondLayer(lineOf(c))
+        at = clock.now()
+        found = turnOf(from, conversationId, at.getTime())
+        if (typeof found === 'string') return fail(found)
+        c = found
+      }
+      const to = otherSide(c, from.studentId)
+      const closingLine = c.closing
+      const line = lineOf(c)
 
       c.turn = null
       if (from.studentId === c.responderId) c.responderMaxRounds ??= from.maxRounds
