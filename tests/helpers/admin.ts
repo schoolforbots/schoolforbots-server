@@ -1,9 +1,10 @@
 import type { FastifyServerOptions } from 'fastify'
 import { base32Encode, hashPassword, totpNow } from '../../src/admin/auth.js'
 import type { AdminDeps } from '../../src/admin/app.js'
+import type { Llm } from '../../src/llm/client.js'
 import { buildRegistrationApp } from '../../src/registration/app.js'
 import { MemoryMailer } from '../../src/registration/mailer.js'
-import { loadEnv } from '../../src/shared/config.js'
+import { loadEnv, type SchoolConfig } from '../../src/shared/config.js'
 import { loadSchoolRules } from '../../src/shared/school-rules.js'
 import { createTestClock } from './clock.js'
 import { createTestDb } from './db.js'
@@ -19,13 +20,24 @@ const PASSWORD_HASH = hashPassword(TEST_PASSWORD)
 
 export const CSRF = { 'x-requested-with': 'admin' }
 
-/** The registration service with the admin pages on at `TEST_ADMIN_PATH`, on a fresh database and a controllable clock. */
+/**
+ * The registration service with the admin pages on at `TEST_ADMIN_PATH`, on a fresh database and a controllable clock
+ * (by default at noon on Monday 2026-11-02, school time), with the example config and no model unless given.
+ */
 export async function buildAdminTestApp(
-  opts: { admin?: boolean; logger?: FastifyServerOptions['logger']; distDir?: string; switches?: AdminDeps['switches'] } = {},
+  opts: {
+    admin?: boolean
+    logger?: FastifyServerOptions['logger']
+    distDir?: string
+    switches?: AdminDeps['switches']
+    config?: SchoolConfig
+    llm?: Llm | null
+    now?: Date
+  } = {},
 ) {
   const { db, destroy: destroyDb } = await createTestDb()
-  const config = exampleConfig()
-  const clock = createTestClock(new Date('2026-11-02T12:00:00+08:00'))
+  const config = opts.config ?? exampleConfig()
+  const clock = createTestClock(opts.now ?? new Date('2026-11-02T12:00:00+08:00'))
   const mailer = new MemoryMailer()
   const moderator = exampleModerator()
   const env = loadEnv(
@@ -51,7 +63,18 @@ export async function buildAdminTestApp(
     admin:
       opts.admin === false
         ? undefined
-        : { db, config, clock, env, llm: null, prompts: examplePrompts(), moderator, switches, mailer, distDir: opts.distDir },
+        : {
+            db,
+            config,
+            clock,
+            env,
+            llm: opts.llm ?? null,
+            prompts: examplePrompts(),
+            moderator,
+            switches,
+            mailer,
+            distDir: opts.distDir,
+          },
   })
   try {
     await app.ready()
@@ -95,6 +118,7 @@ export async function buildAdminTestApp(
     db,
     config,
     clock,
+    moderator,
     url,
     login,
     session,
