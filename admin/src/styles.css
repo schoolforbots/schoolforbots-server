@@ -326,3 +326,345 @@ p {
   border: 1px solid #b9b8ae;
   border-radius: 6px;
 }
+
+/* The review page: the list of the days ahead on the left, kept in view while the lesson on the right scrolls. */
+.review {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.review-main {
+  min-width: 0;
+}
+
+.queue {
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 32px);
+  padding-right: 12px;
+  padding-left: 12px;
+}
+.queue .panel-title {
+  padding: 0 8px;
+}
+.queue-stale {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 8px 12px;
+  padding: 8px 12px;
+  border: 1px solid #b9b8ae;
+  border-radius: 6px;
+}
+.queue-days {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.queue-day + .queue-day {
+  margin-top: 12px;
+}
+.queue-date {
+  margin: 0 0 2px;
+  padding: 0 8px;
+  color: #4a4a4a;
+  font-size: 13px;
+  font-weight: 600;
+}
+.queue-slots {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.slot-button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1f1f1f;
+  font: inherit;
+  text-align: left;
+}
+.slot-button:hover {
+  background: #f3f2ee;
+}
+.slot-button:active {
+  background: #ebeae4;
+}
+/* The chosen slot: tinted, its name bold, and a green edge on its left, so it is not told by colour alone. */
+.slot-button[aria-current='true'] {
+  background: #e8efec;
+  box-shadow: inset 3px 0 0 #2f5d50;
+  font-weight: 600;
+}
+/* Inside the scrolling list an outer ring would be cut off at its edges. */
+.slot-button:focus-visible {
+  outline-offset: -2px;
+}
+.slot-status {
+  color: #5c5c5c;
+  font-weight: 400;
+}
+/* Slots that still need something done read darker than the settled ones. */
+.slot-todo .slot-status {
+  color: #1f1f1f;
+  font-weight: 600;
+}
+.slot-topic {
+  padding: 0 8px 4px;
+  color: #5c5c5c;
+  font-size: 12px;
+}
+.slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px 8px;
+}
+.copy-done {
+  color: #2f5d50;
+  font-size: 13px;
+}
+.queue-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 8px 0;
+  border-top: 1px solid #e3e2dc;
+}
+.queue-notice {
+  color: #4a4a4a;
+  font-size: 13px;
+}
+
+/* One lesson, read like a corrected exercise book: the text on the left, a ruled margin for the notes on the right. */
+.lesson {
+  padding-bottom: 0;
+}
+.lesson-meta {
+  color: #5c5c5c;
+  font-size: 13px;
+}
+.lesson-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.lesson-notices p {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f0efe9;
+}
+.lesson-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.lesson-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 4px 0 12px;
+}
+.lesson-section {
+  padding: 12px 0 4px;
+  border-top: 1px solid #e3e2dc;
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.section-head .ant-btn {
+  margin-left: auto;
+}
+.section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.section-note {
+  color: #5c5c5c;
+  font-size: 12px;
+}
+
+.part {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 24px;
+  padding: 8px 0;
+}
+.part-label {
+  color: #5c5c5c;
+  font-size: 12px;
+}
+.part-text {
+  font-size: 15px;
+  line-height: 1.9;
+}
+.part-edit.ant-btn {
+  height: auto;
+  padding: 0;
+}
+
+/* The red pen. Its notes are written in a regular script (楷体) where the system has one: a teacher's hand in the
+   margin, apart from the printed lesson. */
+.pen-word {
+  background: none;
+  color: inherit;
+  text-decoration: underline wavy #c8312b;
+  text-decoration-skip-ink: none;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+}
+.pen-margin {
+  padding-left: 16px;
+  border-left: 1px solid #e3e2dc;
+  font-size: 13px;
+}
+.pen-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pen-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.pen-note p {
+  color: #c8312b;
+  font-family: 'Kaiti SC', STKaiti, KaiTi, 'AR PL UKai CN', 'PingFang SC', 'Microsoft YaHei', serif;
+  font-size: 15px;
+}
+.pen-none {
+  color: #767676;
+}
+.pen-margin .restore {
+  margin-top: 12px;
+}
+
+.restore {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  color: #4a4a4a;
+  font-size: 13px;
+}
+.restore-reason {
+  color: #5c5c5c;
+  overflow-wrap: anywhere;
+}
+
+/* An edit or a rewrite under way: a box on the paper colour, so it is plain which part is being changed. */
+.edit-box,
+.reason-box {
+  margin: 8px 0 4px;
+  padding: 12px;
+  border: 1px solid #e3e2dc;
+  border-radius: 6px;
+  background: #f7f6f2;
+}
+/* Ant Design hangs a field's count below it: room for it, so it does not sit on what follows. */
+.reason-box .ant-input-textarea-show-count {
+  margin-bottom: 20px;
+}
+.box-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.field-label {
+  display: block;
+  margin: 12px 0 4px;
+  padding: 0;
+  font-weight: 600;
+}
+.edit-box .field-label:first-child,
+.reason-box .field-label:first-child {
+  margin-top: 0;
+}
+.field-hint {
+  margin: 0 0 6px;
+  color: #5c5c5c;
+  font-size: 12px;
+}
+.field-set {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+/* A refusal, said where the change was asked for: framed, in words, not in red (the red is the pen's). */
+.action-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid #b9b8ae;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+/* Approving stays in reach at the bottom of the window while the lesson is read. */
+.lesson-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 8px -20px 0;
+  padding: 12px 20px;
+  border-top: 1px solid #e3e2dc;
+  border-radius: 0 0 6px 6px;
+  background: #ffffff;
+}
+.lesson-foot .action-error {
+  margin-top: 0;
+}
+.foot-note {
+  color: #4a4a4a;
+}
+
+.lesson-missing p + p {
+  margin-top: 8px;
+}
+
+.dialog-hint {
+  margin-bottom: 4px;
+  color: #4a4a4a;
+}
+.topic-confirm {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f0efe9;
+  font-weight: 600;
+}

@@ -1,4 +1,4 @@
-import type { BlockCategory, Division, LlmPurpose, Slot, SwitchName } from './api.js'
+import type { BlockCategory, Division, LlmPurpose, QueueSlot, Slot, SwitchName } from './api.js'
 
 // The Chinese names the pages give the API's keys. Object key order is the order they are listed in.
 
@@ -23,6 +23,29 @@ export const SWITCH_NAMES: Record<SwitchName, string> = {
   secondLayerTeacher: '第二层·复查老师',
   secondLayerChat: '第二层·审查同学',
 }
+
+/**
+ * Where a slot of the review queue stands, as its list says it. A day a class of the division has begun is settled:
+ * its lesson was taught (已开课), or the day became a study hall (当天已定).
+ */
+export function slotStatus(slot: QueueSlot): string {
+  if (slot.locked) return slot.status === 'approved' ? '已开课' : '当天已定'
+  const failed = slot.generationFailed !== null
+  switch (slot.status) {
+    case 'approved':
+      return '已通过'
+    case 'flagged':
+      return failed ? `红笔 ${slot.flags} 处，重新生成失败` : `红笔 ${slot.flags} 处`
+    case 'pending':
+      // A lesson there already fails to be made again only for a new topic; the old one waits meanwhile.
+      return failed ? '待审，重新生成失败' : '待审'
+    case 'missing':
+      return failed ? '生成失败' : '待生成'
+  }
+}
+
+/** A text that ends a sentence, with the full stop it may lack. */
+export const sentence = (text: string) => (/[。！？.!?]$/.test(text) ? text : `${text}。`)
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 

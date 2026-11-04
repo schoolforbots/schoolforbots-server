@@ -18,6 +18,7 @@ import {
   DIVISION_NAMES,
   localDay,
   PURPOSE_NAMES,
+  sentence,
   SLOT_NAMES,
   SWITCH_NAMES,
   weekdayOf,
@@ -36,9 +37,6 @@ const yuan = (value: number) => `¥${value.toFixed(2)}`
 const preciseYuan = (value: number) => `¥${value.toFixed(4).replace(/(\.\d\d[1-9]*)0+$/, '$1')}`
 const compactCount = (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact' }).format(value)
 const tickYuan = (value: number) => `¥${Number(value.toPrecision(6))}`
-
-/** A text that ends a sentence, with the full stop it may lack. */
-const sentence = (text: string) => (/[。！？.!?]$/.test(text) ? text : `${text}。`)
 
 type Counted = Exclude<keyof DayNumbers, 'date' | 'dauBySlot' | 'blockedByCategory'>
 
