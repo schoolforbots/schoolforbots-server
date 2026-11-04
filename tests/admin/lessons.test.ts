@@ -72,13 +72,17 @@ async function draft(date: string, division: Division, c = content()): Promise<n
 }
 
 let classNo = 0
-/** A class of the division begins the lesson: a session of its day teaches it. */
-async function begin(lessonId: number, date: string, division: Division): Promise<void> {
+/**
+ * A class of the division begins the day: its session teaches the lesson `lessonId`, or holds a study hall (`null`).
+ * Either way the day is decided for the division.
+ */
+async function begin(lessonId: number | null, date: string, division: Division): Promise<void> {
   const classId = await insertClass(t.db, { division, slot: 'morning', classNo: ++classNo })
   await insertSession(t.db, {
     classId,
     date,
     slot: 'morning',
+    kind: lessonId === null ? 'study' : 'lesson',
     lessonId,
     startsAt: new Date(`${date}T02:00:00Z`),
     endsAt: new Date(`${date}T02:30:00Z`),
@@ -121,7 +125,9 @@ describe('the review queue', () => {
     const taught = await draft(MON, 'junior')
     await approve(store(), taught, 1)
     await begin(taught, MON, 'junior')
+    // Not approved when a primary class began the day with a study hall: no longer to be taught or changed today.
     const waiting = await draft(MON, 'primary')
+    await begin(null, MON, 'primary')
     const flagged = await draft(TUE, 'primary', content(`${WORD}的故事`))
     await editPart(store(), flagged, 1, { part: 'segment', index: 0 }, `讲到${OTHER_WORD}的时候`)
     const approved = await draft(TUE, 'junior')
@@ -147,10 +153,14 @@ describe('the review queue', () => {
       expect(day.divisions.map((s) => [s.division, s.label])).toEqual(DIVISIONS.map((d) => [d, LABELS[d]]))
     }
 
-    expect(slotOf(q, MON, 'primary')).toEqual(slot('primary', { status: 'pending', lessonId: waiting, version: 1 }))
+    expect(slotOf(q, MON, 'primary')).toEqual(
+      slot('primary', { status: 'pending', lessonId: waiting, version: 1, locked: true }),
+    )
+    expect((await api('GET', `lessons/${waiting}`)).json().locked).toBe(true)
     expect(slotOf(q, MON, 'junior')).toEqual(
       slot('junior', { status: 'approved', lessonId: taught, version: 1, locked: true }),
     )
+    // No senior class has begun today: the day is still open for the division.
     expect(slotOf(q, MON, 'senior')).toEqual(slot('senior', { status: 'missing' }))
     expect(slotOf(q, TUE, 'primary')).toEqual(
       slot('primary', { status: 'flagged', flags: 2, lessonId: flagged, version: 2 }),

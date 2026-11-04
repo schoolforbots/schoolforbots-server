@@ -273,4 +273,23 @@ describe('sessions', () => {
     await t.session()
     expect(await t.db.selectFrom('adminSessions').selectAll().execute()).toHaveLength(1)
   })
+
+  test('the API behind the login has a limit of its own, apart from the public one', async () => {
+    t = await buildAdminTestApp()
+    const cookie = await t.session()
+    const get = () => t.app.inject({ method: 'GET', url: t.url('api/session'), headers: { cookie } })
+    // More than the public limit of one address in a minute (60 with the example config) all go through...
+    expect(t.config.httpRateLimitPerMinute).toBe(60)
+    for (let i = 0; i < 61; i++) expect((await get()).statusCode).toBe(200)
+    // ...and leave the public limit of the address as it was.
+    for (let i = 0; i < 60; i++) {
+      expect((await t.app.inject({ method: 'GET', url: '/v1/school-calendar' })).statusCode).toBe(200)
+    }
+    expect((await t.app.inject({ method: 'GET', url: '/v1/school-calendar' })).statusCode).toBe(429)
+    // The admin's own limit is 600 in a minute.
+    for (let i = 61; i < 600; i++) await get()
+    const over = await get()
+    expect(over.statusCode).toBe(429)
+    expect(over.json().error.code).toBe('rate_limited')
+  })
 })

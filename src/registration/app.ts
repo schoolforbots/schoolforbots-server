@@ -2,7 +2,7 @@ import rateLimit from '@fastify/rate-limit'
 import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from 'fastify'
 import type { Kysely } from 'kysely'
-import { adminRoutes, isAdminUrl, type AdminDeps } from '../admin/app.js'
+import { adminRoutes, isAdminApiRequest, isAdminUrl, type AdminDeps } from '../admin/app.js'
 import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
@@ -63,11 +63,13 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
 
   registerErrorHandler(app)
   // The limiter counts in real time (its own in-memory store), not with the injected clock. The routes that send
-  // or check a code have a stricter limit of their own (see codeRouteConfig), which replaces this one for them.
+  // or check a code have a stricter limit of their own (see codeRouteConfig), which replaces this one for them; the
+  // admin API behind its login has a larger one of its own, so this one lets its requests through.
   app.register(rateLimit, {
     max: deps.config.httpRateLimitPerMinute,
     timeWindow: '1 minute',
     errorResponseBuilder: () => new ApiError(429, 'rate_limited'),
+    allowList: (request) => isAdminApiRequest(request),
   })
   app.register(registrationRoutes(deps))
   app.register(meRoutes(deps))
