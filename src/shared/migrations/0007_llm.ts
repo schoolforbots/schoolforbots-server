@@ -153,7 +153,8 @@ export async function up(db: Kysely<any>): Promise<void> {
     )
     .execute()
 
-  // `matched_term` now names the rule that hit: a word-list entry, or the wording of a rule for what the teacher says.
+  // `matched_term` now names the rule that hit: a word-list entry, or the wording of a phrase rule (the rules for what the
+  // students say).
   await sql`comment on column messages.matched_term is 'The rule that hit: a word-list entry or the text of a phrase rule; null for a privacy hit'`.execute(db)
   await sql`comment on column discipline_records.matched_term is 'The rule that hit: a word-list entry or the text of a phrase rule; null for a privacy hit'`.execute(db)
 }
