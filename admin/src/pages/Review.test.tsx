@@ -812,10 +812,18 @@ describe('giving a day a topic', () => {
     ])
   }
 
-  it('offers the days after today, and asks first when the lesson was approved', async () => {
+  /** Picks `date` in the dialog's date field, as a browser's date picker sets it. */
+  function pickDate(dialog: ReturnType<typeof within>, date: string) {
+    fireEvent.change(dialog.getByLabelText('日期'), { target: { value: date } })
+  }
+
+  const NO_TOPICS = { 'GET api/topics': ok({ topics: [] }) }
+
+  it('starts from the first lesson day after today, takes any later one, and asks first when the lesson was approved', async () => {
     today()
     const server = fakeServer({
       [QUEUE]: ok(topicQueue()),
+      ...NO_TOPICS,
       'GET api/lessons/1': ok(lessonDetail()),
       'PUT api/topics/2026-11-06/junior': ok({ result: 'regenerating' }),
     })
@@ -824,12 +832,11 @@ describe('giving a day a topic', () => {
 
     await user.click(await screen.findByRole('button', { name: '给某一天指定题目' }))
     const dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
-    const days = dialog.getByRole('group', { name: '日期' })
-    expect(within(days).getAllByRole('radio').map((radio) => radio.closest('label')?.textContent)).toEqual([
-      '11/5 周四',
-      '11/6 周五',
-    ])
-    await user.click(within(days).getByRole('radio', { name: '11/6 周五' }))
+    const day = dialog.getByLabelText('日期')
+    expect(day).toHaveValue(THU)
+    expect(day).toHaveAttribute('min', THU)
+    expect(await dialog.findByText('明天以后还没有指定题目。')).toBeInTheDocument()
+    pickDate(dialog, FRI)
     await user.click(within(dialog.getByRole('group', { name: '学部' })).getByRole('radio', { name: '初中部' }))
     await user.type(dialog.getByRole('textbox', { name: '题目' }), '冬至为什么吃饺子')
     await user.click(dialog.getByRole('button', { name: '指定这个题目' }))
@@ -847,25 +854,99 @@ describe('giving a day a topic', () => {
     )
   })
 
-  it('offers the days after the school’s today, whatever this computer’s clock says', async () => {
+  it('starts after the school’s today, whatever this computer’s clock says', async () => {
     // The computer still says Wednesday; the school has reached Thursday.
     today()
-    fakeServer({ [QUEUE]: ok({ ...topicQueue(), today: THU }), 'GET api/lessons/1': ok(lessonDetail()) })
+    fakeServer({ [QUEUE]: ok({ ...topicQueue(), today: THU }), ...NO_TOPICS, 'GET api/lessons/1': ok(lessonDetail()) })
     const user = userEvent.setup()
     show(<ReviewPage />)
 
     await user.click(await screen.findByRole('button', { name: '给某一天指定题目' }))
     const dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
-    const days = dialog.getByRole('group', { name: '日期' })
-    expect(within(days).getAllByRole('radio').map((radio) => radio.closest('label')?.textContent)).toEqual([
-      '11/6 周五',
+    expect(dialog.getByLabelText('日期')).toHaveValue(FRI)
+    expect(dialog.getByLabelText('日期')).toHaveAttribute('min', FRI)
+  })
+
+  it('gives a topic months ahead, lists the topics given, and takes one away from the list', async () => {
+    today()
+    const CHILDRENS_DAY = '2027-06-01'
+    const server = fakeServer({
+      [QUEUE]: ok(topicQueue()),
+      'GET api/topics': ok({
+        topics: [
+          { date: '2026-11-04', division: 'junior', topic: '今天的题目' },
+          { date: THU, division: 'senior', topic: '月亮为什么有圆缺' },
+          { date: CHILDRENS_DAY, division: 'primary', topic: '儿童节是怎么来的' },
+        ],
+      }),
+      'GET api/lessons/1': ok(lessonDetail()),
+      'PUT api/topics/2027-06-05/primary': fail(422, 'topic_refused', '2027-06-05 不上课（周末、放假或还没开学），不能指定题目'),
+      'PUT api/topics/2027-06-01/junior': ok({ result: 'stored' }),
+      'PUT api/topics/2027-06-01/primary': ok({ result: 'stored' }),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    await user.click(await screen.findByRole('button', { name: '给某一天指定题目' }))
+    let dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
+    const list = within(await dialog.findByRole('list', { name: '已经指定的题目' }))
+    // Today's lesson is settled: its topic is not listed.
+    expect(list.getAllByRole('button').map((b) => b.textContent)).toEqual([
+      '11/5 周四 高中部《月亮为什么有圆缺》',
+      '6/1 周二 小学部《儿童节是怎么来的》',
     ])
+
+    // A Saturday: the server says why not.
+    pickDate(dialog, '2027-06-05')
+    await user.type(dialog.getByRole('textbox', { name: '题目' }), '周末的题目')
+    await user.click(dialog.getByRole('button', { name: '指定这个题目' }))
+    expect(await dialog.findByRole('alert')).toHaveTextContent('2027-06-05 不上课')
+
+    pickDate(dialog, CHILDRENS_DAY)
+    await user.click(within(dialog.getByRole('group', { name: '学部' })).getByRole('radio', { name: '初中部' }))
+    await user.type(dialog.getByRole('textbox', { name: '题目' }), '六一的由来')
+    await user.click(dialog.getByRole('button', { name: '指定这个题目' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(lessonCalls(server, 'api/topics/2027-06-01/junior').map((call) => call.body)).toEqual([{ topic: '六一的由来' }])
+    expect(screen.getByRole('status')).toHaveTextContent('已给 6/1 周二 初中部指定题目《六一的由来》。')
+
+    await user.click(screen.getByRole('button', { name: '给某一天指定题目' }))
+    dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
+    const picked = await dialog.findByRole('button', { name: '6/1 周二 小学部《儿童节是怎么来的》' })
+    await user.click(picked)
+    expect(picked).toHaveAttribute('aria-pressed', 'true')
+    expect(dialog.getByLabelText('日期')).toHaveValue(CHILDRENS_DAY)
+    expect(within(dialog.getByRole('group', { name: '学部' })).getByRole('radio', { name: '小学部' })).toBeChecked()
+    expect(dialog.getByRole('textbox', { name: '题目' })).toHaveValue('儿童节是怎么来的')
+    await user.click(dialog.getByRole('button', { name: '取消题目' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(lessonCalls(server, 'api/topics/2027-06-01/primary').map((call) => call.body)).toEqual([{ topic: null }])
+  })
+
+  it('says when the topics given could not be read, and reads them again', async () => {
+    today()
+    let fail_ = true
+    fakeServer({
+      [QUEUE]: ok(topicQueue()),
+      'GET api/topics': () => (fail_ ? { networkError: true } : ok({ topics: [] })),
+      'GET api/lessons/1': ok(lessonDetail()),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    await user.click(await screen.findByRole('button', { name: '给某一天指定题目' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
+    expect(await dialog.findByText(/没能读取已经指定的题目。连不上服务器/)).toBeInTheDocument()
+    fail_ = false
+    await user.click(dialog.getByRole('button', { name: '重新读取' }))
+    expect(await dialog.findByText('明天以后还没有指定题目。')).toBeInTheDocument()
   })
 
   it('takes a topic away, shows the server’s reason for a refusal, and closes with Esc', async () => {
     today()
     const server = fakeServer({
       [QUEUE]: ok(topicQueue()),
+      ...NO_TOPICS,
       'GET api/lessons/1': ok(lessonDetail()),
       'PUT api/topics/2026-11-05/senior': ok({ result: 'stored' }),
       'PUT api/topics/2026-11-05/primary': fail(422, 'topic_refused', '题目不能为空'),
@@ -926,6 +1007,7 @@ describe('giving a day a topic', () => {
         return ok({ result: 'regenerating' })
       },
       'GET api/lessons/8': ok(lessonDetail({ id: 8, date: FRI, division: 'junior', title: '水是怎么变成云的' })),
+      ...NO_TOPICS,
     })
     const user = userEvent.setup()
     show(<ReviewPage />)
@@ -935,7 +1017,7 @@ describe('giving a day a topic', () => {
 
     await user.click(screen.getByRole('button', { name: '给某一天指定题目' }))
     const dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
-    await user.click(within(dialog.getByRole('group', { name: '日期' })).getByRole('radio', { name: '11/6 周五' }))
+    pickDate(dialog, FRI)
     await user.click(within(dialog.getByRole('group', { name: '学部' })).getByRole('radio', { name: '初中部' }))
     await user.type(dialog.getByRole('textbox', { name: '题目' }), '冬至')
     await user.click(dialog.getByRole('button', { name: '指定这个题目' }))

@@ -383,6 +383,18 @@ export function lessonRoutes(deps: AdminDeps): FastifyPluginAsync {
       return { text: `${prompt.system}\n\n${prompt.user}` }
     })
 
+    // The topics given for today and the days after it, any number of days ahead: the queue shows only its own days.
+    app.get('/topics', async () => {
+      const today = localDate(deps.clock.now(), deps.config.timezone)
+      const rows = await db
+        .selectFrom('lessonTopics')
+        .select(['date', 'division', 'topic'])
+        .where('date', '>=', today)
+        .execute()
+      const order = (r: { date: string; division: Division }) => `${r.date}/${DIVISIONS.indexOf(r.division)}`
+      return { topics: rows.sort((a, b) => order(a).localeCompare(order(b))) }
+    })
+
     app.put('/topics/:date/:division', { schema: { params: TopicParams, body: TopicBody } }, async (request) => {
       const { date, division } = request.params
       checkDate(date)

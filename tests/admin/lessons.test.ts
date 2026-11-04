@@ -675,6 +675,29 @@ describe('the topic of a day', () => {
     }
   })
 
+  test('are listed from today on, for any later school day, in date and division order', async () => {
+    await start()
+    const put = (date: string, division: string, topic: string) => api('PUT', `topics/${date}/${division}`, { topic })
+    // Months ahead, far past the days the lessons are made for.
+    const CHILDRENS_DAY = '2027-06-01'
+    expect((await put(CHILDRENS_DAY, 'senior', '儿童节是怎么来的')).statusCode).toBe(200)
+    expect((await put(CHILDRENS_DAY, 'primary', '儿童节')).statusCode).toBe(200)
+    expect((await put(THU, 'junior', '冬至')).statusCode).toBe(200)
+    // A topic of a day gone by stays in the table but is not listed.
+    await t.db.insertInto('lessonTopics').values({ date: '2026-10-30', division: 'junior', topic: '旧题目', createdAt: t.clock.now() }).execute()
+
+    const res = await api('GET', 'topics')
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      topics: [
+        { date: THU, division: 'junior', topic: '冬至' },
+        { date: CHILDRENS_DAY, division: 'primary', topic: '儿童节' },
+        { date: CHILDRENS_DAY, division: 'senior', topic: '儿童节是怎么来的' },
+      ],
+    })
+    expect(await t.db.selectFrom('lessons').select('id').execute()).toEqual([])
+  })
+
   test('given for a day whose lesson is made already sends it back to be made again with the topic', async () => {
     const model = scripted([lessonReply('中秋节的故事')])
     await start({ llm: model.llm })
