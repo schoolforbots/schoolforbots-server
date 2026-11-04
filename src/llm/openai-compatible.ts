@@ -8,7 +8,8 @@ export function createOpenAiCompatible(opts: { baseUrl: string; apiKey: string; 
   const url = `${opts.baseUrl.replace(/\/+$/, '')}/chat/completions`
   return {
     async complete(model, req, signal) {
-      const timeout = AbortSignal.timeout(req.timeoutMs)
+      // AbortSignal.timeout throws on a fraction or a negative number, so round up to at least one millisecond.
+      const timeout = AbortSignal.timeout(Math.max(1, Math.ceil(req.timeoutMs)))
       const body = {
         model,
         max_tokens: req.maxOutputTokens,

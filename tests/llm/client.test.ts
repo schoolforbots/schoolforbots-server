@@ -1,8 +1,11 @@
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import Fastify from 'fastify'
 import type { Kysely } from 'kysely'
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { buildProviders, createLlm, type LlmPurpose } from '../../src/llm/client.js'
 import { createFakeLlm } from '../../src/llm/fake.js'
+import { createOpenAiCompatible } from '../../src/llm/openai-compatible.js'
 import { extractJson } from '../../src/llm/json.js'
 import { LlmContentRefused, LlmUnavailable, type LlmResponse } from '../../src/llm/provider.js'
 import { MemoryMailer } from '../../src/registration/mailer.js'
@@ -147,6 +150,26 @@ describe('concurrency and time budget', () => {
     expect(a.calls[0]?.req.timeoutMs).toBeLessThanOrEqual(100)
   })
 
+  test('a deadline that has already passed starts no request, even with a free slot', async () => {
+    const a = createFakeLlm(() => ok())
+    await expect(createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 0 })).rejects.toBeInstanceOf(LlmUnavailable)
+    expect(a.calls).toHaveLength(0)
+    expect(await rows()).toMatchObject([{ outcome: 'failed' }])
+  })
+
+  test('each attempt is given a whole number of milliseconds', async () => {
+    let n = 0
+    const a = createFakeLlm(async () => {
+      await new Promise((r) => setTimeout(r, 7))
+      return ++n === 1 ? new LlmUnavailable('x') : ok()
+    })
+    await createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 1000 })
+    for (const c of a.calls) {
+      expect(Number.isInteger(c.req.timeoutMs)).toBe(true)
+      expect(c.req.timeoutMs).toBeGreaterThan(0)
+    }
+  })
+
   test('a retry gets only the time that is left', async () => {
     let n = 0
     const a = createFakeLlm(async () => {
@@ -156,6 +179,47 @@ describe('concurrency and time budget', () => {
     await createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 1000 })
     expect(a.calls).toHaveLength(2)
     expect(a.calls[1]!.req.timeoutMs).toBeLessThan(a.calls[0]!.req.timeoutMs - 50)
+  })
+})
+
+describe('through a real provider over HTTP', () => {
+  let server: Server
+  let replies: number[]
+  let baseUrl: string
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      req.resume()
+      req.on('end', () => {
+        const status = replies.shift() ?? 200
+        res.statusCode = status
+        res.setHeader('content-type', 'application/json')
+        res.end(status === 200 ? JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }) : '{}')
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
+  })
+  afterAll(async () => {
+    server.closeAllConnections()
+    await new Promise((resolve) => server.close(resolve))
+  })
+  beforeEach(() => {
+    replies = []
+  })
+
+  const llmOverHttp = () => createLlm({ db, config, clock, providers: { a: createOpenAiCompatible({ baseUrl, apiKey: 'sk-test', refusalMarkers: [] }) } })
+
+  test('a call succeeds although the time left is a fraction of a millisecond', async () => {
+    await expect(llmOverHttp().call('lesson', prompt, { json: true, timeoutMs: 5000 })).resolves.toEqual({ text: '{"ok":true}', inputTokens: 10, outputTokens: 5 })
+    expect(await rows()).toMatchObject([{ outcome: 'ok', inputTokens: 10, outputTokens: 5 }])
+  })
+
+  test('a retry after a server error succeeds with whatever time is left', async () => {
+    replies = [500]
+    await expect(llmOverHttp().call('lesson', prompt, { timeoutMs: 5000 })).resolves.toMatchObject({ text: '{"ok":true}' })
+    expect(replies).toEqual([])
+    expect(await rows()).toMatchObject([{ outcome: 'ok' }])
   })
 })
 
