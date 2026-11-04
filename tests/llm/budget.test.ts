@@ -70,6 +70,29 @@ describe('budget', () => {
     expect(mailer.notices).toHaveLength(1)
   })
 
+  test('a notice whose mail fails is not noted as sent, so a later check sends it', async () => {
+    await db.deleteFrom('llmCalls').execute()
+    await db.deleteFrom('budgetNotices').execute()
+    const mailer = new MemoryMailer()
+    let down = true
+    const flaky = {
+      sendNotice: async (...args: Parameters<MemoryMailer['sendNotice']>) => {
+        if (down) throw new Error('smtp down')
+        return mailer.sendNotice(...args)
+      },
+    } as unknown as MemoryMailer
+    const clock = createTestClock(new Date('2027-03-10T04:00:00Z'))
+    await spend(20, new Date('2027-03-05T00:00:00Z'))
+    const deps = { db, config, clock, mailer: flaky, operatorEmail: 'ops@example.com' }
+    await expect(checkBudget(deps)).rejects.toThrow('smtp down')
+    expect(await db.selectFrom('budgetNotices').select('month').execute()).toEqual([])
+
+    down = false
+    expect(await checkBudget(deps)).toBe('notified')
+    expect(mailer.notices).toHaveLength(1)
+    expect(await checkBudget(deps)).toBe('already')
+  })
+
   test('without an operator email only the row is written', async () => {
     await db.deleteFrom('llmCalls').execute()
     await db.deleteFrom('budgetNotices').execute()

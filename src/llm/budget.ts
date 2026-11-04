@@ -30,8 +30,9 @@ export async function monthSpend(db: Kysely<Database>, month: string, timeZone: 
 
 /**
  * When this month's spend is over the budget, notes it in `budget_notices` and mails the operator, once per month.
- * Only the process whose insert wins sends the mail, so two services crossing the line together send one.
- * Without an operator address only the row is written.
+ * Only the process whose insert wins sends the mail, so two services crossing the line together send one. A mail that
+ * fails takes its row back out (and the error goes to the caller), so a later check sends it. Without an operator
+ * address only the row is written.
  */
 export async function checkBudget(deps: {
   db: Kysely<Database>
@@ -56,11 +57,16 @@ export async function checkBudget(deps: {
   if (inserted === undefined) return 'already'
 
   if (operatorEmail !== null) {
-    await mailer.sendNotice(
-      operatorEmail,
-      '机器人网校 · 大模型花费超出预算',
-      `${month} 的大模型花费已达 ${spent.toFixed(2)} 元，超过本月预算 ${budget} 元。`,
-    )
+    try {
+      await mailer.sendNotice(
+        operatorEmail,
+        '机器人网校 · 大模型花费超出预算',
+        `${month} 的大模型花费已达 ${spent.toFixed(2)} 元，超过本月预算 ${budget} 元。`,
+      )
+    } catch (err) {
+      await db.deleteFrom('budgetNotices').where('month', '=', month).execute()
+      throw err
+    }
   }
   return 'notified'
 }
