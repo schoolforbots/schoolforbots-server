@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest'
 import { createLlm } from '../../src/llm/client.js'
 import { LlmContentRefused, LlmUnavailable } from '../../src/llm/provider.js'
 import type { Database, LessonChange, MessageKind, MessageModeration } from '../../src/shared/schema.js'
-import { runWeeklyReview } from '../../src/weekly/review.js'
+import { MAX_PROMPT_LINE_CHARS, runWeeklyReview } from '../../src/weekly/review.js'
 import { storedStats, weeklyStats } from '../../src/weekly/stats.js'
 import { exampleConfig } from '../helpers/app.js'
 import { createTestClock } from '../helpers/clock.js'
@@ -183,6 +183,50 @@ test('the model sees the lines rules blocked, never a privacy hit, the second la
   expect(reasons.user).toContain('多讲点历史')
   expect(reasons.user).not.toContain('上一周的理由')
   expect(reasons.user).not.toContain('正常的话')
+})
+
+test('a busy week is cut to fit: fewer lines a rule first, every rule keeping one, and examples only from those shown', async () => {
+  const classId = await insertClass(db, { classNo: 1 })
+  const senderId = (await insertStudent(db, { status: 'active', classId })).id
+  const [startsAt, endsAt] = [at('2026-10-27', '20:00:00'), at('2026-10-27', '20:30:00')]
+  const sessionId = await insertSession(db, { classId, date: '2026-10-27', startsAt, endsAt })
+  // Fifty rules, each with twenty lines as long as a line may be: far more than one prompt should carry.
+  const long = (rule: number, n: number) => `规则${rule}的第${n}句`.padEnd(config.chat.maxMessageChars, '话')
+  const rows = Array.from({ length: 50 }, (_, rule) =>
+    Array.from({ length: 20 + (rule === 0 ? 1 : 0) }, (_, n) => ({
+      sessionId,
+      classId,
+      senderId,
+      kind: 'chat' as const,
+      conversationId: null,
+      recipientId: null,
+      text: long(rule, n),
+      moderation: 'sensitive' as const,
+      matchedTerm: `词${rule}`,
+      delivered: false,
+      pluginType: 'test',
+      pluginVersion: '0.0.0',
+      createdAt: at('2026-10-27', `20:${String(10 + (n % 40)).padStart(2, '0')}:00`),
+    })),
+  ).flat()
+  const ids = []
+  for (const row of rows) ids.push((await db.insertInto('messages').values(row).returning('id').executeTakeFirstOrThrow()).id)
+  // The model names a line of the first rule that was left out to make room.
+  const lastOfFirst = ids[20]!
+  const m = model({ rules: JSON.stringify({ removeRules: [{ kind: 'word', value: '词0', examples: [ids[0], lastOfFirst] }] }), reasons: NONE.reasons })
+  await review(m.llm)
+
+  const user = m.calls.find((c) => c.user.includes('removeRules'))!.user
+  const groups = user
+    .slice(user.indexOf('[被拦消息开始]\n') + '[被拦消息开始]\n'.length, user.indexOf('\n[被拦消息结束]'))
+    .split('\n')
+    .map((line) => JSON.parse(line) as { rule: string; lines: { id: number; text: string }[] })
+  expect(groups).toHaveLength(50)
+  for (const g of groups) expect(g.lines.length).toBeGreaterThanOrEqual(1)
+  const chars = groups.flatMap((g) => g.lines).reduce((sum, l) => sum + [...l.text].length, 0)
+  expect(chars).toBeLessThanOrEqual(MAX_PROMPT_LINE_CHARS)
+  expect(groups[0]!.lines.map((l) => l.id)).not.toContain(lastOfFirst)
+  expect((await stored())[0]!.suggestions.removeRules).toEqual([{ kind: 'word', value: '词0', examples: [ids[0]] }])
 })
 
 test('the suggestions keep only the rules sent, with the kind of their group and examples from it', async () => {
