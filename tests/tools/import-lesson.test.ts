@@ -206,7 +206,60 @@ describe('importLesson', () => {
     expect(await refusal(lessonFile({ title: '示 例 违 禁 词' }))).toContain('敏感词')
   })
 
+  describe('call-on questions', () => {
+    const callOnQuestions = { review: '光往哪边偏？', extension: '筷子为什么看起来是弯的？' }
+
+    test('are stored when the file has them', async () => {
+      const result = await run(lessonFile({ callOnQuestions: { review: ` ${callOnQuestions.review}`, extension: callOnQuestions.extension } }))
+      expect((await lessonRows())[0]?.callOnQuestions).toEqual(callOnQuestions)
+      const [version] = await db.selectFrom('lessonVersions').selectAll().where('lessonId', '=', result.lessonId).execute()
+      expect(version).toMatchObject({ version: 1, change: 'generate', content: { callOnQuestions } })
+    })
+
+    test.each([
+      ['only one of them', { review: '复习' }, /引申题/],
+      ['one that is too long', { ...callOnQuestions, review: '问'.repeat(121) }, /复习题.*120/],
+      ['something that is not a pair of questions', '复习题', /点名题/],
+    ])('a file with %s is refused', async (_name, questions, pattern) => {
+      expect(await refusal(lessonFile({ callOnQuestions: questions }))).toMatch(pattern)
+    })
+
+    test('a blocked call-on question is refused, naming it and the category', async () => {
+      const message = await refusal(lessonFile({ callOnQuestions: { ...callOnQuestions, extension: '什么是示例违禁词？' } }))
+      expect(message).toMatch(/引申题.*敏感词/)
+      expect(message).not.toContain('示例违禁词')
+    })
+  })
+
+  test('--approve with blocked content is refused like any import of it, and nothing is stored', async () => {
+    const message = await refusal(lessonFile({ title: '示例违禁词' }), { approve: true })
+    expect(message).toMatch(/标题.*敏感词/)
+  })
+
+  test('a title or segment over the length limits is refused', async () => {
+    expect(await refusal(lessonFile({ title: '题'.repeat(41) }))).toMatch(/标题.*40/)
+    expect(await refusal(lessonFile({ segments: segments().map((s, i) => (i === 1 ? { ...s, gist: '要'.repeat(61) } : s)) }))).toMatch(
+      /第 2 段.*60/,
+    )
+  })
+
   describe('when the day already has a lesson', () => {
+    test('each import is a version of its own, and the approval goes with the version approved', async () => {
+      const first = await run(lessonFile({ title: '旧课' }), { approve: true })
+      await run(lessonFile({ title: '新课' }), { approve: true })
+      const versions = await db
+        .selectFrom('lessonVersions')
+        .select(['version', 'change', 'content'])
+        .where('lessonId', '=', first.lessonId)
+        .orderBy('version')
+        .execute()
+      expect(versions.map((v) => [v.version, v.change, v.content.title])).toEqual([
+        [1, 'generate', '旧课'],
+        [2, 'generate', '新课'],
+      ])
+      expect((await lessonRows())[0]).toMatchObject({ title: '新课', version: 2, approvedAt: clock.now(), source: 'import' })
+    })
+
     test('a draft is replaced in place', async () => {
       const first = await run(lessonFile({ title: '旧课' }))
       clock.advance(60 * 60_000)
