@@ -11,9 +11,10 @@ import type { Database, StudentsTable } from '../shared/schema.js'
 // every penalty those breaks no longer earn.
 //
 // A penalty is a `suspension` or `expulsion` record on the student whose breaks earned it (the offender). It reached
-// the offender and the students named in its `detail.alsoApplied`: the other students of the same AI id. Lifting it
-// marks the record revoked and gives those students back what they had, unless another penalty still in force holds
-// them.
+// the offender and the students named in its `detail.alsoApplied`: the other students of the same AI id. Of two
+// suspensions that reached a student, the one that ends later is what holds them (a suspension never cuts another
+// short). Lifting a penalty marks the record revoked and gives those students back what they had, unless another
+// penalty still in force holds them; a suspension still running that reached them is then what is left.
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -64,6 +65,28 @@ function holds(p: Penalty, s: LockedStudent, at: Date): boolean {
   const until = untilOf(p)
   if (until === null || s.suspendedUntil?.getTime() !== until.getTime()) return false
   return s.status === 'suspended' || (s.status === 'dropped' && until.getTime() > at.getTime())
+}
+
+/**
+ * Whether the penalty that reached the student is in force at `at`, whether or not it is the one that holds them: an
+ * expulsion while they are expelled, a suspension until its date.
+ */
+function inForce(p: Penalty, s: LockedStudent, at: Date): boolean {
+  if (!reached(p).includes(s.id)) return false
+  if (p.kind === 'expulsion') return s.status === 'expelled'
+  const until = untilOf(p)
+  return until !== null && until.getTime() > at.getTime()
+}
+
+/** The latest end of the suspensions of `penalties` still running at `at` that reached the student; null when none is. */
+function latestSuspension(penalties: Penalty[], s: LockedStudent, at: Date): Date | null {
+  let latest: Date | null = null
+  for (const p of penalties) {
+    const until = untilOf(p)
+    if (p.kind !== 'suspension' || until === null || !inForce(p, s, at)) continue
+    if (latest === null || until.getTime() > latest.getTime()) latest = until
+  }
+  return latest
 }
 
 /** The penalties not revoked of the students, oldest first. */
@@ -123,9 +146,23 @@ async function restore(trx: Kysely<Database>, s: LockedStudent): Promise<void> {
 }
 
 /**
+ * Suspends a student held by a penalty being lifted until `until`, the end of another suspension that reached them and
+ * still runs: an expelled student is dropped with that date, a suspended or dropped one keeps their status.
+ */
+async function suspendInstead(trx: Kysely<Database>, s: LockedStudent, until: Date): Promise<void> {
+  const change: Updateable<StudentsTable> =
+    s.status === 'expelled' ? { status: 'dropped', classId: null, suspendedUntil: until } : { suspendedUntil: until }
+  await trx.updateTable('students').set(change).where('id', '=', s.id).execute()
+  if (s.status === 'expelled') s.status = 'dropped'
+  s.suspendedUntil = until
+}
+
+/**
  * Lifts the penalties `lifting`: their records are revoked, an expulsion's bans removed, and each student one of them
- * holds is given back what they had, unless another penalty of `all` not being lifted holds them too. `students` are
- * the locked rows of everyone the penalties reached, by student number. The students given back, by student number.
+ * holds is given back what they had, unless another penalty of `all` not being lifted holds them too. A student another
+ * suspension of `all` reached that still runs is held by the latest of those instead. `students` are the locked rows
+ * of everyone the penalties reached, by student number. Returns the students a lifted penalty held, given back what
+ * they had or left under the shorter suspension, by student number.
  */
 async function lift(
   trx: Kysely<Database>,
@@ -145,13 +182,15 @@ async function lift(
     if (p.kind === 'expulsion' && offender !== undefined) await removeBans(trx, p, offender)
   }
   const standing = all.filter((p) => !lifting.includes(p))
-  const restored: number[] = []
+  const freed: number[] = []
   for (const s of students.values()) {
     if (!lifting.some((p) => holds(p, s, at)) || standing.some((p) => holds(p, s, at))) continue
-    await restore(trx, s)
-    restored.push(s.id)
+    const still = latestSuspension(standing, s, at)
+    if (still === null) await restore(trx, s)
+    else await suspendInstead(trx, s, still)
+    freed.push(s.id)
   }
-  return restored
+  return freed
 }
 
 /**
@@ -203,7 +242,7 @@ async function otherStoppedLine(trx: Kysely<Database>, studentId: number, sessio
  * 3. Each penalty in force whose offender had a break revoked is weighed again, as it was given: with the same
  *    thresholds and windows, at the time it was given, counting the breaks that still stand. A suspension that falls
  *    short of its threshold is lifted; so is an expulsion, even when what is left still earns a suspension (the student
- *    is dropped, not suspended).
+ *    is dropped, not suspended: held only by a suspension given before that still runs, if there is one).
  *
  * The students are locked as the penalties after class lock them (`lockStudentsOfAiIds`), before anything of theirs
  * changes. Dropping a rule again changes nothing more. Returns how many breaks were revoked and the students whose
@@ -261,7 +300,8 @@ export async function excludeRule(
     for (const p of penalties) {
       // A penalty the admin gave by hand was not earned by breaks, so a dropped rule cannot take it back.
       if (p.detail.by === 'admin' || !offenders.has(p.studentId)) continue
-      if (![...students.values()].some((s) => holds(p, s, now))) continue
+      // One a longer suspension outlasts holds nobody, but is still in force: it is taken back all the same.
+      if (![...students.values()].some((s) => holds(p, s, now) || inForce(p, s, now))) continue
       const due = await schoolRulePenalty(trx, config.discipline, p.studentId, p.createdAt)
       if (p.kind === 'expulsion' ? due !== 'expulsion' : due === null) unearned.push(p)
     }
@@ -270,9 +310,10 @@ export async function excludeRule(
 }
 
 /**
- * Lifts whatever penalty holds the student, earned or not, for every student it reached: the records of the penalties
- * are revoked, an expulsion's bans removed; an expelled student goes back to dropped (no seat, free to re-enroll at
- * once), a suspended one back to class, and a dropped one may re-enroll at once. The student's breaks stay as they are.
+ * Lifts every penalty in force on the student, earned or not (the one that holds them, and any other suspension that
+ * reached them and still runs), for every student it reached: the records of the penalties are revoked, an
+ * expulsion's bans removed; an expelled student goes back to dropped (no seat, free to re-enroll at once), a suspended
+ * one back to class, and a dropped one may re-enroll at once. The student's breaks stay as they are.
  * Runs in the caller's transaction and locks the students of the AI id as the penalties after class do.
  *
  * `_config` is not read: lifting goes by what the penalty did, not by the thresholds.
@@ -289,7 +330,7 @@ export async function liftPenalty(
   const outcome = student.status === 'expelled' ? 'expulsion_lifted' : 'suspension_lifted'
 
   const penalties = await penaltiesOf(trx, [...students.keys()])
-  const lifting = penalties.filter((p) => holds(p, student, at))
+  const lifting = penalties.filter((p) => holds(p, student, at) || inForce(p, student, at))
   if (lifting.length > 0) {
     await lift(trx, lifting, penalties, students, at)
     return outcome
