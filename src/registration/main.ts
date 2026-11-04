@@ -39,6 +39,12 @@ async function main(): Promise<void> {
     { refreshMs: config.switchRefreshSeconds * 1000 },
   )
 
+  // What starts before the app logs through it too, once it exists.
+  const log = {
+    info: (obj: unknown, msg?: string) => logger?.info(obj, msg),
+    error: (obj: unknown, msg?: string) => logger?.error(obj, msg),
+  }
+
   let mailer: Mailer
   if (env.mail.transport === 'smtp') {
     mailer = createSmtpMailer(env.mail.smtpUrl, env.mailFrom, config.verificationCode.ttlMinutes)
@@ -46,6 +52,21 @@ async function main(): Promise<void> {
     console.warn('[mail] MAIL_TRANSPORT=console：验证码只会打印在服务日志里，不会发邮件（仅限本地开发使用）')
     mailer = new ConsoleMailer(config.verificationCode.ttlMinutes)
   }
+
+  // The model, with its costs recorded and the monthly budget watched. The lessons are made with it, and the admin
+  // is given it and the prompts too.
+  const llm = createLlm({
+    db,
+    config,
+    clock: systemClock,
+    providers,
+    fake: env.llmFake,
+    budget: { mailer, operatorEmail: env.operatorEmail },
+    log,
+  })
+
+  // Read from the database, so a change made in the admin reaches this service within a few seconds.
+  const switches = await startSwitches({ db, config, clock: systemClock, log })
 
   const app = buildRegistrationApp({
     db,
@@ -56,25 +77,10 @@ async function main(): Promise<void> {
     schoolRules,
     trustProxy: env.trustProxy,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
+    admin: { db, config, clock: systemClock, env, llm, prompts, moderator, switches, mailer },
   })
   logger = app.log
-
-  // The model, with its costs recorded and the monthly budget watched. The lessons are made with it here; the admin
-  // will be given it and the prompts too.
-  const llm = createLlm({
-    db,
-    config,
-    clock: systemClock,
-    providers,
-    fake: env.llmFake,
-    budget: { mailer, operatorEmail: env.operatorEmail },
-    log: app.log,
-  })
   const lessons: GeneratorDeps = { db, config, clock: systemClock, moderator, llm, prompts, log: app.log }
-
-  // Read from the database, so a change made in the admin reaches this service within a few seconds. Nothing reads it
-  // yet; the admin will be given it.
-  const switches = await startSwitches({ db, config, clock: systemClock, log: app.log })
 
   const runAndLog = async (trigger: 'startup' | 'midnight') => {
     try {

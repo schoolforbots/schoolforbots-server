@@ -6,7 +6,7 @@ import type { Database } from './schema.js'
 
 export type SwitchName = 'teacherLlm' | 'secondLayerTeacher' | 'secondLayerChat'
 
-const NAMES: readonly SwitchName[] = ['teacherLlm', 'secondLayerTeacher', 'secondLayerChat']
+export const SWITCH_NAMES: readonly SwitchName[] = ['teacherLlm', 'secondLayerTeacher', 'secondLayerChat']
 
 export interface Switches {
   isOn(name: SwitchName): boolean
@@ -23,8 +23,8 @@ export interface SwitchesDeps {
   log?: Pick<FastifyBaseLogger, 'error'>
 }
 
-function isSwitchName(name: string): name is SwitchName {
-  return (NAMES as readonly string[]).includes(name)
+export function isSwitchName(name: string): name is SwitchName {
+  return (SWITCH_NAMES as readonly string[]).includes(name)
 }
 
 /**

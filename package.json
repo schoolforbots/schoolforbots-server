@@ -15,11 +15,14 @@
     "job:daily": "tsx --env-file-if-exists=.env src/registration/run-daily-job.ts",
     "lesson:import": "tsx --env-file-if-exists=.env src/tools/import-lesson.ts",
     "dev:seed": "tsx --env-file-if-exists=.env src/tools/dev-seed.ts",
+    "admin:password": "tsx src/tools/admin-password.ts",
     "sim": "tsx src/tools/sim-bots.ts",
     "protocol:export": "tsx scripts/export-protocol.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.5",
     "@fastify/rate-limit": "^11.2.1",
+    "@fastify/static": "^10.1.9",
     "@fastify/type-provider-typebox": "^6.3.0",
     "@fastify/websocket": "^11.3.6",
     "croner": "^11.0.0",

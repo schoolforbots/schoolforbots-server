@@ -1,0 +1,93 @@
+import type { FastifyServerOptions } from 'fastify'
+import { base32Encode, hashPassword, totpNow } from '../../src/admin/auth.js'
+import type { AdminDeps } from '../../src/admin/app.js'
+import { buildRegistrationApp } from '../../src/registration/app.js'
+import { MemoryMailer } from '../../src/registration/mailer.js'
+import { loadEnv } from '../../src/shared/config.js'
+import { loadSchoolRules } from '../../src/shared/school-rules.js'
+import { createTestClock } from './clock.js'
+import { createTestDb } from './db.js'
+import { exampleConfig, exampleModerator } from './app.js'
+import { examplePrompts, switches as fixedSwitches } from './llm.js'
+import { fileURLToPath } from 'node:url'
+
+/** A made-up path: the real one never appears in the repository. */
+export const TEST_ADMIN_PATH = '/test-back-office'
+export const TEST_PASSWORD = 'a test password, not a real one'
+export const TEST_TOTP_SECRET = base32Encode(Buffer.from('12345678901234567890'))
+const PASSWORD_HASH = hashPassword(TEST_PASSWORD)
+
+export const CSRF = { 'x-requested-with': 'admin' }
+
+/** The registration service with the admin pages on at `TEST_ADMIN_PATH`, on a fresh database and a controllable clock. */
+export async function buildAdminTestApp(
+  opts: { admin?: boolean; logger?: FastifyServerOptions['logger']; distDir?: string; switches?: AdminDeps['switches'] } = {},
+) {
+  const { db, destroy: destroyDb } = await createTestDb()
+  const config = exampleConfig()
+  const clock = createTestClock(new Date('2026-11-02T12:00:00+08:00'))
+  const mailer = new MemoryMailer()
+  const moderator = exampleModerator()
+  const env = loadEnv(
+    {
+      DATABASE_URL: 'postgres://unused',
+      MAIL_TRANSPORT: 'console',
+      ADMIN_PATH: TEST_ADMIN_PATH,
+      ADMIN_PASSWORD_HASH: PASSWORD_HASH,
+      ADMIN_TOTP_SECRET: TEST_TOTP_SECRET,
+    },
+    () => {},
+  )
+  const switches = opts.switches ?? fixedSwitches()
+  const app = buildRegistrationApp({
+    db,
+    config,
+    moderator,
+    mailer,
+    clock,
+    schoolRules: loadSchoolRules(fileURLToPath(new URL('../../school-rules', import.meta.url))),
+    trustProxy: false,
+    logger: opts.logger,
+    admin:
+      opts.admin === false
+        ? undefined
+        : { db, config, clock, env, llm: null, prompts: examplePrompts(), moderator, switches, mailer, distDir: opts.distDir },
+  })
+  try {
+    await app.ready()
+  } catch (err) {
+    await destroyDb()
+    throw err
+  }
+
+  const url = (path: string) => `${TEST_ADMIN_PATH}/${path}`
+  async function login(over: { password?: string; code?: string; remoteAddress?: string; headers?: Record<string, string> } = {}) {
+    return app.inject({
+      method: 'POST',
+      url: url('api/login'),
+      headers: over.headers ?? CSRF,
+      remoteAddress: over.remoteAddress,
+      payload: { password: over.password ?? TEST_PASSWORD, code: over.code ?? totpNow(TEST_TOTP_SECRET, clock.now()) },
+    })
+  }
+  /** Logs in and returns the Cookie header value for the following requests. */
+  async function session(): Promise<string> {
+    const res = await login()
+    if (res.statusCode !== 200) throw new Error(`login failed: ${res.statusCode}`)
+    return `sfb_admin=${res.cookies[0]?.value}`
+  }
+
+  return {
+    app,
+    db,
+    config,
+    clock,
+    url,
+    login,
+    session,
+    async destroy() {
+      await app.close()
+      await destroyDb()
+    },
+  }
+}
