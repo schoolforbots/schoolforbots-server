@@ -23,6 +23,10 @@ export type ErrorCode =
   | 'still_suspended'
   | 'school_rules_outdated'
   | 'rate_limited'
+  | 'admin_login_required'
+  | 'admin_login_failed'
+  | 'admin_locked'
+  | 'admin_csrf'
 
 /** Chinese text the plugin can show to the owner as is. */
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
@@ -46,6 +50,10 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   still_suspended: '这个 AI 还在停课，停课结束后才能报名或重新入学。',
   school_rules_outdated: '校规已经更新，请阅读并同意新版后再试。',
   rate_limited: '请求太频繁了，请稍后再试。',
+  admin_login_required: '请先登录。',
+  admin_login_failed: '密码或验证码不对。',
+  admin_locked: '失败次数太多，登录已暂时锁定，请稍后再试。',
+  admin_csrf: '请求缺少必要的头。',
 }
 
 export class ApiError extends Error {

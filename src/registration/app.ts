@@ -1,7 +1,8 @@
 import rateLimit from '@fastify/rate-limit'
 import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from '@fastify/type-provider-typebox'
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify'
+import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from 'fastify'
 import type { Kysely } from 'kysely'
+import { adminRoutes, isAdminUrl, type AdminDeps } from '../admin/app.js'
 import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
@@ -27,11 +28,37 @@ export interface RegistrationDeps {
   trustProxy: boolean
   /** Fastify logger options; unset means no logging. Unexpected errors are logged at error level. */
   logger?: FastifyServerOptions['logger']
+  /** The admin pages. They are served only when `admin.env.admin` is set; without it every path under them is a 404. */
+  admin?: AdminDeps
+}
+
+/** Logger options whose request line writes `[admin]` instead of a URL under the admin path. */
+function hidingAdminPath(logger: RegistrationDeps['logger'], adminPath: string): FastifyServerOptions['logger'] {
+  if (logger === undefined || logger === false) return logger
+  const options = logger === true ? {} : logger
+  // A logger object already built cannot take serializers; it is used as it is.
+  if ('info' in options && typeof options.info === 'function') return logger
+  return {
+    ...options,
+    serializers: {
+      ...options.serializers,
+      // The same fields as Fastify's own request serializer, less the path and the query.
+      req: (request: FastifyRequest) => ({
+        method: request.method,
+        url: isAdminUrl(request.url, adminPath) ? '[admin]' : request.url,
+        host: request.host,
+        remoteAddress: request.ip,
+        remotePort: request.socket?.remotePort,
+      }),
+    },
+  }
 }
 
 /** The plugin-facing HTTP service: error handling, a per-IP rate limit, and every route group. */
 export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
-  const app = Fastify({ trustProxy: deps.trustProxy, logger: deps.logger }).withTypeProvider<TypeBoxTypeProvider>()
+  const adminPath = deps.admin?.env.admin?.path
+  const logger = adminPath === undefined ? deps.logger : hidingAdminPath(deps.logger, adminPath)
+  const app = Fastify({ trustProxy: deps.trustProxy, logger }).withTypeProvider<TypeBoxTypeProvider>()
   app.setValidatorCompiler(TypeBoxValidatorCompiler)
 
   registerErrorHandler(app)
@@ -47,6 +74,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   app.register(recordsRoutes(deps))
   app.register(keyResetRoutes(deps))
   app.register(schoolRoutes(deps))
+  if (deps.admin !== undefined && adminPath !== undefined) app.register(adminRoutes(deps.admin), { prefix: adminPath })
 
   return app
 }
