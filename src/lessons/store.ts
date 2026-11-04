@@ -1,5 +1,5 @@
 import type { Kysely, Selectable, Transaction } from 'kysely'
-import type { Moderator } from '../moderation/moderator.js'
+import type { ModerationCategory, Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { Division } from '../shared/config.js'
 import { lessonLockKey, lock } from '../shared/db.js'
@@ -43,6 +43,13 @@ export type LessonPart =
 
 /** The rule a privacy hit is flagged under: privacy hits name no rule of their own. */
 export const PRIVACY_FLAG_RULE = '隐私信息'
+
+/** The kind of red mark each category of hit makes, so the page can say which it is without guessing from the rule. */
+const FLAG_KIND: Record<ModerationCategory, LessonFlag['kind']> = {
+  sensitive: 'word',
+  injection: 'pattern',
+  privacy: 'privacy',
+}
 
 export interface LessonStoreDeps {
   db: Kysely<Database>
@@ -112,8 +119,13 @@ function flagsOf(moderator: Moderator, content: LessonContent, falsePositives: r
   const skipped = new Set(falsePositives)
   const flags: LessonFlag[] = []
   const mark = (part: LessonFlag['part'], index: number | null, text: string) => {
-    const rules = new Set(moderator.checkAll(text).map((hit) => hit.rule ?? PRIVACY_FLAG_RULE))
-    for (const rule of rules) if (!skipped.has(rule)) flags.push({ part, index, rule })
+    // Each rule once, in the order of its first hit.
+    const kinds = new Map<string, LessonFlag['kind']>()
+    for (const hit of moderator.checkAll(text)) {
+      const rule = hit.rule ?? PRIVACY_FLAG_RULE
+      if (!kinds.has(rule)) kinds.set(rule, FLAG_KIND[hit.category])
+    }
+    for (const [rule, kind] of kinds) if (!skipped.has(rule)) flags.push({ part, index, kind, rule })
   }
   mark('title', null, content.title)
   content.segments.forEach((s, i) => {

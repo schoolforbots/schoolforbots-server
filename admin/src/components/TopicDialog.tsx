@@ -76,7 +76,7 @@ export function TopicDialog({
         value === null
           ? `已取消 ${day} ${label}的题目。`
           : `已给 ${day} ${label}指定题目《${value.trim()}》。` +
-            (result === 'regenerating' ? '这节课正在按新题目重新生成，生成好以后回到待审。' : '')
+            (result === 'regenerating' ? '这节课已经回到待审，正在按新题目重新生成，新稿出来以后再审。' : '')
       onDone(notice, date, division)
     } catch (error) {
       setRefusal((last) => ({ reason: (error as ApiError).message, n: (last?.n ?? 0) + 1 }))

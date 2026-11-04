@@ -119,12 +119,14 @@ export type LessonPart =
 export type CallOnKind = 'review' | 'extension'
 
 /**
- * A red mark: `rule` is the word-list word, the anti-trick rule as its line reads, or `隐私信息` for text that looks
- * like private information. `index` is the segment (0-based), null for the parts a lesson has one of.
+ * A red mark. `kind` says what hit; `rule` is the word-list word, the anti-trick rule as its line reads, or `隐私信息`
+ * for text that looks like private information. `index` is the segment (0-based), null for the parts a lesson has one
+ * of.
  */
 export interface LessonFlag {
   part: LessonPart['part']
   index: number | null
+  kind: 'word' | 'pattern' | 'privacy'
   rule: string
 }
 

@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LESSON_QUEUE_PATH, useLoad, type LessonDetail, type LessonQueue } from '../api.js'
-import { fail, fakeServer, lessonDetail, lessonQueue, ok, queueSlot, show, type Route } from '../test-api.js'
+import { fail, fakeServer, lessonDetail, lessonQueue, ok, queueSlot, show } from '../test-api.js'
 import { Review } from './Review.js'
 
 function ReviewPage() {
@@ -36,16 +36,25 @@ function lessonCalls(server: ReturnType<typeof fakeServer>, path: string) {
   return server.calls.filter((call) => call.path === path)
 }
 
-/** A lesson flagged three ways: a word in segment 3, an anti-trick rule in the review question, privacy in a gist. */
+/**
+ * A lesson flagged three ways: privacy in the gist of segment 1, a word in segment 3, and an anti-trick rule written
+ * in plain words in the review question (the server says which kind each is).
+ */
 function flaggedLesson(lesson: Partial<LessonDetail> = {}) {
   return lessonDetail({
     flags: [
-      { part: 'segment', index: 2, rule: '花青素' },
-      { part: 'review', index: null, rule: '(忽略|无视)(之前|以上)的?(指令|规则)' },
-      { part: 'gist', index: 0, rule: '隐私信息' },
+      { part: 'gist', index: 0, kind: 'privacy', rule: '隐私信息' },
+      { part: 'segment', index: 2, kind: 'word', rule: '花青素' },
+      { part: 'review', index: null, kind: 'pattern', rule: '照着我说的做' },
     ],
     ...lesson,
   })
+}
+
+/** The browser's clock on Wednesday 4 November, the day before the lessons of the fixtures. */
+function today() {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-04T10:00:00+08:00'))
 }
 
 /** Esc as a browser sends it: the dialogs read `keyCode`, which user-event leaves at 0. */
@@ -162,10 +171,13 @@ describe('the review page', () => {
     expect(review.getByRole('group', { name: '题目' })).toHaveTextContent('叶子变黄，是因为什么东西分解了？')
   })
 
-  it('marks the flagged words with the red pen and notes every mark in the margin', async () => {
+  it('marks the flagged words with the red pen and notes every mark by the kind the server gives', async () => {
+    const lesson = flaggedLesson()
+    lesson.content.segments[3] = { text: '有人说这是 C++ 式的落叶。', gist: '落叶为了保住水分' }
+    lesson.flags.push({ part: 'segment', index: 3, kind: 'word', rule: 'c++' })
     fakeServer({
-      [QUEUE]: ok(oneLesson({ status: 'flagged', flags: 3 })),
-      'GET api/lessons/1': ok(flaggedLesson()),
+      [QUEUE]: ok(oneLesson({ status: 'flagged', flags: 4 })),
+      'GET api/lessons/1': ok(lesson),
     })
     show(<ReviewPage />)
 
@@ -176,9 +188,16 @@ describe('the review page', () => {
     // The gist of segment 3 has no mark of its own.
     expect(within(third.getByRole('group', { name: '要点' })).getByText('没有批注')).toBeInTheDocument()
 
+    // A word with a pattern's characters in it is still a word, underlined as written.
+    const fourth = within(screen.getByRole('region', { name: '第 4 段' }))
+    expect(fourth.getByText('C++', { selector: 'mark' })).toBeInTheDocument()
+    expect(fourth.getByText('词库命中“c++”一词')).toBeInTheDocument()
+
+    // An anti-trick rule in plain words is still a rule: named as one, never printed, never underlined.
     const review = within(screen.getByRole('region', { name: '复习题' }))
     expect(review.getByText('命中一条防骗规则')).toBeInTheDocument()
-    expect(screen.queryByText(/忽略\|无视/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/照着我说的做/)).not.toBeInTheDocument()
+    expect(review.queryByText(/./, { selector: 'mark' })).not.toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: '第 1 段' })).getByText('可能含有隐私信息')).toBeInTheDocument()
     expect(within(screen.getByRole('group', { name: '标题' })).getByText('没有批注')).toBeInTheDocument()
   })
@@ -217,7 +236,7 @@ describe('the review page', () => {
       ])
     const server = fakeServer({
       [QUEUE]: () => ok(queue()),
-      'GET api/lessons/1': ok(lessonDetail({ flags: [{ part: 'segment', index: 2, rule: '花青素' }] })),
+      'GET api/lessons/1': ok(lessonDetail({ flags: [{ part: 'segment', index: 2, kind: 'word', rule: '花青素' }] })),
       'POST api/lessons/1/false-positive': ok(lessonDetail({ version: 2, falsePositives: ['花青素'] })),
       'POST api/lessons/1/approve': () => {
         approved = true
@@ -429,6 +448,106 @@ describe('the review page', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('这节课已经开课，不能再改。')
   })
 
+  it('says the day has begun, with the focus, once the lesson read again is locked', async () => {
+    let reads = 0
+    fakeServer({
+      [QUEUE]: ok(oneLesson()),
+      'GET api/lessons/1': () => {
+        reads++
+        return ok(lessonDetail({ locked: reads > 1 }))
+      },
+      'POST api/lessons/1/approve': fail(409, 'lesson_locked', '这节课已经开课，不能再改。'),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    await user.click(await screen.findByRole('button', { name: '通过，审下一节' }))
+
+    const notice = await screen.findByText('这一天已经开课，这节课没赶在开门前通过，那天改上了自习。它不能再改了。')
+    expect(notice).toHaveFocus()
+    expect(screen.queryByRole('button', { name: '通过，审下一节' })).not.toBeInTheDocument()
+  })
+
+  it('moves the focus on from each 这是误伤 to the next, and to approving after the last', async () => {
+    let lesson = flaggedLesson()
+    fakeServer({
+      [QUEUE]: ok(oneLesson({ status: 'flagged', flags: 3 })),
+      'GET api/lessons/1': () => ok(lesson),
+      'POST api/lessons/1/false-positive': (call) => {
+        const { rule } = call.body as { rule: string }
+        lesson = { ...lesson, version: lesson.version + 1, flags: lesson.flags.filter((flag) => flag.rule !== rule) }
+        return ok(lesson)
+      },
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+    const wrong = (region: string) =>
+      within(screen.getByRole('region', { name: region })).getByRole('button', { name: '这是误伤' })
+
+    await screen.findByRole('region', { name: '第 1 段' })
+    // In reading order: the gist of segment 1, the review question (after segment 2), segment 3.
+    wrong('第 1 段').focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(wrong('复习题')).toHaveFocus())
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(wrong('第 3 段')).toHaveFocus())
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(screen.getByRole('button', { name: '通过，审下一节' })).toHaveFocus())
+  })
+
+  it('reads the lesson again after a refused 这是误伤, and puts the focus back on the part', async () => {
+    fakeServer({
+      [QUEUE]: ok(oneLesson({ status: 'flagged', flags: 3 })),
+      'GET api/lessons/1': ok(flaggedLesson()),
+      'POST api/lessons/1/false-positive': fail(409, 'stale_version', '这节课在别处改过了，刷新后再改。'),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    const first = within(await screen.findByRole('region', { name: '第 1 段' }))
+    await user.click(first.getByRole('button', { name: '这是误伤' }))
+    await user.click(await first.findByRole('button', { name: '刷新' }))
+
+    expect(first.getByRole('group', { name: '要点' })).toHaveFocus()
+  })
+
+  it('starts no other change while one is under way, and keeps the box that waits for it', async () => {
+    const server = fakeServer({
+      [QUEUE]: ok(oneLesson()),
+      'GET api/lessons/1': ok(lessonDetail()),
+      'POST api/lessons/1/rewrite': { pending: true },
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    const second = within(await screen.findByRole('region', { name: '第 2 段' }))
+    await user.click(second.getByRole('button', { name: '重写这段' }))
+    await user.type(second.getByLabelText('重写的理由'), '太难懂了')
+    await user.click(second.getByRole('button', { name: '请大模型重写' }))
+
+    for (const name of ['改字', '重写这段', '重写这道题', '整节课重写', '通过，审下一节']) {
+      for (const button of screen.getAllByRole('button', { name })) expect(button).toBeDisabled()
+    }
+    fireEvent.keyDown(second.getByLabelText('重写的理由'), { key: 'Escape' })
+    expect(second.getByText('大模型正在重写，可能要一分钟以上，别关这一页。')).toBeInTheDocument()
+    expect(server.calls.filter((call) => call.method !== 'GET')).toHaveLength(1)
+  })
+
+  it('sends one 这是误伤 at a time', async () => {
+    const server = fakeServer({
+      [QUEUE]: ok(oneLesson({ status: 'flagged', flags: 3 })),
+      'GET api/lessons/1': ok(flaggedLesson()),
+      'POST api/lessons/1/false-positive': { pending: true },
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    await user.click(within(await screen.findByRole('region', { name: '第 1 段' })).getByRole('button', { name: '这是误伤' }))
+    for (const button of screen.getAllByRole('button', { name: '这是误伤' })) expect(button).toBeDisabled()
+    await user.click(within(screen.getByRole('region', { name: '第 3 段' })).getByRole('button', { name: '这是误伤' }))
+    expect(lessonCalls(server, 'api/lessons/1/false-positive')).toHaveLength(1)
+  })
+
   it('shows a lesson of a day already begun without anything to change it', async () => {
     fakeServer({
       [QUEUE]: ok(oneLesson({ status: 'approved', locked: true })),
@@ -522,6 +641,26 @@ describe('the review page in manual mode', () => {
     await user.click(dialog.getByRole('textbox', { name: '提示词' }))
     pressEscape()
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(row('小学部 待生成').getByRole('button', { name: '复制提示词' })).toHaveFocus()
+  })
+
+  it('gives the focus back to the 粘贴结果 that opened the dialog, closed with 关闭 or Esc', async () => {
+    fakeServer({ [QUEUE]: ok(manualQueue(missing)) })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    const paste = await screen.findByRole('button', { name: '粘贴结果' })
+    await user.click(paste)
+    const dialog = within(await screen.findByRole('dialog', { name: '粘贴结果：11 月 5 日（周四）小学部' }))
+    await user.click(dialog.getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(paste).toHaveFocus()
+
+    await user.click(paste)
+    await user.click(within(await screen.findByRole('dialog')).getByRole('textbox', { name: '大模型的回复' }))
+    pressEscape()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(paste).toHaveFocus()
   })
 
   it('takes a pasted lesson, showing the server’s reason under the box when it will not do', async () => {
@@ -594,6 +733,12 @@ describe('the review page in manual mode', () => {
     expect(await extension.findByText('已复制')).toBeInTheDocument()
     expect(await navigator.clipboard.readText()).toBe('重写引申题。')
 
+    // Closed without pasting: the focus is back on the box's own 粘贴结果.
+    await user.click(extension.getByRole('button', { name: '粘贴结果' }))
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '关闭' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(extension.getByRole('button', { name: '粘贴结果' })).toHaveFocus()
+
     await user.click(extension.getByRole('button', { name: '粘贴结果' }))
     const dialog = within(await screen.findByRole('dialog', { name: '粘贴结果：重写引申题' }))
     await user.click(dialog.getByRole('textbox', { name: '大模型的回复' }))
@@ -644,11 +789,6 @@ describe('giving a day a topic', () => {
     ])
   }
 
-  function today() {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-11-04T10:00:00+08:00'))
-  }
-
   it('offers the days after today, and asks first when the lesson was approved', async () => {
     today()
     const server = fakeServer({
@@ -680,7 +820,7 @@ describe('giving a day a topic', () => {
       { topic: '冬至为什么吃饺子' },
     ])
     expect(screen.getByRole('status')).toHaveTextContent(
-      '已给 11/6 周五 初中部指定题目《冬至为什么吃饺子》。这节课正在按新题目重新生成，生成好以后回到待审。',
+      '已给 11/6 周五 初中部指定题目《冬至为什么吃饺子》。这节课已经回到待审，正在按新题目重新生成，新稿出来以后再审。',
     )
   })
 
@@ -704,6 +844,7 @@ describe('giving a day a topic', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(lessonCalls(server, 'api/topics/2026-11-05/senior').map((call) => call.body)).toEqual([{ topic: null }])
     expect(screen.getByRole('status')).toHaveTextContent('已取消 11/5 周四 高中部的题目。')
+    expect(screen.getByRole('button', { name: '给某一天指定题目' })).toHaveFocus()
 
     await user.click(screen.getByRole('button', { name: '给某一天指定题目' }))
     dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
@@ -714,5 +855,59 @@ describe('giving a day a topic', () => {
 
     pressEscape()
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '给某一天指定题目' })).toHaveFocus()
+  })
+
+  it('opens a lesson a new topic took back to review, and holds its approval until the new one is made', async () => {
+    today()
+    let stage: 'reviewing' | 'done' | 'remaking' = 'reviewing'
+    const friday = { status: 'approved', lessonId: 8 } as const
+    fakeServer({
+      [QUEUE]: () =>
+        ok(
+          lessonQueue([
+            {
+              date: THU,
+              divisions: [queueSlot('primary', { status: stage === 'reviewing' ? 'pending' : 'approved' })],
+            },
+            {
+              date: FRI,
+              divisions: [
+                queueSlot('junior', stage === 'remaking' ? { ...friday, status: 'pending', topic: '冬至' } : friday),
+              ],
+            },
+          ]),
+        ),
+      'GET api/lessons/1': ok(lessonDetail()),
+      'POST api/lessons/1/approve': () => {
+        stage = 'done'
+        return ok(lessonDetail({ approvedAt: '2026-11-04T02:00:00.000Z' }))
+      },
+      'PUT api/topics/2026-11-06/junior': () => {
+        stage = 'remaking'
+        return ok({ result: 'regenerating' })
+      },
+      'GET api/lessons/8': ok(lessonDetail({ id: 8, date: FRI, division: 'junior', title: '水是怎么变成云的' })),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    await user.click(await screen.findByRole('button', { name: '通过，审下一节' }))
+    expect(await screen.findByText('这几天要审的课都审完了。')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '给某一天指定题目' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '给某一天指定题目' }))
+    await user.click(within(dialog.getByRole('group', { name: '日期' })).getByRole('radio', { name: '11/6 周五' }))
+    await user.click(within(dialog.getByRole('group', { name: '学部' })).getByRole('radio', { name: '初中部' }))
+    await user.type(dialog.getByRole('textbox', { name: '题目' }), '冬至')
+    await user.click(dialog.getByRole('button', { name: '指定这个题目' }))
+    await user.click(dialog.getByRole('button', { name: '按新题目重写' }))
+
+    // The list says 待审 again: the page opens it rather than saying all is reviewed, and leaves the focus alone.
+    expect(await screen.findByRole('heading', { level: 2, name: '水是怎么变成云的' })).toBeInTheDocument()
+    expect(screen.queryByText('这几天要审的课都审完了。')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '给某一天指定题目' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '通过，审下一节' })).toBeDisabled()
+    expect(screen.getByText('这节课正在按新题目重新生成，等新稿出来再审。')).toBeInTheDocument()
   })
 })
