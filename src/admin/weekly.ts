@@ -6,37 +6,59 @@ import { excludeRule } from '../discipline/revoke.js'
 import { ApiError } from '../registration/errors.js'
 import type { Database } from '../shared/schema.js'
 import type { StoredSuggestions, WeeklySuggestions } from '../weekly/review.js'
-import { isWeekStart, lastCompletedWeek, weeklyStats, type WeeklyStats } from '../weekly/stats.js'
+import { isWeekStart, lastCompletedWeek, weeklyStats, type StoredStats, type WeeklyStats } from '../weekly/stats.js'
 import type { AdminDeps } from './app.js'
 
 // The weekly review page: a week's numbers and the model's suggestions, the rules dropped so far, and dropping one.
-// The log names the kind of a dropped rule and what dropping it took back, never the rule.
+// A stored review names students' lines by id: they are read with it, and a line purged since (past the messages'
+// retention) is left out. The log names the kind of a dropped rule and what dropping it took back, never the rule.
 
-/** A suggested rule as the page shows it: its examples are the lines themselves (a line purged since is left out). */
+/** A line of a student's, as the page shows it. */
+export interface ShownLine {
+  messageId: number
+  text: string
+  at: string
+}
+
+/** A suggested rule as the page shows it: its examples are the lines themselves. */
 export interface ShownRule extends Omit<WeeklySuggestions['removeRules'][number], 'examples'> {
-  examples: { messageId: number; text: string; at: string }[]
+  examples: ShownLine[]
 }
 
 export interface WeeklyPage {
   stats: WeeklyStats
   /** Null when the week has no review yet: its numbers are then counted as they stand. */
-  suggestions: { removeRules: ShownRule[] | null; directions: string[] | null } | null
+  suggestions: {
+    removeRules: ShownRule[] | null
+    directions: string[] | null
+    failures: StoredSuggestions['failures']
+  } | null
   /** Every rule dropped, the latest first. */
   exclusions: { kind: 'word' | 'pattern'; value: string; createdAt: string }[]
 }
 
-/** The stored suggestions with the lines of their examples. */
-async function shown(db: Kysely<Database>, s: StoredSuggestions): Promise<NonNullable<WeeklyPage['suggestions']>> {
-  if (s.removeRules === null) return { removeRules: null, directions: s.directions }
-  const ids = [...new Set(s.removeRules.flatMap((r) => r.examples))]
-  const lines =
+/** A stored review with the lines it names, the ones still kept. */
+async function shown(
+  db: Kysely<Database>,
+  stats: StoredStats,
+  s: StoredSuggestions,
+): Promise<Pick<WeeklyPage, 'stats' | 'suggestions'>> {
+  const named = [...stats.moderation.secondLayerChat, ...(s.removeRules ?? []).flatMap((r) => r.examples)]
+  const ids = [...new Set(named)]
+  const rows =
     ids.length === 0
       ? []
       : await db.selectFrom('messages').select(['id', 'text', 'createdAt']).where('id', 'in', ids).execute()
-  const byId = new Map(lines.map((l) => [l.id, { messageId: l.id, text: l.text, at: l.createdAt.toISOString() }]))
+  const byId = new Map<number, ShownLine>()
+  for (const l of rows) byId.set(l.id, { messageId: l.id, text: l.text, at: l.createdAt.toISOString() })
+  const lines = (of: number[]) => of.flatMap((id) => byId.get(id) ?? [])
   return {
-    removeRules: s.removeRules.map((r) => ({ ...r, examples: r.examples.flatMap((id) => byId.get(id) ?? []) })),
-    directions: s.directions,
+    stats: { ...stats, moderation: { ...stats.moderation, secondLayerChat: lines(stats.moderation.secondLayerChat) } },
+    suggestions: {
+      removeRules: s.removeRules?.map((r) => ({ ...r, examples: lines(r.examples) })) ?? null,
+      directions: s.directions,
+      failures: s.failures,
+    },
   }
 }
 
@@ -73,9 +95,12 @@ export function weeklyRoutes(deps: AdminDeps): FastifyPluginAsync {
         .orderBy('createdAt', 'desc')
         .orderBy('id', 'desc')
         .execute()
+      const page =
+        review === undefined
+          ? { stats: await weeklyStats(db, config, weekStart), suggestions: null }
+          : await shown(db, review.stats, review.suggestions)
       return {
-        stats: review?.stats ?? (await weeklyStats(db, config, weekStart)),
-        suggestions: review === undefined ? null : await shown(db, review.suggestions),
+        ...page,
         exclusions: exclusions.map((e) => ({ kind: e.kind, value: e.value, createdAt: e.createdAt.toISOString() })),
       }
     })

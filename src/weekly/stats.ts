@@ -26,7 +26,8 @@ import type { Database } from '../shared/schema.js'
 //   comment did not come, did not pass or was switched off); `blockedLines` the teacher's lines a check stopped.
 // - moderation: the blocked lines by day and category; the rules of the word list and the phrase rules that blocked
 //   the most; the rules marked as flagged wrongly in the review of the week's lessons (not the privacy mark, which no
-//   rule stands behind); the chat lines the second layer stopped, the first `SECOND_LAYER_CHAT_SHOWN` of them.
+//   rule stands behind); the chat lines the second layer stopped, the first `SECOND_LAYER_CHAT_SHOWN` of them (a
+//   stored review keeps them by id only, see `StoredStats`).
 // - students: `newcomers` are the students first put in a class that week: seated that week, and never back in the
 //   queue since they registered (a student who re-enrolls joins it again). `cameBackForSecond` is those of them who
 //   attended two sessions or more by the end of the week. `suspended` and `expelled` count the students given such a
@@ -65,6 +66,20 @@ export interface WeeklyStats {
   }
   students: { newcomers: number; cameBackForSecond: number; dropped: number; suspended: number; expelled: number }
   cost: { byPurpose: Record<LlmPurpose, number>; perAttendee: number }
+}
+
+/**
+ * The numbers as a review stores them. The lines the second layer stopped are kept by id only: a review is kept for
+ * good, a line only as long as the messages are, so a line purged since is no longer shown with the review.
+ */
+export type StoredStats = Omit<WeeklyStats, 'moderation'> & {
+  moderation: Omit<WeeklyStats['moderation'], 'secondLayerChat'> & { secondLayerChat: number[] }
+}
+
+export function storedStats(stats: WeeklyStats): StoredStats {
+  const { moderation } = stats
+  const secondLayerChat = moderation.secondLayerChat.map((l) => l.messageId)
+  return { ...stats, moderation: { ...moderation, secondLayerChat } }
 }
 
 /** The Monday of the last week that has ended by `now`, in the school's time zone. */
