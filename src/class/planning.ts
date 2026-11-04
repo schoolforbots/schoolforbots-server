@@ -13,6 +13,12 @@ export type SessionPlan =
 const WEEKDAY_SUBJECTS = ['语文', '数学', '英语', '科学', '人文'] as const
 
 /**
+ * The subject of a lesson on a topic given for its day (a topic lesson), in place of the day's own subject. The lesson
+ * stores it like any subject, so the session and the opening read it from the lesson.
+ */
+export const SPECIAL_SUBJECT = '专题'
+
+/**
  * The subject taught on a school day by default: Chinese, maths, English, science and humanities from Monday to
  * Friday, nothing at the weekend. A date names the same weekday in every time zone, so `timezone` does not change
  * the answer; it is part of the signature so that callers pass the school's zone along with the date.

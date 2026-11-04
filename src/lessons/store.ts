@@ -87,7 +87,8 @@ export class LessonNotFound extends Error {
 
 type LessonRow = Selectable<LessonsTable>
 
-const contentOf = (row: LessonRow): LessonContent => ({
+/** The content a lesson row holds. */
+export const contentOf = (row: LessonRow): LessonContent => ({
   title: row.title,
   subject: row.subject,
   segments: row.segments,
@@ -193,8 +194,8 @@ async function saveVersion(
 }
 
 /** Throws `LessonLocked` when a class session teaches the lesson. A study hall on its day does not count. */
-async function assertNotBegun(trx: Transaction<Database>, lessonId: number): Promise<void> {
-  const begun = await trx
+export async function assertNotBegun(db: Kysely<Database>, lessonId: number): Promise<void> {
+  const begun = await db
     .selectFrom('classSessions')
     .select('id')
     .where('lessonId', '=', lessonId)

@@ -14,6 +14,7 @@ import {
   openingWeekend,
   questionReceived,
   renameAnnouncement,
+  specialLessonIntro,
   speechLine,
   studyIntro,
   transition,
@@ -96,6 +97,14 @@ describe('the teacher lines', () => {
 
   test('lessonIntro gives the subject and the title, without a greeting', () => {
     expect(lessonIntro('科学', '光的折射')).toBe('今天我们上科学课，题目是《光的折射》。')
+  })
+
+  test('a topic lesson (subject 专题) is introduced as one, with its title', () => {
+    expect(specialLessonIntro('儿童节是怎么来的')).toBe('今天我们上一节专题课，题目是《儿童节是怎么来的》。')
+    expect(lessonIntro('专题', '儿童节是怎么来的')).toBe(specialLessonIntro('儿童节是怎么来的'))
+    expect(openingLesson('林老师', '专题', '儿童节是怎么来的')).toBe(
+      '同学们好，我是林老师。今天我们上一节专题课，题目是《儿童节是怎么来的》。',
+    )
   })
 
   test('studyIntro announces a study hall, without a greeting', () => {

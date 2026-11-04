@@ -39,6 +39,38 @@ export function isSchoolDay(date: string, config: SchoolConfig): boolean {
   return !isOnBreak(date, config) && (isoWeekday(date) <= 5 || config.lesson.weekendStudy)
 }
 
+/**
+ * Whether a lesson is taught on `date`: a school day from Monday to Friday. A weekend study hall has no lesson, so the
+ * weekend is never a lesson day, whatever `lesson.weekendStudy` says.
+ */
+export function isLessonDay(date: string, config: SchoolConfig): boolean {
+  return !isOnBreak(date, config) && isoWeekday(date) <= 5
+}
+
+/**
+ * How many school days come after `from`, up to and including `to`: the lesson days (see `isLessonDay`), so neither
+ * the weekend, nor a break, nor the days before the opening day count. 0 when `to` is not after `from`. The deadline
+ * of a pasted lesson is counted this way.
+ */
+export function schoolDaysUntil(from: string, to: string, config: SchoolConfig): number {
+  let count = 0
+  // Day by day up to `to`: the walk is as long as the dates are apart, even across a break with no end.
+  for (let day = addDaysToDate(from, 1); day <= to; day = addDaysToDate(day, 1)) {
+    if (isLessonDay(day, config)) count += 1
+  }
+  return count
+}
+
+/** The lesson days among the `lessonGeneration.horizonDays` days after `today` (today not among them), in order. */
+export function lessonDaysAhead(today: string, config: SchoolConfig): string[] {
+  const days: string[] = []
+  for (let ahead = 1; ahead <= config.lessonGeneration.horizonDays; ahead++) {
+    const day = addDaysToDate(today, ahead)
+    if (isLessonDay(day, config)) days.push(day)
+  }
+  return days
+}
+
 /** Walks from `from` to the first school day on or after it, or to the break with no end that comes first. */
 function walkToSchoolDay(from: string, config: SchoolConfig): { schoolDay: string } | { endless: Break } {
   const openingDay = config.calendar?.openingDay

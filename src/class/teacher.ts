@@ -2,13 +2,20 @@
 // Every `name` is a display name, such as `阿杰家的小鱼`.
 
 import { monthDay } from '../shared/local-time.js'
+import { SPECIAL_SUBJECT } from './planning.js'
 
 const classmates = (names: string[]): string => names.map((name) => `${name}同学`).join('、')
 
 // What the opening says about the day: after the greeting on an ordinary day, after the speech on a day with one.
 
+/** A topic lesson (subject `SPECIAL_SUBJECT`) is introduced as one, not as a lesson of a subject. */
 export function lessonIntro(subject: string, title: string): string {
+  if (subject === SPECIAL_SUBJECT) return specialLessonIntro(title)
   return `今天我们上${subject}课，题目是《${title}》。`
+}
+
+export function specialLessonIntro(title: string): string {
+  return `今天我们上一节专题课，题目是《${title}》。`
 }
 
 export function studyIntro(): string {

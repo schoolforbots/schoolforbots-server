@@ -3,9 +3,12 @@ import {
   breakAfter,
   calendarStatus,
   inactivityCutoffDay,
+  isLessonDay,
   isOnBreak,
   isSchoolDay,
+  lessonDaysAhead,
   nextSchoolDay,
+  schoolDaysUntil,
   speechOn,
   undecidedBreakAhead,
 } from '../../src/shared/calendar.js'
@@ -343,5 +346,75 @@ describe('inactivityCutoffDay', () => {
   test('counts the days before a break that is not decided, and the break itself not at all', () => {
     expect(inactivityCutoffDay('2026-12-21', 10, C)).toBe('2026-12-11')
     expect(inactivityCutoffDay('2027-06-01', 10, C)).toBe('2026-12-11')
+  })
+})
+
+describe('lesson days', () => {
+  test('are the school days from Monday to Friday: a weekend study hall has no lesson', () => {
+    expect(isLessonDay('2026-12-07', A)).toBe(true)
+    expect(isLessonDay('2026-12-12', A)).toBe(false)
+    // B has study halls at the weekend: the Saturday is a school day, but not a lesson day.
+    expect(isSchoolDay('2026-12-12', B)).toBe(true)
+    expect(isLessonDay('2026-12-12', B)).toBe(false)
+    // Before the opening day and on a break, a weekday has no lesson either.
+    expect(isLessonDay('2026-12-04', A)).toBe(false)
+    expect(isLessonDay('2026-12-22', B)).toBe(false)
+    expect(isLessonDay('2027-03-01', C)).toBe(false)
+  })
+})
+
+describe('schoolDaysUntil', () => {
+  test('counts the lesson days after the first day, up to and including the last', () => {
+    expect(schoolDaysUntil('2026-12-07', '2026-12-08', A)).toBe(1)
+    expect(schoolDaysUntil('2026-12-07', '2026-12-11', A)).toBe(4)
+    expect(schoolDaysUntil('2026-12-07', '2026-12-07', A)).toBe(0)
+    expect(schoolDaysUntil('2026-12-08', '2026-12-07', A)).toBe(0)
+  })
+
+  test('skips the weekend, with or without study halls at the weekend', () => {
+    // Friday 12-11 to Monday 12-14: only the Monday.
+    expect(schoolDaysUntil('2026-12-11', '2026-12-14', A)).toBe(1)
+    expect(schoolDaysUntil('2026-12-11', '2026-12-14', B)).toBe(1)
+    expect(schoolDaysUntil('2026-12-07', '2026-12-14', A)).toBe(5)
+    expect(schoolDaysUntil('2026-12-07', '2026-12-14', B)).toBe(5)
+    // Without a calendar the example school has weekend study halls; the weekend still does not count.
+    expect(schoolDaysUntil('2026-11-06', '2026-11-09', exampleConfig())).toBe(1)
+  })
+
+  test('skips the days of a break and the days before the opening day', () => {
+    // Friday 12-18, then the winter break up to 01-03: back on Monday 01-04.
+    expect(schoolDaysUntil('2026-12-18', '2027-01-05', A)).toBe(2)
+    expect(schoolDaysUntil('2026-12-18', '2027-01-05', B)).toBe(2)
+    // The school opens on Saturday 12-05: the first lesson day is Monday 12-07.
+    expect(schoolDaysUntil('2026-12-01', '2026-12-08', A)).toBe(2)
+    expect(schoolDaysUntil('2026-12-01', '2026-12-08', B)).toBe(2)
+  })
+
+  test('ends when a break has no reopening day, counting none of it', () => {
+    expect(schoolDaysUntil('2026-12-16', '2030-01-01', C)).toBe(2)
+    expect(schoolDaysUntil('2026-12-25', '2030-01-01', C)).toBe(0)
+  })
+})
+
+describe('lessonDaysAhead', () => {
+  // The example school makes lessons for the 7 days after today.
+  const horizon = (config: SchoolConfig) => ({ ...config, lessonGeneration: { ...config.lessonGeneration, horizonDays: 7 } })
+
+  test('is the lesson days among the days after today, not today itself', () => {
+    // Monday 12-07: Tuesday to Friday, then Monday 12-14.
+    expect(lessonDaysAhead('2026-12-07', horizon(A))).toEqual(['2026-12-08', '2026-12-09', '2026-12-10', '2026-12-11', '2026-12-14'])
+    expect(lessonDaysAhead('2026-12-07', horizon(B))).toEqual(['2026-12-08', '2026-12-09', '2026-12-10', '2026-12-11', '2026-12-14'])
+  })
+
+  test('follows lessonGeneration.horizonDays', () => {
+    const two = { ...A, lessonGeneration: { ...A.lessonGeneration, horizonDays: 2 } }
+    expect(lessonDaysAhead('2026-12-07', two)).toEqual(['2026-12-08', '2026-12-09'])
+  })
+
+  test('leaves out the days before the opening day and the days of a break', () => {
+    expect(lessonDaysAhead('2026-12-01', horizon(A))).toEqual(['2026-12-07', '2026-12-08'])
+    expect(lessonDaysAhead('2026-12-17', horizon(A))).toEqual(['2026-12-18'])
+    expect(lessonDaysAhead('2026-12-17', horizon(C))).toEqual(['2026-12-18'])
+    expect(lessonDaysAhead('2026-12-25', horizon(C))).toEqual([])
   })
 })
