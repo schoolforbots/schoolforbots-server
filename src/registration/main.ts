@@ -5,6 +5,7 @@ import { loadEnv, loadSchoolConfig } from '../shared/config.js'
 import { createDb, migrateToLatest } from '../shared/db.js'
 import { loadSchoolRules } from '../shared/school-rules.js'
 import { createShutdown } from '../shared/shutdown.js'
+import { startSwitches } from '../shared/switches.js'
 import { buildRegistrationApp } from './app.js'
 import { runDailyJob } from './daily-job.js'
 import { ConsoleMailer, createSmtpMailer, type Mailer } from './mailer.js'
@@ -39,6 +40,10 @@ async function main(): Promise<void> {
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
   })
 
+  // Read from the database, so a change made in the admin reaches this service within a few seconds. Nothing reads it
+  // yet; the admin will be given it.
+  const switches = await startSwitches({ db, config, clock: systemClock, log: app.log })
+
   const runAndLog = async (trigger: 'startup' | 'midnight') => {
     try {
       const report = await runDailyJob({ db, config, clock: systemClock })
@@ -62,6 +67,7 @@ async function main(): Promise<void> {
   const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
     dailyJob.stop()
+    switches.stop()
     await app.close() // waits for requests and key-reset mails still in flight
     await db.destroy()
   })
