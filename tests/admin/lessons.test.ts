@@ -452,6 +452,20 @@ describe('reviewing a lesson', () => {
     expect(slotOf(await queue(), THU, 'junior')).toMatchObject({ status: 'approved', locked: true, topic: null })
     expect(model.calls).toHaveLength(0)
   })
+
+  test('once the doors opened on a draft (a study hall that day), approving or editing it is a 409 lesson_locked', async () => {
+    await start()
+    const id = await draft(MON, 'junior')
+    await begin(null, MON, 'junior')
+    for (const res of [
+      await api('POST', `lessons/${id}/approve`, { baseVersion: 1 }),
+      await api('PUT', `lessons/${id}/parts`, { baseVersion: 1, part: { part: 'title' }, text: '开课以后改的' }),
+    ]) {
+      expect(res.statusCode).toBe(409)
+      expect(res.json()).toEqual(LOCKED)
+    }
+    expect((await api('GET', `lessons/${id}`)).json()).toMatchObject({ version: 1, approvedAt: null, locked: true })
+  })
 })
 
 describe('pasting a reply in', () => {

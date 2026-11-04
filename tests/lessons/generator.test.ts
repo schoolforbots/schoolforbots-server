@@ -126,9 +126,10 @@ async function rejection(p: Promise<unknown>): Promise<unknown> {
   )
 }
 
-/** A class session that teaches the lesson: from then on it has begun. */
+/** A class of the lesson's division begins it in a session: from then on its day is decided. */
 async function beginLesson(lessonId: number, date: string) {
-  const classId = await insertClass(db, { classNo: 1, slot: 'morning' })
+  const { division } = await db.selectFrom('lessons').select('division').where('id', '=', lessonId).executeTakeFirstOrThrow()
+  const classId = await insertClass(db, { division, classNo: 1, slot: 'morning' })
   await insertSession(db, {
     classId,
     date,
@@ -401,6 +402,23 @@ describe('buildLessonPrompt', () => {
     expect(p.user).toContain('"callOnQuestions"')
     expect(p.user).toContain('正好 5 项')
     expect(p.user).not.toMatch(/\{\{\w+\}\}/)
+  })
+
+  test('the titles leave out a lesson approved for a day a study hall decided, and keep the approved days to come', async () => {
+    const { deps } = make(school())
+    // Approved after the doors had opened on its draft: the class never had it.
+    await insertLesson(db, { date: '2026-10-29', division: 'junior', subject: '科学', title: '没上成的课' })
+    const classId = await insertClass(db, { classNo: 1, slot: 'morning' })
+    const at = new Date('2026-10-29T10:00:00+08:00')
+    await insertSession(db, { classId, date: '2026-10-29', slot: 'morning', kind: 'study', startsAt: at, endsAt: at })
+    const taught = await insertLesson(db, { date: '2026-10-22', division: 'junior', subject: '科学', title: '上过的课' })
+    await insertSession(db, { classId, date: '2026-10-22', slot: 'morning', kind: 'lesson', lessonId: taught, startsAt: at, endsAt: at })
+    // Approved for next week's day, which no class has begun yet.
+    await insertLesson(db, { date: '2026-11-12', division: 'junior', subject: '科学', title: '下周要上的课' })
+
+    const p = await buildLessonPrompt(deps, 'generate', { date: THU, division: 'junior' })
+    expect(p.user).toContain('- 下周要上的课\n- 上过的课')
+    expect(p.user).not.toContain('没上成的课')
   })
 
   test('a day with a topic: the subject is 专题, the topic is given, and the titles are those of the topic lessons', async () => {

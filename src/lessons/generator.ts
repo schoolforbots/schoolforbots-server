@@ -22,9 +22,9 @@ import {
   type PromptKind,
 } from './prompts.js'
 import {
-  assertNotBegun,
+  assertUnlocked,
   contentOf,
-  hasBegun,
+  dayDecided,
   LessonLocked,
   replaceContent,
   saveDraft,
@@ -244,7 +244,7 @@ async function generateSlot(
 
 /**
  * Makes the lessons the lesson days ahead (`lessonDaysAhead`) need, every division, one after another: the missing
- * ones, and the ones made before a topic was given for their day (unless a class has begun them). In `manual` mode
+ * ones, and the ones made before a topic was given for their day (unless a class has begun the day). In `manual` mode
  * such a lesson is left to be pasted in until it is `manualDeadlineSchoolDays` school days away or less; then the
  * model makes it. Every run retries what failed before, and drops the failures of days that have their lesson now.
  * Only one run goes at a time: a run that finds another going does nothing.
@@ -270,8 +270,8 @@ export async function generateMissing(deps: GeneratorDeps): Promise<GenerationRe
           // Read for each lesson in turn: one may have been pasted in while the model wrote the one before.
           const slot = await slotState(db, date, division)
           if (!needsLesson(slot)) continue
-          // A lesson a class has begun does not change.
-          if (slot.lesson !== undefined && (await hasBegun(db, slot.lesson.id))) continue
+          // A day a class has begun is decided: its lesson does not change.
+          if (await dayDecided(db, date, division)) continue
           if (mode === 'manual' && schoolDaysUntil(today, date, config) > manualDeadlineSchoolDays) {
             report.waitingManual += 1
             continue
@@ -308,7 +308,7 @@ function rewriteOf(
 /**
  * Has the model rewrite a segment, a call-on question or the whole lesson, as the reviewer asked and for the reason
  * they gave, and saves the result as the lesson's next version. The version is checked before the model is called
- * (`StaleLessonVersion`, and `LessonLocked` once a class has begun the lesson) and again when the result is saved, so
+ * (`StaleLessonVersion`, and `LessonLocked` once a class has begun the lesson's day) and again when the result is saved, so
  * a save made meanwhile is not overwritten. The model's failures (`LlmUnavailable`, `LlmContentRefused`) go to the
  * caller, as does a reply that will not do (`LessonFormatError`).
  */
@@ -319,7 +319,7 @@ export async function regenerate(
 ): Promise<{ version: number }> {
   const lesson = await lessonById(deps.db, target.lessonId)
   if (lesson.version !== target.baseVersion) throw new StaleLessonVersion(lesson.id)
-  await assertNotBegun(deps.db, lesson.id)
+  await assertUnlocked(deps.db, lesson)
   const prompt = await rewritePrompt(deps, kind, lesson, target)
   const reply = await callForLesson(deps, prompt, kind === 'rewrite_lesson')
   const content = rewriteOf(deps, kind, contentOf(lesson), reply.text, target)
@@ -379,7 +379,7 @@ export async function acceptPasted(deps: GeneratorDeps, target: PastedTarget, pa
  * in `api` mode it goes back to review at once (approval cleared, version moved on, content kept until the new one
  * comes) and the model makes it in the background ('regenerating'; a failure is written to `lesson_generation` and
  * retried by `generateMissing`); in `manual` mode the lesson is taken back to waiting for one to be pasted in (its
- * versions are kept). Once a class has begun the lesson, `LessonLocked`.
+ * versions are kept). Once a class has begun the day, `LessonLocked`.
  */
 export async function setTopic(
   deps: GeneratorDeps,
@@ -410,7 +410,7 @@ export async function setTopic(
       .where('division', '=', division)
       .forUpdate()
       .executeTakeFirst()
-    if (lesson !== undefined) await assertNotBegun(trx, lesson.id)
+    if (lesson !== undefined) await assertUnlocked(trx, { id: lesson.id, date, division })
     const now = clock.now()
     await trx
       .insertInto('lessonTopics')

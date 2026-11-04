@@ -31,17 +31,24 @@ export function subjectForDate(date: string, timezone: string): string | null {
 // the weekend); the class service keeps asking planning for it.
 export { isSchoolDay } from '../shared/calendar.js'
 
-/** The titles of the lessons approved from Monday to Friday of the week `date` is in, in date order. */
+/**
+ * The titles of the lessons a class taught from Monday to Friday of the week `date` is in, in date order. A lesson
+ * approved for a day that was a study hall all the same was never taught, so it is not one of them.
+ */
 async function weekTitles(db: Kysely<Database>, p: { date: string; division: Division }): Promise<string[]> {
   const monday = addDaysToDate(p.date, 1 - isoWeekday(p.date))
   const rows = await db
-    .selectFrom('lessons')
-    .select('title')
-    .where('division', '=', p.division)
-    .where('date', '>=', monday)
-    .where('date', '<=', addDaysToDate(monday, 4))
-    .where('approvedAt', 'is not', null)
-    .orderBy('date')
+    .selectFrom('lessons as l')
+    .select('l.title')
+    .where('l.division', '=', p.division)
+    .where('l.date', '>=', monday)
+    .where('l.date', '<=', addDaysToDate(monday, 4))
+    .where((eb) =>
+      eb.exists(
+        eb.selectFrom('classSessions as s').select('s.id').whereRef('s.lessonId', '=', 'l.id').where('s.kind', '=', 'lesson'),
+      ),
+    )
+    .orderBy('l.date')
     .execute()
   return rows.map((r) => r.title)
 }

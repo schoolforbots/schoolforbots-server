@@ -21,7 +21,7 @@ import { createTestClock } from '../helpers/clock.js'
 
 const callOn = (name: string): string => callOnQuestion(name, '刚才讲了什么？')
 import { createTestDb } from '../helpers/db.js'
-import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
+import { insertClass, insertLesson, insertSession, insertStudent, teachLesson } from '../helpers/factories.js'
 
 const MON = '2026-11-02'
 const SAT = '2026-11-07'
@@ -229,13 +229,18 @@ describe('writeSummaries', () => {
       expect(await stored(session, students[0]!)).toEqual(quiet({ kind: 'study', lesson: null }))
     })
 
-    test("a weekend study hall looks back on the week: the division's approved lessons, in date order", async () => {
-      await insertLesson(db, { date: '2026-11-03', title: '周二课' })
-      await insertLesson(db, { date: '2026-11-02', title: '周一课' })
+    test("a weekend study hall looks back on the week: the lessons the division's classes taught, in date order", async () => {
+      await teachLesson(db, await insertLesson(db, { date: '2026-11-03', title: '周二课' }))
+      await teachLesson(db, await insertLesson(db, { date: '2026-11-02', title: '周一课' }))
       await insertLesson(db, { date: '2026-11-04', title: '周三草稿', approvedAt: null })
-      await insertLesson(db, { date: '2026-11-05', title: '周四课' })
-      await insertLesson(db, { date: '2026-11-06', title: '高中部的课', division: 'senior' })
-      await insertLesson(db, { date: '2026-10-30', title: '上周的课' })
+      // Approved after the doors opened on its draft: the day was a study hall, the lesson was never taught.
+      const friday = await insertClass(db, { classNo: 77, slot: 'morning' })
+      const fridayAt = new Date('2026-11-06T10:00:00+08:00')
+      await insertSession(db, { classId: friday, date: '2026-11-06', slot: 'morning', kind: 'study', startsAt: fridayAt, endsAt: fridayAt })
+      await insertLesson(db, { date: '2026-11-06', title: '周五没上的课' })
+      await teachLesson(db, await insertLesson(db, { date: '2026-11-05', title: '周四课' }))
+      await teachLesson(db, await insertLesson(db, { date: '2026-11-06', title: '高中部的课', division: 'senior' }))
+      await teachLesson(db, await insertLesson(db, { date: '2026-10-30', title: '上周的课' }))
       const { session, students } = await room({ kind: 'study', date: SAT })
       await attend(session, students)
 

@@ -26,9 +26,9 @@ export type { LessonFlag } from '../shared/schema.js'
 // The lessons waiting for review and the rules for changing them. Every save keeps the whole content as a numbered
 // version, runs it through the word list (the red marks) and sends the lesson back to review. Each write names the
 // version it was made from and is refused when the lesson has moved on since, so two tabs cannot overwrite each other.
-// Every write runs under the lesson's lock (`lessonLockKey`), the one the class runtime takes to decide whether to
-// teach it: a lesson is approved either before its doors open, and taught as approved, or after, and the day is a
-// study hall. Once a class has begun the lesson, nothing about it changes.
+// Every write runs under the lesson's lock (`lessonLockKey`), the one the class runtime takes to decide what the day
+// is: a lesson is approved either before its doors open, and taught as approved, or not at all. Once a class of the
+// division has begun the day, with the lesson or with a study hall, nothing about the lesson changes.
 
 /**
  * A text of a lesson that can be edited by hand: the title, a segment's text (`segment`) or gist (`gist`), with
@@ -68,9 +68,12 @@ export class StaleLessonVersion extends Error {
   }
 }
 
-/** A class has begun the lesson (a session teaches it), so it can no longer change. */
+/**
+ * A class has begun the lesson's day (see `LockRule`), so it can no longer change. `lessonId` is null when the day has
+ * no lesson.
+ */
 export class LessonLocked extends Error {
-  constructor(readonly lessonId: number) {
+  constructor(readonly lessonId: number | null) {
     super('这节课已经开课，不能再改')
     this.name = 'LessonLocked'
   }
@@ -208,32 +211,52 @@ async function saveVersion(
   return { version, flags }
 }
 
-/** Whether a class has begun the lesson: a class session teaches it. A study hall on its day does not count. */
-export async function hasBegun(db: Kysely<Database>, lessonId: number): Promise<boolean> {
+/**
+ * When a lesson stops changing. `day_decided`, the rule: once a class of its division has begun its day, teaching it or
+ * holding a study hall, since the first class decides the day for every class of the division and the lesson is then
+ * taught as it is, or not at all. `lesson_taught`, kept for the import tool alone: only once a class teaches the lesson
+ * itself, so a lesson can still be imported (and approved) for a day a study hall decided, where it is not taught.
+ */
+export type LockRule = 'day_decided' | 'lesson_taught'
+
+/** Whether a class of the division has begun the day, with its lesson or a study hall: the day is decided. */
+export async function dayDecided(db: Kysely<Database>, date: string, division: Division): Promise<boolean> {
   const session = await db
-    .selectFrom('classSessions')
-    .select('id')
-    .where('lessonId', '=', lessonId)
+    .selectFrom('classSessions as s')
+    .innerJoin('classes as c', 'c.id', 's.classId')
+    .select('s.id')
+    .where('s.date', '=', date)
+    .where('c.division', '=', division)
     .limit(1)
     .executeTakeFirst()
   return session !== undefined
 }
 
-/** Throws `LessonLocked` when a class has begun the lesson (see `hasBegun`). */
-export async function assertNotBegun(db: Kysely<Database>, lessonId: number): Promise<void> {
-  if (await hasBegun(db, lessonId)) throw new LessonLocked(lessonId)
+/** Throws `LessonLocked` when the lesson can no longer change by `rule`. */
+export async function assertUnlocked(
+  db: Kysely<Database>,
+  lesson: { id: number; date: string; division: Division },
+  rule: LockRule = 'day_decided',
+): Promise<void> {
+  if (rule === 'day_decided') {
+    if (await dayDecided(db, lesson.date, lesson.division)) throw new LessonLocked(lesson.id)
+    return
+  }
+  const taught = await db.selectFrom('classSessions').select('id').where('lessonId', '=', lesson.id).limit(1).executeTakeFirst()
+  if (taught !== undefined) throw new LessonLocked(lesson.id)
 }
 
 /**
  * Reads the lesson under its lock, `for update`, and runs `write` on it once it is sure the lesson is still at
- * `baseVersion` and no class has begun it. `for update` also holds off a session being written by something that does
- * not take the lock: its foreign key check waits for this transaction, and the check here then sees it.
+ * `baseVersion` and can still change (`rule`). The class runtime decides the day under the same lock, so a session of
+ * the day is either there to be seen here, or written after this transaction, from what it leaves.
  */
 async function changeLesson<T>(
   deps: LessonStoreDeps,
   lessonId: number,
   baseVersion: number,
   write: (trx: Transaction<Database>, lesson: LessonRow) => Promise<T>,
+  rule: LockRule = 'day_decided',
 ): Promise<T> {
   const { db } = deps
   // The lock is named by the lesson's day and division, which never change.
@@ -244,15 +267,15 @@ async function changeLesson<T>(
     const lesson = await trx.selectFrom('lessons').selectAll().where('id', '=', lessonId).forUpdate().executeTakeFirst()
     if (lesson === undefined) throw new LessonNotFound(`没有编号 ${lessonId} 的课程`)
     if (lesson.version !== baseVersion) throw new StaleLessonVersion(lessonId)
-    await assertNotBegun(trx, lessonId)
+    await assertUnlocked(trx, lesson, rule)
     return write(trx, lesson)
   })
 }
 
 /**
- * Stores content for a day and division: a new lesson at version 1, or, when the day already has one that no class has
- * begun, its next version. Either way it is a draft. The source is stored as given; the topic only when given (a new
- * lesson has none otherwise). Throws `LessonLocked` when a class has begun the lesson.
+ * Stores content for a day and division: a new lesson at version 1, or, when the day already has one, its next
+ * version. Either way it is a draft. The source is stored as given; the topic only when given (a new lesson has none
+ * otherwise). Throws `LessonLocked` once the day is decided (by `lockedWhen`, see `LockRule`).
  *
  * `expectVersion` is what the writer saw of the day: the version of its lesson, or null for no lesson. When the day
  * has moved on from it (a lesson pasted in by another tab, or made by the model, meanwhile), `StaleLessonVersion` and
@@ -269,6 +292,7 @@ export async function saveDraft(
     segmentIndex?: number
     topic?: string | null
     expectVersion?: number | null
+    lockedWhen?: LockRule
   },
 ): Promise<{ lessonId: number; version: number; flags: LessonFlag[] }> {
   const { db, clock, moderator } = deps
@@ -283,6 +307,9 @@ export async function saveDraft(
       .executeTakeFirst()
     if (meta.expectVersion !== undefined && (existing?.version ?? null) !== meta.expectVersion) {
       throw new StaleLessonVersion(existing?.id ?? null)
+    }
+    if ((meta.lockedWhen ?? 'day_decided') === 'day_decided' && (await dayDecided(trx, key.date, key.division))) {
+      throw new LessonLocked(existing?.id ?? null)
     }
 
     if (existing === undefined) {
@@ -308,7 +335,7 @@ export async function saveDraft(
       return { lessonId: row.id, version: 1, flags }
     }
 
-    await assertNotBegun(trx, existing.id)
+    if (meta.lockedWhen === 'lesson_taught') await assertUnlocked(trx, existing, 'lesson_taught')
     const also = meta.topic === undefined ? { source: meta.source } : { source: meta.source, topic: meta.topic }
     const saved = await saveVersion(trx, deps, existing, content, meta, also)
     return { lessonId: existing.id, ...saved }
@@ -418,13 +445,20 @@ export async function markFalsePositive(
 }
 
 /**
- * Approves the lesson for teaching, as it is at `baseVersion`. Refused with `LessonHasFlags` while it has red marks.
- * A lesson approved already keeps the time of its approval.
+ * Approves the lesson for teaching, as it is at `baseVersion`. Refused with `LessonHasFlags` while it has red marks,
+ * and with `LessonLocked` once its day is decided (by `lockedWhen`, see `LockRule`). A lesson approved already keeps
+ * the time of its approval.
  */
-export async function approve(deps: LessonStoreDeps, lessonId: number, baseVersion: number): Promise<void> {
-  await changeLesson(deps, lessonId, baseVersion, async (trx, lesson) => {
+export async function approve(
+  deps: LessonStoreDeps,
+  lessonId: number,
+  baseVersion: number,
+  opts: { lockedWhen?: LockRule } = {},
+): Promise<void> {
+  const write = async (trx: Transaction<Database>, lesson: LessonRow) => {
     if (lesson.flags.length > 0) throw new LessonHasFlags(lessonId, lesson.flags.length)
     if (lesson.approvedAt !== null) return
     await trx.updateTable('lessons').set({ approvedAt: deps.clock.now() }).where('id', '=', lessonId).execute()
-  })
+  }
+  await changeLesson(deps, lessonId, baseVersion, write, opts.lockedWhen)
 }

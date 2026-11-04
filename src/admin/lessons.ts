@@ -8,6 +8,7 @@ import { buildLessonPrompt, lessonById, NotALessonDay } from '../lessons/prompts
 import {
   approve,
   contentOf,
+  dayDecided,
   editPart,
   LessonHasFlags,
   LessonLocked,
@@ -135,23 +136,6 @@ export async function reviewQueue(deps: Pick<AdminDeps, 'db' | 'config' | 'clock
   }))
 }
 
-/**
- * Whether a class of the division has begun the day (see `QueueSlot.locked`). A lesson the day's sessions do not teach
- * is then not taught that day either; the store would still let it change, but the page is told it is locked all the
- * same.
- */
-async function dayBegun(db: Kysely<Database>, date: string, division: Division): Promise<boolean> {
-  const session = await db
-    .selectFrom('classSessions as s')
-    .innerJoin('classes as c', 'c.id', 's.classId')
-    .select('s.id')
-    .where('s.date', '=', date)
-    .where('c.division', '=', division)
-    .limit(1)
-    .executeTakeFirst()
-  return session !== undefined
-}
-
 /** A lesson as the review page shows it: its content, red marks and false positives, and its versions, newest first. */
 async function lessonDetail(db: Kysely<Database>, lessonId: number) {
   const row = await lessonById(db, lessonId)
@@ -171,7 +155,7 @@ async function lessonDetail(db: Kysely<Database>, lessonId: number) {
     source: row.source,
     version: row.version,
     approvedAt: row.approvedAt?.toISOString() ?? null,
-    locked: await dayBegun(db, row.date, row.division),
+    locked: await dayDecided(db, row.date, row.division),
     content: contentOf(row),
     flags: row.flags,
     falsePositives: row.falsePositives,
