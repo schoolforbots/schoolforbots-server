@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { nextDailyRun, startDailyJob, startPeriodicJob } from '../../src/registration/scheduler.js'
+import { isWeeklyReviewDay, nextDailyRun, startDailyJob, startPeriodicJob } from '../../src/registration/scheduler.js'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -9,6 +9,14 @@ afterEach(() => {
 test('the next run is the coming local midnight', () => {
   expect(nextDailyRun(new Date('2026-11-02T15:59:00Z'), 'Asia/Shanghai').toISOString()).toBe('2026-11-02T16:00:00.000Z')
   expect(nextDailyRun(new Date('2026-11-02T16:00:01Z'), 'Asia/Shanghai').toISOString()).toBe('2026-11-03T16:00:00.000Z')
+})
+
+test('the weekly review follows the midnight job of a Monday, by the local date', () => {
+  // Monday 2 November 2026 starts at 16:00 UTC the day before in Shanghai.
+  expect(isWeeklyReviewDay(new Date('2026-11-01T16:00:00Z'), 'Asia/Shanghai')).toBe(true)
+  expect(isWeeklyReviewDay(new Date('2026-11-02T15:59:59Z'), 'Asia/Shanghai')).toBe(true)
+  expect(isWeeklyReviewDay(new Date('2026-11-01T15:59:59Z'), 'Asia/Shanghai')).toBe(false)
+  expect(isWeeklyReviewDay(new Date('2026-11-02T16:00:00Z'), 'Asia/Shanghai')).toBe(false)
 })
 
 test('the daily job fires at local midnight and not before', async () => {

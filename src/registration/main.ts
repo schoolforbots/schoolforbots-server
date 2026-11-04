@@ -11,10 +11,11 @@ import { createDb, migrateToLatest } from '../shared/db.js'
 import { loadSchoolRules } from '../shared/school-rules.js'
 import { createShutdown } from '../shared/shutdown.js'
 import { startSwitches } from '../shared/switches.js'
+import { runWeeklyReview } from '../weekly/review.js'
 import { buildRegistrationApp } from './app.js'
 import { runDailyJob } from './daily-job.js'
 import { ConsoleMailer, createSmtpMailer, type Mailer } from './mailer.js'
-import { startDailyJob, startPeriodicJob } from './scheduler.js'
+import { isWeeklyReviewDay, startDailyJob, startPeriodicJob } from './scheduler.js'
 
 async function main(): Promise<void> {
   const env = loadEnv(process.env)
@@ -123,11 +124,23 @@ async function main(): Promise<void> {
   )
   void lessonGeneration.runNow()
 
+  // The review of the last week that has ended: after the midnight job of a Monday. Like the daily job, every start
+  // runs it too, which makes up a Monday the service was down for; a week already reviewed is left as it is.
+  const runWeekly = async (trigger: 'startup' | 'midnight') => {
+    try {
+      await runWeeklyReview({ db, config, clock: systemClock, llm, prompts, log: app.log })
+    } catch (err) {
+      app.log.error({ err: err instanceof Error ? err.constructor.name : 'unknown', trigger }, 'weekly review failed')
+    }
+  }
+  void runWeekly('startup')
+
   const dailyJob = startDailyJob(async () => {
     try {
       await runAndLog('midnight')
     } finally {
       await lessonGeneration.runNow()
+      if (isWeeklyReviewDay(systemClock.now(), config.timezone)) await runWeekly('midnight')
     }
   }, config.timezone)
 

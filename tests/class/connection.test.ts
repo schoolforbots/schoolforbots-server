@@ -227,6 +227,9 @@ const studentRow = (s: Service, id: number) =>
 const attendanceRows = (s: Service) =>
   s.db.selectFrom('attendance').select(['sessionId', 'studentId', 'firstSeenAt']).orderBy('studentId').execute()
 
+const connectionCounts = (s: Service) =>
+  s.db.selectFrom('attendance').select(['studentId', 'connections']).orderBy('sessionId').orderBy('studentId').execute()
+
 describe('the upgrade', () => {
   test('is refused with 401 without a key, with a malformed header or with an unknown key', async () => {
     const s = await start()
@@ -1217,6 +1220,11 @@ describe('Review Focus 1: the newest connection wins', () => {
       { sessionId: sessionIdOf(s, classId), studentId: c!.id, firstSeenAt: at('19:50') },
     ])
     expect(await studentRow(s, a!.id)).toEqual({ lessonsAttended: 1, lastAttendedAt: at('19:50') })
+    // Each hello is a connection, counted for the weekly review's reconnects.
+    expect(await connectionCounts(s)).toEqual([
+      { studentId: a!.id, connections: 2 },
+      { studentId: c!.id, connections: 1 },
+    ])
 
     // The new connection is the live one: class events reach it, and its close is the student leaving.
     await tickAt(s, at('20:00'))
@@ -1362,5 +1370,12 @@ describe('markAttendance', () => {
       { sessionId: monday, studentId: a.id, firstSeenAt: at('19:50') },
       { sessionId: tuesday, studentId: a.id, firstSeenAt: at('20:01', '2026-11-03') },
     ])
+    // Every call is a connection to the session: the first makes the row, each later one adds one.
+    await markAttendance(s.db, { sessionId: monday, studentId: a.id, at: at('20:20') })
+    expect(await connectionCounts(s)).toEqual([
+      { studentId: a.id, connections: 3 },
+      { studentId: a.id, connections: 1 },
+    ])
+    expect(await studentRow(s, a.id)).toEqual({ lessonsAttended: 2, lastAttendedAt: at('20:01', '2026-11-03') })
   })
 })

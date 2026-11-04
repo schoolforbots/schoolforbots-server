@@ -2,11 +2,13 @@ import type { Kysely } from 'kysely'
 import type { Database } from '../shared/schema.js'
 
 // Attendance: a student who said hello during a session, from its doors to its close, attended it. Coming in before
-// the lesson starts counts too. A session counts once however often the student reconnects.
+// the lesson starts counts too. A session counts once however often the student reconnects; each hello is counted as a
+// connection, for the weekly review's reconnects.
 
 /**
  * Records that the student attended the session. Only the first time for a session counts: it writes the attendance
- * row, sets `students.last_attended_at` to `at` and adds one to `lessons_attended`; later calls change nothing.
+ * row, sets `students.last_attended_at` to `at` and adds one to `lessons_attended`; a later call only adds one to the
+ * row's `connections`.
  */
 export async function markAttendance(
   db: Kysely<Database>,
@@ -19,7 +21,15 @@ export async function markAttendance(
       .onConflict((oc) => oc.columns(['sessionId', 'studentId']).doNothing())
       .returning('studentId')
       .executeTakeFirst()
-    if (inserted === undefined) return
+    if (inserted === undefined) {
+      await trx
+        .updateTable('attendance')
+        .set((eb) => ({ connections: eb('connections', '+', 1) }))
+        .where('sessionId', '=', p.sessionId)
+        .where('studentId', '=', p.studentId)
+        .execute()
+      return
+    }
     await trx
       .updateTable('students')
       .set((eb) => ({ lastAttendedAt: p.at, lessonsAttended: eb('lessonsAttended', '+', 1) }))

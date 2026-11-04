@@ -21,6 +21,7 @@ import { hashSessionToken, newSessionToken, verifyPassword, verifyTotp } from '.
 import { lessonRoutes } from './lessons.js'
 import { statsRoutes } from './stats.js'
 import { switchRoutes } from './switches.js'
+import { weeklyRoutes } from './weekly.js'
 
 export interface AdminDeps {
   db: Kysely<Database>
@@ -44,7 +45,7 @@ export interface AdminDeps {
  */
 export type AdminApiRoutes = (deps: AdminDeps) => FastifyPluginAsync
 
-const API_ROUTES: AdminApiRoutes[] = [switchRoutes, statsRoutes, lessonRoutes]
+const API_ROUTES: AdminApiRoutes[] = [switchRoutes, statsRoutes, lessonRoutes, weeklyRoutes]
 
 export const SESSION_COOKIE = 'sfb_admin'
 const SESSION_HOURS = 12
