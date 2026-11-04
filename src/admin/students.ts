@@ -2,11 +2,10 @@ import { TypeBoxValidatorCompiler, type TypeBoxTypeProvider } from '@fastify/typ
 import type { FastifyPluginAsync } from 'fastify'
 import type { Kysely } from 'kysely'
 import { Type } from 'typebox'
-import { lockStudentsOfAiIds } from '../class/discipline.js'
+import { lockStudentsOfAiIds, suspendAiStudents } from '../class/discipline.js'
 import { liftPenalty } from '../discipline/revoke.js'
 import { ApiError } from '../registration/errors.js'
 import { dropFromSchool } from '../registration/me.js'
-import { MEMBER_STATUSES } from '../shared/db.js'
 import { className } from '../shared/identity.js'
 import { recordText } from '../shared/record-text.js'
 import type { Database, DisciplineKind, MessageKind, MessageModeration, StudentStatus } from '../shared/schema.js'
@@ -202,26 +201,10 @@ export function studentRoutes(deps: AdminDeps): FastifyPluginAsync {
           const student = students.get(id)
           if (student === undefined) throw NOT_FOUND
           if (student.status === 'expelled') throw new ApiError(409, 'wrong_status', {}, EXPELLED)
-          // As after class: every student of the AI id who is not expelled. Those in a class are suspended in it (a
-          // lesson under way is not interrupted; the next connection is refused), the others are dropped with the
-          // date, which keeps them from re-enrolling before it.
+          // As after class: every student of the AI id who is not expelled (a lesson under way is not interrupted; the
+          // next connection is refused).
           const reached = [...students.values()].filter((s) => s.status !== 'expelled')
-          const members = reached.filter((s) => s.aiId === student.aiId && (MEMBER_STATUSES as readonly StudentStatus[]).includes(s.status))
-          const others = reached.filter((s) => s.aiId === student.aiId && !members.includes(s))
-          if (members.length > 0) {
-            await trx
-              .updateTable('students')
-              .set({ status: 'suspended', suspendedUntil: until })
-              .where('id', 'in', members.map((s) => s.id))
-              .execute()
-          }
-          if (others.length > 0) {
-            await trx
-              .updateTable('students')
-              .set({ status: 'dropped', classId: null, suspendedUntil: until })
-              .where('id', 'in', others.map((s) => s.id))
-              .execute()
-          }
+          await suspendAiStudents(trx, reached, until)
           const alsoApplied = reached.filter((s) => s.aiId === student.aiId && s.id !== id).map((s) => s.id)
           await recordByAdmin(trx, id, 'suspension', now, { until: until.toISOString(), alsoApplied, days })
           return studentView(id, trx)
@@ -250,6 +233,8 @@ export function studentRoutes(deps: AdminDeps): FastifyPluginAsync {
       const view = await db.transaction().execute(async (trx) => {
         await exists(id)
         const outcome = await liftPenalty(trx, config, id, now)
+        // Only this student's breaks: a penalty that reached them from an AI-id sibling is lifted for the whole AI id,
+        // but the sibling's own breaks are theirs to have taken back (lift them from the sibling's page).
         // The breaks of the window are taken back with the penalty, so the next break does not add up to it again.
         const { numUpdatedRows } = await trx
           .updateTable('disciplineRecords')
