@@ -123,8 +123,10 @@ function useAction() {
       setError(failure as ApiError)
       setBusy(false)
       setWriting(false)
-      // A class began the lesson meanwhile: read it again, and the page stops offering changes.
-      if ((failure as ApiError).code === 'lesson_locked') onRefresh()
+      // A class began the lesson meanwhile: read it again, and the page stops offering changes. Approving found red
+      // marks the word list has gained since: read it again, and they are there to fix.
+      const code = (failure as ApiError).code
+      if (code === 'lesson_locked' || code === 'lesson_has_flags') onRefresh()
       return false
     }
   }

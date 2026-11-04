@@ -322,6 +322,35 @@ describe('a save from an old version', () => {
 })
 
 describe('approval', () => {
+  test('weighs the lesson against the word list as it is now: a dropped rule no longer blocks, a newly listed word does', async () => {
+    let words = [WORD]
+    const live = {
+      check: (text: string) => createModerator({ blockedWords: words, injectionPatterns: [] }).check(text),
+      checkAll: (text: string) => createModerator({ blockedWords: words, injectionPatterns: [] }).checkAll(text),
+    }
+    const liveDeps = { db, clock, moderator: live }
+    const flagged = await saveDraft(liveDeps, KEY, content({ title: `讲${WORD}` }), { source: 'api', change: 'generate' })
+    expect(flagged.flags).toHaveLength(1)
+    // The word is dropped from the list: nothing is left to fix, and the lesson is approved.
+    words = []
+    await approve(liveDeps, flagged.lessonId, 1)
+    expect(await lessonRow(flagged.lessonId)).toMatchObject({ flags: [], approvedAt: clock.now() })
+
+    const clean = await saveDraft(liveDeps, { date: WED, division: 'senior' }, content({ title: '讲新词' }), { source: 'api', change: 'generate' })
+    expect(clean.flags).toEqual([])
+    // A word listed since the lesson was saved: refused, and the mark is there to see, on a version a tab must reload.
+    words = ['新词']
+    const err = await rejection(approve(liveDeps, clean.lessonId, 1))
+    expect(err).toBeInstanceOf(LessonHasFlags)
+    expect((err as LessonHasFlags).count).toBe(1)
+    expect(await lessonRow(clean.lessonId)).toMatchObject({
+      flags: [{ part: 'title', index: null, kind: 'word', rule: '新词' }],
+      version: 2,
+      approvedAt: null,
+    })
+    expect(await versionRows(clean.lessonId)).toHaveLength(1)
+  })
+
   test('is refused while the lesson has flags; marking them false positives lets it through', async () => {
     const { lessonId } = await draft(content({ title: `讲${WORD}` }))
     expect(await rejection(approve(deps, lessonId, 1))).toBeInstanceOf(LessonHasFlags)
