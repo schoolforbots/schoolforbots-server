@@ -18,6 +18,8 @@ import type { Env, SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/schema.js'
 import type { Switches } from '../shared/switches.js'
 import { hashSessionToken, newSessionToken, verifyPassword, verifyTotp } from './auth.js'
+import { lessonRoutes } from './lessons.js'
+import { statsRoutes } from './stats.js'
 import { switchRoutes } from './switches.js'
 
 export interface AdminDeps {
@@ -42,7 +44,7 @@ export interface AdminDeps {
  */
 export type AdminApiRoutes = (deps: AdminDeps) => FastifyPluginAsync
 
-const API_ROUTES: AdminApiRoutes[] = [switchRoutes]
+const API_ROUTES: AdminApiRoutes[] = [switchRoutes, statsRoutes, lessonRoutes]
 
 export const SESSION_COOKIE = 'sfb_admin'
 const SESSION_HOURS = 12

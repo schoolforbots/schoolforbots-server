@@ -27,6 +27,13 @@ export type ErrorCode =
   | 'admin_login_failed'
   | 'admin_locked'
   | 'admin_csrf'
+  | 'stale_version'
+  | 'lesson_locked'
+  | 'lesson_has_flags'
+  | 'lesson_format'
+  | 'topic_refused'
+  | 'not_a_lesson_day'
+  | 'llm_unavailable'
 
 /** Chinese text the plugin can show to the owner as is. */
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
@@ -54,6 +61,13 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   admin_login_failed: '密码或验证码不对。',
   admin_locked: '失败次数太多，登录已暂时锁定，请稍后再试。',
   admin_csrf: '请求缺少必要的头。',
+  stale_version: '这节课在别处改过了，刷新后再改。',
+  lesson_locked: '这节课已经开课，不能再改。',
+  lesson_has_flags: '这节课还有红笔标记，改掉或标为误伤以后才能通过。',
+  lesson_format: '课程内容不符合格式要求。',
+  topic_refused: '这一天不能指定题目。',
+  not_a_lesson_day: '这一天不上课。',
+  llm_unavailable: '大模型暂时调不通，稍后再试，或者改用手动粘贴。',
 }
 
 export class ApiError extends Error {
@@ -61,8 +75,14 @@ export class ApiError extends Error {
   readonly code: ErrorCode
   readonly extra: Record<string, unknown>
 
-  constructor(status: number, code: ErrorCode, extra: Record<string, unknown> = {}) {
-    super(ERROR_MESSAGES[code])
+  /** `message` replaces the code's own text when there is a more exact reason to give, in Chinese. */
+  constructor(
+    status: number,
+    code: ErrorCode,
+    extra: Record<string, unknown> = {},
+    message: string = ERROR_MESSAGES[code],
+  ) {
+    super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
