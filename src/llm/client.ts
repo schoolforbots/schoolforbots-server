@@ -158,7 +158,10 @@ export function createLlm(deps: {
     const vendor = providers[provider]
     if (vendor === undefined) throw new Error(`No provider ${provider} is set up`)
     for (let attempt = 0; ; attempt++) {
-      const remaining = deadline - performance.now()
+      const left = deadline - performance.now()
+      // A passed deadline starts no request, even when a slot was free; timers only take whole positive milliseconds.
+      if (left <= 0) throw new TimedOut('大模型调用超时')
+      const remaining = Math.max(1, Math.ceil(left))
       try {
         return await within(remaining, (signal) =>
           vendor.complete(

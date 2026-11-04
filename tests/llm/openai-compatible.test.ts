@@ -91,6 +91,12 @@ test('a hung server hits the timeout as LlmUnavailable', async () => {
   await expect(provider().complete('m', { ...req, timeoutMs: 100 })).rejects.toBeInstanceOf(LlmUnavailable)
 })
 
+test('a fractional or spent timeout is rounded up to a whole millisecond instead of throwing', async () => {
+  await expect(provider().complete('m', { ...req, timeoutMs: 1999.37 })).resolves.toMatchObject({ text: '{"ok":true}' })
+  handler = () => {}
+  await expect(provider().complete('m', { ...req, timeoutMs: -5 })).rejects.toBeInstanceOf(LlmUnavailable)
+})
+
 test('the caller signal aborts the call as LlmUnavailable', async () => {
   handler = () => {}
   const ac = new AbortController()
