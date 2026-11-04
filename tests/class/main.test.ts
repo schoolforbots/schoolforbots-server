@@ -287,8 +287,8 @@ describe('starting the class service', () => {
     // Once the step works again, the next tick catches the class up.
     failing = false
     await service.tick()
-    // The student who said hello meanwhile is called on (its events are written under `call-on`).
-    expect(await steps(broken)).toEqual(['opening', 'segment-1', 'qa-1', 'callouts-1', 'segment-2', 'call-on', 'call-on-1'])
+    // The student who said hello meanwhile is called on (the teacher's line is written under the step's own name).
+    expect(await steps(broken)).toEqual(['opening', 'segment-1', 'qa-1', 'callouts-1', 'segment-2', 'call-on-1'])
   })
 })
 

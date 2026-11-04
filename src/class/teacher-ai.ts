@@ -14,12 +14,16 @@ import { isValidText } from './chat.js'
 import { appendClassEvent, classEventMessage, stepWritten, type StoredEvent } from './events.js'
 import type { LessonHooks } from './hooks.js'
 import type { Hub } from './hub.js'
+import { callsOf, writeComment, type Call } from './questions.js'
 import type { ActiveSession } from './runtime.js'
+import * as teacher from './teacher.js'
+import { lessonSteps } from './timeline.js'
 
 // What the teacher says in words of the model: after each segment, the answer to at most one of the students'
-// questions, picked by the model for being on the segment's topic. The work runs in the background, apart from the
-// lesson runtime, and holds no database transaction while the model thinks: the class goes on whatever the model does,
-// and an answer that is not ready before the next segment is dropped.
+// questions, picked by the model for being on the segment's topic; and a comment on each answer to a call-on. The work
+// runs in the background, apart from the lesson runtime, and holds no database transaction while the model thinks: the
+// class goes on whatever the model does, and what is not ready before the next segment is dropped. A comment the model
+// does not give in time, or that does not pass, is the template thanks.
 //
 // A line the teacher would say goes out only once it passes every check of `checkLine`; the class never hears a line
 // the model wrote that did not.
@@ -44,8 +48,10 @@ export interface TeacherAiDeps {
   moderator: Moderator
   /** Then the second layer, as a line the teacher says aloud (source `teacher`). */
   secondLayer: SecondLayer
-  /** `teacherLlm` off: the teacher answers no question. */
+  /** `teacherLlm` off: the teacher answers no question, and comments on an answer with the template thanks. */
   switches: Switches
+  /** Timeline speed (see `lessonSteps`): when the next segment starts, before which a comment must be out. */
+  speed: number
   /** Samples the questions when there are too many: a number in [0, 1), as `Math.random` (the default) gives. */
   random?: () => number
   log?: TeacherAiLog
@@ -54,6 +60,13 @@ export interface TeacherAiDeps {
 export interface TeacherAi {
   /** Starts answering the questions of segment `k` (see `LessonHooks.startAnswering`), once per session and segment. */
   startAnswering: LessonHooks['startAnswering']
+  /**
+   * Starts the comment on the answer to call-on `n` (`callId`), just taken; once per session and call-on. Returns at
+   * once. The comment is the model's, when it passes the checks before the next segment starts; else the template
+   * thanks, said at once. Should the work fail otherwise, the call-on's close says the template thanks (see
+   * questions.ts, which also decides which of the two is the one said).
+   */
+  startComment(session: Pick<ActiveSession, 'sessionId' | 'classId' | 'closeAt'>, n: number, callId: number): void
   /** Resolves once no work is going on: for tests, and for the shutdown. */
   idle(): Promise<void>
 }
@@ -73,6 +86,12 @@ type Outcome =
   | 'late'
   | 'dropped'
 
+/** How the comment on an answer ended, as the program log says it. */
+type CommentOutcome = 'commented' | 'template' | 'dropped' | 'no_answer'
+
+/** Why the comment is the template thanks and not the model's. */
+type TemplateReason = 'switched_off' | 'no_lesson' | 'no_time' | 'refused' | 'unavailable' | LineProblem
+
 interface Question {
   studentId: number
   text: string
@@ -84,6 +103,18 @@ interface Context {
   personality: string
   segmentText: string
   members: SessionMember[]
+}
+
+/** What the prompt of a comment says, and by when the comment must be out. */
+interface CommentContext {
+  teacherName: string
+  personality: string
+  /** The lesson's question of the call-on; null when the lesson has none. */
+  question: string | null
+  /** The segments the question is on; null when the lesson has none of them. */
+  segmentText: string | null
+  /** When the next segment starts (the call-on's close); null when the timeline has no close for the call-on. */
+  deadline: Date | null
 }
 
 /** What the teacher calls himself when the class's persona is no longer in the config (as the runtime does). */
@@ -160,16 +191,27 @@ function parseReply(text: string, count: number): Parsed | null {
 }
 
 export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
-  const { db, config, clock, hub, llm, prompts, moderator, secondLayer, switches } = deps
+  const { db, config, clock, hub, llm, prompts, moderator, secondLayer, switches, speed } = deps
   const random = deps.random ?? Math.random
   const log = deps.log
   const answerPieces = promptPieces(prompts['teacher-answer'], ANSWER_FORMAT)
+  const commentPieces = promptPieces(prompts['teacher-comment'])
   // Room for the longest answer allowed (a Chinese character may take two tokens) and the JSON around it.
   const answerTokens = 200 + 2 * config.chat.maxMessageChars
+  // Room for the longest comment allowed, in plain text.
+  const commentTokens = 100 + 2 * config.chat.maxMessageChars
 
   const running = new Set<Promise<void>>()
-  /** The answering started, by session and segment, until its deadline: the runtime may start a segment again. */
+  /**
+   * The work started, by session and segment (answering) or call-on (comment), until it can no longer write: the
+   * runtime may start a segment again.
+   */
   const started = new Map<string, number>()
+
+  /** Forgets the work that can no longer write by `now`. */
+  function forgetEnded(now: number): void {
+    for (const [key, until] of started) if (until <= now) started.delete(key)
+  }
 
   /** Runs `work` in the background; `idle` waits for it. A failure is logged by its name. */
   function track(what: object, work: () => Promise<void>): void {
@@ -263,12 +305,36 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
       .executeTakeFirstOrThrow()
     const segmentText = row.segments?.[k - 1]?.text
     if (segmentText === undefined) return null
-    const persona = config.teacherPersonas.find((p) => p.id === row.teacherPersonaId)
+    return { ...teacherOf(row.teacherPersonaId), segmentText, members: row.members }
+  }
+
+  /** The class's teacher by the persona's id, as the config describes them now. */
+  function teacherOf(personaId: string): { teacherName: string; personality: string } {
+    const persona = config.teacherPersonas.find((p) => p.id === personaId)
+    return { teacherName: persona?.name ?? FALLBACK_TEACHER, personality: persona?.personality ?? '' }
+  }
+
+  /**
+   * What the comment on the answer to `call` is on: a review question on the segments taught so far, an extension on
+   * the segment after the call-on, which it leads into. The comment is due before that next segment starts.
+   */
+  async function commentContextOf(sessionId: number, call: Call): Promise<CommentContext> {
+    const row = await db
+      .selectFrom('classSessions as s')
+      .innerJoin('classes as c', 'c.id', 's.classId')
+      .leftJoin('lessons as l', 'l.id', 's.lessonId')
+      .select(['s.startsAt', 'c.teacherPersonaId', 'l.segments', 'l.callOnQuestions'])
+      .where('s.id', '=', sessionId)
+      .executeTakeFirstOrThrow()
+    const after = config.lesson.callOns[call.n - 1]?.afterSegment ?? 0
+    const segments = row.segments ?? []
+    const relevant = call.kind === 'review' ? segments.slice(0, after) : segments.slice(after, after + 1)
+    const steps = lessonSteps(row.startsAt, 'lesson', config.lesson, speed, config.teacherAi.answerLeadSeconds)
     return {
-      teacherName: persona?.name ?? FALLBACK_TEACHER,
-      personality: persona?.personality ?? '',
-      segmentText,
-      members: row.members,
+      ...teacherOf(row.teacherPersonaId),
+      question: row.callOnQuestions?.[call.kind] ?? null,
+      segmentText: relevant.length === 0 ? null : relevant.map((s) => s.text).join('\n\n'),
+      deadline: steps.find((s) => s.step === `call-on-close-${call.n}`)?.at ?? null,
     }
   }
 
@@ -397,11 +463,74 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
     }
   }
 
+  /**
+   * The model's comment on `answer`, the answer to `call`, when it passes `checkLine` (as the class hears it), else why
+   * there is none. A comment that does not pass is not generated again: the template thanks is there instead. No call
+   * is made without the time for it before the deadline.
+   */
+  async function modelComment(
+    sessionId: number,
+    call: Call,
+    answer: string,
+    ctx: CommentContext,
+    deadline: Date,
+  ): Promise<{ comment: string; calls: number } | { reason: TemplateReason; calls: number }> {
+    if (!switches.isOn('teacherLlm')) return { reason: 'switched_off', calls: 0 }
+    if (ctx.question === null || ctx.segmentText === null) return { reason: 'no_lesson', calls: 0 }
+    const left = deadline.getTime() - clock.now().getTime()
+    const timeoutMs = Math.min(left, config.teacherAi.commentTimeoutSeconds * 1000)
+    if (timeoutMs < MIN_CALL_MS) return { reason: 'no_time', calls: 0 }
+    const max = config.chat.maxMessageChars
+    const prompt = fillPrompt(prompts['teacher-comment'], {
+      teacherName: ctx.teacherName,
+      teacherPersona: ctx.personality,
+      callOnKind: call.kind === 'review' ? '复习题' : '引申题',
+      question: ctx.question,
+      // The student's words, on one line, unable to close the block they sit in.
+      answer: neutralizeStudentText(answer, max),
+      segmentText: ctx.segmentText,
+      maxChars: String(max),
+    })
+    let comment: string
+    try {
+      const reply = await llm.call('comment', prompt, { json: false, timeoutMs, maxOutputTokens: commentTokens })
+      comment = reply.text.trim()
+    } catch (err) {
+      if (err instanceof LlmUnavailable) return { reason: 'unavailable', calls: 1 }
+      if (err instanceof LlmContentRefused) return { reason: 'refused', calls: 1 }
+      throw err
+    }
+    const problem = await checkLine(sessionId, 'comment', comment, { pieces: commentPieces, aloud: comment })
+    return problem === null ? { comment, calls: 1 } : { reason: problem, calls: 1 }
+  }
+
+  /**
+   * The comment on the answer to call-on `n`: the model's when it passes, else the template thanks, written at once
+   * unless it is too late for it (see `writeComment`). Nothing is asked of the model once the call has its comment or
+   * has closed.
+   */
+  async function commentOn(
+    session: Pick<ActiveSession, 'sessionId' | 'classId'>,
+    n: number,
+    callId: number,
+  ): Promise<{ outcome: CommentOutcome; calls: number; reason?: TemplateReason }> {
+    const call = (await callsOf(db, session.sessionId)).find((c) => c.n === n && c.callId === callId)
+    if (call === undefined || call.answer === null) return { outcome: 'no_answer', calls: 0 }
+    if (call.comment !== null || call.timeUp) return { outcome: 'dropped', calls: 0 }
+    const ctx = await commentContextOf(session.sessionId, call)
+    if (ctx.deadline === null) return { outcome: 'dropped', calls: 0 }
+    const said = await modelComment(session.sessionId, call, call.answer, ctx, ctx.deadline)
+    const text = 'comment' in said ? said.comment : teacher.callOnThanks()
+    const written = await writeComment({ db, clock, hub }, session, n, text, ctx.deadline)
+    const outcome = !written ? 'dropped' : 'comment' in said ? 'commented' : 'template'
+    return { outcome, calls: said.calls, ...('reason' in said ? { reason: said.reason } : {}) }
+  }
+
   return {
     startAnswering(session, k, window) {
       const now = clock.now().getTime()
       // Only the windows still open are remembered.
-      for (const [key, deadline] of started) if (deadline <= now) started.delete(key)
+      forgetEnded(now)
       const key = `${session.sessionId}:${k}`
       if (started.has(key)) return
       const what = { sessionId: session.sessionId, classId: session.classId, segment: k }
@@ -415,6 +544,19 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
       track(what, async () => {
         const result = await answerSegment(session, k, window)
         log?.info({ ...what, ...result }, 'teacher answer')
+      })
+    },
+
+    startComment(session, n, callId) {
+      forgetEnded(clock.now().getTime())
+      const key = `comment:${session.sessionId}:${n}`
+      if (started.has(key)) return
+      // A call-on's answer is taken once: remembered until the session closes, past any time to comment on it.
+      started.set(key, session.closeAt.getTime())
+      const what = { sessionId: session.sessionId, classId: session.classId, n, callId }
+      track(what, async () => {
+        const result = await commentOn(session, n, callId)
+        log?.info({ ...what, ...result }, 'teacher comment')
       })
     },
 

@@ -43,7 +43,10 @@ export interface ClassServiceDeps {
    * too many (see `TeacherAiDeps.random`); `Math.random` when unset.
    */
   random?: () => number
-  /** The model the teacher answers questions with; without it, the teacher answers none. */
+  /**
+   * The model the teacher answers questions and comments on answers with, and the second layer the answers to a
+   * call-on pass; without it, the teacher answers no question and thanks every answer with the template line.
+   */
   model?: ModelDeps
   /** Put in place of the real lesson hooks, for the runtime and the app alike (tests). */
   hooks?: Partial<LessonHooks>
@@ -65,7 +68,10 @@ export interface ClassService {
   chat: ChatEngine
   questions: QuestionsDeps
   hooks: LessonHooks
-  /** The teacher's work with the model, null without a model. Its `idle()` waits for the answers being worked on. */
+  /**
+   * The teacher's work with the model, null without a model. Its `idle()` waits for the answers and the comments
+   * being worked on.
+   */
   teacherAi: TeacherAi | null
   /** What the service runs on its interval: the lesson runtime's steps, then the conversations overdue by the clock. */
   tick(): Promise<void>
@@ -77,10 +83,10 @@ export interface ClassService {
 }
 
 /**
- * The class service on one database: the hub, the chat engine, the questions and the call-on, the teacher's answers
- * (with a model), the lesson hooks, the lesson runtime and the WebSocket app. One chat engine serves both the hooks
- * and the app's handlers, as do the questions; the same hooks go to the runtime and to the app. Nothing runs until
- * something calls `tick()`.
+ * The class service on one database: the hub, the chat engine, the questions and the call-ons, the teacher's answers
+ * and comments (with a model), the lesson hooks, the lesson runtime and the WebSocket app. One chat engine serves both
+ * the hooks and the app's handlers, as do the questions; the same hooks go to the runtime and to the app. Nothing runs
+ * until something calls `tick()`.
  */
 export function createClassService(deps: ClassServiceDeps): ClassService {
   const { db, config, moderator, clock, speed } = deps
@@ -92,16 +98,6 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
 
   const hub = createHub()
   const chat = createChatEngine({ db, config, clock, hub, moderator, discipline: disciplineRecorder, speed, log })
-  const questions: QuestionsDeps = {
-    db,
-    config,
-    clock,
-    hub,
-    moderator,
-    discipline: disciplineRecorder,
-    random: deps.random,
-    log,
-  }
   const teacherAi =
     deps.model === undefined
       ? null
@@ -112,9 +108,22 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
           hub,
           moderator,
           ...deps.model,
+          speed,
           random: deps.random,
           log: { info: log, error: logError },
         })
+  const questions: QuestionsDeps = {
+    db,
+    config,
+    clock,
+    hub,
+    moderator,
+    secondLayer: deps.model?.secondLayer,
+    discipline: disciplineRecorder,
+    teacherAi: teacherAi ?? undefined,
+    random: deps.random,
+    log,
+  }
   const hooks: LessonHooks = {
     ...createLessonHooks({ db, config, clock, chat, questions, hub, teacherAi: teacherAi ?? undefined, log }),
     ...deps.hooks,

@@ -68,8 +68,11 @@ export const QuestionMessage = Type.Object({
 })
 
 /**
- * The answer to the `called_on` message that carried `callId`. The class hears an answer taken as an `answer` event;
- * from anyone else, or with another `callId`, it is `not_called_on`, and once answered or past its time `call_closed`.
+ * The answer to the `called_on` message that carried `callId`. A lesson may have several call-ons (two by default),
+ * each with a `callId` of its own, and nobody is called on twice in a lesson. The class hears an answer taken as an `answer` event, and then
+ * the teacher's comment on it as a `teacher` event. From anyone else, or with another `callId`, it is `not_called_on`;
+ * once answered, past its time or after the next call-on has started, `call_closed`. An answer the teacher stops is
+ * `blocked`, and the call stays open: the student may answer again in time.
  */
 export const AnswerMessage = Type.Object({
   id: Id,
@@ -153,7 +156,16 @@ export const ClassEvent = Type.Union([
     oldName: Type.String(),
     newName: Type.String(),
   }),
-  Type.Object({ kind: Type.Literal('called_on'), studentId: Type.Integer(), displayName: Type.String() }),
+  /**
+   * The teacher calls on a student, who alone gets `called_on` with the question. `questionKind` is `review` for a
+   * question on what has been taught, `extension` for one that leads into what comes next.
+   */
+  Type.Object({
+    kind: Type.Literal('called_on'),
+    studentId: Type.Integer(),
+    displayName: Type.String(),
+    questionKind: Type.Union([Type.Literal('review'), Type.Literal('extension')]),
+  }),
   Type.Object({
     kind: Type.Literal('answer'),
     studentId: Type.Integer(),

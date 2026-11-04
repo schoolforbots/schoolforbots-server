@@ -9,7 +9,7 @@ import type { Database, DisciplineKind } from '../shared/schema.js'
 import { namesOf } from './discipline.js'
 import type { Hub } from './hub.js'
 import { studyWeekTitles } from './planning.js'
-import { callOf, MalformedCallError, type Call } from './questions.js'
+import { callsOf, MalformedCallError, type Call } from './questions.js'
 import type { ActiveSession } from './runtime.js'
 
 // The after-school summary: for each student who attended a session, what the owner is told about it. It is written
@@ -36,16 +36,16 @@ const CRITICISM_KINDS = [
 ] as const satisfies readonly DisciplineKind[]
 
 /**
- * The session's call-on. One whose events cannot be read is left out of the summaries (nobody is shown as called on)
+ * The session's call-ons. Events that cannot be read are left out of the summaries (nobody is shown as called on)
  * rather than failing them: a failure would keep the session from ever closing. Only the session's number is logged.
  */
-async function callOfSession(deps: SummaryDeps, sessionId: number): Promise<Call | null> {
+async function callsOfSession(deps: SummaryDeps, sessionId: number): Promise<Call[]> {
   try {
-    return await callOf(deps.db, sessionId)
+    return await callsOf(deps.db, sessionId)
   } catch (err) {
     if (!(err instanceof MalformedCallError)) throw err
     deps.log?.({ sessionId }, 'call-on events unreadable, summaries written without it')
-    return null
+    return []
   }
 }
 
@@ -112,10 +112,12 @@ async function summariesOf(
     .orderBy('id')
     .execute()
 
-  const call = await callOfSession(deps, sessionId)
+  const calls = await callsOfSession(deps, sessionId)
 
   return new Map(
     studentIds.map((studentId) => {
+      // Nobody is called on twice in a session.
+      const call = calls.find((c) => c.studentId === studentId)
       const chattedWith = [...(partners.get(studentId) ?? [])]
         .sort((a, b) => a - b)
         .flatMap((id) => {
@@ -135,7 +137,7 @@ async function summariesOf(
         teacher: { name: teacher?.name ?? header.teacherPersonaId },
         lesson,
         weekTitles,
-        calledOn: call?.studentId === studentId ? { question: call.question, answer: call.answer } : null,
+        calledOn: call === undefined ? null : { question: call.question, answer: call.answer },
         chattedWith,
         criticisms,
       }
