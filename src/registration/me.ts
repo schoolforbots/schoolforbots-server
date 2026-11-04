@@ -14,6 +14,7 @@ import {
 import { nextSchoolDay } from '../shared/calendar.js'
 import { MEMBER_STATUSES, SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
+import type { Slot } from '../shared/config.js'
 import type { StudentStatus } from '../shared/schema.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf, type StudentRow } from './auth.js'
@@ -327,21 +328,29 @@ async function reEnrollStudent(
  */
 async function withdrawStudent(deps: RegistrationDeps, current: StudentRow): Promise<Static<typeof WithdrawResult>> {
   return deps.db.transaction().execute(async (trx) => {
-    // The slot lock first, as in rename and re-enroll: the nightly job holds it while it promotes and assigns students
-    // by what it has read, so a withdrawal cannot slip between that read and its write and be undone by it.
-    await lock(trx, slotLockKey(current.slot))
-
-    // The status is read again under a row lock: the nightly job or a penalty may have changed it since the key was
-    // checked, and two withdrawals by one student must not both pass.
-    const student = await trx
-      .selectFrom('students')
-      .select('status')
-      .where('id', '=', current.id)
-      .forUpdate()
-      .executeTakeFirstOrThrow()
-    if (!(SEAT_STATUSES as readonly StudentStatus[]).includes(student.status)) throw new ApiError(409, 'wrong_status')
-
-    await trx.updateTable('students').set({ status: 'dropped', classId: null }).where('id', '=', current.id).execute()
+    await dropFromSchool(trx, current)
     return { status: 'dropped' }
   })
+}
+
+/**
+ * Takes the student out of school inside the caller's transaction: dropped, out of the class, the seat given up. The
+ * owner's withdrawal and the admin's are both this. A student who holds no seat is a 409 `wrong_status`.
+ */
+export async function dropFromSchool(trx: Kysely<Database>, current: { id: number; slot: Slot }): Promise<void> {
+  // The slot lock first, as in rename and re-enroll: the nightly job holds it while it promotes and assigns students
+  // by what it has read, so a withdrawal cannot slip between that read and its write and be undone by it.
+  await lock(trx, slotLockKey(current.slot))
+
+  // The status is read again under a row lock: the nightly job or a penalty may have changed it since the key was
+  // checked, and two withdrawals by one student must not both pass.
+  const student = await trx
+    .selectFrom('students')
+    .select('status')
+    .where('id', '=', current.id)
+    .forUpdate()
+    .executeTakeFirstOrThrow()
+  if (!(SEAT_STATUSES as readonly StudentStatus[]).includes(student.status)) throw new ApiError(409, 'wrong_status')
+
+  await trx.updateTable('students').set({ status: 'dropped', classId: null }).where('id', '=', current.id).execute()
 }

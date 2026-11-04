@@ -259,7 +259,8 @@ export async function excludeRule(
     const penalties = await penaltiesOf(trx, [...students.keys()])
     const unearned: Penalty[] = []
     for (const p of penalties) {
-      if (!offenders.has(p.studentId)) continue
+      // A penalty the admin gave by hand was not earned by breaks, so a dropped rule cannot take it back.
+      if (p.detail.by === 'admin' || !offenders.has(p.studentId)) continue
       if (![...students.values()].some((s) => holds(p, s, now))) continue
       const due = await schoolRulePenalty(trx, config.discipline, p.studentId, p.createdAt)
       if (p.kind === 'expulsion' ? due !== 'expulsion' : due === null) unearned.push(p)

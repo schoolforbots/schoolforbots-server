@@ -20,6 +20,7 @@ import type { Switches } from '../shared/switches.js'
 import { hashSessionToken, newSessionToken, verifyPassword, verifyTotp } from './auth.js'
 import { lessonRoutes } from './lessons.js'
 import { statsRoutes } from './stats.js'
+import { studentRoutes } from './students.js'
 import { switchRoutes } from './switches.js'
 import { weeklyRoutes } from './weekly.js'
 
@@ -45,7 +46,7 @@ export interface AdminDeps {
  */
 export type AdminApiRoutes = (deps: AdminDeps) => FastifyPluginAsync
 
-const API_ROUTES: AdminApiRoutes[] = [switchRoutes, statsRoutes, lessonRoutes, weeklyRoutes]
+const API_ROUTES: AdminApiRoutes[] = [switchRoutes, statsRoutes, lessonRoutes, weeklyRoutes, studentRoutes]
 
 export const SESSION_COOKIE = 'sfb_admin'
 const SESSION_HOURS = 12

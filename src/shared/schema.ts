@@ -365,6 +365,8 @@ export type DisciplineKind =
   | 'parent_notice'
   | 'suspension'
   | 'expulsion'
+  | 'withdrawal'
+  | 'penalty_lift'
 
 export interface DisciplineRecordsTable {
   id: Generated<number>

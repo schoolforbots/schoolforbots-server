@@ -539,6 +539,14 @@
                   {
                     "type": "string",
                     "const": "expulsion"
+                  },
+                  {
+                    "type": "string",
+                    "const": "withdrawal"
+                  },
+                  {
+                    "type": "string",
+                    "const": "penalty_lift"
                   }
                 ]
               },
