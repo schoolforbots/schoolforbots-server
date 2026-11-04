@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { LlmContentRefused, LlmUnavailable } from '../../src/llm/provider.js'
 import { loadBlockedWords } from '../../src/moderation/load.js'
-import { renderSuggestionList, tidyWordList, writeSuggestionList } from '../../src/tools/tidy-word-list.js'
+import { renderSuggestionList, runTidy, tidyWordList, writeSuggestionList } from '../../src/tools/tidy-word-list.js'
 import { examplePrompts, scripted, type ModelCall, type Reply } from '../helpers/llm.js'
 
 const prompt = examplePrompts()['word-list-tidy']
@@ -163,5 +163,48 @@ describe('files', () => {
     expect([hash(list), hash(patterns)]).toEqual(before)
     expect(readdirSync(data).sort()).toEqual(['blocked-words.txt', 'injection-patterns.txt'])
     expect(existsSync(join(data, 'nested'))).toBe(false)
+  })
+})
+
+describe('the command', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+  })
+  function outFile(): string {
+    const d = mkdtempSync(join(tmpdir(), 'tidy-'))
+    dirs.push(d)
+    return join(d, 'list.md')
+  }
+  function capture() {
+    const lines = { log: [] as string[], error: [] as string[] }
+    return { lines, out: { log: (l: string) => void lines.log.push(l), error: (l: string) => void lines.error.push(l) } }
+  }
+  // Nothing listens there: no test below gets as far as the database.
+  const base = { DATABASE_URL: 'postgres://nobody@127.0.0.1:1/none', SCHOOL_CONFIG: 'config/school.example.json' }
+
+  test('refuses to run with LLM_FAKE, which would write an empty list, and writes nothing', async () => {
+    const file = outFile()
+    const { lines, out } = capture()
+    expect(await runTidy(['--out', file], { ...base, LLM_FAKE: '1' }, out)).toBe(1)
+    expect(lines.error).toEqual([expect.stringContaining('LLM_FAKE')])
+    expect(existsSync(file)).toBe(false)
+  })
+
+  test('says what is wrong before the first call: a config it cannot read, a key that is missing', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      const file = outFile()
+      const missing = capture()
+      expect(await runTidy(['--out', file], { ...base, SCHOOL_CONFIG: 'config/nowhere.json' }, missing.out)).toBe(1)
+      expect(missing.lines.error).toEqual([expect.stringMatching(/^整理失败：.*config\/nowhere\.json/)])
+
+      const noKey = capture()
+      expect(await runTidy(['--out', file], base, noKey.out)).toBe(1)
+      expect(noKey.lines.error).toEqual([expect.stringMatching(/^整理失败：.*LLM_API_KEY/)])
+      expect(existsSync(file)).toBe(false)
+    } finally {
+      stderr.mockRestore()
+    }
   })
 })

@@ -19,6 +19,7 @@ async function main(): Promise<void> {
   // The model's prompts and providers are read before anything starts: a missing prompt file or key stops the start.
   const prompts = loadPrompts(env.promptsDir)
   const providers = env.llmFake ? {} : buildProviders(config, process.env)
+  if (env.llmFake) console.warn('[class] LLM_FAKE=1：大模型的每次调用都只拿写死的回复，不联网也不花钱（仅限本地开发使用）')
 
   // The registration service migrates the database; this one only checks that it has, and does not start otherwise.
   const db = createDb(env.databaseUrl, env.databaseTimeouts)
