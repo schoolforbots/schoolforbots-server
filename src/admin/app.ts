@@ -110,6 +110,9 @@ function apiRoutes(deps: AdminDeps, adminPath: string): FastifyPluginAsync {
   // Consecutive wrong logins, from anyone. Kept in memory: a restart clears it, and so does a right login.
   let failures = 0
   let lockedUntil = 0
+  // The newest time step of a code that logged in. A code is good once: this and any older step are refused, so a
+  // login body that leaks cannot be sent again.
+  let lastAcceptedStep = -1
 
   const cookieOptions = { path: adminPath, httpOnly: true, secure: true, sameSite: 'strict' as const }
 
@@ -145,7 +148,8 @@ function apiRoutes(deps: AdminDeps, adminPath: string): FastifyPluginAsync {
           // Both are always checked, so the time taken does not say which one was wrong. Everything up to the
           // failure count is synchronous, so parallel requests cannot all slip in before the count rises.
           const passwordOk = verifyPassword(request.body.password, credentials.passwordHash)
-          const codeOk = verifyTotp(credentials.totpSecret, request.body.code, now)
+          const step = verifyTotp(credentials.totpSecret, request.body.code, now)
+          const codeOk = step !== null && step > lastAcceptedStep
           if (!passwordOk || !codeOk) {
             failures += 1
             if (failures >= LOCK_AFTER_FAILURES) {
@@ -155,6 +159,7 @@ function apiRoutes(deps: AdminDeps, adminPath: string): FastifyPluginAsync {
             throw new ApiError(401, 'admin_login_failed')
           }
           failures = 0
+          lastAcceptedStep = step
 
           const { token, hash } = newSessionToken()
           const expiresAt = new Date(now.getTime() + SESSION_HOURS * 3_600_000)

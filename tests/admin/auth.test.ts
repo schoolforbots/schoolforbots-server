@@ -23,23 +23,25 @@ describe('TOTP (RFC 6238, appendix B, SHA-1)', () => {
   test('the code of the step before and after is accepted, two steps away is not', () => {
     const at = new Date(1111111111 * 1000)
     for (const shift of [-30, 0, 30]) {
-      expect(verifyTotp(secret, totpNow(secret, new Date(at.getTime() + shift * 1000)), at)).toBe(true)
+      expect(verifyTotp(secret, totpNow(secret, new Date(at.getTime() + shift * 1000)), at)).toBe(
+        Math.floor(at.getTime() / 30_000) + shift / 30,
+      )
     }
     for (const shift of [-60, 60]) {
-      expect(verifyTotp(secret, totpNow(secret, new Date(at.getTime() + shift * 1000)), at)).toBe(false)
+      expect(verifyTotp(secret, totpNow(secret, new Date(at.getTime() + shift * 1000)), at)).toBeNull()
     }
   })
 
   test('a wrong, short, long or non-numeric code is refused', () => {
     const at = new Date(59 * 1000)
     for (const code of ['', '000000', '28782', '2878200', 'abcdef', '287 082']) {
-      expect(verifyTotp(secret, code, at)).toBe(false)
+      expect(verifyTotp(secret, code, at)).toBeNull()
     }
-    expect(verifyTotp(secret, '287082', at)).toBe(true)
+    expect(verifyTotp(secret, '287082', at)).toBe(1)
   })
 
   test('a secret that is not base32 never matches', () => {
-    expect(verifyTotp('not base32!', '123456', new Date())).toBe(false)
+    expect(verifyTotp('not base32!', '123456', new Date())).toBeNull()
   })
 
   test('base32 round-trips, ignoring case, spaces and padding', () => {
@@ -188,6 +190,32 @@ describe('login', () => {
     const right = await t.login({ remoteAddress: '10.2.1.1' })
     expect(right.statusCode).toBe(429)
     expect(await t.db.selectFrom('adminSessions').selectAll().execute()).toEqual([])
+  })
+
+  test('a code that has logged in is refused the second time, as a failure, and so is an older one', async () => {
+    t = await buildAdminTestApp()
+    const at = t.clock.now()
+    const code = (ms: number) => totpNow(TEST_TOTP_SECRET, new Date(at.getTime() + ms))
+    expect((await t.login({ code: code(0), remoteAddress: '10.4.0.1' })).statusCode).toBe(200)
+
+    const again = await t.login({ code: code(0), remoteAddress: '10.4.0.2' })
+    expect(again.statusCode).toBe(401)
+    expect(again.cookies).toEqual([])
+    expect((await t.login({ code: code(-30_000), remoteAddress: '10.4.0.3' })).statusCode).toBe(401)
+    expect(await t.db.selectFrom('adminSessions').selectAll().execute()).toHaveLength(1)
+
+    // the next step's code is a new one
+    expect((await t.login({ code: code(30_000), remoteAddress: '10.4.0.4' })).statusCode).toBe(200)
+  })
+
+  test('a refused replay counts towards the lock', async () => {
+    t = await buildAdminTestApp()
+    expect((await t.login({ remoteAddress: '10.5.0.0' })).statusCode).toBe(200)
+    // the same code, ten times: the code is right but used
+    for (let i = 1; i <= 10; i++) {
+      expect((await t.login({ code: totpNow(TEST_TOTP_SECRET, t.clock.now()), remoteAddress: `10.5.0.${i}` })).statusCode).toBe(401)
+    }
+    expect((await t.login({ code: totpNow(TEST_TOTP_SECRET, new Date(t.clock.now().getTime() + 30_000)), remoteAddress: '10.5.1.1' })).statusCode).toBe(429)
   })
 
   test('a code of the neighbouring step is accepted, and one of two steps away is not', async () => {

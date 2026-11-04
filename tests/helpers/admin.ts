@@ -61,13 +61,26 @@ export async function buildAdminTestApp(
   }
 
   const url = (path: string) => `${TEST_ADMIN_PATH}/${path}`
+  // A code is good once, so a second login in the same step takes the next step's code, or moves the clock on 30 s
+  // when that one is out of reach too.
+  let lastStep = -1
+  function freshCode(): string {
+    const stepOf = (d: Date) => Math.floor(d.getTime() / 30_000)
+    let step = Math.max(stepOf(clock.now()), lastStep + 1)
+    if (step > stepOf(clock.now()) + 1) {
+      clock.advance(30_000)
+      step = Math.max(stepOf(clock.now()), lastStep + 1)
+    }
+    lastStep = step
+    return totpNow(TEST_TOTP_SECRET, new Date(step * 30_000))
+  }
   async function login(over: { password?: string; code?: string; remoteAddress?: string; headers?: Record<string, string> } = {}) {
     return app.inject({
       method: 'POST',
       url: url('api/login'),
       headers: over.headers ?? CSRF,
       remoteAddress: over.remoteAddress,
-      payload: { password: over.password ?? TEST_PASSWORD, code: over.code ?? totpNow(TEST_TOTP_SECRET, clock.now()) },
+      payload: { password: over.password ?? TEST_PASSWORD, code: over.code ?? freshCode() },
     })
   }
   /** Logs in and returns the Cookie header value for the following requests. */

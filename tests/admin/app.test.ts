@@ -89,12 +89,14 @@ test('the logs carry neither the admin path, nor the cookie, nor the password', 
   await t.app.inject({ method: 'GET', url: '/v1/school-calendar' })
 
   const text = logs.entries().map((e) => JSON.stringify(e)).join('\n')
-  expect(text).not.toContain('test-back-office')
+  expect(text).not.toMatch(/est-back-office/i)
   expect(text).not.toContain(cookie.split('=')[1]!)
   expect(text).not.toContain(TEST_PASSWORD)
   expect(text).not.toContain('wrong guess')
   expect(text).not.toMatch(/sfb_admin/)
   const urls = logs.entries().flatMap((e) => (e.req?.url === undefined ? [] : [e.req.url as string]))
-  expect(urls).toContain('[admin]')
+  // Every admin request is `[admin]`; only the one ordinary request shows its own.
+  expect(urls.filter((u) => u !== '/v1/school-calendar')).toEqual(urls.filter((u) => u === '[admin]'))
+  expect(urls.filter((u) => u === '[admin]').length).toBe(7)
   expect(urls).toContain('/v1/school-calendar')
 })
