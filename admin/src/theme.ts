@@ -26,6 +26,10 @@ export const theme: ThemeConfig = {
     // outline (Ant Design's own #d9d9d9 is 1.41:1). Dividers keep the lighter line below.
     colorBorder: '#8a8980',
     colorBorderSecondary: '#e3e2dc',
+    // A button that is sending says so in its label (正在登录, 正在删除): that text has to be read. 5.37:1 on a
+    // disabled button's fill over white, 4.95:1 over the page colour, 5.85:1 on white (a disabled link); the grey fill
+    // and the not-allowed cursor still say it cannot be used. Ant Design's own is 1.82:1.
+    colorTextDisabled: '#66655e',
     // The focus ring: 3px of the green itself, not its pale tint, so a focused control stands out on white and a
     // focused green button keeps a white gap between it and its ring.
     colorPrimaryBorder: PRIMARY,

@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { fail, fakeServer, ok, SESSION, show } from '../test-api.js'
+import { fail, fakeServer, ok, SESSION, show, textContrast } from '../test-api.js'
 import { Login } from './Login.js'
 
 describe('the login page', () => {
@@ -29,6 +29,8 @@ describe('the login page', () => {
 
     const sending = await screen.findByRole('button', { name: '正在登录' })
     expect(sending).toBeDisabled()
+    // The words are the only sign of progress: they are readable on the disabled button's grey fill.
+    expect(textContrast(sending)).toBeGreaterThanOrEqual(4.5)
     // No spinner: the words say it.
     expect(sending.querySelector('.ant-btn-loading-icon')).toBeNull()
   })

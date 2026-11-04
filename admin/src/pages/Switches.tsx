@@ -23,7 +23,7 @@ const EFFECTS: Record<SwitchName, { on: string; off: string }> = {
   },
   secondLayerChat: {
     on: '开着：同学之间的消息过完词库，也送去第三方 AI 服务审；攒一两秒一批，所以晚一两秒才送到，也要多花钱。',
-    off: '关着：同学之间的消息只用词库审，不送。',
+    off: '关着：同学之间的消息只用词库审，不再送去第三方 AI 服务。',
   },
 }
 

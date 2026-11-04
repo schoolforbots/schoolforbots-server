@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { fail, fakeServer, ok, show, switches } from '../test-api.js'
+import { fail, fakeServer, ok, show, switches, textContrast } from '../test-api.js'
 import { Switches } from './Switches.js'
 
 const READ = 'GET api/switches'
@@ -68,7 +68,8 @@ describe('the switches page', () => {
     const chat = row('第二层·审查同学')
     expect(chat.getByText('现在开着')).toBeInTheDocument()
     expect(chat.getByText(/^开着：同学之间的消息.*晚一两秒/)).toBeInTheDocument()
-    expect(chat.getByText(/^关着：.*不送/)).toBeInTheDocument()
+    // Off, chat is still delivered: only the second check stops.
+    expect(chat.getByText('关着：同学之间的消息只用词库审，不再送去第三方 AI 服务。')).toBeInTheDocument()
     expect(chat.getByText('最近一次切换：2026 年 11 月 3 日 20:05')).toBeInTheDocument()
   })
 
@@ -110,6 +111,24 @@ describe('the switches page', () => {
     const done = teacher.getByText('已关掉。上课服务几秒内读到。')
     await waitFor(() => expect(done).toHaveFocus())
     expect(teacher.getByRole('button', { name: '打开' })).toBeInTheDocument()
+  })
+
+  it('says it is switching, in words that can be read, while the change is sent', async () => {
+    fakeServer({ [READ]: ok(switches()), 'PUT api/switches/teacherLlm': { pending: true } })
+    const user = userEvent.setup()
+    show(<Switches />)
+
+    await screen.findByRole('region', { name: '老师用大模型' })
+    await user.click(row('老师用大模型').getByRole('button', { name: '关掉' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '关掉“老师用大模型”？' }))
+    await user.click(dialog.getByRole('button', { name: '关掉' }))
+
+    const busy = dialog.getByRole('button', { name: '正在关掉' })
+    expect(busy).toBeDisabled()
+    // The dialog is white; on it the disabled button's grey fill and its words.
+    expect(textContrast(busy)).toBeGreaterThanOrEqual(4.5)
+    // Over the page colour too, where the boxes of the review page sit.
+    expect(textContrast(busy, '#f7f6f2')).toBeGreaterThanOrEqual(4.5)
   })
 
   it('shows the server’s reason when it will not switch', async () => {

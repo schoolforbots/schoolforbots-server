@@ -312,3 +312,36 @@ export function switches(states: Partial<Record<SwitchState['name'], Partial<Swi
   ]
   return { switches: defaults.map((state) => ({ ...state, ...states[state.name] })) }
 }
+
+/** `rgb(...)` / `rgba(...)` / `#rrggbb` as red, green, blue (0..255) and alpha (0..1). */
+function parseColor(color: string): [number, number, number, number] {
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color)
+  if (hex !== null) return [parseInt(hex[1] ?? '', 16), parseInt(hex[2] ?? '', 16), parseInt(hex[3] ?? '', 16), 1]
+  const parts = /rgba?\(([^)]+)\)/.exec(color)?.[1]?.split(',').map((part) => Number(part.trim()))
+  if (parts === undefined || parts.length < 3) throw new Error(`not a colour: ${color}`)
+  return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] ?? 1]
+}
+
+/** `top` laid over the opaque `under`. */
+function over(top: [number, number, number, number], under: [number, number, number]): [number, number, number] {
+  const [r, g, b, a] = top
+  return [r * a + under[0] * (1 - a), g * a + under[1] * (1 - a), b * a + under[2] * (1 - a)]
+}
+
+function luminance([r, g, b]: [number, number, number]): number {
+  const linear = (c: number) => {
+    const v = c / 255
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+}
+
+/** The WCAG contrast of an element's text on its own background laid over `backdrop`, as the page's styles give them. */
+export function textContrast(element: Element, backdrop = '#ffffff'): number {
+  const style = getComputedStyle(element)
+  const [r, g, b] = parseColor(backdrop)
+  const background = over(parseColor(style.backgroundColor || 'rgba(0, 0, 0, 0)'), [r, g, b])
+  const text = over(parseColor(style.color), background)
+  const [light, dark] = [luminance(text), luminance(background)].sort((x, y) => y - x)
+  return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05)
+}

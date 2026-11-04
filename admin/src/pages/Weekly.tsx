@@ -365,7 +365,7 @@ function Moderation({ page, onDropped }: { page: WeeklyPage; onDropped: () => vo
           ) : (
             // Up to 200 lines: they scroll in a box of their own, which the keyboard can reach and scroll.
             <div className="scroll-box" tabIndex={0} role="region" aria-labelledby={titleId}>
-              <ul className="lines" aria-labelledby={titleId}>
+              <ul className="lines">
                 {moderation.secondLayerChat.map((line) => (
                   <li key={line.messageId}>
                     <span className="line-when">{weekMoment(line.at, zone)}</span>
