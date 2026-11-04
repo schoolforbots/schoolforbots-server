@@ -230,6 +230,16 @@ export const getPrompt = (target: PromptTarget) => request<{ text: string }>('GE
 export const paste = (target: PromptTarget & { baseVersion?: number }, pasted: string) =>
   request<LessonDetail>('POST', 'api/lessons/paste', { ...target, pasted })
 
+/** A topic given for one division on one school day. */
+export interface GivenTopic {
+  date: string
+  division: Division
+  topic: string
+}
+
+/** The topics given for today and every day after it, in date and division order. */
+export const TOPICS_PATH = 'api/topics'
+
 /** Gives a day's division a topic, or takes it away (`null`). `regenerating`: its lesson is being made again. */
 export const putTopic = (date: string, division: Division, topic: string | null) =>
   request<{ result: 'stored' | 'regenerating' }>('PUT', `api/topics/${date}/${division}`, { topic })

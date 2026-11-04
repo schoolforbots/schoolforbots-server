@@ -685,6 +685,38 @@ p {
   background: #f0efe9;
   font-weight: 600;
 }
+.date-input {
+  width: auto;
+}
+/* The topics given already, under the form, set off by a hairline. */
+.topic-given {
+  margin-top: 16px;
+  padding-top: 4px;
+  border-top: 1px solid #e3e2dc;
+}
+.topic-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.topic-list .ant-btn {
+  height: auto;
+  padding: 2px 6px;
+  white-space: normal;
+  text-align: left;
+}
+.topic-list .ant-btn[aria-pressed='true'] {
+  background: #f0efe9;
+  font-weight: 600;
+}
+.topic-list-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #4a4a4a;
+}
 
 /* Tables of numbers (the weekly review, a student's messages and record): the caption names the table, hairlines
    between rows, numbers on the right in figures of one width. */
