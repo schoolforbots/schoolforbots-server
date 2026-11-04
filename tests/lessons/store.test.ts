@@ -162,6 +162,29 @@ describe('saveDraft', () => {
     expect((await lessonRow(first.lessonId)).topic).toBeNull()
   })
 
+  test('with an expected version, a lesson that appeared or moved on meanwhile is refused as stale and kept', async () => {
+    const first = await saveDraft(deps, KEY, content(), { source: 'manual', change: 'generate', expectVersion: null })
+    expect(first.version).toBe(1)
+    const other = content({ title: '另一份' })
+    for (const expectVersion of [null, 2]) {
+      const err = await rejection(saveDraft(deps, KEY, other, { source: 'manual', change: 'generate', expectVersion }))
+      expect(err).toBeInstanceOf(StaleLessonVersion)
+      expect((err as StaleLessonVersion).lessonId).toBe(first.lessonId)
+    }
+    expect(await lessonRow(first.lessonId)).toMatchObject({ title: '光的折射', version: 1 })
+    expect(await versionRows(first.lessonId)).toHaveLength(1)
+
+    const second = await saveDraft(deps, KEY, other, { source: 'manual', change: 'generate', expectVersion: 1 })
+    expect(second).toMatchObject({ lessonId: first.lessonId, version: 2 })
+  })
+
+  test('expecting a version of a lesson that is not there is stale too, and stores nothing', async () => {
+    const err = await rejection(saveDraft(deps, KEY, content(), { source: 'manual', change: 'generate', expectVersion: 1 }))
+    expect(err).toBeInstanceOf(StaleLessonVersion)
+    expect((err as StaleLessonVersion).lessonId).toBeNull()
+    expect(await db.selectFrom('lessons').select('id').execute()).toEqual([])
+  })
+
   test('other days and divisions are lessons of their own', async () => {
     const a = await draft()
     const b = await saveDraft(deps, { date: WED, division: 'senior' }, content(), { source: 'api', change: 'generate' })

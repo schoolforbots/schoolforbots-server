@@ -57,9 +57,12 @@ export interface LessonStoreDeps {
   moderator: Moderator
 }
 
-/** The write was made from a version the lesson has moved on from. */
+/**
+ * The write was made from a version the lesson has moved on from, or from a day the writer saw without a lesson that
+ * has one now (or the other way round). `lessonId` is null when the day has no lesson.
+ */
 export class StaleLessonVersion extends Error {
-  constructor(readonly lessonId: number) {
+  constructor(readonly lessonId: number | null) {
     super('这节课在别处改过了，刷新后再改')
     this.name = 'StaleLessonVersion'
   }
@@ -250,12 +253,23 @@ async function changeLesson<T>(
  * Stores content for a day and division: a new lesson at version 1, or, when the day already has one that no class has
  * begun, its next version. Either way it is a draft. The source is stored as given; the topic only when given (a new
  * lesson has none otherwise). Throws `LessonLocked` when a class has begun the lesson.
+ *
+ * `expectVersion` is what the writer saw of the day: the version of its lesson, or null for no lesson. When the day
+ * has moved on from it (a lesson pasted in by another tab, or made by the model, meanwhile), `StaleLessonVersion` and
+ * nothing is stored. Left out, whatever is there is replaced.
  */
 export async function saveDraft(
   deps: LessonStoreDeps,
   key: { date: string; division: Division },
   content: LessonContent,
-  meta: { source: LessonSource; change: LessonChange; reason?: string; segmentIndex?: number; topic?: string | null },
+  meta: {
+    source: LessonSource
+    change: LessonChange
+    reason?: string
+    segmentIndex?: number
+    topic?: string | null
+    expectVersion?: number | null
+  },
 ): Promise<{ lessonId: number; version: number; flags: LessonFlag[] }> {
   const { db, clock, moderator } = deps
   return db.transaction().execute(async (trx) => {
@@ -267,6 +281,9 @@ export async function saveDraft(
       .where('division', '=', key.division)
       .forUpdate()
       .executeTakeFirst()
+    if (meta.expectVersion !== undefined && (existing?.version ?? null) !== meta.expectVersion) {
+      throw new StaleLessonVersion(existing?.id ?? null)
+    }
 
     if (existing === undefined) {
       const now = clock.now()
