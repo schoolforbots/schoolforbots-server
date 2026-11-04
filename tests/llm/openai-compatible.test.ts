@@ -1,0 +1,124 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { afterEach, beforeEach, expect, test } from 'vitest'
+import { createFakeLlm } from '../../src/llm/fake.js'
+import { createOpenAiCompatible } from '../../src/llm/openai-compatible.js'
+import { LlmContentRefused, LlmUnavailable, type LlmRequest } from '../../src/llm/provider.js'
+
+type Handler = (req: IncomingMessage, body: string, res: ServerResponse) => void
+let server: Server
+let handler: Handler
+let seen: { url?: string; auth?: string; body: any }[]
+let baseUrl: string
+
+const req: LlmRequest = { system: '系统段', user: '用户段', json: true, maxOutputTokens: 100, timeoutMs: 2000 }
+
+beforeEach(async () => {
+  seen = []
+  handler = (_r, _b, res) => {
+    res.setHeader('content-type', 'application/json')
+    res.end(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }], usage: { prompt_tokens: 7, completion_tokens: 3 } }))
+  }
+  server = createServer((r, res) => {
+    let body = ''
+    r.on('data', (c) => (body += c))
+    r.on('end', () => {
+      seen.push({ url: r.url, auth: r.headers.authorization, body: body ? JSON.parse(body) : undefined })
+      handler(r, body, res)
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
+})
+afterEach(async () => {
+  server.closeAllConnections()
+  await new Promise((resolve) => server.close(resolve))
+})
+
+const provider = () => createOpenAiCompatible({ baseUrl, apiKey: 'sk-test', refusalMarkers: ['content refused'] })
+
+test('a normal reply yields text and token counts, with the right request shape', async () => {
+  const out = await provider().complete('m1', req)
+  expect(out).toEqual({ text: '{"ok":true}', inputTokens: 7, outputTokens: 3 })
+  expect(seen[0]?.url).toBe('/v1/chat/completions')
+  expect(seen[0]?.auth).toBe('Bearer sk-test')
+  expect(seen[0]?.body).toMatchObject({
+    model: 'm1',
+    max_tokens: 100,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: '系统段' },
+      { role: 'user', content: '用户段' },
+    ],
+  })
+})
+
+test('no response_format when json is false; a trailing slash on baseUrl is fine', async () => {
+  const p = createOpenAiCompatible({ baseUrl: `${baseUrl}/`, apiKey: 'k', refusalMarkers: [] })
+  await p.complete('m', { ...req, json: false })
+  expect(seen[0]?.url).toBe('/v1/chat/completions')
+  expect(seen[0]?.body.response_format).toBeUndefined()
+})
+
+test('a 400 whose body holds a refusal marker is LlmContentRefused', async () => {
+  handler = (_r, _b, res) => {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: { message: 'content refused' } }))
+  }
+  await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmContentRefused)
+})
+
+test('500, 429 and a non-refusal 400 are LlmUnavailable', async () => {
+  for (const status of [500, 429, 400]) {
+    handler = (_r, _b, res) => {
+      res.statusCode = status
+      res.end('出错了')
+    }
+    await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmUnavailable)
+  }
+})
+
+test('a refusal marker is also honoured on non-400 errors', async () => {
+  handler = (_r, _b, res) => {
+    res.statusCode = 403
+    res.end('content refused')
+  }
+  await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmContentRefused)
+})
+
+test('a hung server hits the timeout as LlmUnavailable', async () => {
+  handler = () => {}
+  await expect(provider().complete('m', { ...req, timeoutMs: 100 })).rejects.toBeInstanceOf(LlmUnavailable)
+})
+
+test('the caller signal aborts the call as LlmUnavailable', async () => {
+  handler = () => {}
+  const ac = new AbortController()
+  const p = provider().complete('m', req, ac.signal)
+  setTimeout(() => ac.abort(), 50)
+  await expect(p).rejects.toBeInstanceOf(LlmUnavailable)
+})
+
+test('non-JSON, missing fields and a refused connection are LlmUnavailable', async () => {
+  handler = (_r, _b, res) => res.end('<html>nope</html>')
+  await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmUnavailable)
+  handler = (_r, _b, res) => res.end(JSON.stringify({ choices: [] }))
+  await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmUnavailable)
+  handler = (_r, _b, res) => res.end(JSON.stringify({ choices: [{ message: { content: 'x' } }] }))
+  await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmUnavailable)
+  await new Promise((resolve) => server.close(resolve))
+  await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmUnavailable)
+})
+
+test('error messages never carry prompt or reply text', async () => {
+  handler = (_r, _b, res) => res.end('回复里的秘密内容')
+  const err = await provider().complete('m', req).catch((e: Error) => e)
+  expect(String((err as Error).message)).not.toMatch(/用户段|系统段|秘密内容/)
+})
+
+test('the fake records calls and returns scripted replies or errors', async () => {
+  const fake = createFakeLlm((_m, r) => (r.user === 'bad' ? new LlmUnavailable('x') : { text: 'ok', inputTokens: 1, outputTokens: 2 }))
+  expect(await fake.complete('m', { ...req, user: 'good' })).toEqual({ text: 'ok', inputTokens: 1, outputTokens: 2 })
+  await expect(fake.complete('m', { ...req, user: 'bad' })).rejects.toBeInstanceOf(LlmUnavailable)
+  expect(fake.calls.map((c) => c.req.user)).toEqual(['good', 'bad'])
+})

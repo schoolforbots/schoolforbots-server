@@ -10,3 +10,5 @@ data/moderation/*.txt
 docs/superpowers/
 .superpowers/
 .sim/
+data/prompts/*.md
+!data/prompts/*.example.md
