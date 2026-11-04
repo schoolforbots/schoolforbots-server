@@ -6,7 +6,7 @@ import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { lessonLockKey, lock, MEMBER_STATUSES } from '../shared/db.js'
 import { className, displayName } from '../shared/identity.js'
 import { atLocalTime, localDate } from '../shared/local-time.js'
-import type { Database, LessonSegment, SessionKind, SessionMember } from '../shared/schema.js'
+import type { CallOnQuestions, Database, LessonSegment, SessionKind, SessionMember } from '../shared/schema.js'
 import { appendClassEvent, classEventMessage, lockSession, NOOP, stepWritten } from './events.js'
 import type { LessonHooks } from './hooks.js'
 import type { Hub } from './hub.js'
@@ -99,6 +99,7 @@ interface LessonContent {
   subject: string
   title: string
   segments: LessonSegment[]
+  callOnQuestions: CallOnQuestions | null
 }
 
 /** A session the runtime is running, from its doors until its close step has run. */
@@ -153,7 +154,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     config.teacherPersonas.find((p) => p.id === personaId)?.name ?? FALLBACK_TEACHER
 
   function timesOf(startsAt: Date, kind: SessionKind) {
-    const all = lessonSteps(startsAt, kind, config.lesson, speed)
+    const all = lessonSteps(startsAt, kind, config.lesson, speed, config.teacherAi.answerLeadSeconds)
     const atOf = (name: StepName): Date => {
       const found = all.find((s) => s.step === name)
       if (found === undefined) throw new Error(`The timeline has no ${name} step`)
@@ -434,12 +435,12 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
 
   // ---- What each step says ----
 
-  async function lessonOf(trx: Transaction<Database>, t: Tracked): Promise<LessonContent> {
+  async function lessonOf(trx: Kysely<Database>, t: Tracked): Promise<LessonContent> {
     if (t.lesson !== undefined) return t.lesson
     if (t.lessonId === null) throw new Error(`Lesson session ${t.session.sessionId} names no lesson`)
     const row = await trx
       .selectFrom('lessons')
-      .select(['subject', 'title', 'segments'])
+      .select(['subject', 'title', 'segments', 'callOnQuestions'])
       .where('id', '=', t.lessonId)
       .executeTakeFirstOrThrow()
     t.lesson = row
@@ -585,10 +586,34 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
       return writeStep(t, step, now, live, async () => lines.map(teacherLine))
     }
 
-    if (step === 'call-on' || step === 'call-on-close') {
+    if (step.startsWith('qa-')) {
+      const k = Number(step.slice('qa-'.length))
+      if (live) {
+        const at = (name: string) => t.steps.find((x) => x.step === name)?.at
+        const from = at(`segment-${k}`)
+        const to = at(step)
+        const deadline = at(`segment-${k + 1}`) ?? at('dismissal')
+        if (from !== undefined && to !== undefined && deadline !== undefined) hooks.startAnswering(s, k, { from, to, deadline })
+      }
+      // The marker keeps a restart from starting the answers again.
+      await commitAndPush(t, now, false, async () => [{ step, kind: NOOP, payload: {} }])
+      return []
+    }
+
+    if (step.startsWith('call-on-')) {
+      const close = step.startsWith('call-on-close-')
+      const n = Number(step.slice(close ? 'call-on-close-'.length : 'call-on-'.length))
       // The hook may write the step's events itself; the marker written after it only counts when it did not.
       const announced = live ? await commitAndPush(t, now, live, (trx) => renameEvents(trx, t, now)) : []
-      if (live) await (step === 'call-on' ? hooks.callOn(s) : hooks.callOnClose(s))
+      if (live) {
+        if (close) await hooks.callOnClose(s, n)
+        else {
+          const kind = config.lesson.callOns[n - 1]?.kind
+          const text = kind === undefined ? undefined : (await lessonOf(db, t)).callOnQuestions?.[kind]
+          // A lesson without call-on questions calls on nobody.
+          if (kind !== undefined && text !== undefined) await hooks.callOn(s, n, { kind, text })
+        }
+      }
       await commitAndPush(t, now, false, async () => [{ step, kind: NOOP, payload: {} }])
       return announced ?? []
     }

@@ -14,7 +14,7 @@ import {
   type QuestionsDeps,
 } from '../../src/class/questions.js'
 import type { ActiveSession } from '../../src/class/runtime.js'
-import { callOn, callOnNoAnswer, callOnThanks, questionReceived } from '../../src/class/teacher.js'
+import { callOnQuestion, callOnNoAnswer, callOnThanks, questionReceived } from '../../src/class/teacher.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from '../../src/class/ws-errors.js'
 import { ServerMessage } from '../../src/protocol/ws.js'
 import type { Database } from '../../src/shared/schema.js'
@@ -43,6 +43,10 @@ const PHONE = '我的手机号是13812345678'
 const failure = (code: WsErrorCode, extra?: object): AckResult =>
   extra === undefined ? { ok: false, code } : { ok: false, code, extra }
 const teacherSays = (text: string) => ({ kind: 'teacher', text })
+
+/** What the hook passes the call-on: the question of the lesson. */
+const QUESTION = { kind: 'review', text: '刚才讲了什么？' } as const
+const callOn = (name: string): string => callOnQuestion(name, QUESTION.text)
 
 describe('questions and the call-on', () => {
   let db: Kysely<Database>
@@ -246,7 +250,7 @@ describe('questions and the call-on', () => {
       await student(session)
       await student(session)
       const c = await student(session)
-      await callOnStep(deps({ random: () => 0.99 }), session)
+      await callOnStep(deps({ random: () => 0.99 }), session, 1, QUESTION)
       expect(sent()).toEqual(callOf(session, c))
       expect(await eventRows(session)).toEqual([
         { seq: 1, step: 'call-on', kind: 'teacher', payload: teacherSays(callOn(c.displayName)), createdAt: at('20:15') },
@@ -257,7 +261,7 @@ describe('questions and the call-on', () => {
       const other = await room()
       const d = await student(other)
       await student(other)
-      await callOnStep(deps({ random: () => 0 }), other)
+      await callOnStep(deps({ random: () => 0 }), other, 1, QUESTION)
       expect(sent()).toEqual(callOf(other, d))
     })
 
@@ -267,7 +271,7 @@ describe('questions and the call-on', () => {
         await student(session, { online: false })
         const b = await student(session)
         await student(session, { online: false })
-        await callOnStep(deps({ random: () => r }), session)
+        await callOnStep(deps({ random: () => r }), session, 1, QUESTION)
         expect(sent()).toEqual(callOf(session, b))
       }
     })
@@ -275,7 +279,7 @@ describe('questions and the call-on', () => {
     test('with nobody online it writes and pushes nothing (the runtime records the step)', async () => {
       const session = await room()
       await student(session, { online: false })
-      await callOnStep(deps(), session)
+      await callOnStep(deps(), session, 1, QUESTION)
       expect(sent()).toEqual([])
       expect(await eventRows(session)).toEqual([])
     })
@@ -284,8 +288,8 @@ describe('questions and the call-on', () => {
       const session = await room()
       const a = await student(session)
       const b = await student(session)
-      await Promise.all([callOnStep(deps({ random: () => 0 }), session), callOnStep(deps({ random: () => 0.99 }), session)])
-      await callOnStep(deps({ random: () => 0.99 }), session)
+      await Promise.all([callOnStep(deps({ random: () => 0 }), session, 1, QUESTION), callOnStep(deps({ random: () => 0.99 }), session, 1, QUESTION)])
+      await callOnStep(deps({ random: () => 0.99 }), session, 1, QUESTION)
       const pushed = sent()
       expect(pushed).toHaveLength(3)
       expect(await stepsOf(session)).toEqual(['call-on', 'call-on#2'])
@@ -301,7 +305,7 @@ describe('questions and the call-on', () => {
       const session = await room()
       const a = await student(session)
       await student(session)
-      await callOnStep(deps(), session)
+      await callOnStep(deps(), session, 1, QUESTION)
       sent()
 
       clock.set(at('20:16'))
@@ -315,7 +319,7 @@ describe('questions and the call-on', () => {
 
       expect(await answer(deps(), a, 2, '我再补充一句')).toEqual(failure('call_closed'))
       clock.set(at('20:20'))
-      await callOnCloseStep(deps(), session)
+      await callOnCloseStep(deps(), session, 1)
       expect(sent()).toEqual([])
       expect(await stepsOf(session)).toEqual(['call-on', 'call-on#2', 'answer', 'answer#2'])
       expect(await messageRows()).toHaveLength(1)
@@ -327,7 +331,7 @@ describe('questions and the call-on', () => {
       const b = await student(session)
       // Before the call-on, nobody has been called on.
       expect(await answer(deps(), a, 2, '我来')).toEqual(failure('not_called_on'))
-      await callOnStep(deps(), session)
+      await callOnStep(deps(), session, 1, QUESTION)
       sent()
 
       expect(await answer(deps(), b, 2, '我来')).toEqual(failure('not_called_on'))
@@ -346,16 +350,16 @@ describe('questions and the call-on', () => {
     test('nobody answers: at the close the teacher says the student is still thinking, and a late answer is call_closed', async () => {
       const session = await room()
       const a = await student(session)
-      await callOnStep(deps(), session)
+      await callOnStep(deps(), session, 1, QUESTION)
       sent()
 
       clock.set(at('20:20'))
-      await callOnCloseStep(deps(), session)
+      await callOnCloseStep(deps(), session, 1)
       expect(sent()).toEqual([classEvent(session, 3, teacherSays(callOnNoAnswer(a.displayName)), at('20:20'))])
       expect(callOnNoAnswer(a.displayName)).toContain('还在想')
       expect(await answer(deps(), a, 2, '我想好了')).toEqual(failure('call_closed'))
       // Run again, the close says nothing more.
-      await callOnCloseStep(deps(), session)
+      await callOnCloseStep(deps(), session, 1)
       expect(sent()).toEqual([])
       expect(await stepsOf(session)).toEqual(['call-on', 'call-on#2', 'call-on-close'])
       expect(await messageRows()).toEqual([])
@@ -363,8 +367,8 @@ describe('questions and the call-on', () => {
 
     test('with nobody called on, the close says nothing', async () => {
       const session = await room()
-      await callOnStep(deps(), session)
-      await callOnCloseStep(deps(), session)
+      await callOnStep(deps(), session, 1, QUESTION)
+      await callOnCloseStep(deps(), session, 1)
       expect(sent()).toEqual([])
       expect(await eventRows(session)).toEqual([])
     })
@@ -372,7 +376,7 @@ describe('questions and the call-on', () => {
     test('a stopped answer is recorded and not pushed, and the call stays open: a clean answer after it is taken', async () => {
       const session = await room()
       const a = await student(session)
-      await callOnStep(deps(), session)
+      await callOnStep(deps(), session, 1, QUESTION)
       sent()
 
       expect(await answer(deps(), a, 2, BANNED)).toEqual(failure('blocked', { category: 'sensitive' }))
@@ -400,7 +404,7 @@ describe('questions and the call-on', () => {
       const session = await room()
       const a = await student(session)
       const b = await student(session)
-      await callOnStep(deps(), session)
+      await callOnStep(deps(), session, 1, QUESTION)
       for (const p of [a, b]) {
         for (const text of ['', '  ', 'x'.repeat(config.chat.maxMessageChars + 1), '答\u0000']) {
           expect(await answer(deps(), p, 2, text)).toEqual(failure('invalid_message'))
@@ -414,7 +418,7 @@ describe('questions and the call-on', () => {
       for (const answerFirst of [true, false, true, false]) {
         const session = await room()
         const a = await student(session)
-        await callOnStep(deps(), session)
+        await callOnStep(deps(), session, 1, QUESTION)
 
         // Someone holds the session's lock (as a step writing its events does): both wait for it, then go one by one.
         let release!: () => void
@@ -440,9 +444,9 @@ describe('questions and the call-on', () => {
           if (answerFirst) {
             answered = answer(deps(), a, 2, '我知道')
             await waitFor(async () => (await waiting()) >= 1)
-            closed = callOnCloseStep(deps(), session)
+            closed = callOnCloseStep(deps(), session, 1)
           } else {
-            closed = callOnCloseStep(deps(), session)
+            closed = callOnCloseStep(deps(), session, 1)
             await waitFor(async () => (await waiting()) >= 1)
             answered = answer(deps(), a, 2, '我知道')
           }
@@ -480,7 +484,7 @@ describe('questions and the call-on', () => {
       const a = await student(session)
       const b = await student(session)
       expect(await resumeCall(deps(), a)).toEqual([])
-      await callOnStep(deps(), session)
+      await callOnStep(deps(), session, 1, QUESTION)
       expect(await resumeCall(deps(), a)).toEqual([{ type: 'called_on', callId: 2, question: callOn(a.displayName) }])
       expect(await resumeCall(deps(), b)).toEqual([])
       // A blocked answer leaves it open.
@@ -491,8 +495,8 @@ describe('questions and the call-on', () => {
 
       const other = await room()
       const c = await student(other)
-      await callOnStep(deps(), other)
-      await callOnCloseStep(deps(), other)
+      await callOnStep(deps(), other, 1, QUESTION)
+      await callOnCloseStep(deps(), other, 1)
       expect(await resumeCall(deps(), c)).toEqual([])
     })
   })
@@ -503,7 +507,7 @@ describe('questions and the call-on', () => {
     await askQuestion(deps(), a, '光为什么会弯？')
     await askQuestion(deps(), a, BANNED)
     await askQuestion(deps(), a, PHONE)
-    await callOnStep(deps(), session)
+    await callOnStep(deps(), session, 1, QUESTION)
     await answer(deps(), a, 2, INJECTION)
     await answer(deps(), a, 2, '讲了光的折射')
 
@@ -607,7 +611,7 @@ describe('questions and the call-on over the WebSocket', () => {
 
   /** Today's lesson and two students of the class, 阿杰家的小鱼 and 阿美家的豆豆, both online once the doors are open. */
   async function seed(s: Service) {
-    await insertLesson(s.db, { date: MON, segments: SEGMENTS })
+    await insertLesson(s.db, { date: MON, segments: SEGMENTS, callOnQuestions: { review: QUESTION.text, extension: '还有什么类似的事？' } })
     const classId = await insertClass(s.db, { classNo: 1 })
     const a = await insertStudent(s.db, { classId, status: 'active', ownerName: '阿杰', aiName: '小鱼' })
     const b = await insertStudent(s.db, { classId, status: 'active', ownerName: '阿美', aiName: '豆豆' })
@@ -635,7 +639,7 @@ describe('questions and the call-on over the WebSocket', () => {
     const { sessionId, a, b, ca, cb } = await seed(s)
     expect(a.id).toBeLessThan(b.id)
 
-    await tickAt(s, '20:15') // through segment 3, then the call-on
+    await tickAt(s, '20:10') // through segment 2, then the first call-on
     const called = await ca.next('called_on')
     expect(called).toEqual({ type: 'called_on', callId: expect.any(Number), question: callOn(a.name) })
     const { callId } = called
@@ -650,12 +654,12 @@ describe('questions and the call-on over the WebSocket', () => {
     cb.send({ id: 'x', type: 'answer', callId, text: '我来回答' })
     expect(await cb.next('ack')).toEqual({ type: 'ack', id: 'x', ok: false, error: { code: 'not_called_on', message: WS_ERROR_MESSAGES.not_called_on } })
 
-    s.clock.set(at('20:17'))
+    s.clock.set(at('20:12'))
     ca.send({ id: 'a1', type: 'answer', callId, text: '讲了光的折射' })
     const answered = [
       { kind: 'answer', studentId: a.id, displayName: a.name, text: '讲了光的折射' },
       teacherSays('好，请坐。'),
-    ].map((event, i) => ({ type: 'class.event', seq: callId + 1 + i, replayed: false, at: at('20:17').toISOString(), event }))
+    ].map((event, i) => ({ type: 'class.event', seq: callId + 1 + i, replayed: false, at: at('20:12').toISOString(), event }))
     // The class hears the answer before the one who answered gets the ack.
     expect(await ca.rest()).toEqual([...answered, { type: 'ack', id: 'a1', ok: true }])
     expect(await cb.rest()).toEqual(answered)
@@ -664,7 +668,7 @@ describe('questions and the call-on over the WebSocket', () => {
     expect((await ca.next('ack')).error.code).toBe('call_closed')
 
     // The close: the call was answered, so the teacher only goes on to segment 4.
-    await tickAt(s, '20:20')
+    await tickAt(s, '20:15')
     expect(eventsIn(await cb.rest()).map(([, , e]) => e.kind)).toEqual(['teacher', 'segment'])
 
     // A classmate reconnecting from scratch gets every event again, the call and the answer among them.
@@ -691,14 +695,14 @@ describe('questions and the call-on over the WebSocket', () => {
     const s = await start(() => 0.99) // the last one online
     const { b, ca, cb } = await seed(s)
 
-    await tickAt(s, '20:15')
+    await tickAt(s, '20:10')
     const { callId } = await cb.next('called_on')
     await ca.rest()
 
-    await tickAt(s, '20:20')
-    const at2020 = eventsIn(await ca.rest())
-    expect(at2020[0]).toEqual([callId + 1, false, teacherSays(callOnNoAnswer(b.name))])
-    expect(at2020.map(([, , e]) => e.kind)).toEqual(['teacher', 'teacher', 'segment'])
+    await tickAt(s, '20:15')
+    const at2015 = eventsIn(await ca.rest())
+    expect(at2015[0]).toEqual([callId + 1, false, teacherSays(callOnNoAnswer(b.name))])
+    expect(at2015.map(([, , e]) => e.kind)).toEqual(['teacher', 'teacher', 'segment'])
 
     cb.send({ id: 'a1', type: 'answer', callId, text: '讲了光的折射' })
     expect(await cb.next('ack')).toEqual({ type: 'ack', id: 'a1', ok: false, error: { code: 'call_closed', message: WS_ERROR_MESSAGES.call_closed } })
@@ -720,7 +724,7 @@ describe('questions and the call-on over the WebSocket', () => {
   test('a student called on who reconnects gets called_on again after the replay, and answers on the new connection', async () => {
     const s = await start(() => 0)
     const { sessionId, a, ca, cb } = await seed(s)
-    await tickAt(s, '20:15')
+    await tickAt(s, '20:10')
     const called = await ca.next('called_on')
     await cb.rest()
 
@@ -728,7 +732,7 @@ describe('questions and the call-on over the WebSocket', () => {
     await hello(ca2, { sessionId, lastSeq: called.callId - 1 })
     // The replay (from the teacher's line on), then the private message again.
     expect(await ca2.rest()).toEqual([
-      { type: 'class.event', seq: called.callId, replayed: true, at: at('20:15').toISOString(), event: { kind: 'called_on', studentId: a.id, displayName: a.name } },
+      { type: 'class.event', seq: called.callId, replayed: true, at: at('20:10').toISOString(), event: { kind: 'called_on', studentId: a.id, displayName: a.name } },
       called,
     ])
 
@@ -744,7 +748,7 @@ describe('questions and the call-on over the WebSocket', () => {
     s.hub.send = (studentId, message) => {
       if ((message as { type?: unknown }).type !== 'called_on') send(studentId, message)
     }
-    await tickAt(s, '20:15')
+    await tickAt(s, '20:10')
     s.hub.send = send
     const missed = await ca.rest()
     expect(missed.filter((m) => m.type === 'called_on')).toEqual([])
@@ -761,13 +765,13 @@ describe('questions and the call-on over the WebSocket', () => {
   test('what is owed comes right after the replay: once, though pushed during the hello too, and before what came after', async () => {
     const s = await start(() => 0)
     const { classId, sessionId, a, ca, cb } = await seed(s)
-    await tickAt(s, '20:15')
+    await tickAt(s, '20:10')
     const called = await ca.next('called_on')
     await cb.rest()
 
     // The moment the new connection is registered: the call-on's own called_on reaches it (as when the call-on is
     // written during the hello), and then the class hears something new.
-    const later = { type: 'class.event', seq: called.callId + 1, replayed: false, at: at('20:15').toISOString(), event: teacherSays('……') }
+    const later = { type: 'class.event', seq: called.callId + 1, replayed: false, at: at('20:10').toISOString(), event: teacherSays('……') }
     const add = s.hub.add.bind(s.hub)
     s.hub.add = (connection) => {
       const replaced = add(connection)

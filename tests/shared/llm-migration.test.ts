@@ -71,7 +71,7 @@ const NEW_TABLES = [
 test('0007 adds the tables and columns, and leaves existing lessons and attendance with their defaults', async () => {
   await migrateOk(migrator.migrateTo('0006_ai_id'))
   const classId = await insertClass(t.db, { classNo: 1 })
-  const lessonId = await insertLesson(t.db, { date: '2026-11-04' })
+  const lessonId = await insertLesson(t.db, { date: '2026-11-04', callOnQuestions: null })
   const sessionId = await insertSession(t.db, { classId, date: '2026-11-04', lessonId, ...HOURS })
   const { id: studentId } = await insertStudent(t.db, { classId })
   await sql`insert into attendance (session_id, student_id, first_seen_at) values (${sessionId}, ${studentId}, ${AT})`.execute(t.db)

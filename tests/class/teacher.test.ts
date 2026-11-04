@@ -4,7 +4,7 @@ import {
   calloutInitiations,
   calloutRounds,
   calloutSchoolRule,
-  callOn,
+  callOnQuestion,
   callOnNoAnswer,
   callOnThanks,
   dismissal,
@@ -75,8 +75,8 @@ describe('the teacher lines', () => {
     expect(renameAnnouncement('阿杰家的小鱼', '阿杰家的大鱼')).toBe('阿杰家的小鱼以后叫阿杰家的大鱼啦，大家记一下。')
   })
 
-  test('callOn asks the student about the segment', () => {
-    expect(callOn('阿杰家的小鱼')).toBe('阿杰家的小鱼同学，你来说说这一段讲了什么？')
+  test('callOnQuestion calls on the student with the question of the lesson', () => {
+    expect(callOnQuestion('阿杰家的小鱼', '光往哪边偏？')).toBe('阿杰家的小鱼同学，光往哪边偏？')
   })
 
   test('callOnThanks lets the student sit down', () => {

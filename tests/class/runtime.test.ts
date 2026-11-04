@@ -24,11 +24,11 @@ import { lessonLockKey, lock } from '../../src/shared/db.js'
 import { displayName } from '../../src/shared/identity.js'
 import type { Database, StudentStatus } from '../../src/shared/schema.js'
 import { createTestClock } from '../helpers/clock.js'
-import { exampleConfigWithOneCallOn } from '../helpers/app.js'
+import { exampleConfig } from '../helpers/app.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
 
-const config = exampleConfigWithOneCallOn()
+const config = exampleConfig()
 // The runtime only says template lines and approved lesson text; an empty word list is enough here.
 const moderator = createModerator({ blockedWords: [], injectionPatterns: [] })
 
@@ -100,13 +100,17 @@ function recordingHooks(trace: string[], lines: (from: Date, to: Date) => string
       trace.push(`hook callouts ${hhmm(from)}-${hhmm(to)}`)
       return lines(from, to)
     },
-    async callOn(session) {
+    async callOn(session, n, question) {
       sessions.push(session)
-      trace.push('hook callOn')
+      trace.push(`hook callOn ${n} ${question.kind}`)
     },
-    async callOnClose(session) {
+    async callOnClose(session, n) {
       sessions.push(session)
-      trace.push('hook callOnClose')
+      trace.push(`hook callOnClose ${n}`)
+    },
+    startAnswering(session, k, window) {
+      sessions.push(session)
+      trace.push(`hook startAnswering ${k} ${hhmm(window.from)}-${hhmm(window.to)}-${hhmm(window.deadline)}`)
     },
     startClosing(classId) {
       trace.push(`hook startClosing ${classId}`)
@@ -328,12 +332,19 @@ describe('a lesson day', () => {
     }
 
     expect(timed.filter((e) => !e.includes(' segment ') && !e.includes(' teacher '))).toEqual([
+      '20:09 hook startAnswering 1 20:05-20:09-20:10',
       '20:10 hook callouts 19:45-20:10',
+      '20:10 hook callOn 1 review',
+      '20:14 hook startAnswering 2 20:10-20:14-20:15',
+      '20:15 hook callOnClose 1',
       '20:15 hook callouts 20:10-20:15',
-      '20:15 hook callOn',
-      '20:20 hook callOnClose',
+      '20:19 hook startAnswering 3 20:15-20:19-20:20',
       '20:20 hook callouts 20:15-20:20',
+      '20:20 hook callOn 2 extension',
+      '20:24 hook startAnswering 4 20:20-20:24-20:25',
+      '20:25 hook callOnClose 2',
       '20:25 hook callouts 20:20-20:25',
+      '20:29 hook startAnswering 5 20:25-20:29-20:30',
       '20:30 hook callouts 20:25-20:30',
       '20:30 dismissal',
       `20:30 hook startClosing ${classId}`,
@@ -341,19 +352,40 @@ describe('a lesson day', () => {
       `20:31 hook afterClass ${sessionId} live`,
       `20:31 closing ${members[0]!.id} session_over`,
     ])
-    // Same instant: the callouts for segment 2, then the next segment, then the call-on that follows it.
+    // Same instant: the callouts for segment 1, then the next segment, then the call-on that follows it.
+    expect(timed.filter((e) => e.startsWith('20:10'))).toEqual([
+      '20:10 hook callouts 19:45-20:10',
+      `20:10 teacher ${transition(2)}`,
+      `20:10 segment 2 ${segmentText(2)}`,
+      '20:10 hook callOn 1 review',
+    ])
+    // And the call-on closes before the callouts and the next segment.
     expect(timed.filter((e) => e.startsWith('20:15'))).toEqual([
+      '20:15 hook callOnClose 1',
       '20:15 hook callouts 20:10-20:15',
       '20:15 teacher 纪律点名 20:10-20:15',
       `20:15 teacher ${transition(3)}`,
       `20:15 segment 3 ${segmentText(3)}`,
-      '20:15 hook callOn',
     ])
     expect(hooks.sessions.every((s) => s.sessionId === sessionId && s.classId === classId)).toBe(true)
 
     // A callouts step with nothing to say still counts as done, with a marker nobody is sent.
     const steps = await db.selectFrom('classEvents').select(['step', 'kind', 'seq']).where('kind', '=', 'noop').orderBy('seq', 'desc').execute()
-    expect(steps.map((s) => s.step)).toEqual(['callouts-1', 'call-on', 'call-on-close', 'callouts-3', 'callouts-4', 'callouts-5'])
+    expect(steps.map((s) => s.step)).toEqual([
+      'qa-1',
+      'callouts-1',
+      'call-on-1',
+      'qa-2',
+      'call-on-close-1',
+      'qa-3',
+      'callouts-3',
+      'call-on-2',
+      'qa-4',
+      'call-on-close-2',
+      'callouts-4',
+      'qa-5',
+      'callouts-5',
+    ])
     expect(steps.every((s) => s.seq < 0)).toBe(true)
   })
 
@@ -421,11 +453,112 @@ describe('a lesson day', () => {
     expect(steps).toEqual([
       { sessionId, classId, step: 'opening', seqs: [1] },
       { sessionId, classId, step: 'segment-1', seqs: [2] },
+      { sessionId, classId, step: 'qa-1', seqs: [] },
       { sessionId, classId, step: 'callouts-1', seqs: [] },
       { sessionId, classId, step: 'segment-2', seqs: [3, 4] },
+      { sessionId, classId, step: 'call-on-1', seqs: [] },
     ])
     const text = JSON.stringify(logs)
     for (const said of ['光的折射', '老周', '同学们好', transition(2)]) expect(text).not.toContain(said)
+  })
+})
+
+describe('the call-ons and the answering points', () => {
+  /** What the hooks were called with, as `calls`; the rest does nothing. */
+  function callRecorder(calls: string[]): LessonHooks {
+    return {
+      ...noopHooks,
+      async callOn(_session, n, question) {
+        calls.push(`callOn ${n} ${question.kind} ${question.text}`)
+      },
+      async callOnClose(_session, n) {
+        calls.push(`callOnClose ${n}`)
+      },
+      startAnswering(_session, k) {
+        calls.push(`startAnswering ${k}`)
+      },
+    }
+  }
+
+  /** Ticks at the doors, then at the close (given as times of the class's own, compressed or not). */
+  async function runThroughClass(hooks: LessonHooks, opts: { speed?: number; doors?: string; close?: string } = {}): Promise<void> {
+    const clock = createTestClock(at(opts.doors ?? '19:45'))
+    const runtime = newRuntime({ clock, hub: new RecordingHub(), hooks, ...(opts.speed === undefined ? {} : { speed: opts.speed }) })
+    await runtime.tick()
+    clock.set(at(opts.close ?? '20:31'))
+    await runtime.tick()
+  }
+
+  test('each call-on gets the lesson question of its kind, the first the review and the second the extension', async () => {
+    await insertLesson(db, { date: MON, segments: SEGMENTS, callOnQuestions: { review: '光往哪边偏？', extension: '筷子为什么是弯的？' } })
+    await seedClass({ members: 1 })
+    const calls: string[] = []
+
+    await runThroughClass(callRecorder(calls))
+
+    expect(calls.filter((c) => c.startsWith('callOn'))).toEqual([
+      'callOn 1 review 光往哪边偏？',
+      'callOnClose 1',
+      'callOn 2 extension 筷子为什么是弯的？',
+      'callOnClose 2',
+    ])
+    expect(calls.filter((c) => c.startsWith('startAnswering'))).toEqual([1, 2, 3, 4, 5].map((k) => `startAnswering ${k}`))
+  })
+
+  test('a lesson without call-on questions calls on nobody, but still has its answering points', async () => {
+    await insertLesson(db, { date: MON, segments: SEGMENTS, callOnQuestions: null })
+    await seedClass({ members: 1 })
+    const calls: string[] = []
+
+    await runThroughClass(callRecorder(calls))
+
+    expect(calls.filter((c) => c.startsWith('callOn') && !c.startsWith('callOnClose'))).toEqual([])
+    expect(calls.filter((c) => c.startsWith('startAnswering'))).toHaveLength(5)
+    // The steps still count as done.
+    const noops = await db.selectFrom('classEvents').select('step').where('kind', '=', 'noop').execute()
+    expect(noops.map((e) => e.step)).toEqual(expect.arrayContaining(['call-on-1', 'call-on-2']))
+  })
+
+  test('the window of an answering point shrinks with the timeline speed, lead included', async () => {
+    await insertLesson(db, { date: MON, segments: SEGMENTS })
+    await seedClass({ members: 1 })
+    const windows: { k: number; from: Date; to: Date; deadline: Date }[] = []
+    const hooks: LessonHooks = { ...noopHooks, startAnswering: (_s, k, w) => void windows.push({ k, ...w }) }
+
+    await runThroughClass(hooks, { speed: 60, doors: '19:59:45', close: '20:00:31' })
+
+    // Segment 1 starts at 20:00:05, the next at 20:00:10, and the 60 s lead is 1 s at speed 60.
+    expect(windows[0]).toEqual({ k: 1, from: at('20:00:05'), to: at('20:00:09'), deadline: at('20:00:10') })
+    expect(windows[4]).toEqual({ k: 5, from: at('20:00:25'), to: at('20:00:29'), deadline: at('20:00:30') })
+  })
+
+  test('a study hall has no call-ons and no answering points', async () => {
+    await seedClass({ members: 1 })
+    const calls: string[] = []
+
+    await runThroughClass(callRecorder(calls))
+
+    expect(calls).toEqual([])
+  })
+
+  test('an answering point is not started again after a restart', async () => {
+    await insertLesson(db, { date: MON, segments: SEGMENTS })
+    await seedClass({ members: 1 })
+    const clock = createTestClock(at('19:45'))
+    const firstCalls: string[] = []
+    const first = newRuntime({ clock, hub: new RecordingHub(), hooks: callRecorder(firstCalls) })
+    await first.tick()
+    clock.set(at('20:10'))
+    await first.tick()
+    expect(firstCalls).toEqual(['startAnswering 1', expect.stringMatching(/^callOn 1 /)])
+
+    const calls: string[] = []
+    const second = newRuntime({ clock, hub: new RecordingHub(), hooks: callRecorder(calls) })
+    await second.tick()
+    expect(calls).toEqual([])
+    clock.set(at('20:14'))
+    await second.tick()
+    expect(calls).toEqual(['startAnswering 2'])
   })
 })
 
@@ -454,20 +587,24 @@ describe('a restart (Review Focus 2)', () => {
     clock.set(at('20:21'))
     await second.tick()
     expect(trace).toEqual([
+      'hook startAnswering 1 20:05-20:09-20:10',
       'hook callouts 19:45-20:10',
       'teacher 纪律点名 19:45-20:10',
       `teacher ${transition(2)}`,
       `segment 2 ${segmentText(2)}`,
+      'hook callOn 1 review',
+      'hook startAnswering 2 20:10-20:14-20:15',
+      'hook callOnClose 1',
       'hook callouts 20:10-20:15',
       'teacher 纪律点名 20:10-20:15',
       `teacher ${transition(3)}`,
       `segment 3 ${segmentText(3)}`,
-      'hook callOn',
-      'hook callOnClose',
+      'hook startAnswering 3 20:15-20:19-20:20',
       'hook callouts 20:15-20:20',
       'teacher 纪律点名 20:15-20:20',
       `teacher ${transition(4)}`,
       `segment 4 ${segmentText(4)}`,
+      'hook callOn 2 extension',
     ])
     // Numbered on from the 2 events before the restart, with no gap.
     expect(classEvents(hub).map((e) => e.seq)).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11])
@@ -481,7 +618,7 @@ describe('a restart (Review Focus 2)', () => {
     const steps = rows.map((r) => r.step)
     expect(new Set(steps).size).toBe(steps.length)
     expect(rows.filter((r) => r.kind !== 'noop').map((r) => r.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-    expect(rows.filter((r) => r.kind === 'noop').map((r) => r.step).sort()).toEqual(['call-on', 'call-on-close'])
+    expect(rows.filter((r) => r.kind === 'noop').map((r) => r.step).sort()).toEqual(['call-on-1', 'call-on-2', 'call-on-close-1', 'qa-1', 'qa-2', 'qa-3'])
   })
 
   test('a restart right after the call-on calls no hook of a step that already ran', async () => {
@@ -494,9 +631,12 @@ describe('a restart (Review Focus 2)', () => {
     clock.set(at('20:16'))
     await first.tick()
     expect(firstTrace.filter((e) => e.startsWith('hook'))).toEqual([
+      'hook startAnswering 1 20:05-20:09-20:10',
       'hook callouts 19:45-20:10',
+      'hook callOn 1 review',
+      'hook startAnswering 2 20:10-20:14-20:15',
+      'hook callOnClose 1',
       'hook callouts 20:10-20:15',
-      'hook callOn',
     ])
 
     const trace: string[] = []
@@ -509,10 +649,11 @@ describe('a restart (Review Focus 2)', () => {
     clock.set(at('20:20'))
     await second.tick()
     expect(trace).toEqual([
-      'hook callOnClose',
+      'hook startAnswering 3 20:15-20:19-20:20',
       'hook callouts 20:15-20:20',
       `teacher ${transition(4)}`,
       `segment 4 ${segmentText(4)}`,
+      'hook callOn 2 extension',
     ])
   })
 
@@ -531,9 +672,11 @@ describe('a restart (Review Focus 2)', () => {
     expect(trace).toEqual([
       `teacher ${openingLesson('老周', '科学', '光的折射')}`,
       `segment 1 ${segmentText(1)}`,
+      'hook startAnswering 1 20:05-20:09-20:10',
       'hook callouts 19:45-20:10',
       `teacher ${transition(2)}`,
       `segment 2 ${segmentText(2)}`,
+      'hook callOn 1 review',
     ])
     expect(classEvents(hub).map((e) => e.seq)).toEqual([1, 2, 3, 4])
   })
@@ -551,9 +694,12 @@ describe('a restart (Review Focus 2)', () => {
 
     expect(classEvents(hub).map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6])
     expect(trace.filter((e) => e.startsWith('hook'))).toEqual([
+      'hook startAnswering 1 20:05-20:09-20:10',
       'hook callouts 19:45-20:10',
+      'hook callOn 1 review',
+      'hook startAnswering 2 20:10-20:14-20:15',
+      'hook callOnClose 1',
       'hook callouts 20:10-20:15',
-      'hook callOn',
     ])
   })
 
@@ -596,7 +742,7 @@ describe('a restart (Review Focus 2)', () => {
     expect(hub.messages).toEqual([])
     expect(await sessionRows()).toMatchObject([{ id: monday, dismissedAt: at('09:00', TUE) }])
     const mondaySteps = await db.selectFrom('classEvents').select('step').where('sessionId', '=', monday).execute()
-    expect(mondaySteps.map((e) => e.step)).toEqual(expect.arrayContaining(['segment-5', 'call-on', 'call-on-close', 'dismissal']))
+    expect(mondaySteps.map((e) => e.step)).toEqual(expect.arrayContaining(['segment-5', 'qa-5', 'call-on-1', 'call-on-close-2', 'dismissal']))
     expect(mondaySteps.some((e) => e.step.startsWith('rename'))).toBe(false)
     expect(await db.selectFrom('renameEvents').select('announcedAt').execute()).toEqual([{ announcedAt: null }])
 
@@ -964,12 +1110,12 @@ describe('the locks', () => {
       },
     })
     await runtime.tick()
-    clock.set(at('20:15'))
+    clock.set(at('20:10'))
     await expect(runtime.tick()).rejects.toThrow(/call-on/)
     const sessionId = runtime.currentSession(classId)!.sessionId
     const rename = await db
       .insertInto('renameEvents')
-      .values({ studentId: a.id, classId, oldDisplayName: a.name, newDisplayName: '阿杰家的小鱼', createdAt: at('20:15'), announcedAt: null })
+      .values({ studentId: a.id, classId, oldDisplayName: a.name, newDisplayName: '阿杰家的小鱼', createdAt: at('20:10'), announcedAt: null })
       .returning('id')
       .executeTakeFirstOrThrow()
 
@@ -1005,9 +1151,9 @@ describe('the locks', () => {
     expect(renameFree).toBe(true)
 
     // Then it goes on as usual: the rename is announced at the call-on.
-    expect(await db.selectFrom('renameEvents').select('announcedAt').execute()).toEqual([{ announcedAt: at('20:15') }])
+    expect(await db.selectFrom('renameEvents').select('announcedAt').execute()).toEqual([{ announcedAt: at('20:10') }])
     const steps = await db.selectFrom('classEvents').select('step').where('sessionId', '=', sessionId).orderBy('id').execute()
-    expect(steps.map((s) => s.step).slice(-3)).toEqual([`rename-${rename.id}`, `rename-${rename.id}#2`, 'call-on'])
+    expect(steps.map((s) => s.step).slice(-3)).toEqual([`rename-${rename.id}`, `rename-${rename.id}#2`, 'call-on-1'])
   })
 })
 

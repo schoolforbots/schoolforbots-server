@@ -176,7 +176,12 @@ export async function askQuestion(deps: QuestionsDeps, p: Participant, text: str
  * Run again for the session (after a crash), it writes nothing: the step wrote both events or none. A `called_on`
  * that never went out is sent again at the student's next hello (`resumeCall`).
  */
-export async function callOnStep(deps: QuestionsDeps, session: ActiveSession): Promise<void> {
+export async function callOnStep(
+  deps: QuestionsDeps,
+  session: ActiveSession,
+  _n: number,
+  call: { kind: 'review' | 'extension'; text: string },
+): Promise<void> {
   const { db, clock, hub } = deps
   const { sessionId, classId } = session
   const online = hub.online(classId)
@@ -193,7 +198,7 @@ export async function callOnStep(deps: QuestionsDeps, session: ActiveSession): P
       .where('id', '=', studentId)
       .executeTakeFirstOrThrow()
     const name = displayName(student.ownerName, student.aiName)
-    const question = teacher.callOn(name)
+    const question = teacher.callOnQuestion(name, call.text)
     const line = await append(trx, sessionId, CALL_ON, teacherLine(question), at)
     const called = await append(trx, sessionId, CALLED_ON, { kind: 'called_on', studentId, displayName: name }, at)
     return { events: [line, called], callId: called.seq, question }
@@ -250,7 +255,7 @@ export async function answer(deps: QuestionsDeps, p: Participant, callId: number
  * they are still thinking and moves on; otherwise (or with nobody called on) it writes nothing, and the runtime
  * records the step. Run again for the session, it writes nothing.
  */
-export async function callOnCloseStep(deps: QuestionsDeps, session: ActiveSession): Promise<void> {
+export async function callOnCloseStep(deps: QuestionsDeps, session: ActiveSession, _n: number): Promise<void> {
   const { db, clock, hub } = deps
   const { sessionId, classId } = session
   const at = clock.now()

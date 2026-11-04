@@ -271,8 +271,8 @@ describe('starting the class service', () => {
           .execute()
       ).map((r) => r.step)
     // The broken class stopped at its failed step; the other one is where the clock says.
-    expect(await steps(broken)).toEqual(['opening', 'segment-1'])
-    expect(await steps(fine)).toEqual(['opening', 'segment-1', 'callouts-1', 'segment-2'])
+    expect(await steps(broken)).toEqual(['opening', 'segment-1', 'qa-1'])
+    expect(await steps(fine)).toEqual(['opening', 'segment-1', 'qa-1', 'callouts-1', 'segment-2', 'call-on-1'])
     const failures = logs.entries().filter((e) => e.msg === 'class tick failed')
     expect(failures).toHaveLength(1)
     expect(failures[0]!.err).toMatchObject({
@@ -287,7 +287,8 @@ describe('starting the class service', () => {
     // Once the step works again, the next tick catches the class up.
     failing = false
     await service.tick()
-    expect(await steps(broken)).toEqual(['opening', 'segment-1', 'callouts-1', 'segment-2'])
+    // The student who said hello meanwhile is called on (its events are written under `call-on`).
+    expect(await steps(broken)).toEqual(['opening', 'segment-1', 'qa-1', 'callouts-1', 'segment-2', 'call-on', 'call-on-1'])
   })
 })
 
