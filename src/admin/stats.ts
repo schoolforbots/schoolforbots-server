@@ -226,11 +226,12 @@ function seriesDay(date: string, tally: Tally): SeriesDay {
 }
 
 /**
- * When the doors of a day's first class open. A lesson not approved by then is not taught that day: the first class
- * of a division decides for the day, and it holds a study hall instead.
+ * When the doors of a division's first class of a day open: of the first slot `slots` (the slots the division has
+ * classes in), or of the school's first slot when it has none. A lesson not approved by then is not taught that day:
+ * the first class of a division decides for the day, and it holds a study hall instead.
  */
-function doorsOf(date: string, config: SchoolConfig): Date {
-  const first = SLOTS.map((slot) => config.slots[slot].start).reduce((a, b) => (a < b ? a : b))
+function doorsOf(date: string, slots: readonly Slot[], config: SchoolConfig): Date {
+  const first = (slots.length > 0 ? slots : SLOTS).map((slot) => config.slots[slot].start).reduce((a, b) => (a < b ? a : b))
   const start = atLocalTime(date, first, config.timezone)
   return new Date(start.getTime() - config.lesson.doorsOpenMinutesBefore * 60_000)
 }
@@ -253,8 +254,10 @@ export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'
 
   const queue = await reviewQueue(deps)
   const slots = queue.flatMap((day) => day.divisions.map((slot) => ({ date: day.date, ...slot })))
+  const classSlots = await db.selectFrom('classes').select(['division', 'slot']).distinct().execute()
   const unreviewed = slots.flatMap((s) => {
-    const deadline = doorsOf(s.date, config)
+    const meets = classSlots.filter((c) => c.division === s.division).map((c) => c.slot)
+    const deadline = doorsOf(s.date, meets, config)
     if (s.status === 'approved' || s.locked || deadline.getTime() <= now.getTime()) return []
     return [{ date: s.date, division: s.division, deadline: deadline.toISOString() }]
   })

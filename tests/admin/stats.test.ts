@@ -383,6 +383,22 @@ test('a lesson not reviewed is a reminder until the doors open, and not once a c
   expect((await daily(7)).json().reminders.unreviewed).toEqual([])
 })
 
+test('a reminder is due by the doors of the division\'s first slot with classes, not the school\'s first slot', async () => {
+  await start(horizon(1))
+  for (const division of ['primary', 'junior', 'senior'] as const) await lesson(THURSDAY, division, { approved: true })
+  await lesson(TODAY, 'junior')
+  await lesson(TODAY, 'senior')
+  // The junior classes meet in the afternoon and the evening; the senior division has no class at all.
+  await insertClass(t.db, { division: 'junior', slot: 'evening', classNo: ++classNo })
+  await insertClass(t.db, { division: 'junior', slot: 'afternoon', classNo: ++classNo })
+
+  // Noon: the morning doors have opened, the afternoon ones (14:45 school time) have not.
+  t.clock.set(at(TODAY, '12:00:00'))
+  expect((await daily(7)).json().reminders.unreviewed).toEqual([
+    { date: TODAY, division: 'junior', deadline: '2026-11-04T06:45:00.000Z' },
+  ])
+})
+
 test('the switch changes are the ones made over the days of the curves', async () => {
   await start()
   await setSwitch(t.db, 'teacherLlm', false, at('2026-10-27', '23:59:59'))
