@@ -155,6 +155,9 @@ describe('second layer', () => {
     await Promise.all([layer.check('teacher', 'a'), layer.check('chat', 'b'), layer.check('teacher', 'c')])
     expect(calls.map((c) => c.purpose).sort()).toEqual(['secondLayerChat', 'secondLayerTeacher'])
     expect(itemsOf(calls.find((c) => c.purpose === 'secondLayerTeacher')!.user)).toHaveLength(2)
+    // The teacher's source carries the call-on answers too: whatever is read out to the class.
+    expect(calls.find((c) => c.purpose === 'secondLayerTeacher')!.user).toContain('来源：要在课堂上当众念出的话\n')
+    expect(calls.find((c) => c.purpose === 'secondLayerChat')!.user).toContain('来源：同学之间的消息\n')
   })
 
   test('more than 50 items are split into calls of at most 50', async () => {

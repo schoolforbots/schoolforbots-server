@@ -25,7 +25,7 @@ export interface SecondLayerDeps {
 const MAX_ITEMS_PER_CALL = 50
 
 const SOURCES: Record<SecondLayerSource, { purpose: LlmPurpose; switch: 'secondLayerTeacher' | 'secondLayerChat'; label: string }> = {
-  teacher: { purpose: 'secondLayerTeacher', switch: 'secondLayerTeacher', label: '老师在课堂上要当众说的话' },
+  teacher: { purpose: 'secondLayerTeacher', switch: 'secondLayerTeacher', label: '要在课堂上当众念出的话' },
   chat: { purpose: 'secondLayerChat', switch: 'secondLayerChat', label: '同学之间的消息' },
 }
 
