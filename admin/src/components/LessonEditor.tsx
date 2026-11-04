@@ -39,7 +39,10 @@ import { Margin, Marked } from './RedPen.js'
 // pasting the reply (manual mode, or when the model is out of reach). At the bottom: approve and go on.
 //
 // Every change is sent with the version the page shows; the server answers with the lesson as it is afterwards. One
-// box (an edit or a rewrite) is open at a time. A refusal is said where the change was asked for.
+// change is under way at a time: while one is (a rewrite can take minutes), nothing else that changes the lesson can
+// be started and no other box opened, so no change is made from a version about to be replaced and no box waiting for
+// an answer is swept away. One box (an edit or a rewrite) is open at a time. A refusal is said where the change was
+// asked for.
 
 type Box = { what: 'edit'; part: LessonPart } | { what: 'rewrite'; target: RewriteTarget } | null
 type TextAreaRef = GetRef<typeof Input.TextArea>
@@ -50,6 +53,11 @@ interface Editing {
   /** False once a class of the division has begun the day. */
   editable: boolean
   box: Box
+  /** A change to the lesson is under way: every other one waits for it. */
+  writing: boolean
+  setWriting: (writing: boolean) => void
+  /** A red mark was called a false positive by the `at`-th 这是误伤 of the lesson: the focus moves on from there. */
+  markedWrong: (at: number) => void
   /** The box that closed last, so the button that opened it takes the focus back; `n` counts the closings. */
   closed: { box: Box; n: number }
   open: (box: Box) => void
@@ -91,24 +99,30 @@ function useOpener(closedHere: (box: Box) => boolean) {
   return button
 }
 
-/** One change asked of the server from one place on the page: whether it is under way, and why it was refused. */
+/**
+ * One change asked of the server from one place on the page: whether it is under way, and why it was refused. While
+ * it is under way, the lesson is being written (`writing`), and the page starts no other change.
+ */
 function useAction() {
-  const { onChanged, onRefresh } = useEditing()
+  const { onChanged, onRefresh, setWriting } = useEditing()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError>()
 
   /** Sends the change; true when the server took it. */
   async function run(change: () => Promise<LessonDetail>): Promise<boolean> {
     setBusy(true)
+    setWriting(true)
     setError(undefined)
     try {
       const lesson = await change()
       setBusy(false)
+      setWriting(false)
       onChanged(lesson)
       return true
     } catch (failure) {
       setError(failure as ApiError)
       setBusy(false)
+      setWriting(false)
       // A class began the lesson meanwhile: read it again, and the page stops offering changes.
       if ((failure as ApiError).code === 'lesson_locked') onRefresh()
       return false
@@ -162,7 +176,7 @@ const closeOnEscape = (busy: boolean, close: () => void) => (event: KeyboardEven
 }
 
 function EditBox({ part, text, labelId }: { part: LessonPart; text: string; labelId: string }) {
-  const { lesson, open } = useEditing()
+  const { lesson, writing, open } = useEditing()
   const [draft, setDraft] = useState(text)
   const action = useAction()
   const field = useRef<TextAreaRef>(null)
@@ -172,7 +186,7 @@ function EditBox({ part, text, labelId }: { part: LessonPart; text: string; labe
   }
 
   return (
-    <div className="edit-box" onKeyDown={closeOnEscape(action.busy, () => open(null))}>
+    <div className="edit-box" onKeyDown={closeOnEscape(writing, () => open(null))}>
       <Input.TextArea
         ref={field}
         aria-labelledby={labelId}
@@ -182,10 +196,10 @@ function EditBox({ part, text, labelId }: { part: LessonPart; text: string; labe
         autoSize={{ minRows: 2, maxRows: 12 }}
       />
       <div className="box-actions">
-        <Button type="primary" size="small" onClick={save} disabled={action.busy}>
+        <Button type="primary" size="small" onClick={save} disabled={writing}>
           保存改动
         </Button>
-        <Button size="small" onClick={() => open(null)} disabled={action.busy}>
+        <Button size="small" onClick={() => open(null)} disabled={writing}>
           不改了
         </Button>
       </div>
@@ -196,12 +210,13 @@ function EditBox({ part, text, labelId }: { part: LessonPart; text: string; labe
 
 /** A rewrite: the reason it is for (required), then the model, or the prompt to copy and the reply to paste. */
 function ReasonBox({ target, what }: { target: RewriteTarget; what: string }) {
-  const { lesson, mode, open, onChanged } = useEditing()
+  const { lesson, mode, writing, open, onChanged } = useEditing()
   const [reason, setReason] = useState('')
   const [unsaid, setUnsaid] = useState(false)
   const [pasting, setPasting] = useState(false)
   const action = useAction()
   const field = useRef<TextAreaRef>(null)
+  const pasteButton = useRef<HTMLButtonElement>(null)
   const fieldId = useId()
   const hintId = useId()
   // The model out of reach says to paste by hand instead: the way to do it comes up right here.
@@ -229,7 +244,7 @@ function ReasonBox({ target, what }: { target: RewriteTarget; what: string }) {
   }
 
   return (
-    <div className="reason-box" onKeyDown={closeOnEscape(action.busy, () => open(null))}>
+    <div className="reason-box" onKeyDown={closeOnEscape(writing, () => open(null))}>
       <label className="field-label" htmlFor={fieldId}>
         重写的理由
       </label>
@@ -258,19 +273,19 @@ function ReasonBox({ target, what }: { target: RewriteTarget; what: string }) {
       )}
       <div className="box-actions">
         {mode === 'api' && (
-          <Button type="primary" size="small" onClick={send} disabled={action.busy}>
+          <Button type="primary" size="small" onClick={send} disabled={writing}>
             {action.busy ? '正在重写' : '请大模型重写'}
           </Button>
         )}
         {byHand && (
           <>
             <CopyPrompt target={prompt} ready={ready} />
-            <Button size="small" onClick={() => ready() && setPasting(true)}>
+            <Button ref={pasteButton} size="small" onClick={() => ready() && setPasting(true)} disabled={writing}>
               粘贴结果
             </Button>
           </>
         )}
-        <Button size="small" onClick={() => open(null)} disabled={action.busy}>
+        <Button size="small" onClick={() => open(null)} disabled={writing}>
           不重写了
         </Button>
       </div>
@@ -284,7 +299,11 @@ function ReasonBox({ target, what }: { target: RewriteTarget; what: string }) {
         <PasteDialog
           title={`粘贴结果：${what}`}
           target={{ ...prompt, baseVersion: lesson.version }}
-          onClose={() => setPasting(false)}
+          onClose={() => {
+            // The dialog goes away with this box's state, so it gives no focus back itself.
+            pasteButton.current?.focus()
+            setPasting(false)
+          }}
           onPasted={(answer) => {
             setPasting(false)
             onChanged(answer)
@@ -301,7 +320,7 @@ function ReasonBox({ target, what }: { target: RewriteTarget; what: string }) {
  * focus goes to the button that rewrites the same thing (`target`).
  */
 function Restore({ what, target }: { what: string; target: RewriteTarget }) {
-  const { lesson, refocus } = useEditing()
+  const { lesson, writing, refocus } = useEditing()
   const action = useAction()
   const button = useRef<HTMLButtonElement>(null)
   const [latest, before] = lesson.versions
@@ -315,7 +334,7 @@ function Restore({ what, target }: { what: string; target: RewriteTarget }) {
     <div className="restore">
       <p>{what}刚重写过。</p>
       {latest.reason !== null && <p className="restore-reason">理由：{latest.reason}</p>}
-      <Button ref={button} size="small" onClick={() => void goBack(before.version)} disabled={action.busy}>
+      <Button ref={button} size="small" onClick={() => void goBack(before.version)} disabled={writing}>
         换回上一版
       </Button>
       <Refusal action={action} back={button} />
@@ -348,8 +367,9 @@ function PartView({
   /** More for the margin. */
   aside?: ReactNode
 }) {
-  const { lesson, editable, box, open } = useEditing()
+  const { lesson, editable, writing, box, open, markedWrong } = useEditing()
   const labelId = useId()
+  const group = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const opener = useOpener((closedBox) => isEditOf(closedBox, part))
   // Once, when the part first shows: the focus then moves on with the reader.
@@ -360,8 +380,15 @@ function PartView({
   const editing = editable && isEditOf(box, part)
   const Text = title ? 'h2' : 'p'
 
+  async function markWrong(rule: string, button: HTMLElement) {
+    // Where the button was among the lesson's 这是误伤, before it goes away with its mark.
+    const at = [...(button.closest('.lesson')?.querySelectorAll('.false-positive') ?? [])].indexOf(button)
+    if (await falsePositive.run(() => markFalsePositive(lesson, rule))) markedWrong(at)
+  }
+
   return (
-    <div className="part" role="group" aria-labelledby={labelId}>
+    // The group takes the focus back after 刷新 read the lesson again: its marks may have changed meanwhile.
+    <div ref={group} tabIndex={-1} className="part" role="group" aria-labelledby={labelId}>
       <div className="part-body">
         <p id={labelId} className="part-label">
           {label}
@@ -383,6 +410,7 @@ function PartView({
                 type="link"
                 size="small"
                 className="part-edit"
+                disabled={writing}
                 onClick={() => open({ what: 'edit', part })}
               >
                 改字
@@ -393,12 +421,10 @@ function PartView({
       </div>
       <Margin
         flags={flags}
-        disabled={falsePositive.busy}
-        onFalsePositive={
-          editable ? (rule) => void falsePositive.run(() => markFalsePositive(lesson, rule)) : undefined
-        }
+        disabled={writing}
+        onFalsePositive={editable ? (rule, button) => void markWrong(rule, button) : undefined}
       >
-        <Refusal action={falsePositive} />
+        <Refusal action={falsePositive} back={group} />
         {aside}
       </Margin>
     </div>
@@ -418,7 +444,7 @@ function SectionHead({ id, name, note, children }: { id: string; name: string; n
 }
 
 function Segment({ index, text, gist }: { index: number; text: string; gist: string }) {
-  const { lesson, editable, box, open } = useEditing()
+  const { lesson, editable, writing, box, open } = useEditing()
   const id = useId()
   const target: RewriteTarget = { kind: 'rewrite_segment', segmentIndex: index }
   const opener = useOpener((closedBox) => isRewriteOf(closedBox, target))
@@ -427,7 +453,7 @@ function Segment({ index, text, gist }: { index: number; text: string; gist: str
     <section className="lesson-section" aria-labelledby={id}>
       <SectionHead id={id} name={name}>
         {editable && (
-          <Button ref={opener} size="small" onClick={() => open({ what: 'rewrite', target })}>
+          <Button ref={opener} size="small" disabled={writing} onClick={() => open({ what: 'rewrite', target })}>
             重写这段
           </Button>
         )}
@@ -447,7 +473,7 @@ function Segment({ index, text, gist }: { index: number; text: string; gist: str
 }
 
 function CallOn({ kind, after, question }: { kind: CallOnKind; after: number; question: string }) {
-  const { editable, box, open } = useEditing()
+  const { editable, writing, box, open } = useEditing()
   const id = useId()
   const target: RewriteTarget = { kind: 'rewrite_call_on', callOn: kind }
   const opener = useOpener((closedBox) => isRewriteOf(closedBox, target))
@@ -455,7 +481,7 @@ function CallOn({ kind, after, question }: { kind: CallOnKind; after: number; qu
     <section className="lesson-section call-on" aria-labelledby={id}>
       <SectionHead id={id} name={CALL_ON_NAMES[kind]} note={`第 ${after} 段讲完后点名问`}>
         {editable && (
-          <Button ref={opener} size="small" onClick={() => open({ what: 'rewrite', target })}>
+          <Button ref={opener} size="small" disabled={writing} onClick={() => open({ what: 'rewrite', target })}>
             重写这道题
           </Button>
         )}
@@ -468,9 +494,15 @@ function CallOn({ kind, after, question }: { kind: CallOnKind; after: number; qu
   )
 }
 
+/**
+ * The day's division has a topic the lesson was not made about: the server took the lesson back to review and is making
+ * it again for the topic, so the content shown is the one being replaced.
+ */
+const beingRemade = (slot: QueueSlot, lesson: LessonDetail) => slot.topic !== null && slot.topic !== lesson.topic
+
 /** The bottom of the lesson: approve it and go on to the next lesson to review. */
-function Approval({ onNext }: { onNext: () => void }) {
-  const { lesson } = useEditing()
+function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void }) {
+  const { lesson, writing } = useEditing()
   const action = useAction()
   const button = useRef<HTMLButtonElement>(null)
   const reasonId = useId()
@@ -484,22 +516,26 @@ function Approval({ onNext }: { onNext: () => void }) {
       </footer>
     )
   }
+  // Why it cannot be approved yet, if it cannot.
+  const reasons: string[] = []
+  if (marks > 0) reasons.push(`还有 ${marks} 处红笔标记：改掉，或者点“这是误伤”，才能通过。`)
+  if (beingRemade(slot, lesson)) reasons.push('这节课正在按新题目重新生成，等新稿出来再审。')
   return (
     <footer className="lesson-foot">
       <Button
         ref={button}
         type="primary"
-        disabled={marks > 0 || action.busy}
-        aria-describedby={marks > 0 ? reasonId : undefined}
+        disabled={reasons.length > 0 || writing}
+        aria-describedby={reasons.length > 0 ? reasonId : undefined}
         onClick={async () => {
           if (await action.run(() => approve(lesson))) onNext()
         }}
       >
         通过，审下一节
       </Button>
-      {marks > 0 && (
+      {reasons.length > 0 && (
         <p id={reasonId} className="foot-note">
-          还有 {marks} 处红笔标记：改掉，或者点“这是误伤”，才能通过。
+          {reasons.join('')}
         </p>
       )}
       <Refusal action={action} back={button} />
@@ -507,18 +543,31 @@ function Approval({ onNext }: { onNext: () => void }) {
   )
 }
 
+/** A notice that takes the focus: the lesson became read-only under the reader's hands (a class began it). */
+function Arrived({ text }: { text: string }) {
+  const self = useFocusOnMount<HTMLParagraphElement>()
+  return (
+    <p ref={self} tabIndex={-1} role="alert">
+      {text}
+    </p>
+  )
+}
+
 /** What the page knows about the lesson besides its content: a day begun, a new topic, a failed remake. */
 function Notices({ slot }: { slot: QueueSlot }) {
-  const { lesson, mode, editable } = useEditing()
+  const { lesson, editable } = useEditing()
+  // Locked when it was opened, it says so quietly; locked while open (a refused change), it takes the focus that the
+  // controls it removed had.
+  const lockedFromStart = useRef(!editable)
   const notices: string[] = []
+  let locked: string | undefined
   if (!editable) {
-    notices.push(
+    locked =
       lesson.approvedAt !== null
         ? '这节课已经开课，不能再改。'
-        : '这一天已经开课，这节课没赶在开门前通过，那天改上了自习。它不能再改了。',
-    )
+        : '这一天已经开课，这节课没赶在开门前通过，那天改上了自习。它不能再改了。'
   } else {
-    if (mode === 'api' && slot.topic !== null && slot.topic !== lesson.topic) {
+    if (slot.topic !== null && beingRemade(slot, lesson)) {
       notices.push(`这一天指定了新题目《${slot.topic}》，这节课正在按新题目重新生成；生成好以前，这里还是旧的内容。`)
     }
     if (slot.generationFailed !== null) {
@@ -526,9 +575,10 @@ function Notices({ slot }: { slot: QueueSlot }) {
       notices.push(`按新题目重新生成失败，试了 ${attempts} 次。最后一次的原因：${sentence(lastError)}系统会接着重试。`)
     }
   }
-  if (notices.length === 0) return null
+  if (locked === undefined && notices.length === 0) return null
   return (
     <div className="lesson-notices">
+      {locked !== undefined && (lockedFromStart.current ? <p>{locked}</p> : <Arrived text={locked} />)}
       {notices.map((notice) => (
         <p key={notice}>{notice}</p>
       ))}
@@ -540,7 +590,7 @@ const LESSON_TARGET: RewriteTarget = { kind: 'rewrite_lesson' }
 
 /** The top of the lesson: where and what it is, what the page knows about it, its title, the whole-lesson rewrite. */
 function Head({ slot, focused }: { slot: QueueSlot; focused: boolean }) {
-  const { lesson, editable, box, open } = useEditing()
+  const { lesson, editable, writing, box, open } = useEditing()
   const opener = useOpener((closedBox) => isRewriteOf(closedBox, LESSON_TARGET))
   const { content } = lesson
   return (
@@ -552,7 +602,12 @@ function Head({ slot, focused }: { slot: QueueSlot; focused: boolean }) {
       <PartView part={{ part: 'title' }} label="标题" text={content.title} title focused={focused} />
       {editable && (
         <div className="lesson-actions">
-          <Button ref={opener} size="small" onClick={() => open({ what: 'rewrite', target: LESSON_TARGET })}>
+          <Button
+            ref={opener}
+            size="small"
+            disabled={writing}
+            onClick={() => open({ what: 'rewrite', target: LESSON_TARGET })}
+          >
             整节课重写
           </Button>
           {rewroteLast(lesson, 'rewrite_lesson') && <Restore what="整节课" target={LESSON_TARGET} />}
@@ -590,7 +645,19 @@ export function LessonEditor({
   focused?: boolean
 }) {
   const [box, setBox] = useState<Box>(null)
+  const [writing, setWriting] = useState(false)
   const [closed, setClosed] = useState<{ box: Box; n: number }>({ box: null, n: 0 })
+  const article = useRef<HTMLElement>(null)
+  const [marked, setMarked] = useState<{ at: number; n: number }>()
+  // After a 这是误伤, the focus goes to the next one in reading order (its own and any other of the same rule are gone),
+  // or, when none are left, to approving.
+  useEffect(() => {
+    if (marked === undefined) return
+    const rest = [...(article.current?.querySelectorAll<HTMLButtonElement>('.false-positive') ?? [])]
+    const next = rest[Math.min(marked.at, rest.length - 1)]
+    ;(next ?? article.current?.querySelector<HTMLButtonElement>('.lesson-foot button:not(:disabled)'))?.focus()
+  }, [marked])
+  const markedWrong = (at: number) => setMarked((last) => ({ at, n: (last?.n ?? 0) + 1 }))
   const refocus = (opener: Box) => setClosed(({ n }) => ({ box: opener, n: n + 1 }))
   const open = (next: Box) => {
     refocus(next === null ? box : null)
@@ -605,9 +672,24 @@ export function LessonEditor({
   const callOnsAfter = (count: number): CallOnKind[] =>
     questions === null ? [] : (['review', 'extension'] as const).filter((kind) => afterSegment(kind) === count)
 
+  const editing: Editing = {
+    lesson,
+    mode,
+    editable,
+    writing,
+    setWriting,
+    markedWrong,
+    box,
+    closed,
+    open,
+    refocus,
+    onChanged,
+    onRefresh,
+  }
+
   return (
-    <EditingContext value={{ lesson, mode, editable, box, closed, open, refocus, onChanged, onRefresh }}>
-      <article className="panel lesson">
+    <EditingContext value={editing}>
+      <article ref={article} className="panel lesson">
         <Head slot={slot} focused={focused} />
         {segments.map((segment, index) => (
           <Fragment key={index}>
@@ -618,7 +700,7 @@ export function LessonEditor({
               ))}
           </Fragment>
         ))}
-        {editable && <Approval onNext={onNext} />}
+        {editable && <Approval slot={slot} onNext={onNext} />}
       </article>
     </EditingContext>
   )

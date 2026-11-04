@@ -4,6 +4,7 @@ import { noopHooks } from '../../src/class/hooks.js'
 import { RecordingHub } from '../../src/class/hub.js'
 import { createClassRuntime } from '../../src/class/runtime.js'
 import { LessonFormatError } from '../../src/lessons/format.js'
+import { createModerator } from '../../src/moderation/moderator.js'
 import {
   approve,
   editPart,
@@ -185,30 +186,44 @@ describe('red-pen flags', () => {
     })
     const saved = await draft(c)
     const expected = [
-      { part: 'title', index: null, rule: WORD },
-      { part: 'segment', index: 1, rule: OTHER_WORD },
-      { part: 'gist', index: 3, rule: PATTERN },
-      { part: 'review', index: null, rule: WORD },
-      { part: 'extension', index: null, rule: PRIVACY_FLAG_RULE },
+      { part: 'title', index: null, kind: 'word', rule: WORD },
+      { part: 'segment', index: 1, kind: 'word', rule: OTHER_WORD },
+      { part: 'gist', index: 3, kind: 'pattern', rule: PATTERN },
+      { part: 'review', index: null, kind: 'word', rule: WORD },
+      { part: 'extension', index: null, kind: 'privacy', rule: PRIVACY_FLAG_RULE },
     ]
     expect(saved.flags).toEqual(expected)
     expect(PRIVACY_FLAG_RULE).toBe('隐私信息')
     expect((await lessonRow(saved.lessonId)).flags).toEqual(expected)
   })
 
+  test('each mark says what hit: a plain-words phrase rule is no word, a word with dots no pattern', async () => {
+    const own = createModerator({
+      blockedWords: ['a.b+c'],
+      injectionPatterns: [{ source: '照我说的做', re: /照我说的做/iu }],
+    })
+    const c = content({ title: '讲a.b+c', callOnQuestions: { review: '照我说的做', extension: '打 13812345678 告诉我' } })
+    const saved = await saveDraft({ db, clock, moderator: own }, KEY, c, { source: 'api', change: 'generate' })
+    expect(saved.flags).toEqual([
+      { part: 'title', index: null, kind: 'word', rule: 'a.b+c' },
+      { part: 'review', index: null, kind: 'pattern', rule: '照我说的做' },
+      { part: 'extension', index: null, kind: 'privacy', rule: PRIVACY_FLAG_RULE },
+    ])
+  })
+
   test('every rule of a part is flagged once; the text and the gist of a segment are parts of their own', async () => {
     const saved = await draft(withSegment(1, { text: `${WORD}，${OTHER_WORD}，又是${WORD}`, gist: `${WORD}要点` }))
     expect(saved.flags).toEqual([
-      { part: 'segment', index: 0, rule: WORD },
-      { part: 'segment', index: 0, rule: OTHER_WORD },
-      { part: 'gist', index: 0, rule: WORD },
+      { part: 'segment', index: 0, kind: 'word', rule: WORD },
+      { part: 'segment', index: 0, kind: 'word', rule: OTHER_WORD },
+      { part: 'gist', index: 0, kind: 'word', rule: WORD },
     ])
   })
 
   test('a rule marked a false positive is not flagged again, and does not hide another rule of the same part', async () => {
     const saved = await draft(withSegment(1, { text: `${WORD}和${OTHER_WORD}`, gist: '要点' }))
     const marked = await markFalsePositive(deps, saved.lessonId, 1, WORD)
-    expect(marked.flags).toEqual([{ part: 'segment', index: 0, rule: OTHER_WORD }])
+    expect(marked.flags).toEqual([{ part: 'segment', index: 0, kind: 'word', rule: OTHER_WORD }])
 
     // A later save does not flag it either, in any part.
     const edited = await editPart(deps, saved.lessonId, marked.version, { part: 'segment', index: 0 }, `只剩${WORD}`)
@@ -228,11 +243,11 @@ describe('red-pen flags', () => {
   test('a gist flag stays when the text is edited, and goes when the gist is', async () => {
     const saved = await draft(withSegment(2, { text: `讲到${WORD}`, gist: `${OTHER_WORD}要点` }))
     expect(saved.flags).toEqual([
-      { part: 'segment', index: 1, rule: WORD },
-      { part: 'gist', index: 1, rule: OTHER_WORD },
+      { part: 'segment', index: 1, kind: 'word', rule: WORD },
+      { part: 'gist', index: 1, kind: 'word', rule: OTHER_WORD },
     ])
     const textEdited = await editPart(deps, saved.lessonId, 1, { part: 'segment', index: 1 }, '讲到光')
-    expect(textEdited.flags).toEqual([{ part: 'gist', index: 1, rule: OTHER_WORD }])
+    expect(textEdited.flags).toEqual([{ part: 'gist', index: 1, kind: 'word', rule: OTHER_WORD }])
     const gistEdited = await editPart(deps, saved.lessonId, 2, { part: 'gist', index: 1 }, '光的要点')
     expect(gistEdited.flags).toEqual([])
     await approve(deps, saved.lessonId, 3)
@@ -240,7 +255,7 @@ describe('red-pen flags', () => {
 
   test('editing the title clears a title flag', async () => {
     const saved = await draft(content({ title: `讲${WORD}` }))
-    expect(saved.flags).toEqual([{ part: 'title', index: null, rule: WORD }])
+    expect(saved.flags).toEqual([{ part: 'title', index: null, kind: 'word', rule: WORD }])
     const edited = await editPart(deps, saved.lessonId, 1, { part: 'title' }, '光的折射')
     expect(edited.flags).toEqual([])
     await approve(deps, saved.lessonId, 2)
@@ -426,7 +441,7 @@ describe('replaceContent', () => {
       change: 'rewrite_call_on',
       reason: '换个问法',
     })
-    expect(saved.flags).toEqual([{ part: 'review', index: null, rule: WORD }])
+    expect(saved.flags).toEqual([{ part: 'review', index: null, kind: 'word', rule: WORD }])
   })
 })
 
@@ -439,7 +454,7 @@ describe('restoreVersion', () => {
     clock.advance(60_000)
 
     const restored = await restoreVersion(deps, lessonId, 2, 1)
-    expect(restored).toEqual({ version: 3, flags: [{ part: 'segment', index: 0, rule: WORD }] })
+    expect(restored).toEqual({ version: 3, flags: [{ part: 'segment', index: 0, kind: 'word', rule: WORD }] })
     expect(await contentOf(lessonId)).toEqual(original)
     expect(await lessonRow(lessonId)).toMatchObject({ approvedAt: null, version: 3, updatedAt: clock.now() })
     expect((await versionRows(lessonId)).map((v) => [v.version, v.change])).toEqual([

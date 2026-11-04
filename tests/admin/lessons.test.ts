@@ -217,7 +217,7 @@ describe('a lesson', () => {
       approvedAt: null,
       locked: false,
       content: { ...c, callOnQuestions: { review: '新的复习题？', extension: c.callOnQuestions?.extension } },
-      flags: [{ part: 'title', index: null, rule: WORD }],
+      flags: [{ part: 'title', index: null, kind: 'word', rule: WORD }],
       falsePositives: [],
       versions: [
         { version: 2, change: 'edit', reason: null, segmentIndex: null, createdAt: t.clock.now().toISOString() },
@@ -255,7 +255,11 @@ describe('reviewing a lesson', () => {
     expect((await api('GET', `lessons/${id}`)).json()).toMatchObject({ version: 2, title: '光的折射' })
 
     const marked = await api('PUT', `lessons/${id}/parts`, { baseVersion: 2, part: { part: 'title' }, text: `${WORD}的故事` })
-    expect(marked.json()).toMatchObject({ version: 3, title: `${WORD}的故事`, flags: [{ part: 'title', index: null, rule: WORD }] })
+    expect(marked.json()).toMatchObject({
+      version: 3,
+      title: `${WORD}的故事`,
+      flags: [{ part: 'title', index: null, kind: 'word', rule: WORD }],
+    })
     for (const part of [{ part: 'segment', index: 0 }, { part: 'review' }, { part: 'extension' }]) {
       const version = (await api('GET', `lessons/${id}`)).json().version
       expect((await api('PUT', `lessons/${id}/parts`, { baseVersion: version, part, text: '改好的文字' })).statusCode).toBe(200)

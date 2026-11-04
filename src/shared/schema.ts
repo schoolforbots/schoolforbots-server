@@ -285,6 +285,9 @@ export interface CallOnQuestions {
 export interface LessonFlag {
   part: 'title' | 'segment' | 'gist' | 'review' | 'extension'
   index: number | null
+  /** What hit: a word of the word list, an anti-trick pattern, or text that looks like private information. */
+  kind: 'word' | 'pattern' | 'privacy'
+  /** The word-list entry, the pattern's line, or `隐私信息` for a privacy hit (which names no rule). */
   rule: string
 }
 

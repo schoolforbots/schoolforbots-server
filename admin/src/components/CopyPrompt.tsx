@@ -17,6 +17,13 @@ export function CopyPrompt({ target, ready }: { target: PromptTarget; ready?: ()
   const [stage, setStage] = useState<Stage>({ name: 'idle' })
   const boxId = useId()
   const box = useRef<HTMLTextAreaElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+
+  function close() {
+    setStage({ name: 'idle' })
+    // Ant Design gives the focus back once its closing is over; say where at once, so it never rests on the page.
+    button.current?.focus()
+  }
 
   async function copy() {
     // Not disabled meanwhile: a disabled button would lose the focus, which the dialog below gives back to it.
@@ -40,7 +47,7 @@ export function CopyPrompt({ target, ready }: { target: PromptTarget; ready?: ()
 
   return (
     <>
-      <Button size="small" onClick={copy}>
+      <Button ref={button} size="small" onClick={copy}>
         复制提示词
       </Button>
       {stage.name === 'copied' && (
@@ -60,8 +67,8 @@ export function CopyPrompt({ target, ready }: { target: PromptTarget; ready?: ()
         destroyOnHidden
         // The text is there to be copied: focus it, selected, so Esc closes the dialog and a copy key copies it all.
         afterOpenChange={(opened) => opened && box.current?.focus()}
-        onCancel={() => setStage({ name: 'idle' })}
-        footer={<Button onClick={() => setStage({ name: 'idle' })}>关闭</Button>}
+        onCancel={close}
+        footer={<Button onClick={close}>关闭</Button>}
       >
         <p className="dialog-hint">浏览器没让这一页写剪贴板。点进下面的框，全选以后自己复制。</p>
         <label className="field-label" htmlFor={boxId}>

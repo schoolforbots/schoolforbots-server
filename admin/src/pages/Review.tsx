@@ -14,12 +14,34 @@ import {
 import { LessonEditor } from '../components/LessonEditor.js'
 import { LessonQueue } from '../components/LessonQueue.js'
 import { Empty, Failed, Loading } from '../components/States.js'
-import { TopicDialog } from '../components/TopicDialog.js'
 import { dayName, sentence } from '../labels.js'
 
 // The review page (审课): the list of the days ahead on the left, the chosen lesson on the right. It opens on the first
 // lesson awaiting review; approving one moves on to the next. The list is the layout's own (`queue`), so the count
 // on the tab and the list say the same thing, and every change reads it again.
+
+/**
+ * The queue as `lesson` now stands in it, until the queue read again says so too: the list, the tab's count and the
+ * next lesson to review follow a change at once.
+ */
+function withLesson(queue: Queue, lesson: LessonDetail): Queue {
+  const status = lesson.approvedAt !== null ? 'approved' : lesson.flags.length > 0 ? 'flagged' : 'pending'
+  return {
+    ...queue,
+    days: queue.days.map((day) =>
+      day.date !== lesson.date
+        ? day
+        : {
+            ...day,
+            divisions: day.divisions.map((slot) =>
+              slot.division !== lesson.division
+                ? slot
+                : { ...slot, status, flags: lesson.flags.length, lessonId: lesson.id, version: lesson.version },
+            ),
+          },
+    ),
+  }
+}
 
 /** The lesson of a slot, read, then kept as each change leaves it. */
 function LessonPane({
@@ -35,7 +57,8 @@ function LessonPane({
   slot: QueueSlot
   mode: Queue['mode']
   callOns: Queue['callOns']
-  onChanged: () => void
+  /** The lesson changed (as `lesson` says, when a change answered with it). */
+  onChanged: (lesson?: LessonDetail) => void
   onNext: () => void
   /** Arrived at by approving the lesson before. */
   focused: boolean
@@ -66,7 +89,7 @@ function LessonPane({
         callOns={callOns}
         onChanged={(answer) => {
           lesson.set(answer)
-          onChanged()
+          onChanged(answer)
         }}
         onRefresh={() => {
           lesson.reload()
@@ -135,18 +158,24 @@ function AllReviewed({ queue, focused }: { queue: Queue; focused: boolean }) {
 export function Review({ queue }: { queue: Loaded<Queue> }) {
   // undefined: not chosen yet (the page picks the first lesson to review); null: nothing chosen.
   const [selected, setSelected] = useState<string | null>()
-  const [pasted, setPasted] = useState<{ key: string; lessonId: number }>()
-  const [topicOpen, setTopicOpen] = useState(false)
-  const [notice, setNotice] = useState<string>()
   // Bumped to read the open lesson again after something outside it changed it (a topic).
   const [reread, setReread] = useState(0)
-  // Approving moved the page on: what it moved to takes the focus. Choosing from the list leaves it in the list.
-  const [arrived, setArrived] = useState(false)
+  // Where approving (or pasting) moved the page to: that lesson's title, or the all-reviewed sentence (null), takes
+  // the focus when it shows. Anything chosen otherwise leaves the focus where it is.
+  const [arrived, setArrived] = useState<string | null>()
   const data = queue.data
 
-  // Not chosen yet, or the chosen slot left the list (its day went by): start from the first lesson to review.
-  if (data !== undefined && selected !== null && !queueSlots(data).some((entry) => entry.key === selected)) {
-    setSelected(nextToReview(data, null))
+  /** After a change: the queue follows the lesson at once, then is read again. */
+  function changed(lesson?: LessonDetail) {
+    if (lesson !== undefined && data !== undefined) queue.set(withLesson(data, lesson))
+    queue.reload()
+  }
+
+  // Nothing chosen (not yet, or all was reviewed) or the chosen slot left the list (its day went by): open the first
+  // lesson to review, if there is one now. A lesson given a new topic, for one, is back to review.
+  if (data !== undefined && !queueSlots(data).some((entry) => entry.key === selected)) {
+    const first = nextToReview(data, null)
+    if (first !== selected) setSelected(first)
   }
 
   if (data === undefined) {
@@ -169,12 +198,10 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
   }
 
   const chosen = queueSlots(data).find((entry) => entry.key === selected)
-  // A lesson just pasted in is shown before the list read again knows it.
-  const lessonId =
-    chosen?.slot.lessonId ?? (pasted !== undefined && pasted.key === chosen?.key ? pasted.lessonId : null)
+  const lessonId = chosen?.slot.lessonId ?? null
 
   let main
-  if (chosen === undefined) main = <AllReviewed queue={data} focused={arrived} />
+  if (chosen === undefined) main = <AllReviewed queue={data} focused={arrived === null} />
   else if (lessonId === null) main = <MissingLesson date={chosen.date} slot={chosen.slot} mode={data.mode} />
   else {
     main = (
@@ -184,12 +211,13 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
         slot={chosen.slot}
         mode={data.mode}
         callOns={data.callOns}
-        onChanged={queue.reload}
+        onChanged={changed}
         onNext={() => {
-          setSelected(nextToReview(data, chosen.key))
-          setArrived(true)
+          const next = nextToReview(data, chosen.key)
+          setSelected(next)
+          setArrived(next)
         }}
-        focused={arrived}
+        focused={arrived === chosen.key}
       />
     )
   }
@@ -201,36 +229,24 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
         selected={selected}
         onSelect={(key) => {
           setSelected(key)
-          setArrived(false)
+          setArrived(undefined)
         }}
         onPasted={(key, lesson) => {
-          setPasted({ key, lessonId: lesson.id })
+          changed(lesson)
           setSelected(key)
           // The row's buttons go with the missing lesson: the lesson's title takes the focus.
-          setArrived(true)
-          queue.reload()
+          setArrived(key)
         }}
-        onTopic={() => setTopicOpen(true)}
-        notice={notice}
+        onTopicGiven={(date: string, division: Division) => {
+          // The focus is back on the topic button; the lesson read again does not take it.
+          setArrived(undefined)
+          queue.reload()
+          if (chosen?.key === slotKey(date, division)) setReread((n) => n + 1)
+        }}
         reloadFailure={queue.error}
         onRetry={queue.reload}
       />
       <div className="review-main">{main}</div>
-      {topicOpen && (
-        <TopicDialog
-          queue={data}
-          initial={chosen === undefined ? undefined : { date: chosen.date, division: chosen.slot.division }}
-          onClose={() => setTopicOpen(false)}
-          onDone={(text: string, date: string, division: Division) => {
-            setTopicOpen(false)
-            setNotice(text)
-            // In manual mode a new topic takes the lesson away: a lesson pasted before is gone.
-            setPasted(undefined)
-            queue.reload()
-            if (chosen?.key === slotKey(date, division)) setReread((n) => n + 1)
-          }}
-        />
-      )}
     </div>
   )
 }

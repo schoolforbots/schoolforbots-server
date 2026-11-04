@@ -6,29 +6,26 @@ import type { LessonFlag } from '../api.js'
 // and every red mark of a part gets a note in red in the margin, with a button to call it a false positive. A part
 // without a mark says so in grey, so an empty margin is never mistaken for one still loading.
 
-/** The rule privacy hits are marked under (they name no rule of their own). */
-const PRIVACY_RULE = '隐私信息'
-
-/**
- * A rule written as a pattern, not a word: it has characters a word does not. The pattern itself is not shown; it
- * would tell nothing a reviewer needs and only teach how the check works.
- */
-const isPattern = (rule: string) => /[\\^$.*+?()[\]{}|]/.test(rule)
-
-/** What the margin says about a mark. */
-function noteFor(rule: string): string {
-  if (rule === PRIVACY_RULE) return '可能含有隐私信息'
-  if (isPattern(rule)) return '命中一条防骗规则'
-  return `词库命中“${rule}”一词`
+/** What the margin says about a mark. An anti-trick rule is not printed: a reviewer needs only to know one hit. */
+function noteFor(flag: LessonFlag): string {
+  switch (flag.kind) {
+    case 'word':
+      return `词库命中“${flag.rule}”一词`
+    case 'pattern':
+      return '命中一条防骗规则'
+    case 'privacy':
+      return '可能含有隐私信息'
+  }
 }
+
+const escaped = (word: string) => word.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
 
 /** Where the flagged words are in `text`, as they are written there (case ignored), overlaps merged. */
 function wordRanges(text: string, flags: LessonFlag[]): [number, number][] {
   const ranges: [number, number][] = []
-  for (const { rule } of flags) {
-    if (rule === PRIVACY_RULE || isPattern(rule) || rule === '') continue
-    // A word has none of a pattern's characters, so it reads as itself.
-    for (const match of text.matchAll(new RegExp(rule, 'giu'))) {
+  for (const flag of flags) {
+    if (flag.kind !== 'word' || flag.rule === '') continue
+    for (const match of text.matchAll(new RegExp(escaped(flag.rule), 'giu'))) {
       ranges.push([match.index, match.index + match[0].length])
     }
   }
@@ -64,21 +61,30 @@ export function Marked({ text, flags }: { text: string; flags: LessonFlag[] }) {
   return <>{pieces}</>
 }
 
+/** Called with the rule, and the button pressed (the focus moves on from it). */
+type OnFalsePositive = (rule: string, button: HTMLElement) => void
+
 function Note({
-  rule,
+  flag,
   onFalsePositive,
   disabled,
 }: {
-  rule: string
-  onFalsePositive?: (rule: string) => void
+  flag: LessonFlag
+  onFalsePositive?: OnFalsePositive
   disabled: boolean
 }) {
   const noteId = useId()
   return (
     <li className="pen-note">
-      <p id={noteId}>{noteFor(rule)}</p>
+      <p id={noteId}>{noteFor(flag)}</p>
       {onFalsePositive !== undefined && (
-        <Button size="small" aria-describedby={noteId} disabled={disabled} onClick={() => onFalsePositive(rule)}>
+        <Button
+          size="small"
+          className="false-positive"
+          aria-describedby={noteId}
+          disabled={disabled}
+          onClick={(event) => onFalsePositive(flag.rule, event.currentTarget)}
+        >
           这是误伤
         </Button>
       )}
@@ -98,7 +104,7 @@ export function Margin({
   children,
 }: {
   flags: LessonFlag[]
-  onFalsePositive?: (rule: string) => void
+  onFalsePositive?: OnFalsePositive
   disabled?: boolean
   children?: ReactNode
 }) {
@@ -109,7 +115,7 @@ export function Margin({
       ) : (
         <ul className="pen-notes">
           {flags.map((flag) => (
-            <Note key={flag.rule} rule={flag.rule} onFalsePositive={onFalsePositive} disabled={disabled} />
+            <Note key={flag.rule} flag={flag} onFalsePositive={onFalsePositive} disabled={disabled} />
           ))}
         </ul>
       )}

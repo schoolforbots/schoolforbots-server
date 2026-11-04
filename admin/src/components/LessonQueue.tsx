@@ -4,6 +4,7 @@ import {
   queueSlots,
   slotKey,
   type ApiError,
+  type Division,
   type LessonDetail,
   type LessonQueue as Queue,
   type QueueSlot,
@@ -11,11 +12,13 @@ import {
 import { dayName, slotStatus } from '../labels.js'
 import { CopyPrompt } from './CopyPrompt.js'
 import { PasteDialog } from './PasteDialog.js'
+import { TopicDialog } from './TopicDialog.js'
 
 // The left side of the review page: the lesson days from today on, oldest first, three divisions each, every one
 // saying where its lesson stands. A slot is chosen with a click, or with ↑ and ↓ once the list has focus: the list is
 // one stop for Tab, the chosen slot. A lesson still to make can be pasted in from its row, in manual mode, or after
-// the model failed to make it. At the bottom: giving a day a topic.
+// the model failed to make it. At the bottom: giving a day a topic. Both dialogs are opened from here, and the focus
+// goes back to the button that opened one when it closes (a dialog taken away gives none back itself).
 
 const MOVES: Record<string, (at: number, last: number) => number> = {
   ArrowDown: (at, last) => Math.min(at + 1, last),
@@ -44,7 +47,7 @@ function DayList({
   /** The slot that is the list's Tab stop: the chosen one, or the first. */
   stop: string | undefined
   onSelect: (key: string) => void
-  onPaste: (date: string, slot: QueueSlot) => void
+  onPaste: (date: string, slot: QueueSlot, opener: HTMLElement) => void
 }) {
   const dayId = useId()
   return (
@@ -73,7 +76,7 @@ function DayList({
               {pastable(queue, slot) && (
                 <div className="slot-actions">
                   <CopyPrompt target={{ kind: 'generate', date, division: slot.division }} />
-                  <Button size="small" onClick={() => onPaste(date, slot)}>
+                  <Button size="small" onClick={(event) => onPaste(date, slot, event.currentTarget)}>
                     粘贴结果
                   </Button>
                 </div>
@@ -91,8 +94,7 @@ export function LessonQueue({
   selected,
   onSelect,
   onPasted,
-  onTopic,
-  notice,
+  onTopicGiven,
   reloadFailure,
   onRetry,
 }: {
@@ -101,17 +103,22 @@ export function LessonQueue({
   onSelect: (key: string) => void
   /** A lesson pasted in from a row: the slot it fills, and the lesson. */
   onPasted: (key: string, lesson: LessonDetail) => void
-  onTopic: () => void
-  /** What giving a topic did, said once it is done. */
-  notice?: string
+  /** A topic was given to a day's division, or taken away. */
+  onTopicGiven: (date: string, division: Division) => void
   /** Reading the list again failed: the list shown is the last one read. */
   reloadFailure?: ApiError
   onRetry: () => void
 }) {
   const titleId = useId()
   const list = useRef<HTMLOListElement>(null)
-  const [pasting, setPasting] = useState<{ date: string; slot: QueueSlot }>()
-  const keys = queueSlots(queue).map((entry) => entry.key)
+  const topicButton = useRef<HTMLButtonElement>(null)
+  const [pasting, setPasting] = useState<{ date: string; slot: QueueSlot; opener: HTMLElement }>()
+  const [topicOpen, setTopicOpen] = useState(false)
+  // What giving a topic did, said under the button once it is done.
+  const [notice, setNotice] = useState<string>()
+  const entries = queueSlots(queue)
+  const keys = entries.map((entry) => entry.key)
+  const chosen = entries.find((entry) => entry.key === selected)
   const stop = keys.find((key) => key === selected) ?? keys[0]
 
   function move(event: KeyboardEvent<HTMLOListElement>) {
@@ -148,12 +155,14 @@ export function LessonQueue({
             selected={selected}
             stop={stop}
             onSelect={onSelect}
-            onPaste={(date, slot) => setPasting({ date, slot })}
+            onPaste={(date, slot, opener) => setPasting({ date, slot, opener })}
           />
         ))}
       </ol>
       <div className="queue-foot">
-        <Button onClick={onTopic}>给某一天指定题目</Button>
+        <Button ref={topicButton} onClick={() => setTopicOpen(true)}>
+          给某一天指定题目
+        </Button>
         {notice !== undefined && (
           <p className="queue-notice" role="status">
             {notice}
@@ -164,10 +173,29 @@ export function LessonQueue({
         <PasteDialog
           title={`粘贴结果：${dayName(pasting.date)}${pasting.slot.label}`}
           target={{ kind: 'generate', date: pasting.date, division: pasting.slot.division }}
-          onClose={() => setPasting(undefined)}
+          onClose={() => {
+            pasting.opener.focus()
+            setPasting(undefined)
+          }}
           onPasted={(lesson) => {
             setPasting(undefined)
             onPasted(slotKey(pasting.date, pasting.slot.division), lesson)
+          }}
+        />
+      )}
+      {topicOpen && (
+        <TopicDialog
+          queue={queue}
+          initial={chosen === undefined ? undefined : { date: chosen.date, division: chosen.slot.division }}
+          onClose={() => {
+            topicButton.current?.focus()
+            setTopicOpen(false)
+          }}
+          onDone={(text, date, division) => {
+            topicButton.current?.focus()
+            setTopicOpen(false)
+            setNotice(text)
+            onTopicGiven(date, division)
           }}
         />
       )}
