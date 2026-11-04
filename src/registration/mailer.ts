@@ -4,6 +4,8 @@ export type CodePurpose = 'register' | 'key_reset'
 
 export interface Mailer {
   sendCode(to: string, purpose: CodePurpose, code: string): Promise<void>
+  /** A plain notice to the operator, such as the monthly spending warning. */
+  sendNotice(to: string, subject: string, text: string): Promise<void>
 }
 
 const SUBJECTS: Record<CodePurpose, string> = {
@@ -33,6 +35,9 @@ export function createTransportMailer(transport: MailTransport, from: string, tt
     async sendCode(to, purpose, code) {
       await transport.sendMail({ from, to, ...codeMessage(purpose, code, ttlMinutes) })
     },
+    async sendNotice(to, subject, text) {
+      await transport.sendMail({ from, to, subject, text })
+    },
   }
 }
 
@@ -52,13 +57,23 @@ export class ConsoleMailer implements Mailer {
     const { subject, text } = codeMessage(purpose, code, this.ttlMinutes)
     process.stdout.write(`[mail] 收件人：${to}\n[mail] 标题：${subject}\n[mail] ${text}\n`)
   }
+
+  async sendNotice(to: string, subject: string, text: string): Promise<void> {
+    process.stdout.write(`[mail] 收件人：${to}\n[mail] 标题：${subject}\n[mail] ${text}\n`)
+  }
 }
 
 /** Keeps the mails in memory, for tests. */
 export class MemoryMailer implements Mailer {
   readonly sent: { to: string; purpose: CodePurpose; code: string }[] = []
 
+  readonly notices: { to: string; subject: string; text: string }[] = []
+
   async sendCode(to: string, purpose: CodePurpose, code: string): Promise<void> {
     this.sent.push({ to, purpose, code })
+  }
+
+  async sendNotice(to: string, subject: string, text: string): Promise<void> {
+    this.notices.push({ to, subject, text })
   }
 }
