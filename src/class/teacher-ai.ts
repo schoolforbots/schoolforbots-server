@@ -135,8 +135,11 @@ const ANSWER_FORMAT =
   'pick 写你要回答的那个问题的编号，answer 写你当众说的回答；' +
   '没有适合当众回答的问题时，pick 写 null，answer 写空字符串。不要写别的内容。'
 
-/** Lines in which the teacher speaks as a machine, compared as `normalize` leaves them. */
-const SELF_REFERENCES = ['作为AI', '作为一个AI', '作为人工智能', '我是AI', '我是一个AI', '语言模型', '人工智能助手'].map(normalize)
+/**
+ * The teacher speaking as a machine, matched on a line as `normalize` leaves it: "I am" or "as" (one) an AI, a language
+ * model or the like, and an AI assistant. A topic word alone (a lesson on language models, say) is not one.
+ */
+const SELF_REFERENCE = /(?:我是|我只是|作为)(?:一个|一名|一款)?(?:ai|人工智能|语言模型|大语言模型|大模型)|(?:ai|人工智能)助手/u
 
 /** A piece of a prompt shorter than this is too common a phrase to tell that a line repeats the prompt. */
 const MIN_PROMPT_PIECE_CHARS = 8
@@ -263,7 +266,7 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
     }
     const said = normalize(line)
     if (opts.pieces.some((piece) => said.includes(piece))) return 'prompt_text'
-    if (SELF_REFERENCES.some((phrase) => said.includes(phrase))) return 'self_reference'
+    if (SELF_REFERENCE.test(said)) return 'self_reference'
     if ((await secondLayer.check('teacher', opts.aloud)) === 'blocked') {
       await recordBlock(sessionId, purpose, 'second_layer')
       return 'second_layer'
