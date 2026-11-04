@@ -302,6 +302,8 @@ export const RecordsResult = Type.Object({
         Type.Literal('parent_notice'),
         Type.Literal('suspension'),
         Type.Literal('expulsion'),
+        Type.Literal('withdrawal'),
+        Type.Literal('penalty_lift'),
       ]),
       at: Type.String({ format: 'date-time' }),
       text: Type.String(),

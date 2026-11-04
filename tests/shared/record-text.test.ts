@@ -27,6 +27,16 @@ describe('recordText', () => {
     expect(text('expulsion', { until: '2026-12-02T17:00:00.000Z', alsoApplied: [12] })).toBe('被开除，12月3日 01:00 前不能重新报名')
   })
 
+  test('what the admin did by hand starts with 老师手动', () => {
+    const text = (kind: Parameters<typeof recordText>[0]['kind'], detail: Record<string, unknown> = {}) =>
+      recordText({ kind, detail }, BEIJING)
+    expect(text('suspension', { by: 'admin', days: 3, until: '2026-11-05T12:31:00.000Z' })).toBe(
+      '老师手动给你停课 3 天，到 11月5日 20:31',
+    )
+    expect(text('withdrawal', { by: 'admin' })).toBe('老师手动给你办了退学')
+    expect(text('penalty_lift', { by: 'admin' })).toBe('老师手动解除了处罚')
+  })
+
   test('a record with a detail missing still reads, without what it lacks', () => {
     const text = (kind: Parameters<typeof recordText>[0]['kind'], detail: Record<string, unknown>) =>
       recordText({ kind, detail }, BEIJING)
