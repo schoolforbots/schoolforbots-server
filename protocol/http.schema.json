@@ -896,6 +896,8 @@
               "teacher",
               "lesson",
               "weekTitles",
+              "teacherAnswers",
+              "myQuestions",
               "calledOn",
               "chattedWith",
               "criticisms"
@@ -981,6 +983,62 @@
                   "type": "string"
                 }
               },
+              "teacherAnswers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "segment",
+                    "askedBy",
+                    "question",
+                    "answer"
+                  ],
+                  "properties": {
+                    "segment": {
+                      "type": "integer"
+                    },
+                    "askedBy": {
+                      "type": "object",
+                      "required": [
+                        "studentId",
+                        "displayName"
+                      ],
+                      "properties": {
+                        "studentId": {
+                          "type": "integer"
+                        },
+                        "displayName": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "question": {
+                      "type": "string"
+                    },
+                    "answer": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "myQuestions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "question",
+                    "picked"
+                  ],
+                  "properties": {
+                    "question": {
+                      "type": "string"
+                    },
+                    "picked": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
               "calledOn": {
                 "anyOf": [
                   {
@@ -989,14 +1047,38 @@
                   {
                     "type": "object",
                     "required": [
+                      "kind",
                       "question",
-                      "answer"
+                      "answer",
+                      "comment"
                     ],
                     "properties": {
+                      "kind": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "review"
+                          },
+                          {
+                            "type": "string",
+                            "const": "extension"
+                          }
+                        ]
+                      },
                       "question": {
                         "type": "string"
                       },
                       "answer": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "comment": {
                         "anyOf": [
                           {
                             "type": "string"
@@ -1077,6 +1159,8 @@
         "teacher",
         "lesson",
         "weekTitles",
+        "teacherAnswers",
+        "myQuestions",
         "calledOn",
         "chattedWith",
         "criticisms"
@@ -1159,6 +1243,62 @@
             "type": "string"
           }
         },
+        "teacherAnswers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "segment",
+              "askedBy",
+              "question",
+              "answer"
+            ],
+            "properties": {
+              "segment": {
+                "type": "integer"
+              },
+              "askedBy": {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "integer"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  }
+                }
+              },
+              "question": {
+                "type": "string"
+              },
+              "answer": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "myQuestions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "question",
+              "picked"
+            ],
+            "properties": {
+              "question": {
+                "type": "string"
+              },
+              "picked": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
         "calledOn": {
           "anyOf": [
             {
@@ -1167,14 +1307,38 @@
             {
               "type": "object",
               "required": [
+                "kind",
                 "question",
-                "answer"
+                "answer",
+                "comment"
               ],
               "properties": {
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "review"
+                    },
+                    {
+                      "type": "string",
+                      "const": "extension"
+                    }
+                  ]
+                },
                 "question": {
                   "type": "string"
                 },
                 "answer": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "comment": {
                   "anyOf": [
                     {
                       "type": "string"

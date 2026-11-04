@@ -11,6 +11,7 @@ import type { Hub } from './hub.js'
 import { studyWeekTitles } from './planning.js'
 import { callsOf, MalformedCallError, type Call } from './questions.js'
 import type { ActiveSession } from './runtime.js'
+import { callOnQuestion } from './teacher.js'
 
 // The after-school summary: for each student who attended a session, what the owner is told about it. It is written
 // once the lesson is over and kept in the summaries table, where the owner reads it through the registration service
@@ -47,6 +48,33 @@ async function callsOfSession(deps: SummaryDeps, sessionId: number): Promise<Cal
     deps.log?.({ sessionId }, 'call-on events unreadable, summaries written without it')
     return []
   }
+}
+
+/** The teacher's line calling a student on, without the name: the lesson's own question. */
+function bareQuestion(call: Call): string {
+  const prefix = callOnQuestion(call.displayName, '')
+  return call.question.startsWith(prefix) ? call.question.slice(prefix.length) : call.question
+}
+
+type TeacherAnswer = Summary['teacherAnswers'][number]
+
+/** The session's `qa` events in segment order: what the teacher answered, and who asked it. */
+async function teacherAnswersOf(db: Kysely<Database>, sessionId: number): Promise<TeacherAnswer[]> {
+  const rows = await db
+    .selectFrom('classEvents')
+    .select('payload')
+    .where('sessionId', '=', sessionId)
+    .where('kind', '=', 'qa')
+    .orderBy('seq')
+    .execute()
+  return rows
+    .map(({ payload: p }) => ({
+      segment: p.segment as number,
+      askedBy: { studentId: p.studentId as number, displayName: p.displayName as string },
+      question: p.question as string,
+      answer: p.answer as string,
+    }))
+    .sort((a, b) => a.segment - b.segment)
 }
 
 /** Everything the summaries of a session have in common, and what differs from student to student. */
@@ -113,6 +141,18 @@ async function summariesOf(
     .execute()
 
   const calls = await callsOfSession(deps, sessionId)
+  const teacherAnswers = await teacherAnswersOf(db, sessionId)
+  // A question the moderator stopped was never asked of the teacher, so it is left out; the rest are the student's own.
+  const asked = await db
+    .selectFrom('messages')
+    .select(['senderId', 'text'])
+    .where('sessionId', '=', sessionId)
+    .where('kind', '=', 'question')
+    .where('senderId', 'in', studentIds)
+    .where('moderation', 'is', null)
+    .orderBy('createdAt')
+    .orderBy('id')
+    .execute()
 
   return new Map(
     studentIds.map((studentId) => {
@@ -137,7 +177,18 @@ async function summariesOf(
         teacher: { name: teacher?.name ?? header.teacherPersonaId },
         lesson,
         weekTitles,
-        calledOn: call === undefined ? null : { question: call.question, answer: call.answer },
+        teacherAnswers,
+        myQuestions: asked
+          .filter((q) => q.senderId === studentId)
+          .map((q) => ({
+            question: q.text,
+            // The qa event carries no message id: a question is picked when the teacher answered this text of theirs.
+            picked: teacherAnswers.some((t) => t.askedBy.studentId === studentId && t.question === q.text),
+          })),
+        calledOn:
+          call === undefined
+            ? null
+            : { kind: call.kind, question: bareQuestion(call), answer: call.answer, comment: call.comment },
         chattedWith,
         criticisms,
       }

@@ -51,6 +51,8 @@ const summary = (over: Partial<Static<typeof Summary>> = {}): Static<typeof Summ
   teacher: { name: '老周' },
   lesson: { subject: '科学', title: '光的折射', segments: [{ index: 1, gist: '要点1' }] },
   weekTitles: [],
+  teacherAnswers: [],
+  myQuestions: [],
   calledOn: null,
   chattedWith: [],
   criticisms: [],
@@ -174,7 +176,14 @@ describe('GET /v1/me/summaries', () => {
       kind: 'study',
       lesson: null,
       weekTitles: ['光的折射', '分数的加法', '春晓'],
-      calledOn: { question: '阿杰家的小鱼，请你说说这一段讲了什么？', answer: null },
+      teacherAnswers: [
+        { segment: 2, askedBy: { studentId: 7, displayName: '阿美家的豆豆' }, question: '彩虹是怎么来的？', answer: '光被水珠折开了。' },
+      ],
+      myQuestions: [
+        { question: '光为什么会拐弯？', picked: false },
+        { question: '彩虹是怎么来的？', picked: true },
+      ],
+      calledOn: { kind: 'review', question: '请你说说这一段讲了什么？', answer: null, comment: null },
       chattedWith: [{ studentId: 7, displayName: '阿美家的豆豆' }],
       criticisms: [
         { kind: 'initiations', text: '主动搭话次数过多' },

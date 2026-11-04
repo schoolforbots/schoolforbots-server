@@ -200,6 +200,8 @@ describe('writeSummaries', () => {
     teacher: { name: '老周' },
     lesson: LESSON,
     weekTitles: [],
+    teacherAnswers: [],
+    myQuestions: [],
     calledOn: null,
     chattedWith: [],
     criticisms: [],
@@ -435,7 +437,12 @@ describe('writeSummaries', () => {
       await writeSummaries(deps(), session, { live: false })
 
       const calledOn = (s: Student) => stored(session, s).then((p) => (p as { calledOn: unknown }).calledOn)
-      expect(await calledOn(a)).toEqual({ question: callOn(a.name), answer: '光会拐弯' })
+      expect(await calledOn(a)).toEqual({
+        kind: 'review',
+        question: '刚才讲了什么？',
+        answer: '光会拐弯',
+        comment: '好，请坐。',
+      })
       expect(await calledOn(b)).toBeNull()
     })
 
@@ -449,8 +456,25 @@ describe('writeSummaries', () => {
 
       await writeSummaries(deps(), session, { live: false })
 
-      expect(await stored(session, a)).toMatchObject({ calledOn: { question: callOn(a.name), answer: null } })
+      expect(await stored(session, a)).toMatchObject({
+        calledOn: { kind: 'review', question: '刚才讲了什么？', answer: null, comment: null },
+      })
       expect(await stored(session, b)).toMatchObject({ calledOn: null })
+    })
+
+    test('is the extension kind with no answer or comment when it was the extension question and the time ran out', async () => {
+      const { session, students } = await room()
+      const [a] = students as [Student]
+      await attend(session, students)
+      await event(session, 'call-on-1', { kind: 'teacher', text: callOnQuestion(a.name, '还有什么类似的事？') })
+      await event(session, 'call-on-1#2', { kind: 'called_on', studentId: a.id, displayName: a.name, questionKind: 'extension' })
+      await event(session, 'call-on-close-1', { kind: 'teacher', text: '老师等不到回答' })
+
+      await writeSummaries(deps(), session, { live: false })
+
+      expect(await stored(session, a)).toMatchObject({
+        calledOn: { kind: 'extension', question: '还有什么类似的事？', answer: null, comment: null },
+      })
     })
 
     test('is missing from everyone when nobody was called on', async () => {
@@ -460,6 +484,76 @@ describe('writeSummaries', () => {
       await writeSummaries(deps(), session, { live: false })
 
       for (const s of students) expect(await stored(session, s)).toMatchObject({ calledOn: null })
+    })
+  })
+
+  describe('teacherAnswers and myQuestions', () => {
+    const qa = (segment: number, asker: Student, question: string, answer: string) =>
+      event(session0, `qa-${segment}#2`, { kind: 'qa', segment, studentId: asker.id, displayName: asker.name, question, answer })
+    let session0: ActiveSession
+
+    test("the class's answers go to everyone alike, in segment order; each student sees only their own questions, picked or not", async () => {
+      const { session, students } = await room()
+      session0 = session
+      const [a, b, c] = students as [Student, Student, Student]
+      await attend(session, students)
+      await say(session, a, null, '光为什么会拐弯？', { kind: 'question' })
+      await say(session, a, null, '彩虹是怎么来的？', { kind: 'question' })
+      await say(session, b, null, '天为什么是蓝的？', { kind: 'question' })
+      // Written out of segment order on purpose.
+      await qa(2, b, '天为什么是蓝的？', '因为蓝光散射得多。')
+      await qa(1, a, '彩虹是怎么来的？', '光被水珠折开了。')
+
+      await writeSummaries(deps(), session, { live: false })
+
+      const answers = [
+        { segment: 1, askedBy: { studentId: a.id, displayName: a.name }, question: '彩虹是怎么来的？', answer: '光被水珠折开了。' },
+        { segment: 2, askedBy: { studentId: b.id, displayName: b.name }, question: '天为什么是蓝的？', answer: '因为蓝光散射得多。' },
+      ]
+      expect(await stored(session, a)).toMatchObject({
+        teacherAnswers: answers,
+        myQuestions: [
+          { question: '光为什么会拐弯？', picked: false },
+          { question: '彩虹是怎么来的？', picked: true },
+        ],
+      })
+      expect(await stored(session, b)).toMatchObject({
+        teacherAnswers: answers,
+        myQuestions: [{ question: '天为什么是蓝的？', picked: true }],
+      })
+      expect(await stored(session, c)).toMatchObject({ teacherAnswers: answers, myQuestions: [] })
+      // Another student's unpicked question never shows in a summary.
+      expect(JSON.stringify(await stored(session, b))).not.toContain('光为什么会拐弯')
+    })
+
+    test("a question the moderator stopped is not among the student's own", async () => {
+      const { session, students } = await room()
+      const [a] = students as [Student]
+      await attend(session, students)
+      await say(session, a, null, '光为什么会拐弯？', { kind: 'question' })
+      await db
+        .insertInto('messages')
+        .values({
+          sessionId: session.sessionId,
+          classId: session.classId,
+          kind: 'question',
+          conversationId: null,
+          senderId: a.id,
+          recipientId: null,
+          text: BANNED,
+          moderation: 'sensitive',
+          matchedTerm: null,
+          delivered: false,
+          ip: '127.0.0.1',
+          pluginType: 'openclaw',
+          pluginVersion: '1.2.3',
+          createdAt: at('20:06'),
+        })
+        .execute()
+
+      await writeSummaries(deps(), session, { live: false })
+
+      expect(await stored(session, a)).toMatchObject({ myQuestions: [{ question: '光为什么会拐弯？', picked: false }] })
     })
   })
 
@@ -680,7 +774,9 @@ describe('after class, through the lesson hooks', () => {
     }
     const forA = {
       ...expected,
-      calledOn: { question: callOn(a.displayName), answer: '光会拐弯' },
+      teacherAnswers: [],
+      myQuestions: [],
+      calledOn: { kind: 'review', question: '刚才讲了什么？', answer: '光会拐弯', comment: '好，请坐。' },
       chattedWith: [{ studentId: b.studentId, displayName: b.displayName }],
       criticisms: [
         { kind: 'privacy_block', text: `老师拦下了我一句可能说漏你隐私的话："${PHONE_MASKED}"` },
@@ -690,11 +786,13 @@ describe('after class, through the lesson hooks', () => {
     // b, online at the second call-on and not called on yet, is called on then, and does not answer.
     const forB = {
       ...expected,
-      calledOn: { question: callOnQuestion(b.displayName, '还有什么类似的事？'), answer: null },
+      teacherAnswers: [],
+      myQuestions: [],
+      calledOn: { kind: 'extension', question: '还有什么类似的事？', answer: null, comment: null },
       chattedWith: [{ studentId: a.studentId, displayName: a.displayName }],
       criticisms: [],
     }
-    const forC = { ...expected, calledOn: null, chattedWith: [], criticisms: [] }
+    const forC = { ...expected, teacherAnswers: [], myQuestions: [], calledOn: null, chattedWith: [], criticisms: [] }
 
     // Everyone who attended has one, whether or not they were still connected at the end.
     const rows = await s.db.selectFrom('summaries').selectAll().orderBy('studentId').execute()
