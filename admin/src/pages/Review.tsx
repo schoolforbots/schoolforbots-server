@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import {
   lessonPath,
   nextToReview,
+  pastable,
   queueSlots,
   slotKey,
   useLoad,
@@ -48,6 +49,7 @@ function LessonPane({
   lessonId,
   slot,
   mode,
+  today,
   callOns,
   onChanged,
   onNext,
@@ -56,6 +58,7 @@ function LessonPane({
   lessonId: number
   slot: QueueSlot
   mode: Queue['mode']
+  today: Queue['today']
   callOns: Queue['callOns']
   /** The lesson changed (as `lesson` says, when a change answered with it). */
   onChanged: (lesson?: LessonDetail) => void
@@ -86,6 +89,7 @@ function LessonPane({
         lesson={lesson.data}
         slot={slot}
         mode={mode}
+        today={today}
         callOns={callOns}
         onChanged={(answer) => {
           lesson.set(answer)
@@ -103,12 +107,16 @@ function LessonPane({
 }
 
 /** A slot whose lesson is not made yet: why, and what comes next. */
-function MissingLesson({ date, slot, mode }: { date: string; slot: QueueSlot; mode: Queue['mode'] }) {
+function MissingLesson({ date, slot, queue }: { date: string; slot: QueueSlot; queue: Queue }) {
   const titleId = useId()
   const failed = slot.generationFailed
   let next: string
   if (slot.locked) next = '这一天已经开课，没有课的学部那天改上了自习。'
-  else if (mode === 'manual') {
+  else if (date === queue.today) {
+    next =
+      '系统只给明天以后的上学日备课，今天的课不会再自动生成了。要今天上这节课，用左边这一行的“复制提示词”和“粘贴结果”补上，' +
+      '赶在开门前审过；不然这个学部今天上自习。'
+  } else if (queue.mode === 'manual') {
     next = '用左边这一行的“复制提示词”把提示词交给大模型，再点“粘贴结果”，把回复整段贴回来。'
   } else if (failed !== null) {
     next = '系统会接着重试；等不及的话，用左边这一行的“复制提示词”和“粘贴结果”手动补上。'
@@ -133,7 +141,10 @@ function MissingLesson({ date, slot, mode }: { date: string; slot: QueueSlot; mo
 
 /** Nothing is waiting to be read: says so, and how many lessons are still to be made. */
 function AllReviewed({ queue, focused }: { queue: Queue; focused: boolean }) {
-  const toMake = queueSlots(queue).filter(({ slot }) => slot.status === 'missing' && !slot.locked).length
+  const missing = queueSlots(queue).filter(({ slot }) => slot.status === 'missing' && !slot.locked)
+  // The ones to paste in by hand, and the ones the model is still to make.
+  const toPaste = missing.filter(({ date, slot }) => pastable(queue, date, slot)).length
+  const toWait = missing.length - toPaste
   const done = useRef<HTMLParagraphElement>(null)
   // Arrived at by approving the last lesson: the news takes the focus the approve button had.
   useEffect(() => void (focused && done.current?.focus()), [])
@@ -143,12 +154,11 @@ function AllReviewed({ queue, focused }: { queue: Queue; focused: boolean }) {
         <p ref={done} tabIndex={-1} className="state-text">
           这几天要审的课都审完了。
         </p>
-        {toMake > 0 && (
-          <p className="state-text">
-            {queue.mode === 'manual'
-              ? `还有 ${toMake} 节课没生成：用左边那一行的“复制提示词”和“粘贴结果”补上。`
-              : `还有 ${toMake} 节课没生成，系统生成好以后，会出现在左边等你审。`}
-          </p>
+        {toPaste > 0 && (
+          <p className="state-text">{`还有 ${toPaste} 节课要手动补上：用左边那一行的“复制提示词”和“粘贴结果”。`}</p>
+        )}
+        {toWait > 0 && (
+          <p className="state-text">{`还有 ${toWait} 节课没生成，系统生成好以后，会出现在左边等你审。`}</p>
         )}
       </div>
     </div>
@@ -202,7 +212,7 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
 
   let main
   if (chosen === undefined) main = <AllReviewed queue={data} focused={arrived === null} />
-  else if (lessonId === null) main = <MissingLesson date={chosen.date} slot={chosen.slot} mode={data.mode} />
+  else if (lessonId === null) main = <MissingLesson date={chosen.date} slot={chosen.slot} queue={data} />
   else {
     main = (
       <LessonPane
@@ -210,6 +220,7 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
         lessonId={lessonId}
         slot={chosen.slot}
         mode={data.mode}
+        today={data.today}
         callOns={data.callOns}
         onChanged={changed}
         onNext={() => {

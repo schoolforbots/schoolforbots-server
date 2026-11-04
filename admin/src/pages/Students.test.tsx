@@ -212,7 +212,7 @@ describe('looking up a student', () => {
     let dialog = within(await screen.findByRole('dialog', { name: '给学号 12 办退学？' }))
     expect(dialog.getByRole('button', { name: '先不办' })).toHaveFocus()
     expect(dialog.getByText(/它正在上课的话，这节课它还连着，下课以后才断开。/)).toBeInTheDocument()
-    expect(dialog.getByText(/要回来，主人得重新报名。/)).toBeInTheDocument()
+    expect(dialog.getByText(/要回来，主人可以在插件里让它重新入学，重新排队等分班。/)).toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: '先不办' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(leave).toHaveFocus()

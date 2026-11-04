@@ -338,6 +338,7 @@ test('the week is counted number by number, Monday to Sunday in school time', as
     },
     // 1.875 yuan over five students in class: a, b, c and the two newcomers.
     perAttendee: 0.375,
+    attendees: 5,
   })
 })
 
@@ -383,7 +384,7 @@ test('an empty week is all zeros', async () => {
   expect(stats.moderation.falsePositiveMarks).toEqual([])
   expect(stats.moderation.secondLayerChat).toEqual([])
   expect(stats.students).toEqual({ newcomers: 0, cameBackForSecond: 0, dropped: 0, suspended: 0, expelled: 0 })
-  expect(stats.cost.perAttendee).toBe(0)
+  expect(stats.cost).toMatchObject({ perAttendee: 0, attendees: 0 })
 })
 
 test('nobody is counted as dropped before the school has been open the days it takes', async () => {

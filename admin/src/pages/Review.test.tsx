@@ -296,6 +296,51 @@ describe('the review page', () => {
     expect(screen.getByText('还有 1 节课没生成，系统生成好以后，会出现在左边等你审。')).toBeInTheDocument()
   })
 
+  it('offers to paste today’s missing lesson, which the model no longer makes, and counts it apart', async () => {
+    const TODAY = '2026-11-04'
+    fakeServer({
+      [QUEUE]: ok(
+        lessonQueue([
+          { date: TODAY, divisions: [queueSlot('primary', missing), queueSlot('junior', { ...missing, locked: true })] },
+          { date: THU, divisions: [queueSlot('primary', missing)] },
+        ]),
+      ),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    expect(await screen.findByText('还有 1 节课要手动补上：用左边那一行的“复制提示词”和“粘贴结果”。')).toBeInTheDocument()
+    expect(screen.getByText('还有 1 节课没生成，系统生成好以后，会出现在左边等你审。')).toBeInTheDocument()
+    // Today's row offers the paste in api mode; Thursday's waits for the model; the decided day offers nothing.
+    const today = within(screen.getByRole('list', { name: '11 月 4 日（周三）' }))
+    expect(today.getAllByRole('button', { name: '粘贴结果' })).toHaveLength(1)
+    expect(within(screen.getByRole('list', { name: '11 月 5 日（周四）' })).queryByRole('button', { name: '粘贴结果' })).toBeNull()
+
+    await user.click(today.getAllByRole('button', { name: /^小学部/ })[0]!)
+    expect(await screen.findByText(/今天的课不会再自动生成了/)).toBeInTheDocument()
+  })
+
+  it('says a lesson of today will not be made again for its new topic', async () => {
+    const TODAY = '2026-11-04'
+    fakeServer({
+      [QUEUE]: ok(
+        lessonQueue([
+          {
+            date: TODAY,
+            divisions: [queueSlot('primary', { status: 'pending', topic: '冬至', generationFailed: { attempts: 4, lastError: '大模型暂时不可用' } })],
+          },
+        ]),
+      ),
+      'GET api/lessons/1': ok(lessonDetail({ date: TODAY, topic: null })),
+    })
+    show(<ReviewPage />)
+
+    expect(await screen.findByText('这一天指定了新题目《冬至》，可今天的课不会再按新题目生成了；这里是旧的内容。')).toBeInTheDocument()
+    expect(screen.getByText('按新题目重新生成失败，试了 4 次。最后一次的原因：大模型暂时不可用。今天的课不会再重新生成了。')).toBeInTheDocument()
+    expect(screen.getByText('今天的课不会再按新题目生成了，旧的内容也不能通过，这个学部今天上自习。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '通过，审下一节' })).toBeDisabled()
+  })
+
   it('will not rewrite without a reason, then rewrites for the reason given and offers the one before', async () => {
     const reason = '太难懂了，换成小学生听得懂的说法'
     const rewritten = lessonDetail({

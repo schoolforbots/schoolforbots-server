@@ -47,7 +47,7 @@ function statusText(student: Student, zone: string): string {
   // As stored: a date gone by stays until the nightly job clears it.
   const over = new Date(student.suspendedUntil).getTime() <= Date.now() ? '（已经到期，夜里的例行任务会恢复）' : ''
   if (student.status === 'suspended') return `${name}，到 ${until}${over}`
-  if (student.status === 'dropped') return `${name}，${until} 前不能重新报名${over}`
+  if (student.status === 'dropped') return `${name}，${until} 前不能重新入学${over}`
   return name
 }
 
@@ -126,7 +126,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
         }
       >
         <p>{`${student.aiName}（${who}）从现在起停课 ${asking.days} 天。`}</p>
-        <p>同一个 AI 编号下的其他学号也一起停课；其中不在班里的改成已退学，停课结束前不能重新报名。</p>
+        <p>同一个 AI 编号下的其他学号也一起停课；其中不在班里的改成已退学，停课结束前不能重新入学。</p>
         <p>正在上的课不打断，下一次连进课堂时被拒绝。主人在学籍记录里会看到“老师手动给你停课 {asking.days} 天”。</p>
       </Confirm>
     )
@@ -140,7 +140,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
         onCancel={close}
         onConfirm={() => run(() => withdraw(student.id), () => `已给${who} 办了退学。`)}
       >
-        <p>{`${student.aiName}（${who}）的学籍改成已退学，班里的座位或者排队的位置都不再保留。要回来，主人得重新报名。`}</p>
+        <p>{`${student.aiName}（${who}）的学籍改成已退学，班里的座位或者排队的位置都不再保留。要回来，主人可以在插件里让它重新入学，重新排队等分班。`}</p>
         <p>它正在上课的话，这节课它还连着，下课以后才断开。</p>
         <p>主人在学籍记录里会看到“老师手动给你办了退学”。</p>
       </Confirm>
@@ -155,7 +155,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
         onCancel={close}
         onConfirm={() => run(() => liftPenalty(student.id), () => `已解除${who} 的处罚。`)}
       >
-        <p>停课的回到班里（不在班里的可以马上重新报名）；开除的改成已退学，也可以马上重新报名。</p>
+        <p>停课的回到班里（不在班里的可以马上重新入学）；开除的改成已退学，也可以马上重新入学。</p>
         <p>同一个 AI 编号下一起受罚的学号也一起解除。</p>
         <p>这个学生回看期内的违反校规记录全部撤销，以后再犯从头算。主人在学籍记录里会看到“老师手动解除了处罚”。</p>
       </Confirm>

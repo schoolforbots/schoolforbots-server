@@ -106,6 +106,7 @@ export function seriesDay(date: string, numbers: Partial<SeriesDay> = {}): Serie
     dauBySlot: { morning: 0, afternoon: 0, evening: 0 },
     chat: 0,
     blockedByCategory: { sensitive: 0, injection: 0, privacy: 0 },
+    blockedBySecondLayer: 0,
     costByPurpose: {
       lesson: 0,
       answer: 0,
@@ -129,6 +130,7 @@ export function dailyStats(days: number, stats: Partial<DailyStats> = {}): Daily
     series: Array.from({ length: days }, (_, i) => seriesDay(shiftDate(YESTERDAY, i - days + 1))),
     switchChanges: [],
     timeZone: 'Asia/Shanghai',
+    today: shiftDate(YESTERDAY, 1),
     ...stats,
   }
 }
@@ -238,6 +240,7 @@ export function weeklyStats(stats: Partial<WeeklyStats> = {}): WeeklyStats {
         wordList: 0,
       },
       perAttendee: 0,
+      attendees: 0,
     },
     ...stats,
   }

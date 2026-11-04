@@ -65,7 +65,8 @@ export interface WeeklyStats {
     secondLayerChat: { messageId: number; text: string; at: string }[]
   }
   students: { newcomers: number; cameBackForSecond: number; dropped: number; suspended: number; expelled: number }
-  cost: { byPurpose: Record<LlmPurpose, number>; perAttendee: number }
+  /** `attendees`: the students who came to class in the week; `perAttendee` is 0 when none did. */
+  cost: { byPurpose: Record<LlmPurpose, number>; perAttendee: number; attendees: number }
 }
 
 /**
@@ -409,7 +410,7 @@ async function costStats(db: Kysely<Database>, w: Week): Promise<WeeklyStats['co
   const byPurpose = Object.fromEntries(
     LLM_PURPOSES.map((purpose) => [purpose, round(Number(costs.find((c) => c.purpose === purpose)?.cost ?? 0), 4)]),
   ) as Record<LlmPurpose, number>
-  return { byPurpose, perAttendee: students === 0 ? 0 : round(total / students, 4) }
+  return { byPurpose, perAttendee: students === 0 ? 0 : round(total / students, 4), attendees: students }
 }
 
 /** The numbers of the week that starts on the Monday `weekStart`. */

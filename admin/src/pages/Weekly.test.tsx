@@ -33,7 +33,7 @@ function busyStats() {
       secondLayerChat: [{ messageId: 70, text: '你家住哪里呀', at: '2026-10-27T12:15:00.000Z' }],
     },
     students: { newcomers: 10, cameBackForSecond: 7, dropped: 1, suspended: 2, expelled: 0 },
-    cost: { byPurpose: { ...base.cost.byPurpose, lesson: 3.5, answer: 1.25, secondLayerTeacher: 0.0123 }, perAttendee: 0.0952 },
+    cost: { byPurpose: { ...base.cost.byPurpose, lesson: 3.5, answer: 1.25, secondLayerTeacher: 0.0123 }, perAttendee: 0.0952, attendees: 21 },
   })
 }
 
@@ -89,6 +89,22 @@ describe('the weekly review page', () => {
       await screen.findByText('这一周学校没有上课，也没有花钱：可能还没开学，或者正在放假。换一周看看。'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '上课' })).not.toBeInTheDocument()
+  })
+
+  it('says nobody came to class only when nobody did, not when the cost per student rounds to nothing', async () => {
+    const base = weeklyPage().stats
+    const tiny = { ...base, cost: { byPurpose: { ...base.cost.byPurpose, weekly: 0.0001 }, perAttendee: 0, attendees: 40 } }
+    fakeServer({ [WEEK]: ok(weeklyPage({ stats: tiny })), [WEEKS]: ok({ weeks: [] }) })
+    const { unmount } = show(<Weekly />)
+    const cost = within(await screen.findByRole('region', { name: '花费' }))
+    expect(cost.getByText('这一周有 40 个学生来上课，平均每人花了 ¥0.00。')).toBeInTheDocument()
+    unmount()
+
+    const nobody = { ...base, cost: { ...tiny.cost, attendees: 0 } }
+    fakeServer({ [WEEK]: ok(weeklyPage({ stats: nobody })), [WEEKS]: ok({ weeks: [] }) })
+    show(<Weekly />)
+    const empty = within(await screen.findByRole('region', { name: '花费' }))
+    expect(empty.getByText('这一周没有学生来上课，算不出平均每人花了多少。')).toBeInTheDocument()
   })
 
   it('shows the six blocks with the week’s numbers, as tables and numbers', async () => {
@@ -157,7 +173,7 @@ describe('the weekly review page', () => {
     expect(byPurpose.getByRole('row', { name: '备课 ¥3.50' })).toBeInTheDocument()
     expect(byPurpose.getByRole('row', { name: '复查老师 ¥0.0123' })).toBeInTheDocument()
     expect(byPurpose.getByRole('row', { name: '合计 ¥4.7623' })).toBeInTheDocument()
-    expect(cost.getByText('平均每个来上课的学生花了 ¥0.0952。')).toBeInTheDocument()
+    expect(cost.getByText('这一周有 21 个学生来上课，平均每人花了 ¥0.0952。')).toBeInTheDocument()
   })
 
   it('reads the week chosen above', async () => {

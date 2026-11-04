@@ -400,7 +400,7 @@ function Students({ stats }: { stats: WeeklyStats }) {
 }
 
 function Cost({ stats }: { stats: WeeklyStats }) {
-  const { byPurpose, perAttendee } = stats.cost
+  const { byPurpose, perAttendee, attendees } = stats.cost
   const purposes = Object.entries(PURPOSE_NAMES) as [LlmPurpose, string][]
   const total = purposes.reduce((sum, [purpose]) => sum + byPurpose[purpose], 0)
   return (
@@ -418,9 +418,9 @@ function Cost({ stats }: { stats: WeeklyStats }) {
         </tr>
       </DataTable>
       <p>
-        {perAttendee === 0 && total > 0
+        {attendees === 0
           ? '这一周没有学生来上课，算不出平均每人花了多少。'
-          : `平均每个来上课的学生花了 ${preciseYuan(perAttendee)}。`}
+          : `这一周有 ${attendees} 个学生来上课，平均每人花了 ${preciseYuan(perAttendee)}。`}
       </p>
     </Block>
   )

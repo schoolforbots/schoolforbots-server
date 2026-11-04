@@ -65,6 +65,8 @@ interface Editing {
   refocus: (box: Box) => void
   onChanged: (lesson: LessonDetail) => void
   onRefresh: () => void
+  /** The lesson is today's: the model does not make it again any more, for a new topic or anything else. */
+  isToday: boolean
 }
 
 const EditingContext = createContext<Editing | null>(null)
@@ -504,7 +506,7 @@ const beingRemade = (slot: QueueSlot, lesson: LessonDetail) => slot.topic !== nu
 
 /** The bottom of the lesson: approve it and go on to the next lesson to review. */
 function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void }) {
-  const { lesson, writing } = useEditing()
+  const { lesson, writing, isToday } = useEditing()
   const action = useAction()
   const button = useRef<HTMLButtonElement>(null)
   const reasonId = useId()
@@ -521,7 +523,13 @@ function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void }) {
   // Why it cannot be approved yet, if it cannot.
   const reasons: string[] = []
   if (marks > 0) reasons.push(`还有 ${marks} 处红笔标记：改掉，或者点“这是误伤”，才能通过。`)
-  if (beingRemade(slot, lesson)) reasons.push('这节课正在按新题目重新生成，等新稿出来再审。')
+  if (beingRemade(slot, lesson)) {
+    reasons.push(
+      isToday
+        ? '今天的课不会再按新题目生成了，旧的内容也不能通过，这个学部今天上自习。'
+        : '这节课正在按新题目重新生成，等新稿出来再审。',
+    )
+  }
   return (
     <footer className="lesson-foot">
       <Button
@@ -558,7 +566,7 @@ function Arrived({ text }: { text: string }) {
 
 /** What the page knows about the lesson besides its content: a day begun, a new topic, a failed remake. */
 function Notices({ slot }: { slot: QueueSlot }) {
-  const { lesson, editable } = useEditing()
+  const { lesson, editable, isToday } = useEditing()
   // Locked when it was opened, it says so quietly; locked while open (a refused change), it takes the focus that the
   // controls it removed had.
   const lockedFromStart = useRef(!editable)
@@ -571,11 +579,18 @@ function Notices({ slot }: { slot: QueueSlot }) {
         : '这一天已经开课，这节课没赶在开门前通过，那天改上了自习。它不能再改了。'
   } else {
     if (slot.topic !== null && beingRemade(slot, lesson)) {
-      notices.push(`这一天指定了新题目《${slot.topic}》，这节课正在按新题目重新生成；生成好以前，这里还是旧的内容。`)
+      notices.push(
+        isToday
+          ? `这一天指定了新题目《${slot.topic}》，可今天的课不会再按新题目生成了；这里是旧的内容。`
+          : `这一天指定了新题目《${slot.topic}》，这节课正在按新题目重新生成；生成好以前，这里还是旧的内容。`,
+      )
     }
     if (slot.generationFailed !== null) {
       const { attempts, lastError } = slot.generationFailed
-      notices.push(`按新题目重新生成失败，试了 ${attempts} 次。最后一次的原因：${sentence(lastError)}系统会接着重试。`)
+      notices.push(
+        `按新题目重新生成失败，试了 ${attempts} 次。最后一次的原因：${sentence(lastError)}` +
+          (isToday ? '今天的课不会再重新生成了。' : '系统会接着重试。'),
+      )
     }
   }
   if (locked === undefined && notices.length === 0) return null
@@ -627,6 +642,7 @@ export function LessonEditor({
   lesson,
   slot,
   mode,
+  today,
   callOns,
   onChanged,
   onRefresh,
@@ -637,6 +653,8 @@ export function LessonEditor({
   /** The queue's slot of the lesson: the division's name, the topic of the day and a failed remake. */
   slot: QueueSlot
   mode: LessonQueue['mode']
+  /** The school's today, as the queue says it. */
+  today: LessonQueue['today']
   callOns: LessonQueue['callOns']
   /** The lesson as a change left it. */
   onChanged: (lesson: LessonDetail) => void
@@ -691,6 +709,7 @@ export function LessonEditor({
     refocus,
     onChanged,
     onRefresh,
+    isToday: lesson.date === today,
   }
 
   return (

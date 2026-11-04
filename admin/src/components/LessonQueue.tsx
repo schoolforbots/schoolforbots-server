@@ -1,6 +1,7 @@
 import { Button } from 'antd'
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import {
+  pastable,
   queueSlots,
   slotKey,
   type ApiError,
@@ -16,8 +17,8 @@ import { TopicDialog } from './TopicDialog.js'
 
 // The left side of the review page: the lesson days from today on, oldest first, three divisions each, every one
 // saying where its lesson stands. A slot is chosen with a click, or with ↑ and ↓ once the list has focus: the list is
-// one stop for Tab, the chosen slot. A lesson still to make can be pasted in from its row, in manual mode, or after
-// the model failed to make it. At the bottom: giving a day a topic. Both dialogs are opened from here, and the focus
+// one stop for Tab, the chosen slot. A lesson still to make can be pasted in from its row (see `pastable`): in manual
+// mode, after the model failed to make it, or today's. At the bottom: giving a day a topic. Both dialogs are opened from here, and the focus
 // goes back to the button that opened one when it closes (a dialog taken away gives none back itself).
 
 const MOVES: Record<string, (at: number, last: number) => number> = {
@@ -26,10 +27,6 @@ const MOVES: Record<string, (at: number, last: number) => number> = {
   Home: () => 0,
   End: (_, last) => last,
 }
-
-/** A lesson not made yet that can be pasted in by hand. */
-const pastable = (queue: Queue, slot: QueueSlot) =>
-  slot.status === 'missing' && !slot.locked && (queue.mode === 'manual' || slot.generationFailed !== null)
 
 function DayList({
   date,
@@ -73,7 +70,7 @@ function DayList({
                 <span className="slot-name">{slot.label}</span> <span className="slot-status">{slotStatus(slot)}</span>
               </button>
               {slot.topic !== null && <p className="slot-topic">题目：《{slot.topic}》</p>}
-              {pastable(queue, slot) && (
+              {pastable(queue, date, slot) && (
                 <div className="slot-actions">
                   <CopyPrompt target={{ kind: 'generate', date, division: slot.division }} />
                   <Button size="small" onClick={(event) => onPaste(date, slot, event.currentTarget)}>

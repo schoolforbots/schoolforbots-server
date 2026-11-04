@@ -85,7 +85,7 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
             </p>
           )}
           <button type="button" className="topbar-button" onClick={leave} disabled={leaving}>
-            退出登录
+            {leaving ? '正在退出' : '退出登录'}
           </button>
         </div>
       </TopBar>

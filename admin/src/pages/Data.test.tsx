@@ -170,6 +170,46 @@ describe('the school data page', () => {
     expect(goReview).toHaveBeenCalledTimes(1)
   })
 
+  it('says a failed lesson of today will not be made again, only pasted in', async () => {
+    fakeServer({
+      'GET api/stats/daily?days=7': ok(
+        dailyStats(7, {
+          reminders: {
+            unreviewed: [],
+            generationFailed: [{ date: '2026-11-04', division: 'junior', attempts: 5, lastError: '大模型的回复里没有找到 JSON' }],
+          },
+        }),
+      ),
+    })
+    show(<Data onGoReview={vi.fn()} />)
+
+    const reminders = within(await screen.findByRole('region', { name: '要处理的事' }))
+    expect(
+      reminders.getByText(
+        '11 月 4 日（周三）初中部的课没生成出来，试了 5 次，最后一次的原因：大模型的回复里没有找到 JSON。' +
+          '今天的课系统不会再生成了：要今天上这节课，到审课页手动粘贴，赶在开门前审过。',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('draws the lines the second layer stopped, and says when the model cost nothing', async () => {
+    fakeServer({
+      'GET api/stats/daily?days=7': ok(
+        dailyStats(7, {
+          series: dailyStats(7).series.map((day, i) => ({ ...day, chat: 3, blockedBySecondLayer: i === 6 ? 2 : 0 })),
+        }),
+      ),
+    })
+    show(<Data onGoReview={vi.fn()} />)
+
+    // Only the second layer stopped anything: the chart is drawn, not said to be empty.
+    const blocked = within(await screen.findByRole('figure', { name: '每天拦下了多少条消息，各是因为什么？' }))
+    expect(blocked.queryByText('最近 7 天没有拦下消息。')).not.toBeInTheDocument()
+    expect(blocked.getAllByText('第二层').length).toBeGreaterThan(0)
+    const cost = within(screen.getByRole('figure', { name: '每天在大模型上花了多少钱，花在哪些用途上？' }))
+    expect(cost.getByText('最近 7 天大模型没有花钱。')).toBeInTheDocument()
+  })
+
   it('says when there is nothing to do', async () => {
     fakeServer({ 'GET api/stats/daily?days=7': ok(dailyStats(7)) })
     show(<Data onGoReview={vi.fn()} />)
@@ -229,10 +269,12 @@ describe('the school data page', () => {
     expect(chat.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['竖线：切换过开关的日子'])
 
     const blocked = within(screen.getByRole('figure', { name: '每天拦下了多少条消息，各是因为什么？' }))
+    // The second layer gives no category: its own line, so the lines add up to the day's number.
     expect(blocked.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       '违规内容',
       '隐私',
       '骗 AI',
+      '第二层',
       '竖线：切换过开关的日子',
     ])
 
