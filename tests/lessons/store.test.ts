@@ -23,7 +23,7 @@ import type { Database, LessonContent } from '../../src/shared/schema.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
-import { insertClass, insertSession, insertStudent } from '../helpers/factories.js'
+import { insertClass, insertSession, insertStudent, teachLesson } from '../helpers/factories.js'
 
 const config = exampleConfig()
 const moderator = exampleModerator()
@@ -521,11 +521,43 @@ describe('a lesson a class has begun', () => {
     expect(await versionRows(lessonId)).toHaveLength(1)
   })
 
-  test('a study hall on its day does not lock it', async () => {
+  test('a study hall on its day locks it too: the first class decided the day, and the lesson is not taught', async () => {
     const { lessonId } = await draft()
     await beginLesson(lessonId, 'study')
-    expect(await editPart(deps, lessonId, 1, { part: 'review' }, '新问题')).toEqual({ version: 2, flags: [] })
-    await approve(deps, lessonId, 2)
+    const before = await lessonRow(lessonId)
+    const errors = await Promise.all(
+      [
+        editPart(deps, lessonId, 1, { part: 'review' }, '新问题'),
+        approve(deps, lessonId, 1),
+        saveDraft(deps, KEY, content(), { source: 'api', change: 'topic' }),
+      ].map(rejection),
+    )
+    for (const err of errors) expect(err).toBeInstanceOf(LessonLocked)
+    expect(await lessonRow(lessonId)).toEqual(before)
+  })
+
+  test('a day decided before its lesson came has none made for it', async () => {
+    const classId = await insertClass(db, { classNo: 1, slot: 'morning' })
+    const at = new Date(`${WED}T10:00:00+08:00`)
+    await insertSession(db, { classId, date: WED, slot: 'morning', kind: 'study', startsAt: at, endsAt: at })
+    const err = await rejection(saveDraft(deps, KEY, content(), { source: 'manual', change: 'generate' }))
+    expect(err).toBeInstanceOf(LessonLocked)
+    expect((err as LessonLocked).lessonId).toBeNull()
+    expect(await db.selectFrom('lessons').select('id').execute()).toEqual([])
+  })
+
+  test('the import tool\'s rule still stores and approves a lesson for a study-hall day; a taught one stays locked', async () => {
+    const { lessonId } = await draft()
+    await beginLesson(lessonId, 'study')
+    const lockedWhen = 'lesson_taught'
+    const saved = await saveDraft(deps, KEY, content({ title: '补上的课' }), { source: 'import', change: 'generate', lockedWhen })
+    expect(saved).toMatchObject({ lessonId, version: 2 })
+    await approve(deps, lessonId, 2, { lockedWhen })
+    expect(await lessonRow(lessonId)).toMatchObject({ title: '补上的课', approvedAt: clock.now() })
+
+    await teachLesson(db, lessonId)
+    const taught = await rejection(saveDraft(deps, KEY, content(), { source: 'import', change: 'generate', lockedWhen }))
+    expect(taught).toBeInstanceOf(LessonLocked)
   })
 })
 
@@ -582,8 +614,8 @@ describe('approval and the doors opening at the same moment', () => {
     expect(taught(hub)).toEqual(['通过时的第1段'])
   })
 
-  test('an approval still being written when the doors open: the day is a study hall', async () => {
-    const { runtime, lessonId } = await setUp()
+  test('an approval still being written when the doors open: the doors wait for it, and the class teaches the lesson', async () => {
+    const { runtime, hub, lessonId } = await setUp()
 
     // Hold the lesson's row, so that the approval stops inside its transaction, with the lesson's lock taken.
     let release!: () => void
@@ -598,16 +630,33 @@ describe('approval and the doors opening at the same moment', () => {
     await rowHeld
 
     const approving = approve(deps, lessonId, 1)
+    let ticking: Promise<unknown> | undefined
     try {
       await waitForLockWaits(1)
       clock.set(at('19:45'))
-      await runtime.tick()
+      ticking = runtime.tick()
+      // The doors wait for the lesson's lock, which the approval holds.
+      await waitForLockWaits(2)
     } finally {
       release()
       await holder
     }
     await approving
+    await ticking
 
+    expect(await sessions()).toEqual([{ kind: 'lesson', lessonId }])
+    clock.set(at('20:05'))
+    await runtime.tick()
+    expect(taught(hub)).toEqual(['第1段正文'])
+  })
+
+  test('the doors open on a draft: an approval after them is refused, and the day stays a study hall', async () => {
+    const { runtime, lessonId } = await setUp()
+    clock.set(at('19:45'))
+    await runtime.tick()
+    clock.set(at('19:46'))
+    expect(await rejection(approve(deps, lessonId, 1))).toBeInstanceOf(LessonLocked)
+    expect((await lessonRow(lessonId)).approvedAt).toBeNull()
     expect(await sessions()).toEqual([{ kind: 'study', lessonId: null }])
   })
 
@@ -651,7 +700,7 @@ describe('approval and the doors opening at the same moment', () => {
     expect(taught(hub)).toEqual(['第1段正文'])
   })
 
-  test('both at once: taught as approved, or a study hall', async () => {
+  test('both at once: approved and taught, or refused and a study hall', async () => {
     const { runtime, hub, lessonId } = await setUp()
     // Open the connections first, so that the two really do run side by side.
     await Promise.all(Array.from({ length: 4 }, () => sql`select pg_sleep(0.05)`.execute(db)))
@@ -659,16 +708,18 @@ describe('approval and the doors opening at the same moment', () => {
     clock.set(at('19:45'))
     const [opened, approved] = await Promise.allSettled([runtime.tick(), approve(deps, lessonId, 1)])
     expect(opened.status).toBe('fulfilled')
-    expect(approved.status).toBe('fulfilled')
 
     const [session] = await sessions()
     if (session?.kind === 'lesson') {
+      expect(approved.status).toBe('fulfilled')
       expect(session.lessonId).toBe(lessonId)
       clock.set(at('20:05'))
       await runtime.tick()
       expect(taught(hub)).toEqual(['第1段正文'])
     } else {
       expect(session).toEqual({ kind: 'study', lessonId: null })
+      expect(approved.status === 'rejected' && approved.reason).toBeInstanceOf(LessonLocked)
+      expect((await lessonRow(lessonId)).approvedAt).toBeNull()
     }
   })
 })

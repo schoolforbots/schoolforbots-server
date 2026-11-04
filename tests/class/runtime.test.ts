@@ -26,7 +26,7 @@ import type { Database, StudentStatus } from '../../src/shared/schema.js'
 import { createTestClock } from '../helpers/clock.js'
 import { exampleConfig } from '../helpers/app.js'
 import { createTestDb } from '../helpers/db.js'
-import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
+import { insertClass, insertLesson, insertSession, insertStudent, teachLesson } from '../helpers/factories.js'
 
 const config = exampleConfig()
 // The runtime only says template lines and approved lesson text; an empty word list is enough here.
@@ -944,7 +944,7 @@ describe('the day plan', () => {
   test('a weekend study hall opens with the titles of the week', async () => {
     const titles = ['静夜思', '勾股定理', 'My Day', '光的折射', '丝绸之路']
     for (const [i, title] of titles.entries()) {
-      await insertLesson(db, { date: `2026-11-0${i + 2}`, title, segments: SEGMENTS })
+      await teachLesson(db, await insertLesson(db, { date: `2026-11-0${i + 2}`, title, segments: SEGMENTS }))
     }
     const { classId, members } = await seedClass({ members: 1 })
     const clock = createTestClock(at('19:45', SAT))
@@ -1271,7 +1271,7 @@ describe('the school calendar', () => {
     test('a weekend study hall follows the speech with the titles of the week', async () => {
       const titles = ['静夜思', '勾股定理', 'My Day']
       for (const [i, title] of titles.entries()) {
-        await insertLesson(db, { date: `2026-11-0${i + 2}`, title, segments: SEGMENTS })
+        await teachLesson(db, await insertLesson(db, { date: `2026-11-0${i + 2}`, title, segments: SEGMENTS }))
       }
 
       const told = await toldAtOpening({

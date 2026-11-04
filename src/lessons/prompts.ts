@@ -119,16 +119,37 @@ function lessonAsText(content: LessonContent): string {
   return lines.join('\n')
 }
 
-/** The titles of the approved lessons of a division and subject, other than the one of `date`, newest first. */
+/**
+ * The titles of the lessons of a division and subject that a class taught or that are approved for a day still to be
+ * decided, other than the one of `date`, newest first. A lesson approved for a day a study hall decided was never
+ * taught, so it is not one of them.
+ */
 async function pastTitles(db: Kysely<Database>, p: { date: string; division: Division; subject: string }): Promise<string> {
   const rows = await db
-    .selectFrom('lessons')
-    .select('title')
-    .where('division', '=', p.division)
-    .where('subject', '=', p.subject)
-    .where('approvedAt', 'is not', null)
-    .where('date', '!=', p.date)
-    .orderBy('date', 'desc')
+    .selectFrom('lessons as l')
+    .select('l.title')
+    .where('l.division', '=', p.division)
+    .where('l.subject', '=', p.subject)
+    .where('l.approvedAt', 'is not', null)
+    .where('l.date', '!=', p.date)
+    .where((eb) =>
+      eb.or([
+        eb.exists(
+          eb.selectFrom('classSessions as s').select('s.id').whereRef('s.lessonId', '=', 'l.id').where('s.kind', '=', 'lesson'),
+        ),
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('classSessions as s')
+              .innerJoin('classes as c', 'c.id', 's.classId')
+              .select('s.id')
+              .whereRef('s.date', '=', 'l.date')
+              .whereRef('c.division', '=', 'l.division'),
+          ),
+        ),
+      ]),
+    )
+    .orderBy('l.date', 'desc')
     .limit(PAST_TITLES_LIMIT)
     .execute()
   return rows.length === 0 ? NO_PAST_TITLES : rows.map((r) => `- ${r.title}`).join('\n')

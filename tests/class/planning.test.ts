@@ -4,7 +4,7 @@ import { planSession, subjectForDate } from '../../src/class/planning.js'
 import { loadSchoolConfig, type SchoolConfig } from '../../src/shared/config.js'
 import type { Database } from '../../src/shared/schema.js'
 import { createTestDb } from '../helpers/db.js'
-import { insertClass, insertLesson, insertSession } from '../helpers/factories.js'
+import { insertClass, insertLesson, insertSession, teachLesson } from '../helpers/factories.js'
 
 const exampleConfig = loadSchoolConfig(new URL('../../config/school.example.json', import.meta.url).pathname)
 
@@ -117,17 +117,19 @@ describe('planSession on a weekday', () => {
 })
 
 describe('planSession at the weekend', () => {
-  test('studies and lists the approved titles of this week, Monday to Friday, in date order', async () => {
+  test('studies and lists the titles a class taught this week, Monday to Friday, in date order', async () => {
     // Inserted out of order on purpose.
-    await insertLesson(db, { date: THU, title: '周四' })
-    await insertLesson(db, { date: MON, title: '周一' })
-    await insertLesson(db, { date: FRI, title: '周五' })
-    await insertLesson(db, { date: TUE, title: '周二' })
-    await insertLesson(db, { date: WED, title: '周三（草稿）', approvedAt: null })
+    for (const [date, title] of [[THU, '周四'], [MON, '周一'], [FRI, '周五'], [TUE, '周二']] as const) {
+      await teachLesson(db, await insertLesson(db, { date, title }))
+    }
+    // Approved, but the day was a study hall already (the doors opened on a draft): never taught.
+    const morning = await insertClass(db, { classNo: 1, slot: 'morning' })
+    await startSession({ classId: morning, date: WED, kind: 'study' })
+    await insertLesson(db, { date: WED, title: '周三（自习以后才通过）' })
     // Not this week, or not this division.
-    await insertLesson(db, { date: LAST_FRI, title: '上周五' })
-    await insertLesson(db, { date: NEXT_MON, title: '下周一' })
-    await insertLesson(db, { date: TUE, division: 'senior', title: '高中周二' })
+    await teachLesson(db, await insertLesson(db, { date: LAST_FRI, title: '上周五' }))
+    await teachLesson(db, await insertLesson(db, { date: NEXT_MON, title: '下周一' }))
+    await teachLesson(db, await insertLesson(db, { date: TUE, division: 'senior', title: '高中周二' }))
 
     const expected = { kind: 'study', weekTitles: ['周一', '周二', '周四', '周五'] }
     expect(await plan({ date: SAT })).toEqual(expected)
@@ -136,7 +138,7 @@ describe('planSession at the weekend', () => {
 
   test('studies even when a lesson is approved for the Saturday itself', async () => {
     await insertLesson(db, { date: SAT, title: '周六的课' })
-    await insertLesson(db, { date: FRI, title: '周五' })
+    await teachLesson(db, await insertLesson(db, { date: FRI, title: '周五' }))
     expect(await plan({ date: SAT })).toEqual({ kind: 'study', weekTitles: ['周五'] })
   })
 
@@ -153,9 +155,9 @@ describe('planSession at the weekend', () => {
 
   test('the week of a Sunday reaches back to its own Monday across a month end', async () => {
     // Sunday 1 November 2026: the week began on Monday 26 October.
-    await insertLesson(db, { date: '2026-10-26', title: '十月二十六' })
-    await insertLesson(db, { date: '2026-10-30', title: '十月三十' })
-    await insertLesson(db, { date: MON, title: '十一月二' })
+    await teachLesson(db, await insertLesson(db, { date: '2026-10-26', title: '十月二十六' }))
+    await teachLesson(db, await insertLesson(db, { date: '2026-10-30', title: '十月三十' }))
+    await teachLesson(db, await insertLesson(db, { date: MON, title: '十一月二' }))
     expect(await plan({ date: '2026-11-01' })).toEqual({ kind: 'study', weekTitles: ['十月二十六', '十月三十'] })
   })
 })
@@ -184,7 +186,7 @@ describe('planSession keeps the day decided by its first class', () => {
   })
 
   test('a weekend self-study that was decided keeps listing the week titles', async () => {
-    await insertLesson(db, { date: FRI, title: '周五' })
+    await teachLesson(db, await insertLesson(db, { date: FRI, title: '周五' }))
     const morning = await insertClass(db, { classNo: 1, slot: 'morning' })
     await startSession({ classId: morning, date: SAT, kind: 'study' })
     expect(await plan({ date: SAT })).toEqual({ kind: 'study', weekTitles: ['周五'] })

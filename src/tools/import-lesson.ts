@@ -154,9 +154,11 @@ export async function importLesson(
   const deps = { db, clock: opts.clock, moderator }
   const { date, division, content } = lesson
   try {
-    const saved = await saveDraft(deps, { date, division }, content, { source: 'import', change: 'generate' })
+    // The tool keeps its own rule: only a lesson a class has taught is never overwritten (see `LockRule`).
+    const lockedWhen = 'lesson_taught'
+    const saved = await saveDraft(deps, { date, division }, content, { source: 'import', change: 'generate', lockedWhen })
     // Approved separately, so a lesson some other change got to in between stays a draft (`StaleLessonVersion`).
-    if (opts.approve) await approveLesson(deps, saved.lessonId, saved.version)
+    if (opts.approve) await approveLesson(deps, saved.lessonId, saved.version, { lockedWhen })
     // A new lesson starts at version 1; one that was there already moves past it.
     return { lessonId: saved.lessonId, subject: content.subject, replaced: saved.version > 1, approved: opts.approve }
   } catch (err) {

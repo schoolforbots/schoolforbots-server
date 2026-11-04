@@ -157,3 +157,24 @@ export async function insertSession(
     .executeTakeFirstOrThrow()
   return row.id
 }
+
+let teachingClassNo = 900
+
+/**
+ * Records that a class taught the lesson on its day, in a lesson session: the week's recap and the lessons the model is
+ * told of count only lessons a class taught. Without `classId`, a morning class of the lesson's division with no
+ * students of its own does the teaching.
+ */
+export async function teachLesson(db: Kysely<Database>, lessonId: number, classId?: number): Promise<void> {
+  const lesson = await db.selectFrom('lessons').select(['date', 'division']).where('id', '=', lessonId).executeTakeFirstOrThrow()
+  const teacher = classId ?? (await insertClass(db, { division: lesson.division, slot: 'morning', classNo: ++teachingClassNo }))
+  await insertSession(db, {
+    classId: teacher,
+    date: lesson.date,
+    slot: 'morning',
+    kind: 'lesson',
+    lessonId,
+    startsAt: new Date(`${lesson.date}T10:00:00+08:00`),
+    endsAt: new Date(`${lesson.date}T10:30:00+08:00`),
+  })
+}

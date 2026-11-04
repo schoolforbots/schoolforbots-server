@@ -211,18 +211,20 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
   }
 
   /**
-   * What a division does today, decided inside the transaction that opens the sessions. A lesson is checked again
-   * under the lesson store's lock: a change may have turned it back into a draft since `planSession` read it, and a
-   * draft is never taught. The share lock on its row keeps it as it is until the sessions are written.
+   * What a division does today, decided inside the transaction that opens the sessions, under the lesson store's lock:
+   * a change to the lesson is either done before (an approval then counts) or waits for the sessions and is refused,
+   * the day being decided. The lesson is checked again under the lock, since `planSession` read it outside of it (a
+   * change may have turned it back into a draft, and a draft is never taught). The share lock on its row keeps it as
+   * it is until the sessions are written.
    */
   async function decide(
     trx: Transaction<Database>,
     date: string,
     division: Division,
   ): Promise<{ kind: SessionKind; lessonId: number | null }> {
+    await lock(trx, lessonLockKey(date, division))
     const plan = await planSession(trx, config, { date, division })
     if (plan.kind === 'study') return { kind: 'study', lessonId: null }
-    await lock(trx, lessonLockKey(date, division))
     const lesson = await trx
       .selectFrom('lessons')
       .select('approvedAt')
