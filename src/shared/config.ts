@@ -303,9 +303,15 @@ export function loadSchoolConfig(path: string): SchoolConfig {
       `lesson.segmentMinutes: every segment must come before lesson.dismissalMinute (${segmentMinutes.join(', ')} vs ${dismissalMinute})`,
     )
   }
-  // A call-on needs a next segment: its start is the deadline for the student's answer.
+  // A call-on needs a next segment: its start is the deadline for the student's answer. A lesson has one question of
+  // each kind, so two call-ons of the same kind would ask it twice.
   const seenSegments = new Set<number>()
+  const seenKinds = new Set<string>()
   callOns.forEach((callOn, i) => {
+    if (seenKinds.has(callOn.kind)) {
+      crossFieldProblems.push(`lesson.callOns.${i}.kind: two call-ons must not be of the same kind (${callOn.kind})`)
+    }
+    seenKinds.add(callOn.kind)
     const path = `lesson.callOns.${i}.afterSegment`
     if (callOn.afterSegment > segmentMinutes.length - 1) {
       crossFieldProblems.push(
