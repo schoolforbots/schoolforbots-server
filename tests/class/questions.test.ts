@@ -14,7 +14,7 @@ import {
   type QuestionsDeps,
 } from '../../src/class/questions.js'
 import type { ActiveSession } from '../../src/class/runtime.js'
-import { createTeacherAi, type TeacherAi } from '../../src/class/teacher-ai.js'
+import { CHECK_MARGIN_MS, createTeacherAi, type TeacherAi } from '../../src/class/teacher-ai.js'
 import { callOnQuestion, callOnNoAnswer, callOnThanks, questionReceived } from '../../src/class/teacher.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from '../../src/class/ws-errors.js'
 import type { Llm } from '../../src/llm/client.js'
@@ -687,7 +687,8 @@ describe('questions and the call-on', () => {
 
       expect(await commentOf(session, 2)).toBe(COMMENT)
       const [call] = model.calls as [ModelCall]
-      expect(call.opts).toMatchObject({ timeoutMs: 10_000 })
+      // Less the time the second layer's check of the comment needs after it.
+      expect(call.opts).toMatchObject({ timeoutMs: 10_000 - config.secondLayer.batchMillis - CHECK_MARGIN_MS })
       expect(call.user).toContain('引申题')
       expect(call.user).toContain(EXTENSION.text)
       expect(call.user).toContain('光的折射第5段')

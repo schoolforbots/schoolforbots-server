@@ -6,7 +6,7 @@ import type WebSocket from 'ws'
 import { appendClassEvent, eventsAfter } from '../../src/class/events.js'
 import { RecordingHub } from '../../src/class/hub.js'
 import type { ActiveSession } from '../../src/class/runtime.js'
-import { createTeacherAi, type TeacherAi } from '../../src/class/teacher-ai.js'
+import { CHECK_MARGIN_MS, createTeacherAi, type TeacherAi } from '../../src/class/teacher-ai.js'
 import { createLlm, type Llm } from '../../src/llm/client.js'
 import { createFakeLlm } from '../../src/llm/fake.js'
 import { LlmContentRefused, LlmUnavailable } from '../../src/llm/provider.js'
@@ -224,9 +224,11 @@ describe('the teacher answers a question after a segment', () => {
       },
     ])
 
-    // One call for the purpose, in JSON, with the time left until the next segment.
+    // One call for the purpose, in JSON, with the time left until the next segment less the time the checks after it
+    // need (the second layer waits for its batch, then asks the model).
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ purpose: 'answer', opts: { json: true, timeoutMs: 60_000 } })
+    const reserve = config.secondLayer.batchMillis + CHECK_MARGIN_MS
+    expect(calls[0]).toMatchObject({ purpose: 'answer', opts: { json: true, timeoutMs: 60_000 - reserve } })
     // The teacher of the class, the text of the segment, the numbered questions; nobody's name.
     expect(calls[0]!.system).toContain('林老师')
     expect(calls[0]!.system).toContain('温柔耐心')
@@ -562,25 +564,46 @@ describe('the teacher answers a question after a segment', () => {
   test('the call gets the time left until the deadline, at most llm.timeoutSeconds; with too little left there is no call', async () => {
     const { session, students } = await room()
     await ask(session, students[0]!, '光为什么会弯？')
+    // No second layer for the teacher: nothing to keep time for after the reply.
+    const unchecked = switches({ secondLayerTeacher: false })
 
     clock.set(at('20:09:30'))
     const half = scripted([reply(null)])
-    await answer(teacher({ llm: half.llm }), session)
+    await answer(teacher({ llm: half.llm, switches: unchecked }), session)
     expect(half.calls[0]!.opts?.timeoutMs).toBe(30_000)
 
     clock.set(at('20:09'))
     const capped = scripted([reply(null)])
-    await answer(teacher({ llm: capped.llm, config: { ...config, llm: { ...config.llm, timeoutSeconds: 20 } } }), session)
+    const short = { ...config, llm: { ...config.llm, timeoutSeconds: 20 } }
+    await answer(teacher({ llm: capped.llm, switches: unchecked, config: short }), session)
     expect(capped.calls[0]!.opts?.timeoutMs).toBe(20_000)
 
     // Less than a second left, or past the deadline already (a restart replayed the step late): no call at all.
     for (const time of ['20:09:59.500', '20:10', '20:12']) {
       clock.set(at(time))
       const late = scripted([])
-      await answer(teacher({ llm: late.llm }), session)
+      await answer(teacher({ llm: late.llm, switches: unchecked }), session)
       expect(late.calls, time).toEqual([])
     }
     expect(sent()).toEqual([])
+  })
+
+  test('with the second layer checking the teacher, the call leaves time for the check before the deadline', async () => {
+    const { session, students } = await room()
+    await ask(session, students[0]!, '光为什么会弯？')
+    const reserve = config.secondLayer.batchMillis + CHECK_MARGIN_MS
+
+    clock.set(at('20:09:30'))
+    const half = scripted([reply(null)])
+    await answer(teacher({ llm: half.llm }), session)
+    expect(half.calls[0]!.opts?.timeoutMs).toBe(30_000 - reserve)
+
+    // Enough for the model alone, not for the check after it: no call.
+    clock.set(new Date(at('20:10').getTime() - reserve - 500))
+    const late = scripted([])
+    await answer(teacher({ llm: late.llm }), session)
+    expect(late.calls).toEqual([])
+    expect(outcomes()).toEqual(['no_pick', 'late'])
   })
 
   test('a regeneration that would come too late is not asked for', async () => {
