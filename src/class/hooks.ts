@@ -8,6 +8,7 @@ import type { Hub } from './hub.js'
 import { callOnCloseStep, callOnStep, type QuestionsDeps } from './questions.js'
 import type { ActiveSession } from './runtime.js'
 import { writeSummaries } from './summaries.js'
+import type { TeacherAi } from './teacher-ai.js'
 
 /**
  * What the lesson runtime leaves to the other parts of the class service. The runtime calls each hook at its step;
@@ -70,17 +71,19 @@ export interface LessonHooksDeps {
   questions?: QuestionsDeps
   /** The hub the take-home summaries are pushed through (to whoever is online, when the session ends live). */
   hub: Hub
+  /** The teacher's work with the model; without it, the teacher answers no question. */
+  teacherAi?: Pick<TeacherAi, 'startAnswering'>
   /** A program log line: numbers and categories only, never what anyone said. */
   log?: (obj: object, msg: string) => void
 }
 
 /**
  * The hooks of the running class service: `noopHooks` with each part's real hook put in its place as it is built.
- * So far: the teacher's discipline callouts, the call-on and its close, the conversations' closing grace and end, and
- * the penalties and the take-home summaries after class.
+ * So far: the teacher's discipline callouts, the call-on and its close, the answers to the students' questions, the
+ * conversations' closing grace and end, and the penalties and the take-home summaries after class.
  */
 export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
-  const { db, config, clock, chat, questions, hub, log } = deps
+  const { db, config, clock, chat, questions, hub, teacherAi, log } = deps
   return {
     ...noopHooks,
     callouts: (session, from, to) => calloutsForWindow(db, session, from, to),
@@ -92,6 +95,8 @@ export function createLessonHooks(deps: LessonHooksDeps): LessonHooks {
             callOnStep(questions, session, n, question),
           callOnClose: (session: ActiveSession, n: number) => callOnCloseStep(questions, session, n),
         }),
+    // Returns at once: the answer is worked on in the background and writes its own event (see teacher-ai.ts).
+    ...(teacherAi === undefined ? {} : { startAnswering: teacherAi.startAnswering }),
     // All three are synchronous, as the runtime and the connection layer call them.
     ...(chat === undefined
       ? {}

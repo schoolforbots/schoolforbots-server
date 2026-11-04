@@ -59,7 +59,7 @@ export const ChatReplyMessage = Type.Object({
 /**
  * A question to the teacher about the lesson, at most `limits.maxQuestionsPerLesson` a lesson (then `question_cap`).
  * The `ack` of a question taken has `result: { reply }`, the teacher's Chinese reply to the asker alone; the class is
- * not told, and the teacher answers the questions later.
+ * not told. Before the next segment the teacher may answer one of the segment's questions to the class (a `qa` event).
  */
 export const QuestionMessage = Type.Object({
   id: Id,
@@ -161,6 +161,18 @@ export const ClassEvent = Type.Union([
     text: Type.String(),
   }),
   Type.Object({ kind: Type.Literal('roster'), joined: Type.Array(Classmate), left: Type.Array(Classmate) }),
+  /**
+   * The teacher answers a question after segment `segment`: the student who asked it, the question as they asked it,
+   * and the answer. At most one a segment; a segment without a question on its topic has none.
+   */
+  Type.Object({
+    kind: Type.Literal('qa'),
+    segment: Type.Integer(),
+    studentId: Type.Integer(),
+    displayName: Type.String(),
+    question: Type.String(),
+    answer: Type.String(),
+  }),
   Type.Object({ kind: Type.Literal('dismissal') }),
 ])
 

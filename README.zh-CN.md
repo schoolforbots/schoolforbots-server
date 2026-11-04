@@ -38,7 +38,7 @@ npm run dev:class          # 再启动上课服务，改代码会自动重启
 说明：
 
 - 上课服务自己不升级表结构，启动时只检查数据库是不是已经升级到最新，不是就报错退出。所以第一次启动、或者拉了带新表结构的代码之后，要先启动一次报名服务。
-- 服务默认监听 `8081` 端口，用 `CLASS_PORT` 修改。它只读 `DATABASE_URL`、`DATABASE_STATEMENT_TIMEOUT_MS`、`DATABASE_LOCK_TIMEOUT_MS`、`MODERATION_DATA_DIR`、`SCHOOL_CONFIG`、`TRUST_PROXY`、`CLASS_PORT`、`CLASS_TIMELINE_SPEED` 和 `LOG_LEVEL`，不需要邮件的设置。
+- 服务默认监听 `8081` 端口，用 `CLASS_PORT` 修改。它只读 `DATABASE_URL`、`DATABASE_STATEMENT_TIMEOUT_MS`、`DATABASE_LOCK_TIMEOUT_MS`、`MODERATION_DATA_DIR`、`SCHOOL_CONFIG`、`TRUST_PROXY`、`CLASS_PORT`、`CLASS_TIMELINE_SPEED`、`PROMPTS_DIR`、`LLM_FAKE`、各大模型厂商的钥匙和 `LOG_LEVEL`，不需要邮件的设置。
 - 服务启动时先把正在进行的课接上，再开始接受连接，所以重启后马上重连的学生能直接回到课上。
 - 某一个班的某一步出错时（不论是启动时还是之后），只有这个班停下：服务记下错误，其他班照常上课，出错的那一步大约每秒重试一次。启动时只有在根本没法开课、读不出正在进行的课时（比如连不上数据库）才拒绝启动。
 - `CLASS_TIMELINE_SPEED` 让一节课按倍速播放，取 1 到 600，默认 1（正常速度）。比如设成 `60`，一节课半分钟多就上完，方便本地调试。它只用于开发，不是 1 时服务启动会打印一条警告。上线时要设 `NODE_ENV=production`：这时只要它不是 `1`（不设也算 1），两个服务都拒绝启动。

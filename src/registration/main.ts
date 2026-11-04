@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify'
 import { generateMissing, type GeneratorDeps } from '../lessons/generator.js'
+import { checkBudget } from '../llm/budget.js'
 import { buildProviders, createLlm } from '../llm/client.js'
 import { loadPrompts } from '../llm/prompts.js'
 import { loadModerationData } from '../moderation/load.js'
@@ -93,10 +94,24 @@ async function main(): Promise<void> {
 
   await app.listen({ port: env.registrationPort, host: '0.0.0.0' })
 
+  // The spend of the month against the budget, for the class service's model calls: it records them but has no mail
+  // settings to send the notice with. This service's own calls are checked as they are made.
+  const checkSpend = () =>
+    checkBudget({ db, config, clock: systemClock, mailer, operatorEmail: env.operatorEmail }).catch((err: unknown) =>
+      app.log.error({ err: err instanceof Error ? err.name : 'unknown' }, 'budget check failed'),
+    )
+
   // The lessons of the days ahead: made after each midnight job, then every retryMinutes, which retries the ones that
-  // failed; a run only acts on missing lessons, so one with nothing to do is cheap. Every start runs it once too.
+  // failed; a run only acts on missing lessons, so one with nothing to do is cheap. Every start runs it once too. After
+  // each run, the spend is checked.
   const lessonGeneration = startPeriodicJob(
-    async () => app.log.info({ report: await generateMissing(lessons) }, 'lesson generation finished'),
+    async () => {
+      try {
+        app.log.info({ report: await generateMissing(lessons) }, 'lesson generation finished')
+      } finally {
+        await checkSpend()
+      }
+    },
     config.lessonGeneration.retryMinutes,
     (err) => app.log.error({ err: err instanceof Error ? err.constructor.name : 'unknown' }, 'lesson generation failed'),
   )

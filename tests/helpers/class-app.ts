@@ -1,7 +1,11 @@
 import type { FastifyServerOptions } from 'fastify'
+import type { Kysely } from 'kysely'
 import type { MessageHandlers } from '../../src/class/connection.js'
 import type { LessonHooks } from '../../src/class/hooks.js'
-import { createClassService } from '../../src/class/service.js'
+import { createClassService, type ModelDeps } from '../../src/class/service.js'
+import type { Clock } from '../../src/shared/clock.js'
+import type { SchoolConfig } from '../../src/shared/config.js'
+import type { Database } from '../../src/shared/schema.js'
 import { exampleConfig, exampleModerator, type ConfigOverrides } from './app.js'
 import { createTestClock } from './clock.js'
 import { createTestDb } from './db.js'
@@ -22,6 +26,9 @@ import { createTestDb } from './db.js'
  * The hub goes into `createLessonHooks` too (it needs one), so a session that runs to its close writes the summaries
  * (and pushes them to whoever is online).
  *
+ * Without `model` the teacher has no model and answers no question. `model` makes one on the test's database, config
+ * and clock; `teacherAi` is then the teacher's model work, whose `idle()` waits for the answers being worked on.
+ *
  * The transport's timers run on real time with the service's defaults (10 s for hello, a ping every 30 s) unless
  * `helloTimeoutMs` or `pingIntervalMs` shorten them. A connection made with `app.injectWS` does not answer pings, so
  * it is dropped at its second ping (a minute in, by default): for pings, connect over TCP.
@@ -39,6 +46,7 @@ export async function buildTestClassApp(
     pingIntervalMs?: number
     rateWindowMs?: number
     trustProxy?: boolean
+    model?: (p: { db: Kysely<Database>; config: SchoolConfig; clock: Clock }) => ModelDeps
   } = {},
 ) {
   const { db, destroy: destroyDb } = await createTestDb()
@@ -59,8 +67,9 @@ export async function buildTestClassApp(
     pingIntervalMs: overrides.pingIntervalMs,
     rateWindowMs: overrides.rateWindowMs,
     trustProxy: overrides.trustProxy,
+    model: overrides.model?.({ db, config, clock }),
   })
-  const { app, runtime, hub, chat, questions } = service
+  const { app, runtime, hub, chat, questions, teacherAi } = service
   try {
     await app.ready()
   } catch (err) {
@@ -76,6 +85,7 @@ export async function buildTestClassApp(
     hub,
     chat,
     questions,
+    teacherAi,
     config,
     tick: service.tick,
     disconnectAll: service.disconnectAll,

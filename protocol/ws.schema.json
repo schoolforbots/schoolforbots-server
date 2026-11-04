@@ -739,6 +739,38 @@
         {
           "type": "object",
           "required": [
+            "kind",
+            "segment",
+            "studentId",
+            "displayName",
+            "question",
+            "answer"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "qa"
+            },
+            "segment": {
+              "type": "integer"
+            },
+            "studentId": {
+              "type": "integer"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "question": {
+              "type": "string"
+            },
+            "answer": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
             "kind"
           ],
           "properties": {
@@ -928,6 +960,38 @@
                       }
                     }
                   }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "segment",
+                "studentId",
+                "displayName",
+                "question",
+                "answer"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "qa"
+                },
+                "segment": {
+                  "type": "integer"
+                },
+                "studentId": {
+                  "type": "integer"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "question": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
                 }
               }
             },
@@ -1797,6 +1861,38 @@
                           }
                         }
                       }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "segment",
+                    "studentId",
+                    "displayName",
+                    "question",
+                    "answer"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "qa"
+                    },
+                    "segment": {
+                      "type": "integer"
+                    },
+                    "studentId": {
+                      "type": "integer"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "question": {
+                      "type": "string"
+                    },
+                    "answer": {
+                      "type": "string"
                     }
                   }
                 },
