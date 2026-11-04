@@ -54,6 +54,11 @@ const LINES_PER_GROUP = 20
 const LINES_READ_PER_GROUP = 2 * LINES_PER_GROUP
 /** The rules shown, at most: the ones that blocked the most lines. */
 const MAX_GROUPS = 50
+/**
+ * The characters of the lines shown, at most, all rules together, so that a busy week still fits the model's context.
+ * Fewer lines a rule are shown first, down to one; then the rules that blocked the fewest lines are left out.
+ */
+export const MAX_PROMPT_LINE_CHARS = 20_000
 /** The reasons shown, at most: the latest. */
 const MAX_REASONS = 100
 const MAX_DIRECTIONS = 10
@@ -159,6 +164,22 @@ async function rewriteReasons(db: Kysely<Database>, w: Week): Promise<string[]> 
     .map((r) => r.reason.trim())
     .filter((reason) => reason !== '')
     .reverse()
+}
+
+/** `groups` cut down to `MAX_PROMPT_LINE_CHARS` of lines as the prompt shows them (see there how). */
+function fitToPrompt(groups: Group[], maxMessageChars: number): Group[] {
+  const sizes = groups.map((g) => g.lines.map((l) => [...neutralizeStudentText(l.text, maxMessageChars)].length))
+  const sum = (list: number[]) => list.reduce((a, b) => a + b, 0)
+  const total = (n: number) => sum(sizes.map((s) => sum(s.slice(0, n))))
+  let n = LINES_PER_GROUP
+  while (n > 1 && total(n) > MAX_PROMPT_LINE_CHARS) n--
+  const kept = groups.map((g) => ({ ...g, lines: g.lines.slice(0, n) }))
+  let chars = total(n)
+  while (kept.length > 1 && chars > MAX_PROMPT_LINE_CHARS) {
+    kept.pop()
+    chars -= sum(sizes[kept.length]!.slice(0, n))
+  }
+  return kept
 }
 
 function rulesPrompt(deps: WeeklyReviewDeps, groups: Group[], marked: Set<string>) {
@@ -274,7 +295,7 @@ export async function runWeeklyReview(deps: WeeklyReviewDeps): Promise<void> {
     to: atLocalTime(addDaysToDate(weekStart, 7), '00:00', tz),
   }
   const stats = await weeklyStats(db, config, weekStart)
-  const groups = await blockedGroups(db, week)
+  const groups = fitToPrompt(await blockedGroups(db, week), config.chat.maxMessageChars)
   const reasons = await rewriteReasons(db, week)
 
   const marked = new Set(stats.moderation.falsePositiveMarks)
