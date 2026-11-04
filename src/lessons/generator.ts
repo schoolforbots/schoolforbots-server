@@ -62,7 +62,10 @@ export interface RewriteTarget {
   callOn?: 'review' | 'extension'
 }
 
-/** What was pasted in: a reply to the prompt of `kind` for that target; a rewrite also names its `baseVersion`. */
+/**
+ * What was pasted in: a reply to the prompt of `kind` for that target. A rewrite names its `baseVersion`; a new lesson
+ * names the version of the lesson it replaces, and none when the day had no lesson.
+ */
 export interface PastedTarget extends LessonPromptTarget {
   kind: PromptKind
   baseVersion?: number
@@ -169,16 +172,19 @@ async function dropSettledFailures(db: Kysely<Database>): Promise<void> {
     .execute()
 }
 
-/** A day and division as generation sees it: the lesson there is (with the topic it was made with) and the topic given. */
+/**
+ * A day and division as generation sees it: the lesson there is (with its version and the topic it was made with) and
+ * the topic given.
+ */
 interface SlotState {
-  lesson: { id: number; topic: string | null } | undefined
+  lesson: { id: number; version: number; topic: string | null } | undefined
   topic: string | null
 }
 
 async function slotState(db: Kysely<Database>, date: string, division: Division): Promise<SlotState> {
   const lesson = await db
     .selectFrom('lessons')
-    .select(['id', 'topic'])
+    .select(['id', 'version', 'topic'])
     .where('date', '=', date)
     .where('division', '=', division)
     .executeTakeFirst()
@@ -197,7 +203,8 @@ const needsLesson = (slot: SlotState): boolean =>
  * `generate`), or one made again for the topic given since (`topic`). A failure is written to `lesson_generation`; a
  * lesson stored clears it. Nothing is locked while the model writes, so the day may change meanwhile: what the model
  * wrote is dropped when the day's topic is no longer the one it wrote for, or when the day no longer needs the lesson
- * (one was pasted in, say). The next run makes a lesson the day still needs.
+ * (one was pasted in, say), also when that happens between reading the day and storing the lesson. The next run makes
+ * a lesson the day still needs.
  */
 async function generateSlot(
   deps: GeneratorDeps,
@@ -215,7 +222,14 @@ async function generateSlot(
       return 'dropped'
     }
     const change = now.lesson === undefined ? 'generate' : 'topic'
-    await saveDraft(deps, { date, division }, content, { source: 'api', change, topic })
+    const expectVersion = now.lesson?.version ?? null
+    try {
+      await saveDraft(deps, { date, division }, content, { source: 'api', change, topic, expectVersion })
+    } catch (err) {
+      if (!(err instanceof StaleLessonVersion)) throw err
+      log?.info({ date, division, outcome: 'dropped' }, 'lesson generation')
+      return 'dropped'
+    }
     await clearFailure(db, date, division)
     log?.info({ date, division, outcome: 'generated' }, 'lesson generation')
     return 'generated'
@@ -319,7 +333,8 @@ export async function regenerate(
 
 /**
  * Takes a reply pasted in by hand, as a whole: the JSON object in it is found among whatever words surround it, then
- * checked like a model's reply. A new lesson is stored as a draft (source `manual`) with the day's topic; a rewrite
+ * checked like a model's reply. A new lesson is stored as a draft (source `manual`) with the day's topic, unless the
+ * day has moved on from what the page showed (`baseVersion`, none for no lesson): then `StaleLessonVersion`. A rewrite
  * replaces its part of the lesson as it was at `baseVersion`. Counted as a manual call. A reply that will not do is a
  * `LessonFormatError` saying why, in Chinese.
  */
@@ -337,7 +352,8 @@ export async function acceptPasted(deps: GeneratorDeps, target: PastedTarget, pa
     const { date, division } = target
     const { subject, topic } = await lessonSlot(deps, date, division)
     const content = parseLessonContent(deps.config, reply, { subject })
-    ;({ version } = await saveDraft(deps, { date, division }, content, { source: 'manual', change: 'generate', topic }))
+    const expectVersion = target.baseVersion ?? null
+    ;({ version } = await saveDraft(deps, { date, division }, content, { source: 'manual', change: 'generate', topic, expectVersion }))
     await clearFailure(deps.db, date, division)
   } else {
     if (target.lessonId === undefined) throw new LessonFormatError('重写要说明是哪节课')

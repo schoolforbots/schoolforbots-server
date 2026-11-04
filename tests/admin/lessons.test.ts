@@ -530,6 +530,23 @@ describe('pasting a reply in', () => {
     expect(noVersion.json().error.message).toBe('重写要带上复制提示词时这节课的版本号')
   })
 
+  test('a new lesson pasted for a day that has one is a 409 unless it names the version it replaces', async () => {
+    await start({ config: manualConfig() })
+    const paste = (more: object = {}) =>
+      api('POST', 'lessons/paste', { date: WED, division: 'senior', kind: 'generate', pasted: lessonReply('后贴的课'), ...more })
+    // The model made the day's lesson (its deadline came) while a tab still showed the day missing.
+    const id = await draft(WED, 'senior')
+    await approve(store(), id, 1)
+    const stale = await paste()
+    expect(stale.statusCode).toBe(409)
+    expect(stale.json()).toEqual(STALE)
+    expect(slotOf(await queue(), WED, 'senior')).toMatchObject({ status: 'approved', lessonId: id, version: 1 })
+    expect((await paste({ baseVersion: 2 })).json()).toEqual(STALE)
+    const replaced = await paste({ baseVersion: 1 })
+    expect(replaced.statusCode).toBe(200)
+    expect(replaced.json()).toMatchObject({ id, title: '后贴的课', version: 2, approvedAt: null })
+  })
+
   test('a body of the wrong shape is a 400', async () => {
     await start({ config: manualConfig() })
     for (const payload of [

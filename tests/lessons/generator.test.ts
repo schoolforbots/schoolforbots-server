@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import type { Kysely } from 'kysely'
+import type { Kysely, KyselyPlugin } from 'kysely'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { planSession } from '../../src/class/planning.js'
 import { openingLesson } from '../../src/class/teacher.js'
@@ -526,6 +526,53 @@ describe('acceptPasted', () => {
     expect(provider.calls).toHaveLength(0)
     // The day is no longer missing its lesson.
     expect(await failures()).toEqual([])
+  })
+
+  test('a new lesson pasted over a day that has one since (another tab, or the model) is stale; the lesson stays', async () => {
+    const { deps } = make(school({ mode: 'manual' }))
+    // Two tabs show Thursday missing: the first pastes and approves.
+    await acceptPasted(deps, { date: THU, division: 'junior', kind: 'generate' }, lessonReply('第一个标签页的课'))
+    const first = await lessonOf(THU, 'junior')
+    await approve(deps, first!.id, 1)
+    // The second still shows the day missing, so it names no version.
+    const err = await rejection(acceptPasted(deps, { date: THU, division: 'junior', kind: 'generate' }, lessonReply('第二个标签页的课')))
+    expect(err).toBeInstanceOf(StaleLessonVersion)
+    expect(await lessonOf(THU, 'junior')).toMatchObject({ title: '第一个标签页的课', version: 1, approvedAt: clock.now() })
+    expect(await llmCalls()).toEqual([{ purpose: 'lesson', outcome: 'manual' }])
+    // Named with the version it has now, a new lesson does replace it.
+    await acceptPasted(deps, { date: THU, division: 'junior', kind: 'generate', baseVersion: 1 }, lessonReply('换上的课'))
+    expect(await lessonOf(THU, 'junior')).toMatchObject({ title: '换上的课', version: 2, approvedAt: null })
+  })
+
+  test('a lesson pasted in after the model read the day as missing is not overwritten by the model\'s', async () => {
+    let replied = false
+    const { deps: base, log } = make(school(), () => {
+      replied = true
+      return ok(lessonReply('大模型写的课'))
+    })
+    // The paste lands between the generator reading the day and storing what the model wrote: right after its read of
+    // the day's topic, the last thing it reads.
+    const queries = new Set<unknown>()
+    let pasted = false
+    const racing: KyselyPlugin = {
+      transformQuery(args) {
+        if (JSON.stringify(args.node).includes('lesson_topics')) queries.add(args.queryId)
+        return args.node
+      },
+      async transformResult(args) {
+        if (replied && !pasted && queries.has(args.queryId)) {
+          pasted = true
+          await acceptPasted({ ...base, db }, { date: THU, division: 'primary', kind: 'generate' }, lessonReply('贴进来的课'))
+        }
+        return args.result
+      },
+    }
+    const deps = { ...base, db: db.withPlugin(racing), config: school({ horizonDays: 1 }) }
+    expect(await generateMissing(deps)).toMatchObject({ failed: 0 })
+    expect(pasted).toBe(true)
+    expect(await lessonOf(THU, 'primary')).toMatchObject({ title: '贴进来的课', source: 'manual', version: 1 })
+    expect(await failures()).toEqual([])
+    expect(log.info).toHaveBeenCalledWith({ date: THU, division: 'primary', outcome: 'dropped' }, 'lesson generation')
   })
 
   test('a lesson pasted for a day with a topic is a topic lesson', async () => {
