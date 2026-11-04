@@ -1,5 +1,7 @@
 import type { ColumnType, Generated } from 'kysely'
 import type { ModerationCategory } from '../moderation/moderator.js'
+import type { StoredSuggestions } from '../weekly/review.js'
+import type { WeeklyStats } from '../weekly/stats.js'
 import type { Division, Slot } from './config.js'
 
 export type StudentStatus = 'pending' | 'waitlisted' | 'active' | 'suspended' | 'dropped' | 'expelled'
@@ -244,10 +246,12 @@ export interface ModerationExclusionsTable {
   createdAt: Date
 }
 
+/** The review of one week, made after it ended; `week_start` is its Monday. */
 export interface WeeklyReviewsTable {
   weekStart: DateText
-  stats: Json<Record<string, unknown>>
-  suggestions: Json<unknown[]>
+  stats: Json<WeeklyStats>
+  /** What the model suggested; an item is null when its task failed. */
+  suggestions: Json<StoredSuggestions>
   createdAt: Date
 }
 

@@ -1,4 +1,5 @@
 import { Cron } from 'croner'
+import { isoWeekday, localDate } from '../shared/local-time.js'
 
 /** Local midnight, every day. */
 const DAILY_AT_MIDNIGHT = '0 0 * * *'
@@ -8,6 +9,14 @@ export function nextDailyRun(from: Date, timezone: string): Date {
   const next = new Cron(DAILY_AT_MIDNIGHT, { timezone }).nextRun(from)
   if (next === null) throw new Error(`No next daily run after ${from.toISOString()} in ${timezone}`)
   return next
+}
+
+/**
+ * Whether `at` falls on a Monday in the timezone: the midnight job of a Monday is followed by the weekly review of the
+ * week that has just ended.
+ */
+export function isWeeklyReviewDay(at: Date, timezone: string): boolean {
+  return isoWeekday(localDate(at, timezone)) === 1
 }
 
 /** Runs `run` at every local midnight. A failed run is logged and the next night still runs; it never takes the process down. */
