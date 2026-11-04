@@ -1,5 +1,7 @@
 node_modules/
 dist/
+admin/node_modules/
+admin/dist/
 .env
 .env.*
 !.env.example
