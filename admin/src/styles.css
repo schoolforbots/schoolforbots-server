@@ -1,0 +1,328 @@
+/* The admin pages around Ant Design: a green bar on top (the blackboard), white panels on a paper-coloured page,
+   hairline borders and no shadows except on the one thing that floats (a chart's readout). Desktop only: the page
+   keeps 1200px and scrolls sideways below that. See DESIGN.md. */
+
+body {
+  margin: 0;
+  min-width: 1200px;
+  background: #f7f6f2;
+  color: #1f1f1f;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Every control says it can be clicked; one that cannot be used says that. */
+button:not(:disabled),
+[role='tab'],
+[role='radio'],
+label[for],
+summary {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* The focus ring of the pages' own elements matches Ant Design's (theme.ts): 2px of the green. */
+:focus-visible {
+  outline: 2px solid #2f5d50;
+  outline-offset: 2px;
+}
+
+p {
+  margin: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 48px;
+  /* Lined up with the content below, which stops at 1440px. */
+  padding: 0 max(24px, calc((100% - 1392px) / 2));
+  background: #2f5d50;
+  color: #ffffff;
+}
+.topbar-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.topbar-failure {
+  font-size: 13px;
+}
+.topbar-button {
+  padding: 3px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+}
+.topbar-button:hover:not(:disabled) {
+  border-color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+.topbar-button:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+}
+.topbar-button:disabled {
+  opacity: 0.6;
+}
+/* On the green the ring is white (7.49:1). */
+.topbar-button:focus-visible {
+  outline-color: #ffffff;
+}
+
+.content {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 4px 24px 48px;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel {
+  padding: 16px 20px;
+  border: 1px solid #e3e2dc;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.panel-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.panel-head .panel-title {
+  margin: 0;
+}
+/* The curves sit on the page itself, each in its own panel. */
+.range {
+  padding: 8px 0 0;
+}
+
+/* Yesterday's numbers: the one thing on the page meant to be read first. */
+/* The spend gets more room: it also carries the month and the budget. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr)) minmax(0, 1.6fr);
+}
+.tile {
+  padding: 0 16px;
+  border-left: 1px solid #e3e2dc;
+}
+.tile:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.tile-label {
+  color: #4a4a4a;
+  font-size: 13px;
+}
+.tile-value {
+  margin: 2px 0;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.tile-change {
+  color: #5c5c5c;
+  font-size: 12px;
+}
+
+.reminders {
+  display: flex;
+  flex-direction: column;
+}
+.reminder + .reminder {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e3e2dc;
+}
+.reminder-review {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.reminder-days {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+/* The one red on the page: spend over budget. */
+.reminder-alarm {
+  color: #c8312b;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.stale {
+  opacity: 0.5;
+}
+
+.chart {
+  margin: 0;
+  padding: 12px 16px 8px;
+  border: 1px solid #e3e2dc;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.chart-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 4px 0 4px;
+  padding: 0;
+  list-style: none;
+  color: #4a4a4a;
+  font-size: 12px;
+}
+.legend-line {
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+  margin-right: 6px;
+  border-radius: 1px;
+  vertical-align: middle;
+}
+.legend-marker {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  margin: 0 8px 0 4px;
+  background: #767676;
+  vertical-align: middle;
+}
+.chart-plot {
+  position: relative;
+  border-radius: 4px;
+}
+.chart-plot svg {
+  display: block;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chart-readout {
+  position: absolute;
+  top: 8px;
+  min-width: 160px;
+  padding: 8px 10px;
+  border: 1px solid #c9c8c1;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  pointer-events: none;
+}
+.chart-readout:empty {
+  display: none;
+}
+.chart-readout ul {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.chart-readout li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-readout strong {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.readout-date {
+  font-weight: 600;
+}
+.readout-key {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+}
+.readout-name {
+  color: #4a4a4a;
+}
+.readout-markers {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #e3e2dc;
+}
+.chart-table {
+  max-height: 248px;
+  margin-bottom: 8px;
+  overflow: auto;
+  font-variant-numeric: tabular-nums;
+}
+.chart-table th,
+.chart-table td {
+  white-space: nowrap;
+}
+.chart-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px 0;
+  color: #4a4a4a;
+}
+
+.login {
+  display: flex;
+  justify-content: center;
+  padding: 96px 24px;
+}
+.login-panel {
+  width: 360px;
+  padding: 24px;
+}
+.login-notice {
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f0efe9;
+}
+.login-refusal {
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid #b9b8ae;
+  border-radius: 6px;
+}

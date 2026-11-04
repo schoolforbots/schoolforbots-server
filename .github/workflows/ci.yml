@@ -22,7 +22,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            admin/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       # The tests use Testcontainers to start a temporary Postgres; GitHub's Ubuntu runners come with Docker.
       - run: npm test
+      # The admin pages are a package of their own: their tests run in jsdom, and the build makes admin/dist.
+      - run: npm --prefix admin ci
+      - run: npm run admin:test
+      - run: npm run admin:build
