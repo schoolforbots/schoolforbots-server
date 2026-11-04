@@ -17,18 +17,18 @@ import type { ActiveSession } from '../../src/class/runtime.js'
 import { createTeacherAi, type TeacherAi } from '../../src/class/teacher-ai.js'
 import { callOnQuestion, callOnNoAnswer, callOnThanks, questionReceived } from '../../src/class/teacher.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from '../../src/class/ws-errors.js'
-import type { Llm, LlmPurpose } from '../../src/llm/client.js'
-import { loadPrompts, type PromptName, type PromptTemplate } from '../../src/llm/prompts.js'
+import type { Llm } from '../../src/llm/client.js'
 import { LlmContentRefused, LlmUnavailable } from '../../src/llm/provider.js'
 import type { SecondLayer, SecondVerdict } from '../../src/moderation/second-layer.js'
 import { ServerMessage } from '../../src/protocol/ws.js'
 import type { Database } from '../../src/shared/schema.js'
-import type { SwitchName, Switches } from '../../src/shared/switches.js'
+import type { Switches } from '../../src/shared/switches.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
 import { buildTestClassApp } from '../helpers/class-app.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
+import { deferred, examplePrompts, layer, scripted, switches, type ModelCall, type Reply } from '../helpers/llm.js'
 import { captureLogs } from '../helpers/logs.js'
 
 const MON = '2026-11-02'
@@ -64,66 +64,7 @@ const THANKS = '好，请坐。'
 
 // ---- The teacher's model, scripted ----
 
-/** The example prompt files, read without the warning that no real ones are there. */
-function examplePrompts(): Record<PromptName, PromptTemplate> {
-  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-  try {
-    return loadPrompts(new URL('../../data/prompts', import.meta.url).pathname)
-  } finally {
-    stderr.mockRestore()
-  }
-}
 const prompts = examplePrompts()
-
-function switches(on: Partial<Record<SwitchName, boolean>> = {}): Switches {
-  const all = { teacherLlm: true, secondLayerTeacher: true, secondLayerChat: false, ...on }
-  return { isOn: (n) => all[n], refresh: async () => {}, stop: () => {} }
-}
-
-interface ModelCall {
-  purpose: LlmPurpose
-  system: string
-  user: string
-  opts: { json?: boolean; maxOutputTokens?: number; timeoutMs?: number } | undefined
-}
-type Reply = string | Error | Promise<string | Error>
-
-/** A model that gives the replies in order, one per call; a call past the last one fails (and is logged as an error). */
-function scripted(replies: Reply[] = []) {
-  const calls: ModelCall[] = []
-  const llm: Llm = {
-    async call(purpose, prompt, opts) {
-      calls.push({ purpose, system: prompt.system, user: prompt.user, opts })
-      const next = replies.shift()
-      if (next === undefined) throw new Error('The model was called once too often')
-      const out = await next
-      if (out instanceof Error) throw out
-      return { text: out, inputTokens: 1, outputTokens: 1 }
-    },
-    async recordManual() {},
-  }
-  return { llm, calls }
-}
-
-/** A second layer that gives the verdicts in order, then passes. */
-function layer(verdicts: SecondVerdict[] = []) {
-  const checked: { source: string; text: string }[] = []
-  const secondLayer: SecondLayer = {
-    async check(source, text) {
-      checked.push({ source, text })
-      return verdicts.shift() ?? 'pass'
-    },
-  }
-  return { secondLayer, checked }
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((r) => {
-    resolve = r
-  })
-  return { promise, resolve }
-}
 
 describe('questions and the call-on', () => {
   let db: Kysely<Database>
