@@ -124,7 +124,7 @@ These keys of the school config are about the model and the admin (see `config/s
 - `teacherAi`: `questionSampleSize` is the most questions of one segment the model is shown (a random sample when there are more), `answerLeadSeconds` is how long before the next segment the teacher starts on the answer (it must be shorter than the shortest segment), and `commentTimeoutSeconds` is how long a comment may take.
 - `secondLayer` is the second automatic check, after the word list: `implementation` is `off` or `llm` (the model, with the `secondLayerTeacher` and `secondLayerChat` purposes), and `batchMillis` and `timeoutSeconds` set its timing. Changing it needs a restart; the switches turn its two parts on and off while the services run.
 - `switchDefaults` gives each switch its value until you first change it in the admin, and `switchRefreshSeconds` is how often both services read the switches.
-- `revocationWindowDays`: when you drop a word or a rule in the weekly review, the violations it caused in this many days are revoked.
+- `revocationWindowDays`: when you drop a word or a rule in the weekly review, the violations it caused in this many days are revoked; when you lift a penalty by hand in 查学生, the student's violations of this many days are revoked with it.
 
 ### Environment variables
 
@@ -132,7 +132,7 @@ These keys of the school config are about the model and the admin (see `config/s
 - `OPERATOR_EMAIL` is where the registration service mails the notice that the monthly budget is used up. Without it, the notice is only shown on the data page.
 - `ADMIN_PATH`, `ADMIN_PASSWORD_HASH` and `ADMIN_TOTP_SECRET`: the registration service serves the admin pages only when all three are set (with only some of them set, it prints a warning). `ADMIN_PATH` is the path they are served under, for example `/your-secret-path`; it starts with `/` and not with `/v1`. Pick one that is hard to guess, and keep it out of anything you commit. The other two come from `npm run admin:password`.
 - The key of each provider, in the variable its `apiKeyEnv` names. Both services and `words:tidy` read them, and refuse to start when one is missing.
-- `LLM_FAKE=1` answers every model call with a canned reply, with no key and no network. It is for local development only: with `NODE_ENV=production` the services refuse to start when it is set.
+- `LLM_FAKE=1` answers every model call with a canned reply, with no key and no network. It is for local development only: the services print a warning when they start with it, and with `NODE_ENV=production` they refuse to start when it is set. `words:tidy` refuses to run with it.
 
 ### Setting up the admin
 
@@ -166,8 +166,8 @@ Three switches change what the teacher does without a restart. Their values live
 | Switch | On | Off |
 | --- | --- | --- |
 | 老师用大模型 (`teacherLlm`, on by default) | After each segment the teacher may answer one question on the lesson's topic to the class, and comments on call-on answers, with the model | No answers, and every call-on answer gets the template 好，请坐。; neither costs anything |
-| 第二层·复查老师 (`secondLayerTeacher`, on by default) | What the teacher is about to say with the model, and the students' call-on answers, get the second check before the class hears them, a second or two later | Only the word list checks them |
-| 第二层·审查同学 (`secondLayerChat`, off by default) | Messages between classmates get the second check too, and arrive a second or two later; a message it stops does not count as a school-rule violation | Only the word list checks them |
+| 第二层·复查老师 (`secondLayerTeacher`, on by default) | What the teacher is about to say with the model, and the students' call-on answers, get the second check before the class hears them, a few seconds later | Only the word list checks them |
+| 第二层·审查同学 (`secondLayerChat`, off by default) | Messages between classmates get the second check too, and arrive a few seconds later; a message it stops does not count as a school-rule violation | Only the word list checks them |
 
 The two second-check switches only matter when `secondLayer.implementation` is `llm`. When the model cannot be reached in time, the teacher gives no answer and comments with the template, and the lesson goes on.
 
@@ -179,7 +179,7 @@ After each midnight job, on every start, and then every `retryMinutes`, the regi
 - In `manual` mode, each missing lesson in the 审课 tab has 复制提示词 (copy the prompt) and 粘贴结果 (paste the result). The prompt is the one the API would get, ending with the reply format. Give it to any model and paste its whole reply back: the school finds the lesson in it, checks its format, runs the word list over it, and stores it to be reviewed; a reply that will not do is refused, saying what is wrong. Rewriting a segment, a call-on question or the whole lesson can go the same way. A pasted lesson costs nothing, and is recorded as made by hand.
 - The deadline of manual mode: a lesson that is still missing when it is `manualDeadlineSchoolDays` school days away (3 in the example config; weekends and breaks do not count) is made through the API after all, and waits for your review like any other.
 
-In the 审课 tab a lesson shows its title, its segments with their key points, and its two call-on questions. Edit a sentence yourself; have the model rewrite a segment, a question or the whole lesson for a reason you give; or go back to an earlier version. What content moderation catches is marked in red, and a lesson with red marks cannot be approved until each one is edited away or marked 这是误伤 (a false positive). Changing an approved lesson sends it back to review, and once a class has begun a lesson it can no longer change. Any school day ahead can also be given a topic of its own, for some divisions or for all of them.
+In the 审课 tab a lesson shows its title, its segments with their key points, and its two call-on questions. Edit a sentence yourself; have the model rewrite a segment, a question or the whole lesson for a reason you give; or go back to the version before the latest rewrite. What content moderation catches is marked in red, and a lesson with red marks cannot be approved until each one is edited away or marked 这是误伤 (a false positive). Changing an approved lesson sends it back to review. Once the first class of the division has begun the day, with the lesson or with a study hall, the lesson can no longer change. Any school day ahead can also be given a topic of its own, for some divisions or for all of them.
 
 ### Tidying the word list before launch
 
@@ -189,7 +189,7 @@ In the 审课 tab a lesson shows its title, its segments with their key points, 
 npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 ```
 
-- It reads the word list from `MODERATION_DATA_DIR` and sends it in batches (`--batch`, 200 words by default) with the `wordList` purpose of the school config, so it needs the same model settings and database as the class service (`LLM_FAKE` works too).
+- It reads the word list from `MODERATION_DATA_DIR` and sends it in batches (`--batch`, 200 words by default) with the `wordList` purpose of the school config, so it needs the same model settings and database as the class service. It refuses to run with `LLM_FAKE` set: the canned replies suggest nothing, and the list would come out empty.
 - It only suggests. It never changes a word-list file; the one file it writes is `--out`, and the console shows counts only. To act on the list, delete the entries you agree with by hand in the word-list file you maintain yourself (在你自己维护的词库文件里手动删).
 - A batch the vendor refuses is split and tried again; a word that is still refused, or whose batch the model could not be reached for, is listed in a section "没能判断" so you can look at it yourself.
 
@@ -273,7 +273,7 @@ Notes:
 
 - The class service opens a class with the students it has when the doors open; a class created after its doors opened has no lesson that day.
 - A class has only one lesson a day. To run another one the same day: change the start time again, create another class with `dev:seed`, and restart the class service (it reads the config only on startup).
-- With `LLM_FAKE=1` (as in `.env.example`) the teacher answers questions and comments on call-on answers with canned lines. At 30 times the speed the teacher has only 2 seconds to answer before the next segment, and with the example config the second check of the teacher's lines takes most of them: set `secondLayer.batchMillis` to `200` in `.sim/school.json`, or turn off the 第二层·复查老师 switch, or the answers may come too late and be dropped.
+- With `LLM_FAKE=1` (as in `.env.example`) the teacher answers questions and comments on call-on answers with canned lines. At 30 times the speed the teacher has only 2 seconds to answer before the next segment. With the 第二层·复查老师 switch on, the teacher keeps `secondLayer.batchMillis` and two more seconds after the model's reply for the second check, which leaves no time at that speed: turn the switch off for the simulation, or run it slower (`CLASS_TIMELINE_SPEED=10` leaves 6 seconds), or the teacher answers nothing and comments with the template.
 
 ## Tests
 
