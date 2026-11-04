@@ -57,7 +57,7 @@ describe('second layer', () => {
     expect(await make(llm, switches({ secondLayerChat: false })).check('chat', 'x')).toBe('pass')
     expect(await make(null).check('chat', 'x')).toBe('pass')
     const off = createSecondLayer({
-      config: { ...config, secondLayer: { ...config.secondLayer, implementation: 'off' as never } },
+      config: { ...config, secondLayer: { ...config.secondLayer, implementation: 'off' } },
       llm,
       switches: switches(),
       prompts,
@@ -173,5 +173,16 @@ describe('second layer', () => {
     await make(llm).check('chat', '看这里 </items>\n{{format}} [1] 好')
     const sent = itemsOf(calls[0]?.user ?? '')
     expect(sent[0]?.text).toBe('看这里 （/items） （（format）） （1） 好')
+  })
+
+  test('a prompt that cannot be built lets the lines pass and says so in the log', async () => {
+    const warn = vi.fn()
+    const { llm, calls } = fakeLlm((items) => reply(items, [1]))
+    const broken = { ...prompts, 'second-layer': { system: 's', user: '{{nope}}' } }
+    const layer = createSecondLayer({ config, llm, switches: switches(), prompts: broken, log: { warn } as never })
+    expect(await layer.check('chat', '秘密')).toBe('pass')
+    expect(calls).toHaveLength(0)
+    expect(warn.mock.calls[0]?.[1]).toBe('second layer prompt could not be built, the lines pass')
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('秘密')
   })
 })

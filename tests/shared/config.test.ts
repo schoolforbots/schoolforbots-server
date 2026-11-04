@@ -678,3 +678,10 @@ describe('the admin and model variables of loadEnv', () => {
     expect(loadEnv({ ...base, NODE_ENV: 'production' }).llmFake).toBe(false)
   })
 })
+
+test('secondLayer.implementation accepts off and llm and rejects anything else', () => {
+  const load = (v: string) => loadSchoolConfig(writeTmpConfig((c) => ((c.secondLayer as Record<string, unknown>).implementation = v)))
+  expect(load('off').secondLayer.implementation).toBe('off')
+  expect(load('llm').secondLayer.implementation).toBe('llm')
+  expect(() => load('rules')).toThrow(/implementation/)
+})
