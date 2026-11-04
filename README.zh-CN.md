@@ -110,7 +110,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 
 学校配置里和大模型、后台有关的项（见 `config/school.example.json`）：
 
-- `llm.providers` 列出大模型厂商。每家有 `kind`（`openai-compatible`）、`baseUrl`、`apiKeyEnv`（存钥匙的环境变量的名字；钥匙本身不写进配置）、`models`，以及 `contentRefusalMarkers`（厂商报错时的哪些话表示它拒绝处理这段内容）。`models` 是价目表：每个型号每百万 token 多少元，分输入 `inputYuanPerMillion` 和输出 `outputYuanPerMillion`，每次调用花了多少钱就按它算。示例配置里的价格只是示例：要按厂商当前的价目表填，厂商调价时跟着改。
+- `llm.providers` 列出大模型厂商。每家有 `kind`（`openai-compatible`）、`baseUrl`、`apiKeyEnv`（存钥匙的环境变量的名字；钥匙本身不写进配置）、`models`，以及 `contentRefusalMarkers`（厂商报错时的哪些话表示它拒绝处理这段内容）。`models` 是价目表：每个型号每百万 token 多少元，分输入 `inputYuanPerMillion` 和输出 `outputYuanPerMillion`，每次调用花了多少钱就按它算。示例配置里的厂商只是占位（地址、型号名、拒绝标记和价格都是编的）：要换成你用的厂商自己的值，价格按它当前的价目表填，厂商调价时跟着改。
 - `llm.purposes` 给每种用途选厂商和型号：`lesson`（写课和重写）、`answer`（答疑）、`comment`（点评点名时的回答）、`weekly`（每周复盘）、`secondLayerTeacher` 和 `secondLayerChat`（第二层复查课上要念出来的话、审查同学之间的消息）、`wordList`（`words:tidy`）。某种用途可以用更便宜的型号，也可以换一家。
 - `llm.timeoutSeconds`、`llm.retries`、`llm.maxConcurrent`：一次调用最多等多久，失败后再试几次，同时最多跑几个调用（多出来的排队）。
 - `llm.monthlyBudgetYuan` 是每月预算。当月花费超过预算，学校只通知你，每月一次：给 `OPERATOR_EMAIL` 发一封邮件，数据页上显示红色提醒。别的什么都不变；想止血，就关掉“老师用大模型”开关。
