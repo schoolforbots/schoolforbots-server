@@ -82,6 +82,15 @@ describe('mailers', () => {
     expect(printed).toContain('你的验证码是 123456，15 分钟内有效')
   })
 
+  test('sendNotice goes through the transport and the console mailer prints it', async () => {
+    const transport = { sendMail: vi.fn().mockResolvedValue(undefined) }
+    await createTransportMailer(transport, 'x@example.com', 10).sendNotice('a@example.com', '标题', '正文')
+    expect(transport.sendMail).toHaveBeenCalledWith({ from: 'x@example.com', to: 'a@example.com', subject: '标题', text: '正文' })
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+    await new ConsoleMailer(15).sendNotice('a@example.com', '标题', '正文')
+    expect(write.mock.calls.map((c) => String(c[0])).join('')).toContain('正文')
+  })
+
   test('MemoryMailer records what was sent', async () => {
     const mailer = new MemoryMailer()
     await mailer.sendCode('a@example.com', 'register', '123456')
