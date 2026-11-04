@@ -22,6 +22,9 @@ export const theme: ThemeConfig = {
     colorTextDescription: '#5c5c5c',
     colorTextPlaceholder: '#767676',
     colorBgLayout: '#f7f6f2',
+    // The edge of a field or a button: 3.52:1 on white and 3.25:1 on the page, so a control can be found by its
+    // outline (Ant Design's own #d9d9d9 is 1.41:1). Dividers keep the lighter line below.
+    colorBorder: '#8a8980',
     colorBorderSecondary: '#e3e2dc',
     // The focus ring: 3px of the green itself, not its pale tint, so a focused control stands out on white and a
     // focused green button keeps a white gap between it and its ring.

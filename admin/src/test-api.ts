@@ -2,7 +2,21 @@ import { render } from '@testing-library/react'
 import { ConfigProvider } from 'antd'
 import { createElement, type ReactElement, type ReactNode } from 'react'
 import { vi } from 'vitest'
-import type { DailyStats, DayNumbers, LessonDetail, LessonQueue, QueueSlot, SeriesDay } from './api.js'
+import type {
+  DailyStats,
+  DayNumbers,
+  LessonDetail,
+  LessonQueue,
+  QueueSlot,
+  SeriesDay,
+  Session,
+  Student,
+  StudentMessage,
+  StudentRecord,
+  SwitchState,
+  WeeklyPage,
+  WeeklyStats,
+} from './api.js'
 import { antdSettings } from './theme.js'
 
 /** Renders `ui` inside the same Ant Design settings as the real pages. */
@@ -114,6 +128,7 @@ export function dailyStats(days: number, stats: Partial<DailyStats> = {}): Daily
     reminders: { unreviewed: [], generationFailed: [] },
     series: Array.from({ length: days }, (_, i) => seriesDay(shiftDate(YESTERDAY, i - days + 1))),
     switchChanges: [],
+    timeZone: 'Asia/Shanghai',
     ...stats,
   }
 }
@@ -137,6 +152,7 @@ export function queueSlot(division: QueueSlot['division'], slot: Partial<QueueSl
 export function lessonQueue(days: LessonQueue['days'] = []): LessonQueue {
   return {
     mode: 'api',
+    today: '2026-11-04',
     callOns: [
       { kind: 'review', afterSegment: 2 },
       { kind: 'extension', afterSegment: 4 },
@@ -180,4 +196,119 @@ export function lessonDetail(lesson: Partial<LessonDetail> = {}): LessonDetail {
   // A title given on its own is the content's title too.
   if (lesson.title !== undefined && lesson.content === undefined) detail.content.title = lesson.title
   return detail
+}
+
+export const SESSION: Session = { expiresAt: '2026-11-04T12:00:00.000Z', timeZone: 'Asia/Shanghai' }
+
+/** A week of nothing: every number zero, Monday 26 October to Sunday 1 November. */
+export function weeklyStats(stats: Partial<WeeklyStats> = {}): WeeklyStats {
+  const monday = '2026-10-26'
+  return {
+    weekStart: monday,
+    callOn: {
+      rate: 0,
+      byDivision: { primary: { called: 0, answered: 0 }, junior: { called: 0, answered: 0 }, senior: { called: 0, answered: 0 } },
+      byPlugin: [],
+    },
+    questions: { total: 0, segmentsWithAnswer: 0, segmentsWithout: 0 },
+    reconnects: [],
+    lessons: { studyHallsForUnreviewed: 0, edits: 0, segmentRewrites: 0, lessonRewrites: 0 },
+    teacher: { llmFailures: 0, fallbacks: 0, blockedLines: 0, refusals: 0 },
+    moderation: {
+      byDay: Array.from({ length: 7 }, (_, i) => ({
+        date: shiftDate(monday, i),
+        sensitive: 0,
+        injection: 0,
+        privacy: 0,
+        secondLayer: 0,
+      })),
+      topRules: [],
+      falsePositiveMarks: [],
+      secondLayerChat: [],
+    },
+    students: { newcomers: 0, cameBackForSecond: 0, dropped: 0, suspended: 0, expelled: 0 },
+    cost: {
+      byPurpose: {
+        lesson: 0,
+        answer: 0,
+        comment: 0,
+        weekly: 0,
+        secondLayerTeacher: 0,
+        secondLayerChat: 0,
+        wordList: 0,
+      },
+      perAttendee: 0,
+    },
+    ...stats,
+  }
+}
+
+/** The weekly page of a week not reviewed yet, nothing dropped, unless `page` says otherwise. */
+export function weeklyPage(page: Partial<WeeklyPage> = {}): WeeklyPage {
+  return { stats: weeklyStats(), suggestions: null, exclusions: [], ...page }
+}
+
+/** Student 12, in class, nothing against them. */
+export function student(fields: Partial<Student> = {}): Student {
+  return {
+    id: 12,
+    ownerName: '王老师',
+    aiName: '小鱼',
+    email: 'owner@example.com',
+    aiId: 'ai-12',
+    status: 'active',
+    classId: 3,
+    className: '初中部晚班 3 班',
+    suspendedUntil: null,
+    registeredAt: '2026-10-20T12:00:00.000Z',
+    registrationIp: '203.0.113.7',
+    schoolRulesVersion: '2026-10-01',
+    lessonsAttended: 9,
+    lastAttendedAt: '2026-11-03T12:30:00.000Z',
+    ...fields,
+  }
+}
+
+export function studentMessage(id: number, fields: Partial<StudentMessage> = {}): StudentMessage {
+  return {
+    id,
+    kind: 'chat',
+    text: `第 ${id} 条消息`,
+    moderation: null,
+    matchedTerm: null,
+    delivered: true,
+    ip: '203.0.113.7',
+    pluginType: 'openclaw',
+    pluginVersion: '1.2.0',
+    createdAt: '2026-11-03T12:10:00.000Z',
+    sessionId: 40,
+    ...fields,
+  }
+}
+
+export function studentRecord(id: number, fields: Partial<StudentRecord> = {}): StudentRecord {
+  return {
+    id,
+    kind: 'school_rule',
+    at: '2026-11-03T12:20:00.000Z',
+    text: '想发言被老师批评违反校规了，我当时想说："示例"',
+    revoked: false,
+    revokedAt: null,
+    sessionId: 40,
+    matchedTerm: '示例违禁词',
+    by: null,
+    ...fields,
+  }
+}
+
+/** The three switches as a fresh school has them: the defaults, never switched. */
+export function switches(states: Partial<Record<SwitchState['name'], Partial<SwitchState>>> = {}): {
+  switches: SwitchState[]
+} {
+  const defaults: SwitchState[] = [
+    { name: 'teacherLlm', on: true, updatedAt: null },
+    { name: 'secondLayerTeacher', on: true, updatedAt: null },
+    { name: 'secondLayerChat', on: false, updatedAt: null },
+  ]
+  return { switches: defaults.map((state) => ({ ...state, ...states[state.name] })) }
 }

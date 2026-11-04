@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { dailyStats, dayNumbers, fail, fakeServer, ok, seriesDay, shiftDate, show, YESTERDAY } from '../test-api.js'
@@ -176,7 +176,7 @@ describe('the school data page', () => {
 
     const reminders = within(await screen.findByRole('region', { name: '要处理的事' }))
     expect(
-      reminders.getByText('现在没有要处理的事：开门前要审的课都审完了，没有生成失败的课，本月花费也没超预算。'),
+      reminders.getByText('现在没有要处理的事：开门前要审的课都审完了，没有一直生成不出来的课，本月花费也没超预算。'),
     ).toBeInTheDocument()
     expect(reminders.queryByRole('button')).not.toBeInTheDocument()
   })
@@ -280,5 +280,69 @@ describe('the school data page', () => {
     expect(rows[1]).toEqual(['11/3 周二', '¥1.50', '¥1.50', '¥0.10', '¥0.00', '¥0.0123', '¥0.00', '¥0.00', ''])
     expect(rows[2]?.[8]).toBe('14:00 老师用大模型：关')
     expect(cost.getByRole('button', { name: '用折线图看' })).toBeInTheDocument()
+  })
+
+  it('reads the doors times and the switch days on the school’s clock, the zone the answer names', async () => {
+    fakeServer({
+      'GET api/stats/daily?days=7': ok({
+        ...busyWeek(),
+        timeZone: 'Asia/Tokyo',
+        // 23:30 on 11-01 in UTC+8 is 00:30 on 11-02 in Tokyo.
+        switchChanges: [{ name: 'teacherLlm', on: false, at: '2026-11-01T15:30:00.000Z' }],
+        reminders: {
+          unreviewed: [{ date: '2026-11-05', division: 'primary', deadline: '2026-11-05T01:45:00.000Z' }],
+          generationFailed: [],
+        },
+      }),
+    })
+    const user = userEvent.setup()
+    show(<Data onGoReview={vi.fn()} />)
+
+    const reminders = within(await screen.findByRole('region', { name: '要处理的事' }))
+    expect(reminders.getByText('11 月 5 日（周四）10:45 开门：小学部')).toBeInTheDocument()
+    const students = within(screen.getByRole('figure', { name: '每天有多少学生来上课？' }))
+    students.getByRole('group', { name: /用左右方向键/ }).focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(students.getByRole('status')).toHaveTextContent('11 月 2 日（周一）')
+    expect(students.getByRole('status')).toHaveTextContent('00:30 老师用大模型：关')
+  })
+
+  it('keeps the day the keyboard picked when the pointer leaves the chart', async () => {
+    fakeServer({ 'GET api/stats/daily?days=7': ok(busyWeek()) })
+    const user = userEvent.setup()
+    show(<Data onGoReview={vi.fn()} />)
+
+    const students = within(await screen.findByRole('figure', { name: '每天有多少学生来上课？' }))
+    const plot = students.getByRole('group', { name: /用左右方向键/ })
+    plot.focus()
+    await user.keyboard('{ArrowLeft}')
+    const area = plot.querySelector('rect') as SVGRectElement
+    fireEvent.pointerMove(area, { clientX: 100 })
+    fireEvent.pointerLeave(area)
+
+    expect(students.getByRole('status')).toHaveTextContent('11 月 2 日（周一）')
+  })
+
+  it('keeps the readout in the page while it shows nothing, so the day read out later is announced', async () => {
+    fakeServer({ 'GET api/stats/daily?days=7': ok(busyWeek()) })
+    show(<Data onGoReview={vi.fn()} />)
+
+    const students = within(await screen.findByRole('figure', { name: '每天有多少学生来上课？' }))
+    const readout = students.getByRole('status')
+    expect(readout).toBeEmptyDOMElement()
+    // Hidden from sight only, never with display: none, which would take the live region out of the page.
+    expect(readout).toHaveClass('visually-hidden')
+  })
+
+  it('says it is reading another range, while the curves before stay', async () => {
+    fakeServer({ 'GET api/stats/daily?days=7': ok(busyWeek()), 'GET api/stats/daily?days=30': { pending: true } })
+    const user = userEvent.setup()
+    show(<Data onGoReview={vi.fn()} />)
+
+    await screen.findByRole('heading', { name: '最近 7 天' })
+    await user.click(screen.getByText('30 天'))
+
+    expect(await screen.findByText('正在读取最近 30 天的数据，下面先留着最近 7 天的。')).toBeInTheDocument()
+    expect(screen.getAllByRole('figure')).toHaveLength(4)
   })
 })

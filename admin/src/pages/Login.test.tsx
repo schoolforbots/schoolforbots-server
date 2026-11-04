@@ -1,12 +1,12 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { fail, fakeServer, ok, show } from '../test-api.js'
+import { fail, fakeServer, ok, SESSION, show } from '../test-api.js'
 import { Login } from './Login.js'
 
 describe('the login page', () => {
   it('logs in with Enter, sending the password and the code', async () => {
-    const server = fakeServer({ 'POST api/login': ok({ expiresAt: '2026-11-04T12:00:00.000Z' }) })
+    const server = fakeServer({ 'POST api/login': ok(SESSION) })
     const loggedIn = vi.fn()
     const user = userEvent.setup()
     show(<Login onLoggedIn={loggedIn} />)
@@ -15,10 +15,25 @@ describe('the login page', () => {
     await user.type(screen.getByLabelText('动态验证码'), '123456{Enter}')
 
     await vi.waitFor(() => expect(loggedIn).toHaveBeenCalledTimes(1))
+    expect(loggedIn).toHaveBeenCalledWith('Asia/Shanghai')
     expect(server.calls.map((call) => call.body)).toEqual([{ password: 'a long password', code: '123456' }])
   })
 
-  it('shows why a login was refused, and empties the code, which is good for one try only', async () => {
+  it('says it is logging in, in words, while the login is sent', async () => {
+    fakeServer({ 'POST api/login': { pending: true } })
+    const user = userEvent.setup()
+    show(<Login onLoggedIn={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('密码'), 'a long password')
+    await user.type(screen.getByLabelText('动态验证码'), '123456{Enter}')
+
+    const sending = await screen.findByRole('button', { name: '正在登录' })
+    expect(sending).toBeDisabled()
+    // No spinner: the words say it.
+    expect(sending.querySelector('.ant-btn-loading-icon')).toBeNull()
+  })
+
+  it('shows why a login was refused, and empties the code for the next one', async () => {
     fakeServer({ 'POST api/login': fail(401, 'admin_login_failed', '密码或验证码不对。') })
     const loggedIn = vi.fn()
     const user = userEvent.setup()
@@ -30,7 +45,8 @@ describe('the login page', () => {
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('密码或验证码不对。')
-    expect(alert).toHaveTextContent('每组验证码只能用一次')
+    // Only a login that succeeds uses a code up: the hint says so, and no more.
+    expect(alert).toHaveTextContent('每组验证码只能成功登录一次。刚用它登录过的话，等验证器换到下一组再试。')
     expect(screen.getByLabelText('动态验证码')).toHaveValue('')
     expect(screen.getByLabelText('密码')).toHaveValue('a wrong password')
     expect(loggedIn).not.toHaveBeenCalled()

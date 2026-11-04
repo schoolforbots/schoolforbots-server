@@ -55,6 +55,8 @@ export interface DailyStats {
   /** The days up to yesterday, oldest first. */
   series: SeriesDay[]
   switchChanges: { name: SwitchName; on: boolean; at: string }[]
+  /** The school's time zone: the clock the deadlines and the switch changes are read on. */
+  timeZone: string
 }
 
 export type StatsDays = 7 | 30 | 90
@@ -74,6 +76,8 @@ export interface QueueSlot {
 
 export interface LessonQueue {
   mode: 'api' | 'manual'
+  /** The school's calendar day today (`YYYY-MM-DD`): a topic can be given from the day after it. */
+  today: string
   callOns: { kind: 'review' | 'extension'; afterSegment: number }[]
   days: { date: string; divisions: QueueSlot[] }[]
 }
@@ -244,6 +248,9 @@ export class ApiError extends Error {
   }
 }
 
+/** What `response.json()` gives for a body that is not JSON. */
+const NOT_JSON = Symbol('not JSON')
+
 const sessionListeners = new Set<() => void>()
 
 /** Calls `listener` whenever a request finds the session gone (401). Returns the function that stops it. */
@@ -270,10 +277,11 @@ export async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, b
     throw new ApiError(0, 'network', '连不上服务器，检查网络后再试。')
   }
 
-  const answer: unknown = await response.json().catch(() => undefined)
-  if (response.ok) return answer as T
+  const answer: unknown = await response.json().catch(() => NOT_JSON)
+  // Every answer of the server is JSON; anything else (a proxy's page, say) is no answer at all.
+  if (response.ok && answer !== NOT_JSON) return answer as T
 
-  const error = (answer as { error?: { code?: unknown; message?: unknown } } | undefined)?.error
+  const error = answer === NOT_JSON ? undefined : (answer as { error?: { code?: unknown; message?: unknown } } | null)?.error
   if (typeof error?.code !== 'string' || typeof error.message !== 'string') {
     throw new ApiError(response.status, 'bad_response', `服务器没有正常回应（${response.status}），稍后再试。`)
   }
@@ -284,9 +292,14 @@ export async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, b
   throw new ApiError(response.status, error.code, error.message)
 }
 
-export const getSession = () => request<{ expiresAt: string }>('GET', 'api/session')
-export const login = (password: string, code: string) =>
-  request<{ expiresAt: string }>('POST', 'api/login', { password, code })
+/** A session, and the school's time zone: every time the pages show is on its clock. */
+export interface Session {
+  expiresAt: string
+  timeZone: string
+}
+
+export const getSession = () => request<Session>('GET', 'api/session')
+export const login = (password: string, code: string) => request<Session>('POST', 'api/login', { password, code })
 export const logout = () => request<{ ok: true }>('POST', 'api/logout', {})
 export const dailyStatsPath = (days: StatsDays) => `api/stats/daily?days=${days}`
 export const LESSON_QUEUE_PATH = 'api/lessons/queue'
@@ -337,3 +350,144 @@ export function useLoad<T>(path: string): Loaded<T> {
   }, [])
   return { data, error, loading, reload, set }
 }
+
+/** A rule of the word list: a word, or an anti-trick (phrase) rule. */
+export type RuleKind = 'word' | 'pattern'
+
+/** A student's line, as the weekly review shows it. */
+export interface ShownLine {
+  messageId: number
+  text: string
+  at: string
+}
+
+/** One week's numbers, Monday to Sunday, as `api/weekly` gives them. */
+export interface WeeklyStats {
+  weekStart: string
+  callOn: {
+    /** Answered over called, 0 to 1. */
+    rate: number
+    byDivision: Record<Division, { called: number; answered: number }>
+    byPlugin: { type: string; version: string; called: number; answered: number }[]
+  }
+  questions: { total: number; segmentsWithAnswer: number; segmentsWithout: number }
+  reconnects: { type: string; version: string; count: number }[]
+  lessons: { studyHallsForUnreviewed: number; edits: number; segmentRewrites: number; lessonRewrites: number }
+  teacher: { llmFailures: number; fallbacks: number; blockedLines: number; refusals: number }
+  moderation: {
+    /** Monday to Sunday. */
+    byDay: { date: string; sensitive: number; injection: number; privacy: number; secondLayer: number }[]
+    topRules: { rule: string; kind: RuleKind; count: number }[]
+    falsePositiveMarks: string[]
+    secondLayerChat: ShownLine[]
+  }
+  students: { newcomers: number; cameBackForSecond: number; dropped: number; suspended: number; expelled: number }
+  /** In yuan, to 4 decimal places. */
+  cost: { byPurpose: Record<LlmPurpose, number>; perAttendee: number }
+}
+
+export interface SuggestedRule {
+  kind: RuleKind
+  value: string
+  examples: ShownLine[]
+}
+
+export interface WeeklyPage {
+  stats: WeeklyStats
+  /** Null before the week is reviewed. An item is null when the model did not make it; `failures` says why. */
+  suggestions: {
+    removeRules: SuggestedRule[] | null
+    directions: string[] | null
+    failures: { removeRules: string | null; directions: string | null }
+  } | null
+  /** Every rule dropped so far, the latest first. */
+  exclusions: { kind: RuleKind; value: string; createdAt: string }[]
+}
+
+/** The week starting on Monday `weekStart`; without one, the last week that has ended. */
+export const weeklyPath = (weekStart?: string) =>
+  weekStart === undefined ? 'api/weekly' : `api/weekly?weekStart=${weekStart}`
+/** The Mondays of the weeks that have a review, newest first. */
+export const WEEKS_PATH = 'api/weekly/weeks'
+
+/** Drops a rule: how many school-rule breaks it took back, and the students whose penalty was lifted. */
+export const dropRule = (kind: RuleKind, value: string) =>
+  request<{ revoked: number; lifted: number[] }>('POST', 'api/exclusions', { kind, value })
+
+export type StudentStatus = 'pending' | 'waitlisted' | 'active' | 'suspended' | 'dropped' | 'expelled'
+
+/** A student as `api/students/:id` gives it; every action on the student answers with it too. */
+export interface Student {
+  id: number
+  ownerName: string
+  aiName: string
+  email: string
+  aiId: string
+  status: StudentStatus
+  classId: number | null
+  className: string | null
+  /** As stored: it may be past, until the nightly job clears it. */
+  suspendedUntil: string | null
+  registeredAt: string
+  registrationIp: string
+  schoolRulesVersion: string | null
+  lessonsAttended: number
+  lastAttendedAt: string | null
+}
+
+export type MessageKind = 'chat' | 'question' | 'answer' | 'closing'
+
+export interface StudentMessage {
+  id: number
+  kind: MessageKind
+  text: string
+  moderation: BlockCategory | 'second_layer' | null
+  matchedTerm: string | null
+  delivered: boolean
+  ip: string | null
+  pluginType: string
+  pluginVersion: string
+  createdAt: string
+  sessionId: number
+}
+
+/** A page of messages, newest first; `nextBefore` reads the page before it, null at the first message. */
+export interface StudentMessages {
+  messages: StudentMessage[]
+  nextBefore: number | null
+}
+
+export interface StudentRecord {
+  id: number
+  kind: string
+  at: string
+  /** What the owner reads for it. */
+  text: string
+  revoked: boolean
+  revokedAt: string | null
+  sessionId: number | null
+  matchedTerm: string | null
+  /** 'admin' for what was done by hand here, null for what the school did. */
+  by: 'admin' | null
+}
+
+export const studentPath = (id: number) => `api/students/${id}`
+export const messagesPath = (id: number, before: number | null) =>
+  before === null ? `${studentPath(id)}/messages` : `${studentPath(id)}/messages?before=${before}`
+export const recordsPath = (id: number) => `${studentPath(id)}/records`
+export const getStudent = (id: number) => request<Student>('GET', studentPath(id))
+export const getMessages = (id: number, before: number | null) =>
+  request<StudentMessages>('GET', messagesPath(id, before))
+export const suspend = (id: number, days: number) => request<Student>('POST', `${studentPath(id)}/suspend`, { days })
+export const withdraw = (id: number) => request<Student>('POST', `${studentPath(id)}/withdraw`)
+export const liftPenalty = (id: number) => request<Student>('POST', `${studentPath(id)}/lift`)
+
+export interface SwitchState {
+  name: SwitchName
+  on: boolean
+  /** When it was last switched; null while it holds the default of the config. */
+  updatedAt: string | null
+}
+
+export const SWITCHES_PATH = 'api/switches'
+export const setSwitch = (name: SwitchName, on: boolean) => request<SwitchState>('PUT', `api/switches/${name}`, { on })

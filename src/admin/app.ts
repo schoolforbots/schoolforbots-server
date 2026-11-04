@@ -181,7 +181,7 @@ function apiRoutes(deps: AdminDeps, adminPath: string): FastifyPluginAsync {
           await db.deleteFrom('adminSessions').where('expiresAt', '<=', now).execute()
           await db.insertInto('adminSessions').values({ tokenHash: hash, expiresAt, createdAt: now }).execute()
           reply.setCookie(SESSION_COOKIE, token, { ...cookieOptions, maxAge: SESSION_HOURS * 3600 })
-          return { expiresAt: expiresAt.toISOString() }
+          return { expiresAt: expiresAt.toISOString(), timeZone: deps.config.timezone }
         },
       )
     })
@@ -209,7 +209,11 @@ function apiRoutes(deps: AdminDeps, adminPath: string): FastifyPluginAsync {
         request.adminSession = { tokenHash, expiresAt: row.expiresAt }
       })
 
-      authed.get('/session', async (request) => ({ expiresAt: request.adminSession?.expiresAt.toISOString() }))
+      // The school's time zone comes with the session: the pages show every time, and pick every day, on its clock.
+      authed.get('/session', async (request) => ({
+        expiresAt: request.adminSession?.expiresAt.toISOString(),
+        timeZone: deps.config.timezone,
+      }))
       authed.post('/logout', async (request, reply) => {
         if (request.adminSession !== null) {
           await db.deleteFrom('adminSessions').where('tokenHash', '=', request.adminSession.tokenHash).execute()

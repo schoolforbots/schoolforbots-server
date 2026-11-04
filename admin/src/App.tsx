@@ -3,12 +3,14 @@ import { getSession, onSessionEnded, type ApiError } from './api.js'
 import { Failed, Loading } from './components/States.js'
 import { Layout, TopBar } from './Layout.js'
 import { Login } from './pages/Login.js'
+import { SchoolZone } from './zone.js'
 
 type Stage =
   | { name: 'checking' }
   | { name: 'failed'; reason: string }
   | { name: 'login'; notice?: string }
-  | { name: 'in' }
+  /** `zone`: the school's time zone, from the session. */
+  | { name: 'in'; zone: string }
 
 /** Asks the server whether the session is still good, then shows the login page or the admin pages. */
 export function App() {
@@ -17,7 +19,7 @@ export function App() {
   const check = useCallback(() => {
     setStage({ name: 'checking' })
     getSession().then(
-      () => setStage({ name: 'in' }),
+      (session) => setStage({ name: 'in', zone: session.timeZone }),
       (error: ApiError) =>
         setStage(error.status === 401 ? { name: 'login' } : { name: 'failed', reason: error.message }),
     )
@@ -57,8 +59,12 @@ export function App() {
         </>
       )
     case 'login':
-      return <Login notice={stage.notice} onLoggedIn={() => setStage({ name: 'in' })} />
+      return <Login notice={stage.notice} onLoggedIn={(zone) => setStage({ name: 'in', zone })} />
     case 'in':
-      return <Layout onLoggedOut={() => setStage({ name: 'login' })} />
+      return (
+        <SchoolZone value={stage.zone}>
+          <Layout onLoggedOut={() => setStage({ name: 'login' })} />
+        </SchoolZone>
+      )
   }
 }

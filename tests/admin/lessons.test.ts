@@ -102,6 +102,7 @@ interface QueueSlot {
 }
 interface Queue {
   mode: string
+  today: string
   callOns: unknown[]
   days: { date: string; divisions: QueueSlot[] }[]
 }
@@ -119,6 +120,14 @@ describe('the review queue', () => {
   const FAILED = '大模型暂时不可用（超时、网络出错或服务繁忙）'
   const empty = { flags: 0, lessonId: null, version: null, topic: null, generationFailed: null, locked: false }
   const slot = (division: Division, more: object) => ({ ...empty, division, label: LABELS[division], ...more })
+
+  test('names today as the school’s calendar has it, not the server’s clock', async () => {
+    // Half past midnight on Tuesday in the school, still Monday afternoon in UTC.
+    await start({ now: new Date('2026-11-03T00:30:00+08:00') })
+    const q = await queue()
+    expect(q.today).toBe(TUE)
+    expect(q.days[0]?.date).toBe(TUE)
+  })
 
   test('lists every lesson day from today to the horizon, the weekend left out, each division with its state', async () => {
     await start()

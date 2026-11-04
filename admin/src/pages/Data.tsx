@@ -14,27 +14,27 @@ import { Empty, Failed, Loading } from '../components/States.js'
 import {
   BLOCK_NAMES,
   clockTime,
+  count,
   dayName,
   DIVISION_NAMES,
   localDay,
+  preciseYuan,
   PURPOSE_NAMES,
   sentence,
   SLOT_NAMES,
   SWITCH_NAMES,
   weekdayOf,
+  yuan,
 } from '../labels.js'
 
 // The school data page: yesterday's numbers next to the same day a week before, what needs doing, and the daily
-// curves of the last 7, 30 or 90 days. Every number on it comes from `api/stats/daily`.
+// curves of the last 7, 30 or 90 days. Every number on it comes from `api/stats/daily`, and every time is read on the
+// school's clock, in the time zone the answer names.
 
 /** The categorical colours of the charts, in this order; the green and red of the pages never draw a line. */
 const LINE_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6']
 const RANGES: StatsDays[] = [7, 30, 90]
 
-const count = (value: number) => value.toLocaleString('zh-CN')
-const yuan = (value: number) => `¥${value.toFixed(2)}`
-/** Up to the 4 decimal places the series has, but at least fen. */
-const preciseYuan = (value: number) => `¥${value.toFixed(4).replace(/(\.\d\d[1-9]*)0+$/, '$1')}`
 const compactCount = (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact' }).format(value)
 const tickYuan = (value: number) => `¥${Number(value.toPrecision(6))}`
 
@@ -104,7 +104,8 @@ function Reminders({ stats, onGoReview }: { stats: DailyStats; onGoReview: () =>
 
   return (
     <section className="panel reminders" aria-label="要处理的事">
-      {nothing && <p>现在没有要处理的事：开门前要审的课都审完了，没有生成失败的课，本月花费也没超预算。</p>}
+      {/* Only failures that lasted into a new day are listed: a fresh one is still being retried. */}
+      {nothing && <p>现在没有要处理的事：开门前要审的课都审完了，没有一直生成不出来的课，本月花费也没超预算。</p>}
       {unreviewed.length > 0 && (
         <div className="reminder reminder-review">
           <div>
@@ -113,7 +114,7 @@ function Reminders({ stats, onGoReview }: { stats: DailyStats; onGoReview: () =>
               {[...days].map(([date, day]) => (
                 <li key={date}>
                   {dayName(date)}
-                  {clockTime(day.deadline)} 开门：{day.divisions.join('、')}
+                  {clockTime(day.deadline, stats.timeZone)} 开门：{day.divisions.join('、')}
                 </li>
               ))}
             </ul>
@@ -157,8 +158,8 @@ function Charts({ stats }: { stats: DailyStats }) {
   const days = series.length
   const dates = series.map((day) => day.date)
   const markers: Marker[] = stats.switchChanges.map((change) => ({
-    date: localDay(change.at),
-    text: `${clockTime(change.at)} ${SWITCH_NAMES[change.name]}：${change.on ? '开' : '关'}`,
+    date: localDay(change.at, stats.timeZone),
+    text: `${clockTime(change.at, stats.timeZone)} ${SWITCH_NAMES[change.name]}：${change.on ? '开' : '关'}`,
   }))
   const shared = { dates, markers }
 
@@ -223,10 +224,14 @@ export function Data({ onGoReview }: { onGoReview: () => void }) {
   const rangeId = useId()
 
   if (stats.data === undefined) {
-    return stats.error !== undefined ? (
-      <Failed what="学校数据" reason={stats.error.message} retry={stats.reload} />
-    ) : (
-      <Loading what="学校数据" />
+    return (
+      <div className="panel">
+        {stats.error !== undefined ? (
+          <Failed what="学校数据" reason={stats.error.message} retry={stats.reload} />
+        ) : (
+          <Loading what="学校数据" />
+        )}
+      </div>
     )
   }
 
@@ -250,12 +255,18 @@ export function Data({ onGoReview }: { onGoReview: () => void }) {
             onChange={setDays}
           />
         </div>
+        {stats.loading && (
+          <p className="range-loading" role="status">
+            正在读取最近 {days} 天的数据，下面先留着最近 {shown} 天的。
+          </p>
+        )}
         {stats.error !== undefined ? (
           <div className="panel">
             <Failed what={`最近 ${days} 天的数据`} reason={stats.error.message} retry={stats.reload} />
           </div>
         ) : (
-          // While another range is read, the curves of the last one stay, dimmed.
+          // While another range is read, the curves of the last one stay, their lines dimmed (the words keep their
+          // contrast).
           <div className={stats.loading ? 'stale' : undefined} aria-busy={stats.loading}>
             {blank(data.series) ? (
               <div className="panel">
