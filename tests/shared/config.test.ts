@@ -601,6 +601,7 @@ test('the example config has the model, lesson generation, switch and revocation
     models: { 'example-model': { inputYuanPerMillion: 1, outputYuanPerMillion: 2 } },
     contentRefusalMarkers: ['content refused'],
   })
+  for (const purpose of Object.values(c.llm.purposes)) expect(purpose).toEqual({ provider: 'main', model: 'example-model' })
   expect(c.llm).toMatchObject({ timeoutSeconds: 60, retries: 1, maxConcurrent: 16, monthlyBudgetYuan: 300 })
   expect(c.lessonGeneration).toMatchObject({
     mode: 'api',

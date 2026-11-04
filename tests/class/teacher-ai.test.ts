@@ -763,7 +763,7 @@ describe('the teacher answering in the class service', () => {
         lesson: { ...base.lesson, callOns: [{ kind: 'review', afterSegment: 3 }, { kind: 'extension', afterSegment: 4 }] },
       },
       model: ({ db, config, clock }) => {
-        const llm = createLlm({ db, config, clock, providers: { main: provider } })
+        const llm = createLlm({ db, config, clock, providers: { [config.llm.purposes.answer.provider]: provider } })
         const sw = switches({ secondLayerTeacher: false })
         return { llm, prompts, secondLayer: createSecondLayer({ config, llm, switches: sw, prompts }), switches: sw }
       },
