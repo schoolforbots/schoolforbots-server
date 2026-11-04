@@ -687,6 +687,23 @@ describe('the review page', () => {
     expect(await screen.findByText('这节课还没有生成。')).toBeInTheDocument()
     await user.keyboard('{ArrowUp}{ArrowUp}')
     expect(screen.getByRole('button', { name: '小学部 待审' })).toHaveFocus()
+    await user.keyboard('{End}')
+    expect(screen.getByRole('button', { name: '高中部 待生成' })).toHaveFocus()
+    await user.keyboard('{Home}')
+    expect(screen.getByRole('button', { name: '小学部 待审' })).toHaveFocus()
+  })
+
+  it('closes a reason box with Esc while nothing is being sent, and gives the focus back to its button', async () => {
+    fakeServer({ [QUEUE]: ok(oneLesson()), 'GET api/lessons/1': ok(lessonDetail()) })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    const second = within(await screen.findByRole('region', { name: '第 2 段' }))
+    await user.click(second.getByRole('button', { name: '重写这段' }))
+    await user.type(second.getByLabelText('重写的理由'), '太难懂了')
+    await user.keyboard('{Escape}')
+    expect(second.queryByLabelText('重写的理由')).not.toBeInTheDocument()
+    expect(second.getByRole('button', { name: '重写这段' })).toHaveFocus()
   })
 })
 
