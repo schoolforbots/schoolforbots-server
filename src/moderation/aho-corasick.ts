@@ -76,4 +76,22 @@ export class AhoCorasick {
     }
     return null
   }
+
+  /**
+   * Every word that occurs in `text`, each once, in the order of where it first ends; of words ending at the same
+   * position, the longer first. A word inside another one counts too.
+   */
+  findAll(text: string): string[] {
+    const found = new Set<string>()
+    let node = this.root
+    for (const ch of text) {
+      while (node !== this.root && !node.next.has(ch)) node = node.fail ?? this.root
+      node = node.next.get(ch) ?? this.root
+      // The words ending here are this node's and those of the nodes down its failure links, longest first.
+      for (let n = node; n !== this.root; n = n.fail ?? this.root) {
+        if (n.word !== null) found.add(n.word)
+      }
+    }
+    return [...found]
+  }
 }

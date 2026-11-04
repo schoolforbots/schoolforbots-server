@@ -211,7 +211,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
 
   /**
    * What a division does today, decided inside the transaction that opens the sessions. A lesson is checked again
-   * under the importer's lock: the importer may have turned it back into a draft since `planSession` read it, and a
+   * under the lesson store's lock: a change may have turned it back into a draft since `planSession` read it, and a
    * draft is never taught. The share lock on its row keeps it as it is until the sessions are written.
    */
   async function decide(

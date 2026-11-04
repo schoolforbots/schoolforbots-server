@@ -32,3 +32,14 @@ test('words are normalized at construction', () => {
 test('empty words never match', () => {
   expect(new AhoCorasick(['', ' ', '\u200b']).findFirst('anything')).toBeNull()
 })
+
+test('findAll returns every word that occurs, each once, in the order they end', () => {
+  expect(new AhoCorasick(['he', 'she', 'his', 'hers']).findAll('ushers')).toEqual(['she', 'he', 'hers'])
+  expect(new AhoCorasick(['abcd', 'bc']).findAll('abcd abcd')).toEqual(['bc', 'abcd'])
+  expect(new AhoCorasick(['静夜思', '夜']).findAll('静夜思，夜')).toEqual(['夜', '静夜思'])
+})
+
+test('findAll returns an empty list for no hit', () => {
+  expect(new AhoCorasick([]).findAll('anything')).toEqual([])
+  expect(new AhoCorasick(['xyz']).findAll('abc')).toEqual([])
+})

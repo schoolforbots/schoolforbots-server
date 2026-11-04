@@ -88,6 +88,7 @@ export async function startLiveModerator(
 
   return {
     check: (text) => rules.moderator.check(text),
+    checkAll: (text) => rules.moderator.checkAll(text),
     refresh,
     stop: () => clearInterval(timer),
   }

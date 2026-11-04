@@ -18,6 +18,12 @@ export const MEMBER_STATUSES = ['active', 'suspended'] as const
  */
 export type Json<T> = ColumnType<T, string, string>
 
+/**
+ * A jsonb column with a default, which an insert may leave out. (`Generated<Json<T>>` would read as the column type,
+ * not as `T`.)
+ */
+export type JsonWithDefault<T> = ColumnType<T, string | undefined, string>
+
 /** A date column, read and written as `YYYY-MM-DD` text (see `createDb`), the school-calendar day with no time zone. */
 export type DateText = string
 
@@ -142,9 +148,9 @@ export interface LessonsTable {
   /** The topic the lesson was asked to be about; null when none was set. */
   topic: string | null
   source: Generated<LessonSource>
-  flags: Generated<Json<LessonFlag[]>>
+  flags: JsonWithDefault<LessonFlag[]>
   /** The rules a reviewer marked as flagged wrongly. */
-  falsePositives: Generated<Json<string[]>>
+  falsePositives: JsonWithDefault<string[]>
   version: Generated<number>
   updatedAt: Date | null
 }
@@ -268,9 +274,12 @@ export interface CallOnQuestions {
   extension: string
 }
 
-/** A place in a lesson that fails the checks (a red mark): `index` is null for a part that has one place. */
+/**
+ * A place in a lesson that fails the checks (a red mark): `index` is the segment (0-based; its text and gist are one
+ * place), and null for a part that has one place (the title, a call-on question).
+ */
 export interface LessonFlag {
-  part: 'segment' | 'review' | 'extension'
+  part: 'title' | 'segment' | 'review' | 'extension'
   index: number | null
   rule: string
 }

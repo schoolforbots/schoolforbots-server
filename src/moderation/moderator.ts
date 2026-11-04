@@ -4,16 +4,16 @@ import { findPrivacyLeak } from './privacy.js'
 
 export type ModerationCategory = 'sensitive' | 'injection' | 'privacy'
 
-export type ModerationResult =
-  | { verdict: 'pass' }
-  | {
-      verdict: 'blocked'
-      category: ModerationCategory
-      /** What matched, in the normalized text: only for masking it, and never for a log. */
-      matched: string
-      /** The rule that hit: the word-list entry, or the phrase rule as its line reads; null for a privacy hit. */
-      rule: string | null
-    }
+/** One rule that hit. */
+export interface ModerationHit {
+  category: ModerationCategory
+  /** What matched, in the normalized text: only for masking it, and never for a log. */
+  matched: string
+  /** The rule that hit: the word-list entry, or the phrase rule as its line reads; null for a privacy hit. */
+  rule: string | null
+}
+
+export type ModerationResult = { verdict: 'pass' } | ({ verdict: 'blocked' } & ModerationHit)
 
 /** A phrase rule: its line in the data file, and the pattern compiled from it. */
 export interface InjectionPattern {
@@ -34,6 +34,12 @@ export interface ExcludedRules {
 
 export interface Moderator {
   check(text: string): ModerationResult
+  /**
+   * Every rule that hits, each once: the words in the order they end in the text, then the phrase rules in the order
+   * of the file, then a privacy leak (one at most: privacy hits name no rule). Empty when the text passes. For a
+   * reviewer who needs every hit, not only the first.
+   */
+  checkAll(text: string): ModerationHit[]
 }
 
 /**
@@ -75,6 +81,23 @@ export function createModerator(data: ModerationData, excluded?: ExcludedRules):
       if (leak !== null) return { verdict: 'blocked', category: 'privacy', matched: leak, rule: null }
 
       return { verdict: 'pass' }
+    },
+
+    checkAll(text) {
+      const squashed = normalizeForMatch(text)
+      const hits: ModerationHit[] = []
+      // Two entries that normalize alike are one hit, under the first one's name, as in `check`.
+      for (const word of blockedWords.findAll(squashed)) {
+        hits.push({ category: 'sensitive', matched: word, rule: entryOf.get(word) ?? word })
+      }
+      for (const pattern of patterns) {
+        pattern.re.lastIndex = 0
+        const hit = pattern.re.exec(squashed)
+        if (hit !== null) hits.push({ category: 'injection', matched: hit[0], rule: pattern.source })
+      }
+      const leak = findPrivacyLeak(normalizeForPrivacy(text))
+      if (leak !== null) hits.push({ category: 'privacy', matched: leak, rule: null })
+      return hits
     },
   }
 }

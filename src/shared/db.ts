@@ -107,8 +107,9 @@ export function slotLockKey(slot: Slot): string {
 }
 
 /**
- * The lock key for one day's lesson of a division: the importer takes it to write the lesson, and the class runtime
- * takes it to start teaching one, so a lesson is never turned back into a draft while a class begins it.
+ * The lock key for one day's lesson of a division: the lesson store takes it for every change to the lesson (an edit,
+ * an approval), and the class runtime takes it to start teaching one, so a lesson never changes while a class begins
+ * it.
  */
 export function lessonLockKey(date: string, division: Division): string {
   return `lesson:${date}:${division}`
