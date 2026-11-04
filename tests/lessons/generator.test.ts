@@ -251,6 +251,101 @@ describe('generateMissing', () => {
     expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls])).not.toContain('SECRET')
   })
 
+  test('makes a lesson again when the topic of its day is not the one it was made with, unless a class has begun it', async () => {
+    const { deps, provider } = make(school({ horizonDays: 1 }), () => ok(lessonReply('儿童节的故事')))
+    const at = (division: Division) => ({ date: THU, division })
+    // Each lesson is there; the topics are given behind the generator's back (an import, say).
+    const primary = await saveDraft(deps, at('primary'), content(), { source: 'import', change: 'generate' })
+    const junior = await saveDraft(deps, at('junior'), content(), { source: 'import', change: 'generate', topic: '旧题目' })
+    const senior = await saveDraft(deps, at('senior'), content(), { source: 'import', change: 'generate' })
+    await db
+      .insertInto('lessonTopics')
+      .values(DIVISIONS.map((division) => ({ date: THU, division, topic: '儿童节是怎么来的', createdAt: clock.now() })))
+      .execute()
+    await beginLesson(senior.lessonId, THU)
+
+    expect(await generateMissing(deps)).toEqual({ generated: 2, failed: 0, waitingManual: 0 })
+    expect(provider.calls).toHaveLength(2)
+    for (const { lessonId } of [primary, junior]) {
+      expect(await lessonOf(THU, lessonId === primary.lessonId ? 'primary' : 'junior')).toMatchObject({
+        id: lessonId,
+        subject: SPECIAL_SUBJECT,
+        topic: '儿童节是怎么来的',
+        version: 2,
+      })
+      expect((await versionRows(lessonId)).map((v) => v.change)).toEqual(['generate', 'topic'])
+    }
+    expect(await lessonOf(THU, 'senior')).toMatchObject({ subject: '科学', topic: null, version: 1 })
+    // They follow their topic now: the next run leaves them alone.
+    expect(await generateMissing(deps)).toEqual({ generated: 0, failed: 0, waitingManual: 0 })
+  })
+
+  test('a lesson whose topic was taken away is not made again', async () => {
+    const { deps, provider } = make(school({ horizonDays: 1 }))
+    for (const division of DIVISIONS) {
+      await saveDraft(deps, { date: THU, division }, content(), { source: 'api', change: 'generate', topic: '儿童节' })
+    }
+    expect(await generateMissing(deps)).toEqual({ generated: 0, failed: 0, waitingManual: 0 })
+    expect(provider.calls).toHaveLength(0)
+  })
+
+  test('drops the failures of days that have the lesson they need, and keeps the others', async () => {
+    // The model is down, in manual mode.
+    const { deps } = make(school({ mode: 'manual' }), () => new LlmUnavailable('down'))
+    const failed = (date: string, division: Division) => ({
+      date,
+      division,
+      attempts: 1,
+      firstFailedAt: clock.now(),
+      lastFailedAt: clock.now(),
+      lastError: '大模型暂时不可用（超时、网络出错或服务繁忙）',
+    })
+    // Thursday primary: a lesson came since (imported, say). Thursday junior: a lesson, but not with the topic given
+    // since. Tuesday junior: still missing, not due yet in manual mode. Last Monday senior: a lesson came, a day gone by.
+    await saveDraft(deps, { date: THU, division: 'primary' }, content(), { source: 'import', change: 'generate' })
+    await saveDraft(deps, { date: THU, division: 'junior' }, content(), { source: 'import', change: 'generate' })
+    await db.insertInto('lessonTopics').values({ date: THU, division: 'junior', topic: '儿童节', createdAt: clock.now() }).execute()
+    await insertLesson(db, { date: '2026-11-02', division: 'senior' })
+    await db
+      .insertInto('lessonGeneration')
+      .values([failed(THU, 'primary'), failed(THU, 'junior'), failed(TUE, 'junior'), failed('2026-11-02', 'senior')])
+      .execute()
+
+    // Thursday junior fails again, with the missing lessons due by Monday.
+    expect(await generateMissing(deps)).toEqual({ generated: 0, failed: 8, waitingManual: 6 })
+    const left = (await failures()).map((f) => `${f.date} ${f.division}`)
+    expect(left).toContain(`${THU} junior`)
+    expect(left).toContain(`${TUE} junior`)
+    expect(left).not.toContain(`${THU} primary`)
+    expect(left).not.toContain('2026-11-02 senior')
+  })
+
+  test('every lesson call has the lesson generation timeout, not the shorter one of the model', async () => {
+    const config = school({ timeoutSeconds: 180 })
+    expect(config.llm.timeoutSeconds).toBe(60)
+    // The reply each format asks for: a whole lesson, a call-on question or a segment.
+    const replyTo = (user: string) =>
+      user.includes('"callOnQuestions"')
+        ? lessonReply()
+        : user.includes('{"question"')
+          ? '{"question": "新题？"}'
+          : '{"text": "新", "gist": "新"}'
+    const { deps, provider } = make({ ...config, lessonGeneration: { ...config.lessonGeneration, horizonDays: 1 } }, (req) =>
+      ok(replyTo(req.user)),
+    )
+    await generateMissing(deps)
+    const lesson = await lessonOf(THU, 'junior')
+    const lessonId = lesson?.id ?? 0
+    await regenerate(deps, 'rewrite_segment', { lessonId, baseVersion: 1, segmentIndex: 0, reason: 'r' })
+    await regenerate(deps, 'rewrite_call_on', { lessonId, baseVersion: 2, callOn: 'review', reason: 'r' })
+    await regenerate(deps, 'rewrite_lesson', { lessonId, baseVersion: 3, reason: 'r' })
+    expect(provider.calls).toHaveLength(6)
+    for (const call of provider.calls) {
+      expect(call.req.timeoutMs).toBeGreaterThan(170_000)
+      expect(call.req.timeoutMs).toBeLessThanOrEqual(180_000)
+    }
+  })
+
   test('only one run at a time, and nothing is locked while the model writes', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => (release = resolve))
@@ -581,11 +676,12 @@ describe('regenerate', () => {
 })
 
 describe('setTopic', () => {
-  test('is refused for a weekend, a break, a day before the opening, a day gone by, and a blank topic', async () => {
+  test('is refused for a weekend, a break, a day before the opening, today, a day gone by, and a blank topic', async () => {
     const { deps } = make(school())
     // The example school has study halls at the weekend; still no lesson then.
     for (const [date, division, topic] of [
       [SAT, 'junior', '周末的题目'],
+      [TODAY, 'junior', '今天的题目'],
       ['2026-11-03', 'junior', '昨天的题目'],
       [THU, 'junior', '   '],
     ] as const) {
@@ -598,9 +694,9 @@ describe('setTopic', () => {
       expect(await rejection(setTopic(calendar, date, 'junior', '假期的题目')), date).toBeInstanceOf(TopicRefused)
     }
     expect(await topics()).toEqual([])
-    // Today is not gone by.
-    expect(await setTopic(deps, TODAY, 'junior', '今天的题目')).toBe('stored')
-    expect(await topics()).toEqual([{ date: TODAY, division: 'junior', topic: '今天的题目' }])
+    // Tomorrow is the first day a topic can be given for.
+    expect(await setTopic(deps, THU, 'junior', '明天的题目')).toBe('stored')
+    expect(await topics()).toEqual([{ date: THU, division: 'junior', topic: '明天的题目' }])
   })
 
   test('for a day without a lesson, stores the topic; the lesson made then is a topic lesson, opened as one', async () => {
@@ -624,12 +720,23 @@ describe('setTopic', () => {
     )
   })
 
-  test('in api mode, a lesson made already is made again with the topic and goes back to review', async () => {
-    const { deps, provider, log } = make(school(), () => ok(lessonReply('儿童节的故事')))
+  test('in api mode, a lesson made already goes back to review at once and is made again with the topic', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const { deps, provider, log } = make(school(), async () => {
+      await gate
+      return ok(lessonReply('儿童节的故事'))
+    })
     const { lessonId } = await saveDraft(deps, { date: THU, division: 'junior' }, content(), { source: 'api', change: 'generate' })
     await approve(deps, lessonId, 1)
 
     expect(await setTopic(deps, THU, 'junior', '儿童节是怎么来的')).toBe('regenerating')
+    // While the model writes, the replaced lesson is no longer approved, and a tab still showing it is stale.
+    expect(await lessonOf(THU, 'junior')).toMatchObject({ title: '光的折射', subject: '科学', version: 2, approvedAt: null })
+    expect(await versionRows(lessonId)).toHaveLength(1)
+    expect(await rejection(approve(deps, lessonId, 1))).toBeInstanceOf(StaleLessonVersion)
+
+    release()
     await vi.waitFor(
       () => expect(log.info).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'generated' }), expect.any(String)),
       { timeout: 5000 },
@@ -642,22 +749,44 @@ describe('setTopic', () => {
       subject: SPECIAL_SUBJECT,
       topic: '儿童节是怎么来的',
       source: 'api',
-      version: 2,
+      version: 3,
       approvedAt: null,
     })
-    expect(await versionRows(lessonId)).toMatchObject([{ version: 1, change: 'generate' }, { version: 2, change: 'topic' }])
+    expect(await versionRows(lessonId)).toMatchObject([{ version: 1, change: 'generate' }, { version: 3, change: 'topic' }])
   })
 
-  test('in api mode, a regeneration that fails is written to lesson_generation, and the lesson stays as it was', async () => {
-    const { deps, log } = make(school(), () => new LlmUnavailable('down'))
+  test('in api mode, a regeneration that fails is recorded, and the next run tries it again', async () => {
+    let failing = true
+    const { deps, log } = make(school({ horizonDays: 1 }), () =>
+      failing ? new LlmUnavailable('down') : ok(lessonReply('儿童节的故事')),
+    )
     const { lessonId } = await saveDraft(deps, { date: THU, division: 'junior' }, content(), { source: 'api', change: 'generate' })
+    await approve(deps, lessonId, 1)
     expect(await setTopic(deps, THU, 'junior', '儿童节是怎么来的')).toBe('regenerating')
     await vi.waitFor(
       () => expect(log.warn).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed' }), expect.any(String)),
       { timeout: 5000 },
     )
     expect(await failures()).toMatchObject([{ date: THU, division: 'junior', attempts: 1 }])
-    expect(await lessonOf(THU, 'junior')).toMatchObject({ id: lessonId, version: 1, subject: '科学' })
+    // The old content stays, but not approved: it is not taught while the new lesson is pending.
+    expect(await lessonOf(THU, 'junior')).toMatchObject({ id: lessonId, version: 2, subject: '科学', approvedAt: null })
+
+    // The next run fails again for it (and the two missing lessons of the day) ...
+    expect(await generateMissing(deps)).toEqual({ generated: 0, failed: 3, waitingManual: 0 })
+    expect((await failures()).find((f) => f.division === 'junior')).toMatchObject({ attempts: 2 })
+    // ... and the one after makes it, which clears its failure.
+    failing = false
+    expect(await generateMissing(deps)).toEqual({ generated: 3, failed: 0, waitingManual: 0 })
+    expect(await lessonOf(THU, 'junior')).toMatchObject({
+      id: lessonId,
+      title: '儿童节的故事',
+      subject: SPECIAL_SUBJECT,
+      topic: '儿童节是怎么来的',
+      version: 3,
+      approvedAt: null,
+    })
+    expect((await versionRows(lessonId)).map((v) => v.change)).toEqual(['generate', 'topic'])
+    expect(await failures()).toEqual([])
   })
 
   test('in manual mode, a lesson made already is taken back to waiting for one, its versions kept', async () => {
@@ -682,9 +811,9 @@ describe('setTopic', () => {
 
   test('a lesson a class has begun is refused with LessonLocked, and the topic is not stored', async () => {
     const { deps } = make(school())
-    const { lessonId } = await saveDraft(deps, { date: TODAY, division: 'junior' }, content(), { source: 'api', change: 'generate' })
-    await beginLesson(lessonId, TODAY)
-    expect(await rejection(setTopic(deps, TODAY, 'junior', '儿童节'))).toBeInstanceOf(LessonLocked)
+    const { lessonId } = await saveDraft(deps, { date: THU, division: 'junior' }, content(), { source: 'api', change: 'generate' })
+    await beginLesson(lessonId, THU)
+    expect(await rejection(setTopic(deps, THU, 'junior', '儿童节'))).toBeInstanceOf(LessonLocked)
     expect(await topics()).toEqual([])
   })
 

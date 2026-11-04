@@ -193,15 +193,20 @@ async function saveVersion(
   return { version, flags }
 }
 
-/** Throws `LessonLocked` when a class session teaches the lesson. A study hall on its day does not count. */
-export async function assertNotBegun(db: Kysely<Database>, lessonId: number): Promise<void> {
-  const begun = await db
+/** Whether a class has begun the lesson: a class session teaches it. A study hall on its day does not count. */
+export async function hasBegun(db: Kysely<Database>, lessonId: number): Promise<boolean> {
+  const session = await db
     .selectFrom('classSessions')
     .select('id')
     .where('lessonId', '=', lessonId)
     .limit(1)
     .executeTakeFirst()
-  if (begun !== undefined) throw new LessonLocked(lessonId)
+  return session !== undefined
+}
+
+/** Throws `LessonLocked` when a class has begun the lesson (see `hasBegun`). */
+export async function assertNotBegun(db: Kysely<Database>, lessonId: number): Promise<void> {
+  if (await hasBegun(db, lessonId)) throw new LessonLocked(lessonId)
 }
 
 /**

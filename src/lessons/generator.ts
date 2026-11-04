@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify'
 import { sql, type Kysely } from 'kysely'
 import type { Llm } from '../llm/client.js'
 import { extractJson, JsonNotFound } from '../llm/json.js'
-import { LlmContentRefused, LlmUnavailable } from '../llm/provider.js'
+import { LlmContentRefused, LlmUnavailable, type LlmResponse } from '../llm/provider.js'
 import { isLessonDay, lessonDaysAhead, schoolDaysUntil } from '../shared/calendar.js'
 import type { Division } from '../shared/config.js'
 import { lessonLockKey, lock } from '../shared/db.js'
@@ -24,6 +24,7 @@ import {
 import {
   assertNotBegun,
   contentOf,
+  hasBegun,
   LessonLocked,
   replaceContent,
   saveDraft,
@@ -83,6 +84,22 @@ const GENERATION_LOCK_KEY = 'lesson-generation'
 /** A whole lesson is long: more than the client's default room for a reply. */
 const LESSON_MAX_OUTPUT_TOKENS = 8000
 
+/**
+ * A lesson call, new or rewritten, with the lesson generation timeout; a whole lesson (`whole`) also gets room for
+ * its length.
+ */
+function callForLesson(
+  deps: GeneratorDeps,
+  prompt: { system: string; user: string },
+  whole: boolean,
+): Promise<LlmResponse> {
+  return deps.llm.call('lesson', prompt, {
+    json: true,
+    maxOutputTokens: whole ? LESSON_MAX_OUTPUT_TOKENS : undefined,
+    timeoutMs: deps.config.lessonGeneration.timeoutSeconds * 1000,
+  })
+}
+
 const errorName = (err: unknown): string => (err instanceof Error ? err.constructor.name : typeof err)
 
 const isExpectedFailure = (err: unknown): boolean =>
@@ -121,39 +138,83 @@ async function clearFailure(db: Kysely<Database>, date: string, division: Divisi
   await db.deleteFrom('lessonGeneration').where('date', '=', date).where('division', '=', division).execute()
 }
 
-async function hasLesson(db: Kysely<Database>, date: string, division: Division): Promise<boolean> {
-  const row = await db
+/**
+ * Drops the failures of the days that have the lesson they need now (see `needsLesson`), however they got it: pasted
+ * in, imported, or a topic taken away. A failure stays while its day still needs the lesson.
+ */
+async function dropSettledFailures(db: Kysely<Database>): Promise<void> {
+  await db
+    .deleteFrom('lessonGeneration')
+    .where((outer) =>
+      outer.exists(
+        outer
+          .selectFrom('lessons as l')
+          .select('l.id')
+          .whereRef('l.date', '=', 'lessonGeneration.date')
+          .whereRef('l.division', '=', 'lessonGeneration.division')
+          .where((eb) =>
+            eb.not(
+              eb.exists(
+                eb
+                  .selectFrom('lessonTopics as t')
+                  .select('t.topic')
+                  .whereRef('t.date', '=', 'l.date')
+                  .whereRef('t.division', '=', 'l.division')
+                  .whereRef('t.topic', 'is distinct from', 'l.topic'),
+              ),
+            ),
+          ),
+      ),
+    )
+    .execute()
+}
+
+/** A day and division as generation sees it: the lesson there is (with the topic it was made with) and the topic given. */
+interface SlotState {
+  lesson: { id: number; topic: string | null } | undefined
+  topic: string | null
+}
+
+async function slotState(db: Kysely<Database>, date: string, division: Division): Promise<SlotState> {
+  const lesson = await db
     .selectFrom('lessons')
-    .select('id')
+    .select(['id', 'topic'])
     .where('date', '=', date)
     .where('division', '=', division)
     .executeTakeFirst()
-  return row !== undefined
+  return { lesson, topic: await topicOf(db, date, division) }
 }
 
 /**
- * Has the model write the lesson of a day and division and stores it as a draft: a missing lesson (`generate`), or
- * one made again for a new topic (`topic`). A failure is written to `lesson_generation`; a lesson stored clears it.
- * Nothing is locked while the model writes, so the day may change meanwhile: what the model wrote is dropped when the
- * day's topic is no longer the one it wrote for, or, for a missing lesson, when one has been stored since (pasted in by
- * the reviewer, say). The next run makes a lesson that is still missing.
+ * Whether a day still needs its lesson made: it has none, or a topic was given for it that its lesson was not made
+ * with. A lesson made with a topic that was taken away since stays as it is.
+ */
+const needsLesson = (slot: SlotState): boolean =>
+  slot.lesson === undefined || (slot.topic !== null && slot.lesson.topic !== slot.topic)
+
+/**
+ * Has the model write the lesson of a day and division and stores it as a draft: a missing lesson (change
+ * `generate`), or one made again for the topic given since (`topic`). A failure is written to `lesson_generation`; a
+ * lesson stored clears it. Nothing is locked while the model writes, so the day may change meanwhile: what the model
+ * wrote is dropped when the day's topic is no longer the one it wrote for, or when the day no longer needs the lesson
+ * (one was pasted in, say). The next run makes a lesson the day still needs.
  */
 async function generateSlot(
   deps: GeneratorDeps,
   date: string,
   division: Division,
-  change: 'generate' | 'topic',
 ): Promise<'generated' | 'failed' | 'dropped'> {
-  const { db, config, llm, log } = deps
+  const { db, config, log } = deps
   try {
     const { prompt, subject, topic } = await newLessonPrompt(deps, date, division)
-    const reply = await llm.call('lesson', prompt, { json: true, maxOutputTokens: LESSON_MAX_OUTPUT_TOKENS })
+    const reply = await callForLesson(deps, prompt, true)
     const content = parseLessonContent(config, extractJson(reply.text), { subject })
-    const overtaken = change === 'generate' && (await hasLesson(db, date, division))
-    if (overtaken || (await topicOf(db, date, division)) !== topic) {
+    const now = await slotState(db, date, division)
+    if (now.topic !== topic || !needsLesson(now)) {
       log?.info({ date, division, outcome: 'dropped' }, 'lesson generation')
       return 'dropped'
     }
+    const change = now.lesson === undefined ? 'generate' : 'topic'
     await saveDraft(deps, { date, division }, content, { source: 'api', change, topic })
     await clearFailure(db, date, division)
     log?.info({ date, division, outcome: 'generated' }, 'lesson generation')
@@ -168,10 +229,11 @@ async function generateSlot(
 }
 
 /**
- * Makes the missing lessons of the lesson days ahead (`lessonDaysAhead`), every division, one after another. In
- * `manual` mode a missing lesson is left to be pasted in until it is `manualDeadlineSchoolDays` school days away or
- * less; then the model makes it. Lessons there already are left alone. Only one run goes at a time: a run that finds
- * another going does nothing.
+ * Makes the lessons the lesson days ahead (`lessonDaysAhead`) need, every division, one after another: the missing
+ * ones, and the ones made before a topic was given for their day (unless a class has begun them). In `manual` mode
+ * such a lesson is left to be pasted in until it is `manualDeadlineSchoolDays` school days away or less; then the
+ * model makes it. Every run retries what failed before, and drops the failures of days that have their lesson now.
+ * Only one run goes at a time: a run that finds another going does nothing.
  */
 export async function generateMissing(deps: GeneratorDeps): Promise<GenerationReport> {
   const report: GenerationReport = { generated: 0, failed: 0, waitingManual: 0 }
@@ -188,15 +250,19 @@ export async function generateMissing(deps: GeneratorDeps): Promise<GenerationRe
       const { config, clock, db } = deps
       const { mode, manualDeadlineSchoolDays } = config.lessonGeneration
       const today = localDate(clock.now(), config.timezone)
+      await dropSettledFailures(db)
       for (const date of lessonDaysAhead(today, config)) {
         for (const division of DIVISIONS) {
           // Read for each lesson in turn: one may have been pasted in while the model wrote the one before.
-          if (await hasLesson(db, date, division)) continue
+          const slot = await slotState(db, date, division)
+          if (!needsLesson(slot)) continue
+          // A lesson a class has begun does not change.
+          if (slot.lesson !== undefined && (await hasBegun(db, slot.lesson.id))) continue
           if (mode === 'manual' && schoolDaysUntil(today, date, config) > manualDeadlineSchoolDays) {
             report.waitingManual += 1
             continue
           }
-          const outcome = await generateSlot(deps, date, division, 'generate')
+          const outcome = await generateSlot(deps, date, division)
           if (outcome === 'generated') report.generated += 1
           else if (outcome === 'failed') report.failed += 1
         }
@@ -241,8 +307,7 @@ export async function regenerate(
   if (lesson.version !== target.baseVersion) throw new StaleLessonVersion(lesson.id)
   await assertNotBegun(deps.db, lesson.id)
   const prompt = await rewritePrompt(deps, kind, lesson, target)
-  const maxOutputTokens = kind === 'rewrite_lesson' ? LESSON_MAX_OUTPUT_TOKENS : undefined
-  const reply = await deps.llm.call('lesson', prompt, { json: true, maxOutputTokens })
+  const reply = await callForLesson(deps, prompt, kind === 'rewrite_lesson')
   const content = rewriteOf(deps, kind, contentOf(lesson), reply.text, target)
   const saved = await replaceContent(deps, lesson.id, target.baseVersion, content, {
     change: kind,
@@ -292,12 +357,13 @@ export async function acceptPasted(deps: GeneratorDeps, target: PastedTarget, pa
 }
 
 /**
- * Gives a lesson day a topic for one division, or takes it away (`null`; a lesson made with it stays as it is). A
- * topic is refused (`TopicRefused`) for a day gone by and a day without lessons. With no lesson yet, the topic waits
- * for the lesson to be made. A lesson already there, unless it has that topic, is made again with it: in `api` mode
- * by the model, in the background ('regenerating'; a failure is written to `lesson_generation`), in `manual` mode by
- * taking the lesson back to waiting for one to be pasted in (its versions are kept). Once a class has begun the
- * lesson, `LessonLocked`.
+ * Gives a lesson day after today a topic for one division, or takes it away (`null`; a lesson made with it stays as
+ * it is). A topic is refused (`TopicRefused`) for today, a day gone by and a day without lessons. With no lesson yet,
+ * the topic waits for the lesson to be made. A lesson already there, unless it has that topic, is made again with it:
+ * in `api` mode it goes back to review at once (approval cleared, version moved on, content kept until the new one
+ * comes) and the model makes it in the background ('regenerating'; a failure is written to `lesson_generation` and
+ * retried by `generateMissing`); in `manual` mode the lesson is taken back to waiting for one to be pasted in (its
+ * versions are kept). Once a class has begun the lesson, `LessonLocked`.
  */
 export async function setTopic(
   deps: GeneratorDeps,
@@ -312,7 +378,10 @@ export async function setTopic(
   }
   const text = topic.trim()
   if (text === '') throw new TopicRefused('题目不能为空')
-  if (date < localDate(clock.now(), config.timezone)) throw new TopicRefused(`${date} 已经过去了，不能再指定题目`)
+  // Today's lesson is not made again: generation looks at the days after today only.
+  const today = localDate(clock.now(), config.timezone)
+  if (date === today) throw new TopicRefused('今天的课已经定了，只能给明天以后的上学日指定题目')
+  if (date < today) throw new TopicRefused(`${date} 已经过去了，不能再指定题目`)
   if (!isLessonDay(date, config)) throw new TopicRefused(`${date} 不上课（周末、放假或还没开学），不能指定题目`)
 
   const outcome = await db.transaction().execute(async (trx) => {
@@ -338,12 +407,19 @@ export async function setTopic(
       await trx.deleteFrom('lessons').where('id', '=', lesson.id).execute()
       return 'stored' as const
     }
+    // Back to review now, so the lesson the topic replaces is never taught while the new one is being made, and a tab
+    // still showing it is stale. The content is not changed yet, so no version is kept.
+    await trx
+      .updateTable('lessons')
+      .set((eb) => ({ approvedAt: null, version: eb('version', '+', 1), updatedAt: now }))
+      .where('id', '=', lesson.id)
+      .execute()
     return 'regenerating' as const
   })
 
   if (outcome === 'regenerating') {
     // The model may take a minute; the caller does not wait for it. A failure is recorded by generateSlot itself.
-    void generateSlot(deps, date, division, 'topic').catch((err: unknown) =>
+    void generateSlot(deps, date, division).catch((err: unknown) =>
       deps.log?.error({ date, division, outcome: 'failed', err: errorName(err) }, 'lesson generation'),
     )
   }

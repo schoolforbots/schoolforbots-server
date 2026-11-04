@@ -147,6 +147,9 @@ export const SchoolConfigSchema = Type.Object({
     // A pasted lesson is due when this many school days are left before the class.
     manualDeadlineSchoolDays: PositiveInt,
     retryMinutes: PositiveInt,
+    // The time one lesson call may take, new or rewritten. A whole lesson is a long reply, so it gets longer than
+    // llm.timeoutSeconds.
+    timeoutSeconds: PositiveInt,
     // What a lesson should be like, one point per item; goes into the lesson prompt.
     direction: Type.Array(Type.String({ minLength: 1 })),
   }),
