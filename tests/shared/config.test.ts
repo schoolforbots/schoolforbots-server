@@ -224,6 +224,11 @@ test('every lesson.callOns afterSegment must leave a following segment to answer
     })
     expect(loadSchoolConfig(tmpPath).lesson.callOns, String(after)).toEqual([one(after)])
   }
+  // Two call-ons of the same kind would ask the lesson's one question of that kind twice.
+  const twice = writeTmpConfig((c) => {
+    c.lesson = { ...(c.lesson as object), callOns: [one(1), { kind: 'review', afterSegment: 3 }] }
+  })
+  expect(() => loadSchoolConfig(twice)).toThrow(/lesson\.callOns\.1\.kind: .*review/)
   // The second call-on is checked as well, with its own path.
   const second = writeTmpConfig((c) => {
     c.lesson = { ...(c.lesson as object), callOns: [one(1), { kind: 'extension', afterSegment: 5 }] }
