@@ -1,5 +1,6 @@
+import type { FastifyBaseLogger } from 'fastify'
 import { loadModerationData } from '../moderation/load.js'
-import { createModerator } from '../moderation/moderator.js'
+import { startLiveModerator } from '../moderation/rules.js'
 import { systemClock } from '../shared/clock.js'
 import { loadClassEnv, loadSchoolConfig } from '../shared/config.js'
 import { assertMigrationsUpToDate, createDb } from '../shared/db.js'
@@ -16,7 +17,17 @@ async function main(): Promise<void> {
   const db = createDb(env.databaseUrl, env.databaseTimeouts)
   await assertMigrationsUpToDate(db)
 
-  const moderator = createModerator(loadModerationData(env.moderationDataDir))
+  // The rules less the ones dropped in the admin, read again every few seconds. They log through the service's logger,
+  // made with them below: their first read comes before it (and a failure then stops the start), every later one after.
+  let logger: FastifyBaseLogger | undefined
+  const moderator = await startLiveModerator(
+    {
+      db,
+      data: loadModerationData(env.moderationDataDir),
+      log: { info: (obj, msg) => logger?.info(obj, msg), error: (obj, msg) => logger?.error(obj, msg) },
+    },
+    { refreshMs: config.switchRefreshSeconds * 1000 },
+  )
 
   const speed = env.classTimelineSpeed
   if (speed !== 1) {
@@ -33,6 +44,7 @@ async function main(): Promise<void> {
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
   })
   const { app } = service
+  logger = app.log
 
   // Read from the database, so a change made in the admin reaches this service within a few seconds. Nothing reads it
   // yet; the teacher and the second layer will be given it.
@@ -44,6 +56,7 @@ async function main(): Promise<void> {
   const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
     switches.stop()
+    moderator.stop()
     await ticker.stop() // waits for a tick still running
     service.disconnectAll() // and from now on nobody comes in
     await app.close()

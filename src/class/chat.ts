@@ -142,8 +142,9 @@ export async function writeLine(trx: Kysely<Database>, line: Line, blocked: Bloc
       recipientId: line.recipientId,
       text: line.text,
       moderation: blocked?.category ?? null,
-      // What a privacy rule matched is the number or address itself: it is not kept apart from the text.
-      matchedTerm: blocked === null || blocked.category === 'privacy' ? null : blocked.matched,
+      // The rule that hit, never what it matched: a privacy hit names no rule, so the number or address that matched is
+      // not kept apart from the text.
+      matchedTerm: blocked?.rule ?? null,
       delivered: blocked === null,
       ip: from.ip,
       pluginType: from.pluginType,
@@ -157,7 +158,7 @@ export async function writeLine(trx: Kysely<Database>, line: Line, blocked: Bloc
 
 /**
  * A line the moderator stopped: written undelivered, with the record it earns, in one transaction. A privacy hit is a
- * `privacy_block` every time; any other hit breaks the school rule, recorded once per lesson and naming what matched.
+ * `privacy_block` every time; any other hit breaks the school rule, recorded once per lesson and naming the rule.
  * Either quotes the line with any number or address masked: the moderator stops at its first hit, so a line stopped
  * for a banned word may still hold a phone number, and the quote reaches the owner's records and summaries.
  */
@@ -177,7 +178,7 @@ export async function recordBlocked(
       sessionId,
       kind: privacy ? 'privacy_block' : 'school_rule',
       detail: privacy ? { quote } : { category: blocked.category, quote },
-      matchedTerm: privacy ? null : blocked.matched,
+      matchedTerm: blocked.rule,
       at: line.at,
     })
   })

@@ -151,6 +151,76 @@ export async function namesOf(
 
 // ---- Penalties after class ----
 
+/** How many records of `kinds` the student has that were not revoked, from `days` days before `at` up to `at`. */
+async function countRecords(
+  trx: Kysely<Database>,
+  studentId: number,
+  kinds: DisciplineKind[],
+  days: number,
+  at: Date,
+): Promise<number> {
+  const { total } = await trx
+    .selectFrom('disciplineRecords')
+    .select((eb) => eb.fn.countAll().as('total'))
+    .where('studentId', '=', studentId)
+    .where('kind', 'in', kinds)
+    .where('revokedAt', 'is', null)
+    .where('createdAt', '>=', new Date(at.getTime() - days * DAY_MS))
+    .where('createdAt', '<=', at)
+    .executeTakeFirstOrThrow()
+  return Number(total)
+}
+
+/**
+ * The penalty the student's school-rule breaks call for at `at`: an expulsion when those of the `expulsion.windowDays`
+ * days up to `at` reach `expulsion.schoolRuleCount`, else a suspension when those of the `suspension.windowDays` days
+ * reach `suspension.schoolRuleCount`, else none. Revoked records never count. After class `at` is now; a revocation
+ * asks again at the time a penalty was given, to see whether it still stands.
+ */
+export async function schoolRulePenalty(
+  trx: Kysely<Database>,
+  discipline: SchoolConfig['discipline'],
+  studentId: number,
+  at: Date,
+): Promise<'expulsion' | 'suspension' | null> {
+  const { expulsion, suspension } = discipline
+  if ((await countRecords(trx, studentId, ['school_rule'], expulsion.windowDays, at)) >= expulsion.schoolRuleCount) {
+    return 'expulsion'
+  }
+  if ((await countRecords(trx, studentId, ['school_rule'], suspension.windowDays, at)) >= suspension.schoolRuleCount) {
+    return 'suspension'
+  }
+  return null
+}
+
+/** A student's row as the penalties work on it. */
+export interface LockedStudent {
+  id: number
+  email: string
+  aiId: string
+  status: StudentStatus
+  suspendedUntil: Date | null
+}
+
+/**
+ * Locks the students `ids` and every other student of their AI ids, in one statement in student-number order, so that
+ * two transactions that overlap take the rows in the same order; the rows are given by student number. `FOR NO KEY
+ * UPDATE` is enough, as a penalty changes no key: unlike `FOR UPDATE`, it does not wait for a message of the student
+ * still being written as class ends, whose foreign key holds `FOR KEY SHARE` on the row.
+ */
+export async function lockStudentsOfAiIds(trx: Kysely<Database>, ids: number[]): Promise<Map<number, LockedStudent>> {
+  if (ids.length === 0) return new Map()
+  const aiIds = await trx.selectFrom('students').select('aiId').distinct().where('id', 'in', ids).execute()
+  const locked = await trx
+    .selectFrom('students')
+    .select(['id', 'email', 'aiId', 'status', 'suspendedUntil'])
+    .where((eb) => eb.or([eb('id', 'in', ids), eb('aiId', 'in', aiIds.map((i) => i.aiId))]))
+    .orderBy('id')
+    .forNoKeyUpdate()
+    .execute()
+  return new Map(locked.map((s) => [s.id, s]))
+}
+
 export interface PenaltyReport {
   /** The students suspended after this lesson. */
   suspended: number[]
@@ -198,18 +268,6 @@ export async function applyPenalties(
     const since = (days: number) => new Date(now.getTime() - days * DAY_MS)
     const report: PenaltyReport = { suspended: [], expelled: [], parentNotices: [] }
 
-    const count = async (studentId: number, kinds: DisciplineKind[], days: number): Promise<number> => {
-      const { total } = await trx
-        .selectFrom('disciplineRecords')
-        .select((eb) => eb.fn.countAll().as('total'))
-        .where('studentId', '=', studentId)
-        .where('kind', 'in', kinds)
-        .where('revokedAt', 'is', null)
-        .where('createdAt', '>=', since(days))
-        .executeTakeFirstOrThrow()
-      return Number(total)
-    }
-
     // What each student broke in this lesson: only a school-rule break in it can bring a suspension or an expulsion,
     // only a class-rule break in it a parent notice. Class rules never add up into a suspension.
     const offences = await trx
@@ -228,21 +286,9 @@ export async function applyPenalties(
 
     if (involved.size === 0) return report
 
-    // The offenders and every other student of their AI ids are locked first, in one statement in student-number
-    // order, so two runs that overlap take the rows in the same order. They are then worked on from these rows, which
-    // are kept up to date as the penalties are written. `FOR NO KEY UPDATE` is enough, as the penalties change no key:
-    // unlike `FOR UPDATE`, it does not wait for a message of the student still being written as class ends, whose
-    // foreign key holds `FOR KEY SHARE` on the row.
-    const offenderIds = [...involved.keys()]
-    const aiIds = await trx.selectFrom('students').select('aiId').distinct().where('id', 'in', offenderIds).execute()
-    const locked = await trx
-      .selectFrom('students')
-      .select(['id', 'email', 'aiId', 'status'])
-      .where((eb) => eb.or([eb('id', 'in', offenderIds), eb('aiId', 'in', aiIds.map((i) => i.aiId))]))
-      .orderBy('id')
-      .forNoKeyUpdate()
-      .execute()
-    const students = new Map(locked.map((s) => [s.id, s]))
+    // The offenders and every other student of their AI ids are locked first (see `lockStudentsOfAiIds`). They are
+    // then worked on from these rows, which are kept up to date as the penalties are written.
+    const students = await lockStudentsOfAiIds(trx, [...involved.keys()])
     const isMember = (status: StudentStatus) => (MEMBER_STATUSES as readonly StudentStatus[]).includes(status)
     const note = (list: number[], id: number) => {
       if (!list.includes(id)) list.push(id)
@@ -269,7 +315,8 @@ export async function applyPenalties(
         .limit(1)
         .executeTakeFirst()
       if (kinds.has('school_rule') && punished === undefined) {
-        if ((await count(studentId, ['school_rule'], expulsion.windowDays)) >= expulsion.schoolRuleCount) {
+        const due = await schoolRulePenalty(trx, config.discipline, studentId, now)
+        if (due === 'expulsion') {
           const until = new Date(now.getTime() + expulsion.banDays * DAY_MS)
           await trx
             .updateTable('students')
@@ -295,7 +342,7 @@ export async function applyPenalties(
             detail: { until: until.toISOString(), alsoApplied },
             at: now,
           })
-        } else if ((await count(studentId, ['school_rule'], suspension.windowDays)) >= suspension.schoolRuleCount) {
+        } else if (due === 'suspension') {
           const until = new Date(now.getTime() + suspension.days * DAY_MS)
           // A student who is not in a class (withdrawn, or back in the queue) is not let into one by a suspension: they
           // go back to dropped, and `suspendedUntil` is what keeps them from re-enrolling until it is over.
@@ -329,7 +376,7 @@ export async function applyPenalties(
       }
 
       if (!kinds.has('initiations') && !kinds.has('rounds')) continue
-      const classRules = await count(studentId, ['initiations', 'rounds'], parentNotice.windowDays)
+      const classRules = await countRecords(trx, studentId, ['initiations', 'rounds'], parentNotice.windowDays, now)
       if (classRules >= parentNotice.classRuleCount) {
         const notified = await trx
           .selectFrom('disciplineRecords')

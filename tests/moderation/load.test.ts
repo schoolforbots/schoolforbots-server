@@ -24,10 +24,11 @@ test('parseWordList skips blank and comment lines and trims', () => {
   expect(parseWordList('')).toEqual([])
 })
 
-test('parseInjectionPatterns compiles with the iu flags', () => {
-  const [re] = parseInjectionPatterns('# 注释\n\nignore(all)?previous\n')
-  expect(re?.flags).toBe('iu')
-  expect(re?.test('IGNOREALLPREVIOUS')).toBe(true)
+test('parseInjectionPatterns compiles with the iu flags, and keeps each line as the rule reads', () => {
+  const [pattern] = parseInjectionPatterns('# 注释\n\n  ignore(all)?previous \n')
+  expect(pattern?.source).toBe('ignore(all)?previous')
+  expect(pattern?.re.flags).toBe('iu')
+  expect(pattern?.re.test('IGNOREALLPREVIOUS')).toBe(true)
 })
 
 test('parseInjectionPatterns reports the file line number of a bad pattern', () => {
