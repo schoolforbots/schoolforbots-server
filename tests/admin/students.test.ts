@@ -300,6 +300,56 @@ test('a rule dropped as a false hit does not take back a penalty the admin gave'
   expect(suspension.revokedAt).toBeNull()
 })
 
+/** A student with one break in today's lesson; `close` applies the penalties after it, one break earning a suspension. */
+async function oneBreak() {
+  const s = await activeStudent()
+  const sessionId = await insertSession(t.db, { classId: s.classId, date: '2026-11-04', startsAt: NOW, endsAt: new Date(NOW.getTime() + 1800_000) })
+  await disciplineRecorder.record(t.db, { studentId: s.id, sessionId, kind: 'school_rule', detail: { category: 'sensitive', quote: '原话' }, matchedTerm: WORD, at: NOW })
+  const discipline = { ...t.config.discipline, suspension: { ...t.config.discipline.suspension, schoolRuleCount: 1 } }
+  const close = () => applyPenalties(t.db, { ...t.config, discipline }, t.clock, { sessionId, classId: s.classId } as unknown as ActiveSession)
+  return { ...s, close }
+}
+
+const suspensions = (studentId: number) =>
+  t.db.selectFrom('disciplineRecords').select(['detail', 'revokedAt']).where('studentId', '=', studentId).where('kind', '=', 'suspension').orderBy('id').execute()
+
+test('an automatic suspension after a longer one by hand keeps the longer date, and dropping its rule does not free the student', async () => {
+  const s = await oneBreak()
+  // Suspended by hand during the lesson, then automatically as it closes.
+  await post(`api/students/${s.id}/suspend`, { days: 30 })
+  await s.close()
+  const byHand = new Date(NOW.getTime() + 30 * DAY)
+  expect(await row(s.id)).toMatchObject({ status: 'suspended', suspendedUntil: byHand })
+  expect((await suspensions(s.id)).map((r) => r.detail.by ?? 'auto')).toEqual(['admin', 'auto'])
+
+  const out = await excludeRule({ db: t.db, config: t.config, clock: t.clock }, 'word', WORD)
+  expect(out).toEqual({ revoked: 1, lifted: [] })
+  expect(await row(s.id)).toMatchObject({ status: 'suspended', suspendedUntil: byHand })
+  // The automatic one is no longer earned: its record is revoked; the one by hand stands.
+  expect((await suspensions(s.id)).map((r) => r.revokedAt)).toEqual([null, NOW])
+})
+
+test('a shorter suspension by hand does not cut an automatic one short, and is what is left once that one is lifted', async () => {
+  const s = await oneBreak()
+  await s.close()
+  await post(`api/students/${s.id}/suspend`, { days: 1 })
+  const automatic = new Date(NOW.getTime() + t.config.discipline.suspension.days * DAY)
+  expect(await row(s.id)).toMatchObject({ status: 'suspended', suspendedUntil: automatic })
+
+  const out = await excludeRule({ db: t.db, config: t.config, clock: t.clock }, 'word', WORD)
+  expect(out).toEqual({ revoked: 1, lifted: [s.id] })
+  expect(await row(s.id)).toMatchObject({ status: 'suspended', suspendedUntil: new Date(NOW.getTime() + DAY) })
+})
+
+test('lifting by hand takes off every suspension still running, not only the longest', async () => {
+  const s = await oneBreak()
+  await s.close()
+  await post(`api/students/${s.id}/suspend`, { days: 30 })
+  const res = await post(`api/students/${s.id}/lift`)
+  expect(res.json()).toMatchObject({ status: 'active', suspendedUntil: null })
+  expect((await suspensions(s.id)).map((r) => r.revokedAt)).toEqual([NOW, NOW])
+})
+
 test('the log names the student number and the action, nothing else', async () => {
   const { id } = await activeStudent({ ownerName: '小明', aiName: '豆豆', email: 'secret-owner@example.com' })
   await post(`api/students/${id}/suspend`, { days: 2 })

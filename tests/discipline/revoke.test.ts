@@ -266,12 +266,15 @@ describe('excludeRule', () => {
   test('an expulsion lifted while the breaks left still earn a suspension leaves the student dropped, not suspended', async () => {
     const classId = await newClass()
     const a = await newStudent(classId)
-    await lessons(classId, 6, (day) => [[a, day < 3 ? OTHER_WORD : WORD]])
+    const all = await lessons(classId, 6, (day) => [[a, day < 3 ? OTHER_WORD : WORD]])
     expect(await studentRow(a.id)).toMatchObject({ status: 'expelled' })
 
     expect(await exclude('word', WORD)).toEqual({ revoked: 3, lifted: [a.id] })
 
-    expect(await studentRow(a.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: null })
+    // The suspensions of the fourth and fifth lessons are still earned (by the three breaks left) and still run: the
+    // later one keeps the student from re-enrolling until it ends.
+    const until = new Date(all[4]!.closeAt.getTime() + 3 * DAY)
+    expect(await studentRow(a.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: until })
     expect(await breaks(a.id)).toBe(3)
     expect(await bans()).toEqual([])
   })

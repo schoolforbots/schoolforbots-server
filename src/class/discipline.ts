@@ -1,4 +1,4 @@
-import { sql, type Kysely, type SqlBool } from 'kysely'
+import { sql, type ExpressionBuilder, type Kysely, type SqlBool } from 'kysely'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { lock, MEMBER_STATUSES } from '../shared/db.js'
@@ -225,28 +225,33 @@ export async function lockStudentsOfAiIds(trx: Kysely<Database>, ids: number[]):
  * Suspends the students (an offender's AI id, none expelled) until `until`, updating the rows too. A student in a class
  * is suspended in it; one who is not (withdrawn, or back in the queue) is not let into a class by a suspension: they go
  * back to dropped, and `suspendedUntil` is what keeps them from re-enrolling until it is over. The automatic
- * suspension and the admin's by hand both land this way.
+ * suspension and the admin's by hand both land this way. A suspension that runs longer already stays: the new one
+ * never cuts it short.
  */
 export async function suspendAiStudents(trx: Kysely<Database>, students: LockedStudent[], until: Date): Promise<void> {
   const members = students.filter((s) => (MEMBER_STATUSES as readonly StudentStatus[]).includes(s.status))
   const others = students.filter((s) => !members.includes(s))
+  const later = (eb: ExpressionBuilder<Database, 'students'>) =>
+    eb.fn<Date>('greatest', [eb.fn.coalesce('suspendedUntil', eb.val(until)), eb.val(until)])
   if (members.length > 0) {
     await trx
       .updateTable('students')
-      .set({ status: 'suspended', suspendedUntil: until })
+      .set((eb) => ({ status: 'suspended', suspendedUntil: later(eb) }))
       .where('id', 'in', members.map((s) => s.id))
       .execute()
   }
   if (others.length > 0) {
     await trx
       .updateTable('students')
-      .set({ status: 'dropped', classId: null, suspendedUntil: until })
+      .set((eb) => ({ status: 'dropped', classId: null, suspendedUntil: later(eb) }))
       .where('id', 'in', others.map((s) => s.id))
       .execute()
   }
   for (const s of members) s.status = 'suspended'
   for (const s of others) s.status = 'dropped'
-  for (const s of students) s.suspendedUntil = until
+  for (const s of students) {
+    if (s.suspendedUntil === null || s.suspendedUntil.getTime() < until.getTime()) s.suspendedUntil = until
+  }
 }
 
 export interface PenaltyReport {
