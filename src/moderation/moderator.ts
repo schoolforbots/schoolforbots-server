@@ -6,20 +6,52 @@ export type ModerationCategory = 'sensitive' | 'injection' | 'privacy'
 
 export type ModerationResult =
   | { verdict: 'pass' }
-  | { verdict: 'blocked'; category: ModerationCategory; matched: string }
+  | {
+      verdict: 'blocked'
+      category: ModerationCategory
+      /** What matched, in the normalized text: only for masking it, and never for a log. */
+      matched: string
+      /** The rule that hit: the word-list entry, or the phrase rule as its line reads; null for a privacy hit. */
+      rule: string | null
+    }
+
+/** A phrase rule: its line in the data file, and the pattern compiled from it. */
+export interface InjectionPattern {
+  source: string
+  re: RegExp
+}
 
 export interface ModerationData {
   blockedWords: string[]
-  injectionPatterns: RegExp[]
+  injectionPatterns: InjectionPattern[]
+}
+
+/** The rules an operator has dropped, by their exact text: word-list entries and phrase-rule lines. */
+export interface ExcludedRules {
+  words: Set<string>
+  patterns: Set<string>
 }
 
 export interface Moderator {
   check(text: string): ModerationResult
 }
 
-/** Checks sensitive words, then injection phrases, then privacy leaks; the first hit wins. */
-export function createModerator(data: ModerationData): Moderator {
-  const blockedWords = new AhoCorasick(data.blockedWords)
+/**
+ * Checks sensitive words, then injection phrases, then privacy leaks; the first hit wins. The rules in `excluded` are
+ * left out, as if the data files did not have them.
+ */
+export function createModerator(data: ModerationData, excluded?: ExcludedRules): Moderator {
+  const words = data.blockedWords.filter((w) => !excluded?.words.has(w))
+  const patterns = data.injectionPatterns.filter((p) => !excluded?.patterns.has(p.source))
+  const blockedWords = new AhoCorasick(words)
+  // The search finds a word in its normalized form; the rule is the entry as the list has it. Of two entries that
+  // normalize alike, the first names the hit.
+  const entryOf = new Map<string, string>()
+  for (const word of words) {
+    const normalized = normalizeForMatch(word)
+    if (!entryOf.has(normalized)) entryOf.set(normalized, word)
+  }
+
   return {
     check(text) {
       // Sensitive words and injection phrases are matched with whitespace and
@@ -27,18 +59,20 @@ export function createModerator(data: ModerationData): Moderator {
       const squashed = normalizeForMatch(text)
 
       const word = blockedWords.findFirst(squashed)
-      if (word !== null) return { verdict: 'blocked', category: 'sensitive', matched: word }
+      if (word !== null) {
+        return { verdict: 'blocked', category: 'sensitive', matched: word, rule: entryOf.get(word) ?? word }
+      }
 
-      for (const pattern of data.injectionPatterns) {
-        pattern.lastIndex = 0 // a /g or /y pattern would otherwise carry state between calls
-        const hit = pattern.exec(squashed)
-        if (hit !== null) return { verdict: 'blocked', category: 'injection', matched: hit[0] }
+      for (const pattern of patterns) {
+        pattern.re.lastIndex = 0 // a /g or /y pattern would otherwise carry state between calls
+        const hit = pattern.re.exec(squashed)
+        if (hit !== null) return { verdict: 'blocked', category: 'injection', matched: hit[0], rule: pattern.source }
       }
 
       // Privacy rules also lose the format characters but keep whitespace and
       // newlines: a pasted chat log is judged line by line.
       const leak = findPrivacyLeak(normalizeForPrivacy(text))
-      if (leak !== null) return { verdict: 'blocked', category: 'privacy', matched: leak }
+      if (leak !== null) return { verdict: 'blocked', category: 'privacy', matched: leak, rule: null }
 
       return { verdict: 'pass' }
     },

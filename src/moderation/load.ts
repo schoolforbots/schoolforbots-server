@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ModerationData } from './moderator.js'
+import type { InjectionPattern, ModerationData } from './moderator.js'
 
 /** Non-blank, non-comment lines (trimmed) with their 1-based line numbers. */
 function dataLines(text: string): { line: number; value: string }[] {
@@ -19,7 +19,8 @@ export function parseWordList(text: string): string[] {
   return dataLines(text).map((l) => l.value)
 }
 
-export function parseInjectionPatterns(text: string): RegExp[] {
+/** The phrase rules, each with its line as the rule's name (trimmed, as written) and the pattern compiled from it. */
+export function parseInjectionPatterns(text: string): InjectionPattern[] {
   return dataLines(text).map(({ line, value }) => {
     let re: RegExp
     try {
@@ -30,7 +31,7 @@ export function parseInjectionPatterns(text: string): RegExp[] {
     }
     // A pattern that matches the empty string matches every text (a stray trailing | is enough), so it would block everything.
     if (re.test('')) throw new Error(`injection-patterns 第 ${line} 行的正则能匹配空字符串，会拦下所有内容：${value}`)
-    return re
+    return { source: value, re }
   })
 }
 

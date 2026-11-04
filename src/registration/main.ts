@@ -1,5 +1,6 @@
+import type { FastifyBaseLogger } from 'fastify'
 import { loadModerationData } from '../moderation/load.js'
-import { createModerator } from '../moderation/moderator.js'
+import { startLiveModerator } from '../moderation/rules.js'
 import { systemClock } from '../shared/clock.js'
 import { loadEnv, loadSchoolConfig } from '../shared/config.js'
 import { createDb, migrateToLatest } from '../shared/db.js'
@@ -19,7 +20,17 @@ async function main(): Promise<void> {
   const db = createDb(env.databaseUrl, env.databaseTimeouts)
   await migrateToLatest(db)
 
-  const moderator = createModerator(loadModerationData(env.moderationDataDir))
+  // The rules less the ones dropped in the admin, read again every few seconds. They log through the app's logger,
+  // made with them below: their first read comes before it (and a failure then stops the start), every later one after.
+  let logger: FastifyBaseLogger | undefined
+  const moderator = await startLiveModerator(
+    {
+      db,
+      data: loadModerationData(env.moderationDataDir),
+      log: { info: (obj, msg) => logger?.info(obj, msg), error: (obj, msg) => logger?.error(obj, msg) },
+    },
+    { refreshMs: config.switchRefreshSeconds * 1000 },
+  )
 
   let mailer: Mailer
   if (env.mail.transport === 'smtp') {
@@ -39,6 +50,7 @@ async function main(): Promise<void> {
     trustProxy: env.trustProxy,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
   })
+  logger = app.log
 
   // Read from the database, so a change made in the admin reaches this service within a few seconds. Nothing reads it
   // yet; the admin will be given it.
@@ -68,6 +80,7 @@ async function main(): Promise<void> {
     app.log.info({ signal }, 'shutting down')
     dailyJob.stop()
     switches.stop()
+    moderator.stop()
     await app.close() // waits for requests and key-reset mails still in flight
     await db.destroy()
   })
