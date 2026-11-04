@@ -93,3 +93,22 @@ export function fillPrompt(t: PromptTemplate, vars: Record<string, string>): { s
     })
   return { system: fill(t.system), user: fill(t.user) }
 }
+
+const OPENERS = '[{<〔【「『《〈［｛＜﹝〖〘〚⟦⟨'
+const CLOSERS = ']}>〕】」』》〉］｝＞﹞〗〙〛⟧⟩'
+
+/**
+ * Makes one student-written value safe to place inside a delimited data block of a prompt. Callers apply it to each
+ * student value (a question, an answer, a blocked message, a reason) before building `{{questions}}`, `{{answer}}`,
+ * `{{items}}`, `{{reasons}}` or `{{groups}}`, so the value cannot close the block or start a forged numbered entry.
+ *
+ * Every bracket form (ASCII, full-width, CJK corner and angle brackets) becomes a full-width parenthesis, which
+ * templates must not use as a delimiter, so this works whatever delimiter characters a real prompt picks. All line
+ * breaks and runs of whitespace become a single space. `maxChars`, when given, cuts the result by code points.
+ */
+export function neutralizeStudentText(s: string, maxChars?: number): string {
+  let out = ''
+  for (const ch of s) out += OPENERS.includes(ch) || ch === '(' ? '（' : CLOSERS.includes(ch) || ch === ')' ? '）' : ch
+  out = out.replace(/\s+/gu, ' ').trim()
+  return maxChars === undefined ? out : [...out].slice(0, maxChars).join('')
+}
