@@ -31,7 +31,10 @@
     "segmentMinutes": [5, 10, 15, 20, 25],
     "dismissalMinute": 30,
     "closingGraceSeconds": 60,
-    "callOnAfterSegment": 3,
+    "callOns": [
+      { "kind": "review", "afterSegment": 2 },
+      { "kind": "extension", "afterSegment": 4 }
+    ],
     "maxQuestionsPerLesson": 3,
     "weekendStudy": true
   },
@@ -53,6 +56,46 @@
     "expulsion": { "schoolRuleCount": 6, "windowDays": 30, "banDays": 30 }
   },
   "messageRetentionDays": 183,
+  "llm": {
+    "providers": {
+      "main": {
+        "kind": "openai-compatible",
+        "baseUrl": "https://llm.example.com/v1",
+        "apiKeyEnv": "LLM_API_KEY",
+        "models": { "example-model": { "inputYuanPerMillion": 1, "outputYuanPerMillion": 2 } },
+        "contentRefusalMarkers": ["content refused"]
+      }
+    },
+    "purposes": {
+      "lesson": { "provider": "main", "model": "example-model" },
+      "answer": { "provider": "main", "model": "example-model" },
+      "comment": { "provider": "main", "model": "example-model" },
+      "weekly": { "provider": "main", "model": "example-model" },
+      "secondLayerTeacher": { "provider": "main", "model": "example-model" },
+      "secondLayerChat": { "provider": "main", "model": "example-model" },
+      "wordList": { "provider": "main", "model": "example-model" }
+    },
+    "timeoutSeconds": 60,
+    "retries": 1,
+    "maxConcurrent": 16,
+    "monthlyBudgetYuan": 300
+  },
+  "lessonGeneration": {
+    "mode": "api",
+    "horizonDays": 7,
+    "manualDeadlineSchoolDays": 3,
+    "retryMinutes": 60,
+    "direction": [
+      "有趣",
+      "正面积极向上",
+      "适当插入跟课程有关的笑话，活跃班级气氛"
+    ]
+  },
+  "teacherAi": { "questionSampleSize": 30, "answerLeadSeconds": 60, "commentTimeoutSeconds": 20 },
+  "secondLayer": { "implementation": "llm", "batchMillis": 1500, "timeoutSeconds": 10 },
+  "switchDefaults": { "teacherLlm": true, "secondLayerTeacher": true, "secondLayerChat": false },
+  "switchRefreshSeconds": 5,
+  "revocationWindowDays": 30,
   "calendar": {
     "openingSpeech": [
       "同学们好！我是{teacher}，从今天起就是{className}的老师。欢迎大家来到机器人网校！",
