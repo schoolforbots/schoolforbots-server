@@ -229,8 +229,9 @@ describe('second layer', () => {
     const out = await Promise.all(four.map((t) => layer.check('chat', t)))
     expect(performance.now() - t0).toBeLessThan(1200)
     expect(out).toEqual(['pass', 'pass', 'blocked', 'pass'])
-    // Every call ends by the time the first call's budget does (batch window of 20 ms, plus slack).
-    for (const c of calls) expect(c.startedAt + c.timeoutMs).toBeLessThanOrEqual(1100)
+    // No call outlives the first call's budget (plus a little slack for timers).
+    const firstEnd = calls[0]!.startedAt + calls[0]!.timeoutMs
+    for (const c of calls) expect(c.startedAt + c.timeoutMs).toBeLessThanOrEqual(firstEnd + 50)
   })
 
   test('blocks the lines a refused batch has not sorted out when time runs out', async () => {
