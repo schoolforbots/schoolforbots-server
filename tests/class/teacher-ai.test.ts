@@ -203,6 +203,30 @@ describe('the teacher answers a question after a segment', () => {
     await ai.idle()
   }
 
+  test('gives the answer prompt every segment taught so far', async () => {
+    const { session, students } = await room()
+    await ask(session, students[0]!, '光为什么会弯？', minute(16))
+    const { llm, calls } = scripted([reply(1, ANSWER)])
+    await answer(teacher({ llm, secondLayer: layer().secondLayer }), session, 3)
+    const user = calls[0]!.user
+    const at1 = user.indexOf('第 1 段：\n光的折射第1段')
+    const at2 = user.indexOf('第 2 段：\n光的折射第2段')
+    const at3 = user.indexOf('第 3 段（刚讲完）：\n光的折射第3段')
+    expect(at1).toBeGreaterThan(-1)
+    expect(at2).toBeGreaterThan(at1)
+    expect(at3).toBeGreaterThan(at2)
+    expect(user).toContain('光的折射第1段\n\n第 2 段：')
+    expect(user).not.toContain('光的折射第4段')
+    expect(user).not.toContain('光的折射第5段')
+
+    const first = await room()
+    await ask(first.session, first.students[0]!, '光为什么会弯？')
+    const one = scripted([reply(1, ANSWER)])
+    await answer(teacher({ llm: one.llm, secondLayer: layer().secondLayer }), first.session, 1)
+    expect(one.calls[0]!.user).toContain('第 1 段（刚讲完）：\n光的折射第1段')
+    expect(one.calls[0]!.user).not.toContain('光的折射第2段')
+  })
+
   test('the picked question goes to the class with the asker and the answer, as a qa event after the segment', async () => {
     const { session, students } = await room()
     const [a, b] = students as [Student, Student]

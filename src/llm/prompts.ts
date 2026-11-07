@@ -29,7 +29,7 @@ export const PROMPT_PLACEHOLDERS: Record<PromptName, readonly string[]> = {
   'lesson-rewrite': [...LESSON, 'currentLesson', 'reason'],
   'lesson-rewrite-segment': ['division', 'subject', 'title', 'currentLesson', 'segmentIndex', 'segmentText', 'reason', 'direction', 'format'],
   'lesson-rewrite-call-on': ['division', 'subject', 'title', 'currentLesson', 'callOnKind', 'currentQuestion', 'scope', 'reason', 'direction', 'format'],
-  'teacher-answer': ['teacherName', 'teacherPersona', 'segmentText', 'questions', 'maxChars', 'format'],
+  'teacher-answer': ['teacherName', 'teacherPersona', 'lessonSoFar', 'questions', 'maxChars', 'format'],
   'teacher-comment': ['teacherName', 'teacherPersona', 'callOnKind', 'question', 'answer', 'segmentText', 'maxChars'],
   'second-layer': ['source', 'items', 'format'],
   'weekly-false-positives': ['groups', 'format'],

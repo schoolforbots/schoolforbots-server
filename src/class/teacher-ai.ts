@@ -97,11 +97,11 @@ interface Question {
   text: string
 }
 
-/** What the prompt says of the session: the teacher, the segment just taught, the members at the doors. */
+/** What the prompt says of the session: the teacher, the lesson taught so far, the members at the doors. */
 interface Context {
   teacherName: string
   personality: string
-  segmentText: string
+  lessonSoFar: string
   members: SessionMember[]
 }
 
@@ -310,7 +310,7 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
     return [...first, ...then].map((r) => ({ studentId: r.senderId, text: r.text }))
   }
 
-  /** The teacher and segment `k` of the session's lesson; null when the lesson has no such segment. */
+  /** The teacher and segments 1 to `k` of the session's lesson; null when the lesson has no segment `k`. */
   async function contextOf(sessionId: number, k: number): Promise<Context | null> {
     const row = await db
       .selectFrom('classSessions as s')
@@ -319,9 +319,12 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
       .select(['s.members', 'c.teacherPersonaId', 'l.segments'])
       .where('s.id', '=', sessionId)
       .executeTakeFirstOrThrow()
-    const segmentText = row.segments?.[k - 1]?.text
-    if (segmentText === undefined) return null
-    return { ...teacherOf(row.teacherPersonaId), segmentText, members: row.members }
+    if (row.segments?.[k - 1] === undefined) return null
+    const lessonSoFar = row.segments
+      .slice(0, k)
+      .map((s, i) => `第 ${i + 1} 段${i + 1 === k ? '（刚讲完）' : ''}：\n${s.text}`)
+      .join('\n\n')
+    return { ...teacherOf(row.teacherPersonaId), lessonSoFar, members: row.members }
   }
 
   /** The class's teacher by the persona's id, as the config describes them now. */
@@ -371,7 +374,7 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
     return fillPrompt(prompts['teacher-answer'], {
       teacherName: ctx.teacherName,
       teacherPersona: ctx.personality,
-      segmentText: ctx.segmentText,
+      lessonSoFar: ctx.lessonSoFar,
       // The questions are the students' words: each on a line of its own, unable to close the block or number a line.
       questions: questions.map((q, i) => `${i + 1}. ${neutralizeStudentText(q.text, max)}`).join('\n'),
       maxChars: String(max),
