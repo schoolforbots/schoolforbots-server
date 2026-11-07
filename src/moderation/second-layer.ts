@@ -58,6 +58,15 @@ interface Pending {
   resolve: (v: SecondVerdict) => void
 }
 
+type UnsortedReason = 'no_time' | 'call_failed' | 'ids_mismatch' | 'prompt_failed'
+
+const UNSORTED_TEXT: Record<UnsortedReason, string> = {
+  no_time: 'ran out of time',
+  call_failed: 'call failed',
+  ids_mismatch: 'reply did not match the ids',
+  prompt_failed: 'prompt could not be built',
+}
+
 /**
  * The model-based second moderation layer. Lines from the same source that arrive within `batchMillis` are checked
  * in one call. The layer fails open: an unavailable model, a timeout or a reply that does not match the ids lets the
@@ -76,13 +85,13 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
    * while in a batch nobody refused they pass.
    */
   async function checkChunk(source: SecondLayerSource, texts: string[], deadline: number, refused: boolean): Promise<SecondVerdict[]> {
-    const unsorted = (reason: string, err?: unknown): SecondVerdict[] => {
-      const fields = { source, items: texts.length, ...(err === undefined ? {} : { err: err instanceof Error ? err.name : 'unknown' }) }
+    const unsorted = (reason: UnsortedReason, err?: unknown): SecondVerdict[] => {
+      const fields = { source, items: texts.length, reason, ...(err === undefined ? {} : { err: err instanceof Error ? err.name : 'unknown' }) }
       if (refused) {
         log?.warn(fields, 'second layer could not sort out a refused batch, the lines are blocked')
         return texts.map((): SecondVerdict => 'blocked')
       }
-      log?.warn(fields, `second layer ${reason}, the lines pass`)
+      log?.warn(fields, `second layer ${UNSORTED_TEXT[reason]}, the lines pass`)
       return texts.map((): SecondVerdict => 'pass')
     }
     let prompt: { system: string; user: string }
@@ -90,10 +99,10 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
       const items = texts.map((text, i) => ({ id: i + 1, text: neutralizeStudentText(text) }))
       prompt = fillPrompt(prompts['second-layer'], { source: SOURCES[source].label, items: JSON.stringify(items), format: FORMAT })
     } catch (err) {
-      return unsorted('prompt could not be built', err)
+      return unsorted('prompt_failed', err)
     }
     const left = deadline - performance.now()
-    if (left <= 0) return unsorted('ran out of time')
+    if (left <= 0) return unsorted('no_time')
     try {
       const reply = await llm!.call(SOURCES[source].purpose, prompt, {
         json: true,
@@ -102,7 +111,7 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
       })
       const verdicts = parseVerdicts(reply.text, texts.length)
       if (verdicts) return verdicts
-      return unsorted('reply did not match the ids')
+      return unsorted('ids_mismatch')
     } catch (err) {
       if (err instanceof LlmContentRefused) {
         if (texts.length === 1) return ['blocked']
@@ -113,7 +122,7 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
         ])
         return halves.flat()
       }
-      return unsorted('call failed', err)
+      return unsorted('call_failed', err)
     }
   }
 

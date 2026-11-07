@@ -466,6 +466,7 @@ describe('reviewing a lesson', () => {
       api('POST', `lessons/${id}/restore`, { baseVersion: 1, toVersion: 1 }),
       api('POST', `lessons/${id}/false-positive`, { baseVersion: 1, rule: WORD }),
       api('POST', `lessons/${id}/approve`, { baseVersion: 1 }),
+      api('POST', `lessons/${id}/call-on-ok`, { baseVersion: 1, callOn: 'review' }),
       api('POST', 'lessons/paste', {
         date: THU,
         division: 'junior',

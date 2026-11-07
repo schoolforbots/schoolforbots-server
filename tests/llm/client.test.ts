@@ -245,6 +245,16 @@ describe('concurrency and time budget', () => {
     expect(a.calls[0]?.req.timeoutMs).toBeLessThanOrEqual(100)
   })
 
+  test('does not retry or hang on a huge Retry-After', async () => {
+    const a = createFakeLlm(() => unavailable({ retryAfterMs: 3_600_000 }))
+    const llm = createLlm({ db, config, clock, providers: { a } })
+    const started = performance.now()
+    await expect(llm.call('lesson', prompt, { timeoutMs: 2000 })).rejects.toBeInstanceOf(LlmUnavailable)
+    expect(performance.now() - started).toBeLessThan(500)
+    expect(a.calls).toHaveLength(1)
+    expect(await rows()).toMatchObject([{ outcome: 'failed' }])
+  })
+
   test('a deadline that has already passed starts no request, even with a free slot', async () => {
     const a = createFakeLlm(() => ok())
     await expect(createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 0 })).rejects.toBeInstanceOf(LlmUnavailable)
