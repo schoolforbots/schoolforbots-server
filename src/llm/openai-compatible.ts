@@ -1,4 +1,4 @@
-import { LlmContentRefused, LlmUnavailable, type LlmProvider } from './provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmProvider } from './provider.js'
 
 /**
  * Talks to any vendor that speaks the OpenAI chat-completions format. Error messages carry only the status or the
@@ -47,6 +47,14 @@ export function createOpenAiCompatible(opts: { baseUrl: string; apiKey: string; 
       const text = parsed?.choices?.[0]?.message?.content
       const inputTokens = parsed?.usage?.prompt_tokens
       const outputTokens = parsed?.usage?.completion_tokens
+      // A reply cut off at the cap may still hold a complete inner JSON object, so it must not reach the caller.
+      if (parsed?.choices?.[0]?.finish_reason === 'length') {
+        throw new LlmTruncated(
+          '大模型的回复被截断了（达到了输出长度上限）',
+          Number.isFinite(inputTokens) ? inputTokens : 0,
+          Number.isFinite(outputTokens) ? outputTokens : 0,
+        )
+      }
       if (typeof text !== 'string' || !Number.isFinite(inputTokens) || !Number.isFinite(outputTokens)) {
         throw new LlmUnavailable('大模型的回复缺少必要的字段')
       }

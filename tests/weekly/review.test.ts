@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { createLlm } from '../../src/llm/client.js'
-import { LlmContentRefused, LlmUnavailable } from '../../src/llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable } from '../../src/llm/provider.js'
 import type { Database, LessonChange, MessageKind, MessageModeration } from '../../src/shared/schema.js'
 import { MAX_PROMPT_LINE_CHARS, runWeeklyReview } from '../../src/weekly/review.js'
 import { storedStats, weeklyStats } from '../../src/weekly/stats.js'
@@ -274,6 +274,7 @@ test('the stored numbers keep the second layer’s lines by id only, not their t
 
 test.each([
   ['the model is unavailable', new LlmUnavailable('down'), '大模型暂时调不通'],
+  ['the reply is cut off', new LlmTruncated('cut off', 10, 4000), '大模型的回复太长，被截断了'],
   ['the vendor refuses the content', new LlmContentRefused('risk'), '厂商拒绝处理这批内容'],
   ['the reply has no JSON', 'sorry, I cannot help with that', '大模型的回复格式不对'],
   ['the reply has the wrong shape', '{"removeRules":"none","directions":"none"}', '大模型的回复格式不对'],

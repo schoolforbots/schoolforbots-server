@@ -7,7 +7,7 @@ import { buildProviders, createLlm, type LlmPurpose } from '../../src/llm/client
 import { createFakeLlm } from '../../src/llm/fake.js'
 import { createOpenAiCompatible } from '../../src/llm/openai-compatible.js'
 import { extractJson } from '../../src/llm/json.js'
-import { LlmContentRefused, LlmUnavailable, type LlmResponse } from '../../src/llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmResponse } from '../../src/llm/provider.js'
 import { MemoryMailer } from '../../src/registration/mailer.js'
 import type { Database } from '../../src/shared/schema.js'
 import { exampleConfig } from '../helpers/app.js'
@@ -100,6 +100,15 @@ describe('retries and refusals', () => {
     const res = await createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt)
     expect(res.text).toBe('second')
     expect(await rows()).toMatchObject([{ outcome: 'ok' }])
+  })
+
+  test('LlmTruncated is not retried, and is recorded as failed with the tokens that were billed', async () => {
+    const a = createFakeLlm(() => new LlmTruncated('cut off', 1000, 8000))
+    await expect(createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt)).rejects.toBeInstanceOf(LlmTruncated)
+    expect(a.calls).toHaveLength(1)
+    const [row] = await rows()
+    expect(row).toMatchObject({ outcome: 'failed', inputTokens: 1000, outputTokens: 8000 })
+    expect(Number(row?.costYuan)).toBeCloseTo(0.066, 9)
   })
 
   test('LlmContentRefused is not retried and is recorded as refused', async () => {

@@ -22,3 +22,17 @@ export class LlmContentRefused extends Error {}
 
 /** Timeout, network failure, 5xx, 429, or a reply that is not in the expected shape. */
 export class LlmUnavailable extends Error {}
+
+/**
+ * The reply stopped at the token cap, so it is cut off. A retry would meet the same cap and be billed again, so it is
+ * not retried. Carries the tokens the vendor billed for the attempt (0 when it did not say).
+ */
+export class LlmTruncated extends LlmUnavailable {
+  constructor(
+    message: string,
+    readonly inputTokens = 0,
+    readonly outputTokens = 0,
+  ) {
+    super(message)
+  }
+}

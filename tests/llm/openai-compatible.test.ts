@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { createFakeLlm } from '../../src/llm/fake.js'
 import { createOpenAiCompatible } from '../../src/llm/openai-compatible.js'
-import { LlmContentRefused, LlmUnavailable, type LlmRequest } from '../../src/llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmRequest } from '../../src/llm/provider.js'
 
 type Handler = (req: IncomingMessage, body: string, res: ServerResponse) => void
 let server: Server
@@ -75,6 +75,29 @@ test('requestExtras are merged into the body, and cannot override the fields the
       { role: 'user', content: '用户段' },
     ],
   })
+})
+
+test('a reply cut off at the token cap is LlmTruncated, carrying the tokens that were billed', async () => {
+  handler = (_r, _b, res) => {
+    res.end(JSON.stringify({ choices: [{ message: { content: '{"a":{"b":1}' }, finish_reason: 'length' }], usage: { prompt_tokens: 40, completion_tokens: 100 } }))
+  }
+  const err = await provider().complete('m', req).catch((e: unknown) => e)
+  expect(err).toBeInstanceOf(LlmTruncated)
+  expect(err).toBeInstanceOf(LlmUnavailable)
+  expect(err).toMatchObject({ inputTokens: 40, outputTokens: 100 })
+  expect(String((err as Error).message)).not.toContain('"b"')
+})
+
+test('a cut-off reply without usage numbers is still LlmTruncated, with no tokens known', async () => {
+  handler = (_r, _b, res) => res.end(JSON.stringify({ choices: [{ message: { content: '' }, finish_reason: 'length' }] }))
+  await expect(provider().complete('m', req)).rejects.toMatchObject({ inputTokens: 0, outputTokens: 0 })
+  await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmTruncated)
+})
+
+test('other finish reasons are a normal reply', async () => {
+  handler = (_r, _b, res) =>
+    res.end(JSON.stringify({ choices: [{ message: { content: 'x' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 2 } }))
+  await expect(provider().complete('m', req)).resolves.toEqual({ text: 'x', inputTokens: 1, outputTokens: 2 })
 })
 
 test('a 400 whose body holds a refusal marker is LlmContentRefused', async () => {

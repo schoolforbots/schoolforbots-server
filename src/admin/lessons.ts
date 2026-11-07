@@ -18,7 +18,7 @@ import {
   StaleLessonVersion,
 } from '../lessons/store.js'
 import type { Llm } from '../llm/client.js'
-import { LlmContentRefused, LlmUnavailable } from '../llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable } from '../llm/provider.js'
 import { ApiError } from '../registration/errors.js'
 import { isLessonDay } from '../shared/calendar.js'
 import type { Division, SchoolConfig } from '../shared/config.js'
@@ -165,6 +165,8 @@ async function lessonDetail(db: Kysely<Database>, lessonId: number) {
 
 const CONTENT_REFUSED = '大模型以内容为由拒绝了这次重写，换个说法写理由再试，或者改用手动粘贴。'
 
+const TRUNCATED = '大模型的回复太长，被截断了，可以再试一次，或者改用手动粘贴。'
+
 /** A lesson module's refusal as the answer the page shows; anything else goes on as it is. */
 function answerFor(err: unknown): unknown {
   if (err instanceof StaleLessonVersion) return new ApiError(409, 'stale_version')
@@ -175,6 +177,7 @@ function answerFor(err: unknown): unknown {
   if (err instanceof NotALessonDay) return new ApiError(422, 'not_a_lesson_day', {}, err.message)
   if (err instanceof LessonNotFound) return new ApiError(404, 'not_found', {}, err.message)
   if (err instanceof LlmContentRefused) return new ApiError(503, 'llm_unavailable', {}, CONTENT_REFUSED)
+  if (err instanceof LlmTruncated) return new ApiError(503, 'llm_unavailable', {}, TRUNCATED)
   if (err instanceof LlmUnavailable) return new ApiError(503, 'llm_unavailable')
   return err
 }
