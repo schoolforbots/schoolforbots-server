@@ -39,7 +39,7 @@ const provider = () => createOpenAiCompatible({ baseUrl, apiKey: 'sk-test', refu
 
 test('a normal reply yields text and token counts, with the right request shape', async () => {
   const out = await provider().complete('m1', req)
-  expect(out).toEqual({ text: '{"ok":true}', inputTokens: 7, outputTokens: 3 })
+  expect(out).toEqual({ text: '{"ok":true}', inputTokens: 7, outputTokens: 3, cachedInputTokens: 0 })
   expect(seen[0]?.url).toBe('/v1/chat/completions')
   expect(seen[0]?.auth).toBe('Bearer sk-test')
   expect(seen[0]?.body).toMatchObject({
@@ -90,14 +90,14 @@ test('a reply cut off at the token cap is LlmTruncated, carrying the tokens that
 
 test('a cut-off reply without usage numbers is still LlmTruncated, with no tokens known', async () => {
   handler = (_r, _b, res) => res.end(JSON.stringify({ choices: [{ message: { content: '' }, finish_reason: 'length' }] }))
-  await expect(provider().complete('m', req)).rejects.toMatchObject({ inputTokens: 0, outputTokens: 0 })
+  await expect(provider().complete('m', req)).rejects.toMatchObject({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 })
   await expect(provider().complete('m', req)).rejects.toBeInstanceOf(LlmTruncated)
 })
 
 test('other finish reasons are a normal reply', async () => {
   handler = (_r, _b, res) =>
     res.end(JSON.stringify({ choices: [{ message: { content: 'x' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 2 } }))
-  await expect(provider().complete('m', req)).resolves.toEqual({ text: 'x', inputTokens: 1, outputTokens: 2 })
+  await expect(provider().complete('m', req)).resolves.toEqual({ text: 'x', inputTokens: 1, outputTokens: 2, cachedInputTokens: 0 })
 })
 
 test('a 400 whose body holds a refusal marker is LlmContentRefused', async () => {
@@ -209,8 +209,36 @@ test('error messages never carry prompt or reply text', async () => {
 })
 
 test('the fake records calls and returns scripted replies or errors', async () => {
-  const fake = createFakeLlm((_m, r) => (r.user === 'bad' ? new LlmUnavailable('x') : { text: 'ok', inputTokens: 1, outputTokens: 2 }))
-  expect(await fake.complete('m', { ...req, user: 'good' })).toEqual({ text: 'ok', inputTokens: 1, outputTokens: 2 })
+  const fake = createFakeLlm((_m, r) => (r.user === 'bad' ? new LlmUnavailable('x') : { text: 'ok', inputTokens: 1, outputTokens: 2, cachedInputTokens: 0 }))
+  expect(await fake.complete('m', { ...req, user: 'good' })).toEqual({ text: 'ok', inputTokens: 1, outputTokens: 2, cachedInputTokens: 0 })
   await expect(fake.complete('m', { ...req, user: 'bad' })).rejects.toBeInstanceOf(LlmUnavailable)
   expect(fake.calls.map((c) => c.req.user)).toEqual(['good', 'bad'])
+})
+
+const replyWithUsage = (usage: Record<string, unknown>, finish = 'stop') => {
+  handler = (_r, _b, res) =>
+    res.end(JSON.stringify({ choices: [{ message: { content: 'x' }, finish_reason: finish }], usage: { prompt_tokens: 500, completion_tokens: 2, ...usage } }))
+}
+
+test('cached input tokens come from prompt_cache_hit_tokens, else from prompt_tokens_details.cached_tokens, else 0', async () => {
+  replyWithUsage({ prompt_cache_hit_tokens: 300 })
+  expect((await provider().complete('m', req)).cachedInputTokens).toBe(300)
+  replyWithUsage({ prompt_tokens_details: { cached_tokens: 200 } })
+  expect((await provider().complete('m', req)).cachedInputTokens).toBe(200)
+  replyWithUsage({ prompt_cache_hit_tokens: 300, prompt_tokens_details: { cached_tokens: 200 } })
+  expect((await provider().complete('m', req)).cachedInputTokens).toBe(300)
+  replyWithUsage({})
+  expect((await provider().complete('m', req)).cachedInputTokens).toBe(0)
+})
+
+test('a cached count that is not a non-negative number counts as 0', async () => {
+  for (const bad of [-5, 'many', null]) {
+    replyWithUsage({ prompt_cache_hit_tokens: bad })
+    expect((await provider().complete('m', req)).cachedInputTokens, String(bad)).toBe(0)
+  }
+})
+
+test('a cut-off reply carries its cached input tokens too', async () => {
+  replyWithUsage({ prompt_cache_hit_tokens: 120 }, 'length')
+  await expect(provider().complete('m', req)).rejects.toMatchObject({ inputTokens: 500, cachedInputTokens: 120 })
 })

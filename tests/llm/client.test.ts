@@ -54,7 +54,7 @@ const config = {
   },
 }
 const clock = createTestClock(new Date('2026-11-10T04:00:00Z'))
-const ok = (text = 'hi', i = 1000, o = 500): LlmResponse => ({ text, inputTokens: i, outputTokens: o })
+const ok = (text = 'hi', i = 1000, o = 500, c = 0): LlmResponse => ({ text, inputTokens: i, outputTokens: o, cachedInputTokens: c })
 const prompt = { system: '系统提示词SECRET', user: '用户提问SECRET' }
 const unavailable = (opts: { retryAfterMs?: number | null } = {}) => new LlmUnavailable('x', { retryable: true, ...opts })
 const rows = () => db.selectFrom('llmCalls').selectAll().orderBy('id').execute()
@@ -306,7 +306,7 @@ describe('through a real provider over HTTP', () => {
   const llmOverHttp = () => createLlm({ db, config, clock, random: () => 0, providers: { a: createOpenAiCompatible({ baseUrl, apiKey: 'sk-test', refusalMarkers: [] }) } })
 
   test('a call succeeds although the time left is a fraction of a millisecond', async () => {
-    await expect(llmOverHttp().call('lesson', prompt, { json: true, timeoutMs: 5000 })).resolves.toEqual({ text: '{"ok":true}', inputTokens: 10, outputTokens: 5 })
+    await expect(llmOverHttp().call('lesson', prompt, { json: true, timeoutMs: 5000 })).resolves.toEqual({ text: '{"ok":true}', inputTokens: 10, outputTokens: 5, cachedInputTokens: 0 })
     expect(await rows()).toMatchObject([{ outcome: 'ok', inputTokens: 10, outputTokens: 5 }])
   })
 
@@ -409,6 +409,47 @@ describe('logs', () => {
   })
 })
 
+describe('pricing', () => {
+  test('records cached tokens and the cost of the moment', async () => {
+    const priced = {
+      ...config,
+      llm: {
+        ...config.llm,
+        providers: {
+          ...config.llm.providers,
+          a: {
+            ...config.llm.providers.a,
+            models: {
+              'a-1': {
+                ...price,
+                cachedInputYuanPerMillion: 0.2,
+                windows: [{ inputYuanPerMillion: 4, outputYuanPerMillion: 16, cachedInputYuanPerMillion: 0.4, weekdays: [1, 2, 3, 4, 5], from: '09:00', to: '12:00' }],
+              },
+            },
+          },
+        },
+      },
+    }
+    const a = createFakeLlm(() => ok('hi', 1_000_000, 100_000, 600_000))
+    // 2026-11-10 is a Tuesday: 04:00 UTC is 12:00 in Beijing, outside the window; 02:00 UTC is 10:00, inside it.
+    const at = createTestClock(new Date('2026-11-10T04:00:00Z'))
+    const llm = createLlm({ db, config: priced, clock: at, providers: { a } })
+    await llm.call('lesson', prompt)
+    at.set(new Date('2026-11-10T02:00:00Z'))
+    await llm.call('lesson', prompt)
+    const [outside, inside] = await rows()
+    expect(outside).toMatchObject({ inputTokens: 1_000_000, cachedInputTokens: 600_000 })
+    expect(Number(outside?.costYuan)).toBeCloseTo(0.4 * 2 + 0.6 * 0.2 + 0.1 * 8, 6)
+    expect(Number(inside?.costYuan)).toBeCloseTo(0.4 * 4 + 0.6 * 0.4 + 0.1 * 16, 6)
+  })
+
+  test('a cut-off reply records its cached tokens too', async () => {
+    const a = createFakeLlm(() => new LlmTruncated('cut off', 1000, 8000, 400))
+    await expect(createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt)).rejects.toBeInstanceOf(LlmTruncated)
+    expect(await rows()).toMatchObject([{ outcome: 'failed', inputTokens: 1000, cachedInputTokens: 400 }])
+  })
+})
+
 describe('fake mode', () => {
   const run = (purpose: LlmPurpose, user = '') => {
     const a = createFakeLlm(() => new Error('must not be called'))
@@ -417,8 +458,8 @@ describe('fake mode', () => {
 
   test('calls no provider, costs nothing and is recorded as ok', async () => {
     const res = await run('comment')
-    expect(res).toEqual({ text: '说得不错。', inputTokens: 0, outputTokens: 0 })
-    expect(await rows()).toMatchObject([{ purpose: 'comment', outcome: 'ok', inputTokens: 0, outputTokens: 0 }])
+    expect(res).toEqual({ text: '说得不错。', inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 })
+    expect(await rows()).toMatchObject([{ purpose: 'comment', outcome: 'ok', inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }])
     expect(Number((await rows())[0]?.costYuan)).toBe(0)
   })
 

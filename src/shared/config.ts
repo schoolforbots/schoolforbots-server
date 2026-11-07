@@ -19,10 +19,23 @@ const CallOn = Type.Object({
   kind: Type.Union([Type.Literal('review'), Type.Literal('extension')]),
   afterSegment: PositiveInt,
 })
-const Price = Type.Object({
+// Yuan per million tokens. Input that hit the vendor's cache is charged at the cached price, or at the input price
+// when none is given.
+const Rates = {
   inputYuanPerMillion: Type.Number({ minimum: 0 }),
   outputYuanPerMillion: Type.Number({ minimum: 0 }),
+  cachedInputYuanPerMillion: Type.Optional(Type.Number({ minimum: 0 })),
+}
+// Another set of prices for some hours on some weekdays (1 is Monday, 7 is Sunday), `from` included and `to` excluded,
+// in the school's timezone. A window cannot cross midnight: write it as two.
+const PriceWindow = Type.Object({
+  ...Rates,
+  weekdays: Type.Array(Type.Integer({ minimum: 1, maximum: 7 }), { minItems: 1 }),
+  from: TimeOfDay,
+  to: TimeOfDay,
 })
+const Price = Type.Object({ ...Rates, windows: Type.Optional(Type.Array(PriceWindow)) })
+export type ModelPrice = Static<typeof Price>
 const Provider = Type.Object({
   kind: Type.Literal('openai-compatible'),
   baseUrl: Type.String({ minLength: 1 }),
@@ -336,6 +349,20 @@ export function loadSchoolConfig(path: string): SchoolConfig {
       crossFieldProblems.push(`llm.purposes.${purpose}.provider: no such provider in llm.providers (${provider})`)
     } else if (found.models[model] === undefined) {
       crossFieldProblems.push(`llm.purposes.${purpose}.model: provider ${provider} has no model ${model}`)
+    }
+  }
+
+  for (const [providerName, provider] of Object.entries(providers)) {
+    for (const [modelName, price] of Object.entries(provider.models)) {
+      price.windows?.forEach((window, i) => {
+        const path = `llm.providers.${providerName}.models.${modelName}.windows[${i}]`
+        if (window.from >= window.to) {
+          crossFieldProblems.push(`${path}: from must be before to (${window.from} >= ${window.to}); a window across midnight is written as two`)
+        }
+        if (new Set(window.weekdays).size !== window.weekdays.length) {
+          crossFieldProblems.push(`${path}: weekdays must not repeat a day (${window.weekdays.join(', ')})`)
+        }
+      })
     }
   }
 

@@ -76,7 +76,7 @@ const CALL_ONS = { review: '光从空气进到水里会怎样？', extension: '�
 /** A lesson as the model writes it. */
 const lessonReply = (title = '光的折射', over: Record<string, unknown> = {}) =>
   JSON.stringify({ title, segments: segments(), callOnQuestions: CALL_ONS, ...over })
-const ok = (text: string): LlmResponse => ({ text, inputTokens: 100, outputTokens: 200 })
+const ok = (text: string): LlmResponse => ({ text, inputTokens: 100, outputTokens: 200, cachedInputTokens: 0 })
 
 const content = (over: Partial<LessonContent> = {}): LessonContent => ({
   title: '光的折射',

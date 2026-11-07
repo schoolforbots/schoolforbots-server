@@ -67,6 +67,11 @@ export function localDate(moment: Date, timeZone: string): string {
   return new Date(wallClock(moment.getTime(), timeZone)).toISOString().slice(0, 10)
 }
 
+/** The time of day, `HH:MM`, that a wall clock in `timeZone` reads at `moment`. */
+export function localTimeOfDay(moment: Date, timeZone: string): string {
+  return new Date(wallClock(moment.getTime(), timeZone)).toISOString().slice(11, 16)
+}
+
 /** A moment as the school's wall clock reads it, e.g. `11月3日 20:00`. */
 export function localMoment(moment: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {

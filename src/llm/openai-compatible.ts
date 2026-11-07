@@ -12,6 +12,12 @@ function parseRetryAfter(value: string | null): number | null {
   return ms > 0 ? ms : null
 }
 
+/** The input tokens served from the vendor's cache, as either of the two usual usage fields says; 0 when absent or not a non-negative number. */
+function cachedTokensOf(usage: any): number {
+  const reported = usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens
+  return Number.isFinite(reported) && reported >= 0 ? reported : 0
+}
+
 /**
  * Talks to any vendor that speaks the OpenAI chat-completions format. Error messages carry only the status or the
  * failure kind, never the prompt, the reply or the vendor's error body, so nothing written to program logs holds content.
@@ -63,18 +69,20 @@ export function createOpenAiCompatible(opts: { baseUrl: string; apiKey: string; 
       const text = parsed?.choices?.[0]?.message?.content
       const inputTokens = parsed?.usage?.prompt_tokens
       const outputTokens = parsed?.usage?.completion_tokens
+      const cachedInputTokens = cachedTokensOf(parsed?.usage)
       // A reply cut off at the cap may still hold a complete inner JSON object, so it must not reach the caller.
       if (parsed?.choices?.[0]?.finish_reason === 'length') {
         throw new LlmTruncated(
           '大模型的回复被截断了（达到了输出长度上限）',
           Number.isFinite(inputTokens) ? inputTokens : 0,
           Number.isFinite(outputTokens) ? outputTokens : 0,
+          cachedInputTokens,
         )
       }
       if (typeof text !== 'string' || !Number.isFinite(inputTokens) || !Number.isFinite(outputTokens)) {
         throw new LlmUnavailable('大模型的回复缺少必要的字段')
       }
-      return { text, inputTokens, outputTokens }
+      return { text, inputTokens, outputTokens, cachedInputTokens }
     },
   }
 }
