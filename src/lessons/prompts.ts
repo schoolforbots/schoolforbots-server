@@ -3,7 +3,7 @@ import { SPECIAL_SUBJECT, subjectForDate } from '../class/planning.js'
 import { fillPrompt, type PromptName, type PromptTemplate } from '../llm/prompts.js'
 import { isLessonDay } from '../shared/calendar.js'
 import type { Division, SchoolConfig } from '../shared/config.js'
-import type { CallOnKind, CallOnQuestions, Database, LessonContent, LessonsTable } from '../shared/schema.js'
+import { CALL_ON_KINDS, type CallOnKind, type CallOnQuestions, type Database, type LessonContent, type LessonsTable } from '../shared/schema.js'
 import {
   LessonFormatError,
   lessonText,
@@ -90,9 +90,6 @@ function segmentMinutesText(config: SchoolConfig): string {
   const lengths = ends.map((end, i) => end - (segmentMinutes[i] ?? 0))
   return new Set(lengths).size === 1 ? String(lengths[0]) : `${lengths.join('、')}（依次对应各段）`
 }
-
-/** The call-on kinds in the order a page lists them. */
-const CALL_ON_KINDS: readonly CallOnKind[] = ['review', 'extension']
 
 /** What the review question asks about: the segments up to the review call-on. */
 function reviewScope(config: SchoolConfig): string {

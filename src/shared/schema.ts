@@ -287,6 +287,9 @@ export interface CallOnQuestions {
 /** A call-on question: the review one or the extension one. */
 export type CallOnKind = keyof CallOnQuestions
 
+/** The call-on kinds in the order a page lists them. */
+export const CALL_ON_KINDS: readonly CallOnKind[] = ['review', 'extension']
+
 /**
  * A place in a lesson that fails the checks (a red mark): `segment` is a segment's text and `gist` its gist, with
  * `index` the segment (0-based); `index` is null for a part that has one place (the title, a call-on question).

@@ -895,6 +895,16 @@ describe('call-on reminders', () => {
     expect(await versionRows(lessonId)).toHaveLength(2)
   })
 
+  test('a reminder confirmed stays gone when the version it was flagged in is restored', async () => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, 0)
+    await confirmCallOn(deps, lessonId, 2, 'review')
+    expect((await versionRows(lessonId)).map((v) => v.callOnChecks)).toEqual([[], ['extension']])
+    await restoreVersion(deps, lessonId, 3, 1)
+    await restoreVersion(deps, lessonId, 4, 2)
+    expect(await checks(lessonId)).toEqual(['extension'])
+  })
+
   test('confirmCallOn refuses a call-on without a reminder, an old version and a lesson a class has begun', async () => {
     const { lessonId } = await draft()
     await rewriteSegment(lessonId, 1, 4)
