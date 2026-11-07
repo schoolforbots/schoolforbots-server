@@ -4,9 +4,11 @@ import { noopHooks } from '../../src/class/hooks.js'
 import { RecordingHub } from '../../src/class/hub.js'
 import { createClassRuntime } from '../../src/class/runtime.js'
 import { LessonFormatError } from '../../src/lessons/format.js'
+import { callOnsCovering } from '../../src/lessons/prompts.js'
 import { createModerator } from '../../src/moderation/moderator.js'
 import {
   approve,
+  confirmCallOn,
   editPart,
   LessonHasFlags,
   LessonLocked,
@@ -19,7 +21,7 @@ import {
   StaleLessonVersion,
   type LessonStoreDeps,
 } from '../../src/lessons/store.js'
-import type { Database, LessonContent } from '../../src/shared/schema.js'
+import type { CallOnKind, Database, LessonContent } from '../../src/shared/schema.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
@@ -114,6 +116,7 @@ describe('saveDraft', () => {
       topic: null,
       flags: [],
       falsePositives: [],
+      callOnChecks: [],
       version: 1,
       approvedAt: null,
       createdAt: clock.now(),
@@ -126,6 +129,7 @@ describe('saveDraft', () => {
         version: 1,
         content: content(),
         change: 'generate',
+        callOnChecks: [],
         segmentIndex: null,
         reason: null,
         createdAt: clock.now(),
@@ -770,5 +774,134 @@ describe('approval and the doors opening at the same moment', () => {
       expect(approved.status === 'rejected' && approved.reason).toBeInstanceOf(LessonLocked)
       expect((await lessonRow(lessonId)).approvedAt).toBeNull()
     }
+  })
+})
+
+describe('call-on reminders', () => {
+  const callOns = config.lesson.callOns
+  const checks = async (id: number): Promise<CallOnKind[]> => (await lessonRow(id)).callOnChecks
+  const rewriteSegment = (id: number, base: number, index: number, over: Partial<LessonContent> = {}) =>
+    replaceContent(deps, id, base, withSegment(index + 1, { text: `重写的第${index + 1}段`, gist: '新要点' }, over), {
+      change: 'rewrite_segment',
+      reason: '太难',
+      segmentIndex: index,
+      flagCallOns: callOnsCovering(callOns, index),
+    })
+
+  test('flags the call-ons a segment rewrite covers', async () => {
+    const { lessonId } = await draft()
+    expect(await checks(lessonId)).toEqual([])
+    await rewriteSegment(lessonId, 1, 0)
+    expect(await checks(lessonId)).toEqual(['review', 'extension'])
+  })
+
+  test.each([
+    [4, ['extension']],
+    [3, ['extension']],
+    [2, ['extension']],
+    [1, ['review', 'extension']],
+  ])('a rewrite of segment index %i flags %j', async (index, expected) => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, index)
+    expect(await checks(lessonId)).toEqual(expected)
+  })
+
+  test('keeps the flags as a snapshot of the version', async () => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, 0)
+    expect((await versionRows(lessonId)).map((v) => v.callOnChecks)).toEqual([[], ['review', 'extension']])
+  })
+
+  test('clears a flag when its question changes', async () => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, 0)
+    await editPart(deps, lessonId, 2, { part: 'review' }, '光进水里会怎样？')
+    expect(await checks(lessonId)).toEqual(['extension'])
+    await editPart(deps, lessonId, 3, { part: 'extension' }, '吸管为什么看起来弯？')
+    expect(await checks(lessonId)).toEqual([])
+  })
+
+  test('a rewrite of one question keeps the other question\'s flag', async () => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, 0)
+    await replaceContent(deps, lessonId, 2, content({ callOnQuestions: { review: '光会往哪边偏？', extension: '换一道引申题？' } }), {
+      change: 'rewrite_call_on',
+      reason: '太偏',
+    })
+    expect(await checks(lessonId)).toEqual(['review'])
+  })
+
+  test('does not flag on a hand edit of a segment, and keeps what is flagged', async () => {
+    const { lessonId } = await draft()
+    await editPart(deps, lessonId, 1, { part: 'segment', index: 0 }, '手改的第1段')
+    expect(await checks(lessonId)).toEqual([])
+    await rewriteSegment(lessonId, 2, 4)
+    await editPart(deps, lessonId, 3, { part: 'gist', index: 0 }, '手改的要点')
+    expect(await checks(lessonId)).toEqual(['extension'])
+  })
+
+  test('clears all on a lesson rewrite or a new paste', async () => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, 0)
+    await replaceContent(deps, lessonId, 2, content({ title: '重写的课' }), { change: 'rewrite_lesson', reason: '选题太难' })
+    expect(await checks(lessonId)).toEqual([])
+    await rewriteSegment(lessonId, 3, 0)
+    expect(await checks(lessonId)).toEqual(['review', 'extension'])
+    await saveDraft(deps, KEY, content({ title: '新贴的课' }), { source: 'manual', change: 'generate' })
+    expect(await checks(lessonId)).toEqual([])
+    await rewriteSegment(lessonId, 5, 0)
+    await saveDraft(deps, KEY, content(), { source: 'api', change: 'topic' })
+    expect(await checks(lessonId)).toEqual([])
+  })
+
+  test('brings back the flags of the version restored', async () => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, 0)
+    await restoreVersion(deps, lessonId, 2, 1)
+    expect(await checks(lessonId)).toEqual([])
+    await restoreVersion(deps, lessonId, 3, 2)
+    expect(await checks(lessonId)).toEqual(['review', 'extension'])
+    expect((await versionRows(lessonId)).map((v) => v.callOnChecks)).toEqual([[], ['review', 'extension'], [], ['review', 'extension']])
+  })
+
+  test('never flags a lesson without call-on questions', async () => {
+    const { lessonId } = await draft(content({ callOnQuestions: null }))
+    await rewriteSegment(lessonId, 1, 0, { callOnQuestions: null })
+    expect(await checks(lessonId)).toEqual([])
+  })
+
+  test('flags only the call-ons the config has', () => {
+    const onlyReview = [{ kind: 'review' as const, afterSegment: 2 }]
+    expect(callOnsCovering(onlyReview, 4)).toEqual([])
+    expect(callOnsCovering(onlyReview, 0)).toEqual(['review'])
+    expect(callOnsCovering(onlyReview, 1)).toEqual(['review'])
+    expect(callOnsCovering(onlyReview, 2)).toEqual([])
+    expect(callOnsCovering([], 0)).toEqual([])
+    expect(callOnsCovering([], 4)).toEqual([])
+    expect(callOnsCovering(callOns, 2)).toEqual(['extension'])
+  })
+
+  test('confirmCallOn removes the flag without a new version', async () => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, 0)
+    await approve(deps, lessonId, 2)
+    const before = await lessonRow(lessonId)
+
+    expect(await confirmCallOn(deps, lessonId, 2, 'review')).toEqual({ version: 3 })
+    const after = await lessonRow(lessonId)
+    expect(after.callOnChecks).toEqual(['extension'])
+    expect(after.version).toBe(3)
+    expect(after.approvedAt).toEqual(before.approvedAt)
+    expect(await versionRows(lessonId)).toHaveLength(2)
+  })
+
+  test('confirmCallOn refuses a call-on without a reminder, an old version and a lesson a class has begun', async () => {
+    const { lessonId } = await draft()
+    await rewriteSegment(lessonId, 1, 4)
+    expect(await rejection(confirmCallOn(deps, lessonId, 2, 'review'))).toBeInstanceOf(LessonFormatError)
+    expect(await rejection(confirmCallOn(deps, lessonId, 1, 'extension'))).toBeInstanceOf(StaleLessonVersion)
+    await beginLesson(lessonId)
+    expect(await rejection(confirmCallOn(deps, lessonId, 2, 'extension'))).toBeInstanceOf(LessonLocked)
+    expect((await lessonRow(lessonId)).callOnChecks).toEqual(['extension'])
   })
 })

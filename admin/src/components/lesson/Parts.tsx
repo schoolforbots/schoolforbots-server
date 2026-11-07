@@ -1,6 +1,7 @@
 import { Button } from 'antd'
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import {
+  confirmCallOn,
   markFalsePositive,
   type CallOnKind,
   type LessonDetail,
@@ -150,10 +151,16 @@ export function Segment({ index, text, gist }: { index: number; text: string; gi
 }
 
 export function CallOn({ kind, after, question }: { kind: CallOnKind; after: number; question: string }) {
-  const { editable, writing, box, open } = useEditing()
+  const { lesson, editable, writing, box, open, refocus } = useEditing()
   const id = useId()
   const target: RewriteTarget = { kind: 'rewrite_call_on', callOn: kind }
   const opener = useOpener((closedBox) => isRewriteOf(closedBox, target))
+  const check = useAction()
+
+  async function confirm() {
+    // The 没问题 goes with the reminder: the focus goes to the button that rewrites this question.
+    if (await check.run(() => confirmCallOn(lesson, kind))) refocus({ what: 'rewrite', target })
+  }
   return (
     <section className="lesson-section call-on" aria-labelledby={id}>
       <SectionHead id={id} name={CALL_ON_NAMES[kind]} note={`第 ${after} 段讲完后点名问`}>
@@ -165,6 +172,19 @@ export function CallOn({ kind, after, question }: { kind: CallOnKind; after: num
       </SectionHead>
       {editable && isRewriteOf(box, target) && (
         <ReasonBox target={target} what={`重写${CALL_ON_NAMES[kind]}`} />
+      )}
+      {lesson.callOnChecks.includes(kind) && (
+        <div className="lesson-notices">
+          <p className="call-on-check">
+            <span>出题范围里的段落改过，请再看一眼</span>
+            {editable && (
+              <Button size="small" disabled={writing} onClick={() => void confirm()}>
+                没问题
+              </Button>
+            )}
+          </p>
+          <Refusal action={check} back={opener} />
+        </div>
       )}
       <PartView part={{ part: kind }} label="题目" text={question} />
     </section>

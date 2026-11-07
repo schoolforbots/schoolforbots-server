@@ -3,7 +3,7 @@ import { SPECIAL_SUBJECT, subjectForDate } from '../class/planning.js'
 import { fillPrompt, type PromptName, type PromptTemplate } from '../llm/prompts.js'
 import { isLessonDay } from '../shared/calendar.js'
 import type { Division, SchoolConfig } from '../shared/config.js'
-import type { CallOnQuestions, Database, LessonContent, LessonsTable } from '../shared/schema.js'
+import type { CallOnKind, CallOnQuestions, Database, LessonContent, LessonsTable } from '../shared/schema.js'
 import {
   LessonFormatError,
   lessonText,
@@ -91,11 +91,27 @@ function segmentMinutesText(config: SchoolConfig): string {
   return new Set(lengths).size === 1 ? String(lengths[0]) : `${lengths.join('、')}（依次对应各段）`
 }
 
+/** The call-on kinds in the order a page lists them. */
+const CALL_ON_KINDS: readonly CallOnKind[] = ['review', 'extension']
+
 /** What the review question asks about: the segments up to the review call-on. */
 function reviewScope(config: SchoolConfig): string {
   const after = config.lesson.callOns.find((c) => c.kind === 'review')?.afterSegment
   if (after === undefined) return '这节课前面讲过的内容'
   return after === 1 ? '第 1 段' : `第 1 到第 ${after} 段`
+}
+
+/**
+ * The call-on questions that are based on segment `segmentIndex` (0-based), among the ones the config has: a review
+ * question after segment `a` is about segments 0 to a-1, an extension question after segment `a` about 0 to a (it leads
+ * to the segment after it).
+ */
+export function callOnsCovering(callOns: SchoolConfig['lesson']['callOns'], segmentIndex: number): CallOnKind[] {
+  const kinds = new Set<CallOnKind>()
+  for (const { kind, afterSegment } of callOns) {
+    if (segmentIndex < (kind === 'review' ? afterSegment : afterSegment + 1)) kinds.add(kind)
+  }
+  return CALL_ON_KINDS.filter((k) => kinds.has(k))
 }
 
 /** What the extension question leads to: the segment after the extension call-on. */

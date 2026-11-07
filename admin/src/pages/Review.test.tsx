@@ -513,6 +513,61 @@ describe('the review page', () => {
     expect(reads).toBe(2)
   })
 
+  it('shows the call-on reminder and clears it with 没问题', async () => {
+    const server = fakeServer({
+      [QUEUE]: ok(oneLesson()),
+      'GET api/lessons/1': ok(lessonDetail({ callOnChecks: ['review'] })),
+      'POST api/lessons/1/call-on-ok': ok(lessonDetail({ version: 2 })),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    const review = within(await screen.findByRole('region', { name: '复习题' }))
+    expect(review.getByText('出题范围里的段落改过，请再看一眼')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '引申题' })).queryByText(/出题范围里的段落改过/)).not.toBeInTheDocument()
+    await user.click(review.getByRole('button', { name: '没问题' }))
+
+    await waitFor(() => expect(review.queryByText(/出题范围里的段落改过/)).not.toBeInTheDocument())
+    expect(lessonCalls(server, 'api/lessons/1/call-on-ok')[0]?.body).toEqual({ baseVersion: 1, callOn: 'review' })
+    expect(review.getByRole('button', { name: '重写这道题' })).toHaveFocus()
+  })
+
+  it('hides the 没问题 button when the lesson is locked', async () => {
+    fakeServer({
+      [QUEUE]: ok(oneLesson({ status: 'approved', locked: true })),
+      'GET api/lessons/1': ok(lessonDetail({ locked: true, approvedAt: '2026-11-04T08:00:00.000Z', callOnChecks: ['extension'] })),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+    await user.click(await screen.findByRole('button', { name: '小学部 已开课' }))
+
+    const extension = within(await screen.findByRole('region', { name: '引申题' }))
+    expect(extension.getByText('出题范围里的段落改过，请再看一眼')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '没问题' })).not.toBeInTheDocument()
+  })
+
+  it('says the lesson changed elsewhere when 没问题 is refused as stale, and reads it again', async () => {
+    let reads = 0
+    fakeServer({
+      [QUEUE]: ok(oneLesson()),
+      'GET api/lessons/1': () => {
+        reads++
+        return ok(lessonDetail(reads === 1 ? { callOnChecks: ['review'] } : { version: 3 }))
+      },
+      'POST api/lessons/1/call-on-ok': fail(409, 'stale_version', '这节课在别处改过了，刷新后再改。'),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    const review = within(await screen.findByRole('region', { name: '复习题' }))
+    await user.click(review.getByRole('button', { name: '没问题' }))
+    expect(await review.findByRole('alert')).toHaveTextContent('这节课在别处改过了，刷新后再改。')
+    await user.click(review.getByRole('button', { name: '刷新' }))
+
+    expect(await screen.findByText(/第 3 版/)).toBeInTheDocument()
+    expect(review.queryByText(/出题范围里的段落改过/)).not.toBeInTheDocument()
+  })
+
   it('says the day has begun, with the focus, once the lesson read again is locked', async () => {
     let reads = 0
     fakeServer({

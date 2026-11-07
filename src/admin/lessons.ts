@@ -7,6 +7,7 @@ import { acceptPasted, regenerate, setTopic, TopicRefused, type GeneratorDeps } 
 import { buildLessonPrompt, lessonById, NotALessonDay } from '../lessons/prompts.js'
 import {
   approve,
+  confirmCallOn,
   contentOf,
   dayDecided,
   editPart,
@@ -159,6 +160,7 @@ async function lessonDetail(db: Kysely<Database>, lessonId: number) {
     content: contentOf(row),
     flags: row.flags,
     falsePositives: row.falsePositives,
+    callOnChecks: row.callOnChecks,
     versions: versions.map((v) => ({ ...v, createdAt: v.createdAt.toISOString() })),
   }
 }
@@ -260,6 +262,7 @@ const RewriteBody = Type.Object(
 )
 const RestoreBody = Type.Object({ baseVersion: Version, toVersion: Version }, noMore)
 const FalsePositiveBody = Type.Object({ baseVersion: Version, rule: Type.String({ minLength: 1 }) }, noMore)
+const CallOnOkBody = Type.Object({ baseVersion: Version, callOn: Type.Union([Type.Literal('review'), Type.Literal('extension')]) }, noMore)
 const ApproveBody = Type.Object({ baseVersion: Version }, noMore)
 const PasteBody = Type.Object(
   {
@@ -350,6 +353,12 @@ export function lessonRoutes(deps: AdminDeps): FastifyPluginAsync {
       return change(request.log, lessonId, 'false_positive', () =>
         markFalsePositive(generator, lessonId, baseVersion, rule),
       )
+    })
+
+    app.post('/lessons/:id/call-on-ok', { schema: { body: CallOnOkBody } }, async (request) => {
+      const lessonId = lessonIdOf((request.params as { id: string }).id)
+      const { baseVersion, callOn } = request.body
+      return change(request.log, lessonId, 'call_on_ok', () => confirmCallOn(generator, lessonId, baseVersion, callOn))
     })
 
     app.post('/lessons/:id/approve', { schema: { body: ApproveBody } }, async (request) => {

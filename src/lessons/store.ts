@@ -4,6 +4,7 @@ import type { Clock } from '../shared/clock.js'
 import type { Division } from '../shared/config.js'
 import { lessonLockKey, lock } from '../shared/db.js'
 import type {
+  CallOnKind,
   Database,
   LessonChange,
   LessonContent,
@@ -155,6 +156,29 @@ interface VersionMeta {
   change: LessonChange
   reason?: string | null
   segmentIndex?: number | null
+  /** For a `rewrite_segment`: the call-ons that are based on the segment, to be looked at again. */
+  flagCallOns?: readonly CallOnKind[]
+}
+
+const CALL_ON_ORDER: readonly CallOnKind[] = ['review', 'extension']
+
+/**
+ * The call-on questions to look at again after a save. A lesson without questions has none, and a new lesson or a
+ * rewrite of the whole lesson starts over. Otherwise a question stays flagged until its text changes, and a segment
+ * rewrite adds the questions that are based on the segment (`flagCallOns`) that the new content has.
+ */
+export function nextCallOnChecks(
+  before: readonly CallOnKind[],
+  old: LessonContent,
+  next: LessonContent,
+  meta: Pick<VersionMeta, 'change' | 'flagCallOns'>,
+): CallOnKind[] {
+  const questions = next.callOnQuestions
+  if (questions === null) return []
+  if (meta.change === 'generate' || meta.change === 'rewrite_lesson' || meta.change === 'topic') return []
+  const kept = before.filter((k) => old.callOnQuestions?.[k] === questions[k])
+  const added = meta.change === 'rewrite_segment' ? (meta.flagCallOns ?? []) : []
+  return CALL_ON_ORDER.filter((k) => kept.includes(k) || added.includes(k))
 }
 
 async function insertVersion(
@@ -163,6 +187,7 @@ async function insertVersion(
   version: number,
   content: LessonContent,
   meta: VersionMeta,
+  callOnChecks: readonly CallOnKind[],
   now: Date,
 ): Promise<void> {
   // Only the content's own fields, whatever else the object passed in carries.
@@ -181,6 +206,7 @@ async function insertVersion(
       change: meta.change,
       segmentIndex: meta.segmentIndex ?? null,
       reason: meta.reason ?? null,
+      callOnChecks: JSON.stringify(callOnChecks),
       createdAt: now,
     })
     .execute()
@@ -197,8 +223,11 @@ async function saveVersion(
   content: LessonContent,
   meta: VersionMeta,
   also: { source?: LessonSource; topic?: string | null } = {},
+  /** The reminders to store as they are (a restored version's own), in place of working them out. */
+  callOnChecksOverride?: CallOnKind[],
 ): Promise<{ version: number; flags: LessonFlag[] }> {
   const now = deps.clock.now()
+  const callOnChecks = callOnChecksOverride ?? nextCallOnChecks(lesson.callOnChecks, contentOf(lesson), content, meta)
   const flags = flagsOf(deps.moderator, content, lesson.falsePositives)
   const version = lesson.version + 1
   await trx
@@ -207,13 +236,14 @@ async function saveVersion(
       ...contentColumns(content),
       ...also,
       flags: JSON.stringify(flags),
+      callOnChecks: JSON.stringify(callOnChecks),
       version,
       approvedAt: null,
       updatedAt: now,
     })
     .where('id', '=', lesson.id)
     .execute()
-  await insertVersion(trx, lesson.id, version, content, meta, now)
+  await insertVersion(trx, lesson.id, version, content, meta, callOnChecks, now)
   return { version, flags }
 }
 
@@ -337,7 +367,7 @@ export async function saveDraft(
         })
         .returning('id')
         .executeTakeFirstOrThrow()
-      await insertVersion(trx, row.id, 1, content, meta, now)
+      await insertVersion(trx, row.id, 1, content, meta, [], now)
       return { lessonId: row.id, version: 1, flags }
     }
 
@@ -394,12 +424,17 @@ export async function replaceContent(
   lessonId: number,
   baseVersion: number,
   content: LessonContent,
-  meta: { change: 'rewrite_segment' | 'rewrite_lesson' | 'rewrite_call_on'; reason: string; segmentIndex?: number },
+  meta: {
+    change: 'rewrite_segment' | 'rewrite_lesson' | 'rewrite_call_on'
+    reason: string
+    segmentIndex?: number
+    flagCallOns?: readonly CallOnKind[]
+  },
 ): Promise<{ version: number; flags: LessonFlag[] }> {
   return changeLesson(deps, lessonId, baseVersion, (trx, lesson) => saveVersion(trx, deps, lesson, content, meta))
 }
 
-/** Makes an earlier version's content the lesson's again, as a new version. */
+/** Makes an earlier version's content the lesson's again, as a new version, with the reminders it had. */
 export async function restoreVersion(
   deps: LessonStoreDeps,
   lessonId: number,
@@ -409,12 +444,12 @@ export async function restoreVersion(
   return changeLesson(deps, lessonId, baseVersion, async (trx, lesson) => {
     const old = await trx
       .selectFrom('lessonVersions')
-      .select('content')
+      .select(['content', 'callOnChecks'])
       .where('lessonId', '=', lessonId)
       .where('version', '=', toVersion)
       .executeTakeFirst()
     if (old === undefined) throw new LessonNotFound(`这节课没有第 ${toVersion} 版`)
-    return saveVersion(trx, deps, lesson, old.content, { change: 'restore' })
+    return saveVersion(trx, deps, lesson, old.content, { change: 'restore' }, {}, old.callOnChecks)
   })
 }
 
@@ -447,6 +482,33 @@ export async function markFalsePositive(
       .where('id', '=', lessonId)
       .execute()
     return { version, flags }
+  })
+}
+
+/**
+ * Records that the reviewer looked at a call-on question again and it is fine: its reminder goes, here and in the
+ * versions to come. The content does not change, so no version is kept and the approval stands, but the version number
+ * moves on all the same, as for a false positive.
+ */
+export async function confirmCallOn(
+  deps: LessonStoreDeps,
+  lessonId: number,
+  baseVersion: number,
+  kind: CallOnKind,
+): Promise<{ version: number }> {
+  return changeLesson(deps, lessonId, baseVersion, async (trx, lesson) => {
+    if (!lesson.callOnChecks.includes(kind)) throw new LessonFormatError('这道点名题现在没有提醒，刷新后再看')
+    const version = lesson.version + 1
+    await trx
+      .updateTable('lessons')
+      .set({
+        callOnChecks: JSON.stringify(lesson.callOnChecks.filter((k) => k !== kind)),
+        version,
+        updatedAt: deps.clock.now(),
+      })
+      .where('id', '=', lessonId)
+      .execute()
+    return { version }
   })
 }
 

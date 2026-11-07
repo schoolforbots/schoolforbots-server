@@ -190,6 +190,7 @@ export function lessonDetail(lesson: Partial<LessonDetail> = {}): LessonDetail {
     },
     flags: [],
     falsePositives: [],
+    callOnChecks: [],
     versions: [
       { version: 1, change: 'generate', reason: null, segmentIndex: null, createdAt: '2026-11-04T16:00:00.000Z' },
     ],

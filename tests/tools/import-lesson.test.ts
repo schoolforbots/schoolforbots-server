@@ -84,6 +84,7 @@ describe('importLesson', () => {
         source: 'import',
         flags: [],
         falsePositives: [],
+        callOnChecks: [],
         version: 1,
         updatedAt: null,
       },

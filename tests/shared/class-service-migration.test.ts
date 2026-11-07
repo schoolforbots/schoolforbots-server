@@ -10,6 +10,7 @@ import * as m0006 from '../../src/shared/migrations/0006_ai_id.js'
 import * as m0007 from '../../src/shared/migrations/0007_llm.js'
 import * as m0008 from '../../src/shared/migrations/0008_admin_discipline.js'
 import * as m0009 from '../../src/shared/migrations/0009_llm_cached_tokens.js'
+import * as m0010 from '../../src/shared/migrations/0010_call_on_checks.js'
 import type { Database } from '../../src/shared/schema.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
@@ -398,6 +399,7 @@ describe('undoing and redoing 0004', () => {
       '0007_llm': m0007,
       '0008_admin_discipline': m0008,
       '0009_llm_cached_tokens': m0009,
+      '0010_call_on_checks': m0010,
       }
     },
   }

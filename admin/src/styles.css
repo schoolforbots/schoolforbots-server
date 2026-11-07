@@ -486,6 +486,13 @@ p {
   border-radius: 6px;
   background: #f0efe9;
 }
+.lesson-notices .call-on-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .lesson-title {
   margin: 0;
   font-size: 20px;
