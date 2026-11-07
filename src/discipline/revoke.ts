@@ -1,6 +1,7 @@
 import { sql, type Kysely, type Updateable } from 'kysely'
 import { lockStudentsOfAiIds, schoolRulePenalty, type LockedStudent } from '../class/discipline.js'
 import { maskPrivacy } from '../moderation/mask.js'
+import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { lock } from '../shared/db.js'
@@ -30,6 +31,8 @@ export interface ExcludeRuleDeps {
   db: Kysely<Database>
   config: SchoolConfig
   clock: Clock
+  /** Checks a line again against the rules; its lists may not yet lack the rule being dropped, so the exclusions table filters its hits. */
+  moderator: Pick<Moderator, 'checkAll'>
 }
 
 interface Penalty {
@@ -193,41 +196,51 @@ async function lift(
   return freed
 }
 
+interface StandingLine {
+  category: 'sensitive' | 'injection'
+  rule: string
+  text: string
+}
+
 /**
- * The earliest other line of the student in the session that a rule still in force stopped as a school-rule break (a
- * sensitive word or an injection phrase); none when there is no such line. Rules dropped in this transaction count as
- * dropped.
+ * The earliest line of the student in the session that a rule still in force stops as a school-rule break (a sensitive
+ * word or an injection phrase); undefined when there is no such line. A line keeps the rule it was stopped for while
+ * that rule stands. Once it is dropped the line is checked again with the moderator and stands for the first other
+ * rule of those categories that hit it and is not dropped. The rules dropped in this transaction, the one being dropped
+ * included, are read from `moderation_exclusions`, since the moderator's own lists may not have caught up yet.
  */
-async function otherStoppedLine(trx: Kysely<Database>, studentId: number, sessionId: number) {
-  return trx
-    .selectFrom('messages as m')
-    .select(['m.moderation', 'm.matchedTerm', 'm.text'])
-    .where('m.sessionId', '=', sessionId)
-    .where('m.senderId', '=', studentId)
-    .where('m.delivered', '=', false)
-    .where('m.moderation', 'in', ['sensitive', 'injection'])
-    .where('m.matchedTerm', 'is not', null)
-    .where((eb) =>
-      eb.not(
-        eb.exists(
-          eb
-            .selectFrom('moderationExclusions as e')
-            .select('e.id')
-            .whereRef('e.value', '=', 'm.matchedTerm')
-            .where((x) =>
-              x.or([
-                x.and([x('e.kind', '=', 'word'), x('m.moderation', '=', 'sensitive')]),
-                x.and([x('e.kind', '=', 'pattern'), x('m.moderation', '=', 'injection')]),
-              ]),
-            ),
-        ),
-      ),
-    )
-    .orderBy('m.createdAt')
-    .orderBy('m.id')
-    .limit(1)
-    .$narrowType<{ moderation: 'sensitive' | 'injection'; matchedTerm: string }>()
-    .executeTakeFirst()
+async function standingLine(
+  trx: Kysely<Database>,
+  moderator: Pick<Moderator, 'checkAll'>,
+  studentId: number,
+  sessionId: number,
+): Promise<StandingLine | undefined> {
+  const lines = await trx
+    .selectFrom('messages')
+    .select(['moderation', 'matchedTerm', 'text'])
+    .where('sessionId', '=', sessionId)
+    .where('senderId', '=', studentId)
+    .where('delivered', '=', false)
+    .where('moderation', 'in', ['sensitive', 'injection'])
+    .orderBy('createdAt')
+    .orderBy('id')
+    .execute()
+  if (lines.length === 0) return undefined
+  const dropped = await trx.selectFrom('moderationExclusions').select(['kind', 'value']).execute()
+  const isDropped = (category: 'sensitive' | 'injection', rule: string) =>
+    dropped.some((e) => e.value === rule && CATEGORY[e.kind] === category)
+
+  for (const line of lines) {
+    const category = line.moderation === 'injection' ? 'injection' : 'sensitive'
+    if (line.matchedTerm !== null && !isDropped(category, line.matchedTerm)) {
+      return { category, rule: line.matchedTerm, text: line.text }
+    }
+    for (const hit of moderator.checkAll(line.text)) {
+      if (hit.category === 'privacy' || hit.rule === null || isDropped(hit.category, hit.rule)) continue
+      return { category: hit.category, rule: hit.rule, text: line.text }
+    }
+  }
+  return undefined
 }
 
 /**
@@ -236,9 +249,12 @@ async function otherStoppedLine(trx: Kysely<Database>, studentId: number, sessio
  *
  * 1. The rule is written to `moderation_exclusions`; the services stop blocking it at their next refresh.
  * 2. Each school-rule break recorded for it in the last `revocationWindowDays` days and not revoked is looked at. A
- *    lesson is recorded once, for its first hit: when the student had another line stopped in the same lesson by a
- *    rule still in force, the record stays and is moved to the earliest such line (its rule, category and quote);
- *    otherwise it is revoked.
+ *    lesson is recorded once, for its first hit: when the student had a line stopped in the same lesson (this one
+ *    included) that a rule still in force stops, the record stays and is moved to the earliest such line (its rule,
+ *    category and quote); otherwise it is revoked. A line counts for the rule it was stopped for while that rule
+ *    stands; once it is dropped the line is checked again with the moderator, and counts for the first other sensitive
+ *    or injection rule that hits it and is not dropped (a privacy hit does not count). A line already deleted from
+ *    the messages no longer counts.
  * 3. Each penalty in force whose offender had a break revoked is weighed again, as it was given: with the same
  *    thresholds and windows, at the time it was given, counting the breaks that still stand. A suspension that falls
  *    short of its threshold is lifted; so is an expulsion, even when what is left still earns a suspension (the student
@@ -253,7 +269,7 @@ export async function excludeRule(
   kind: RuleKind,
   value: string,
 ): Promise<{ revoked: number; lifted: number[] }> {
-  const { db, config, clock } = deps
+  const { db, config, clock, moderator } = deps
   return db.transaction().execute(async (trx) => {
     await lock(trx, EXCLUSIONS_LOCK)
     const now = clock.now()
@@ -281,11 +297,11 @@ export async function excludeRule(
     const offenders = new Set<number>()
     let revoked = 0
     for (const r of records) {
-      const other = r.sessionId === null ? undefined : await otherStoppedLine(trx, r.studentId, r.sessionId)
+      const other = r.sessionId === null ? undefined : await standingLine(trx, moderator, r.studentId, r.sessionId)
       const update = trx.updateTable('disciplineRecords').where('id', '=', r.id).where('revokedAt', 'is', null)
       if (other !== undefined) {
-        const detail = { category: other.moderation, quote: maskPrivacy(other.text) }
-        await update.set({ matchedTerm: other.matchedTerm, detail: JSON.stringify(detail) }).execute()
+        const detail = { category: other.category, quote: maskPrivacy(other.text) }
+        await update.set({ matchedTerm: other.rule, detail: JSON.stringify(detail) }).execute()
         continue
       }
       const { numUpdatedRows } = await update.set({ revokedAt: now }).executeTakeFirstOrThrow()

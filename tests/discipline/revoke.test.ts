@@ -110,7 +110,7 @@ async function lessons(classId: number, days: number, lines: (day: number) => [S
   return all
 }
 
-const exclude = (kind: 'word' | 'pattern', value: string) => excludeRule({ db: t.db, config, clock: t.clock }, kind, value)
+const exclude = (kind: 'word' | 'pattern', value: string) => excludeRule({ db: t.db, config, clock: t.clock, moderator }, kind, value)
 
 /** The student's school-rule breaks that stand. */
 async function breaks(studentId: number): Promise<number> {
@@ -230,6 +230,83 @@ describe('excludeRule', () => {
     expect(await record()).toMatchObject({ matchedTerm: OTHER_WORD, revokedAt: t.clock.now() })
     expect(await breaks(b.id)).toBe(0)
     expect(await breaks(a.id)).toBe(1)
+  })
+
+  describe('a line that hit more than one rule', () => {
+    const BOTH = `${WORD}${OTHER_WORD}`
+
+    test('keeps a break whose line also hit another rule still in force', async () => {
+      const classId = await newClass()
+      const a = await newStudent(classId)
+      const all = await lessons(classId, 3, () => [[a, BOTH]])
+      expect((await recordsOf(a.id, 'school_rule')).map((r) => r.matchedTerm)).toEqual([WORD, WORD, WORD])
+      const before = await studentRow(a.id)
+      expect(before.status).toBe('suspended')
+      t.clock.set(new Date(all[2]!.closeAt.getTime() + DAY))
+
+      expect(await exclude('word', WORD)).toEqual({ revoked: 0, lifted: [] })
+
+      const records = await recordsOf(a.id, 'school_rule')
+      expect(records.map((r) => [r.matchedTerm, r.revokedAt])).toEqual([
+        [OTHER_WORD, null],
+        [OTHER_WORD, null],
+        [OTHER_WORD, null],
+      ])
+      expect(records[0]!.detail).toEqual({ category: 'sensitive', quote: BOTH })
+      expect(await breaks(a.id)).toBe(3)
+      expect(await studentRow(a.id)).toEqual(before)
+      expect((await recordsOf(a.id, 'suspension')).map((r) => r.revokedAt)).toEqual([null])
+      // The line keeps the rule it was stopped for.
+      const line = await t.db.selectFrom('messages').select('matchedTerm').where('senderId', '=', a.id).executeTakeFirstOrThrow()
+      expect(line.matchedTerm).toBe(WORD)
+    })
+
+    test('moves to a phrase rule the line also hit', async () => {
+      const classId = await newClass()
+      const a = await newStudent(classId)
+      const l = await lesson(classId, 0)
+      await say(a, l, `${WORD}，${INJECTION}`)
+
+      expect(await exclude('word', WORD)).toEqual({ revoked: 0, lifted: [] })
+
+      expect(await recordsOf(a.id, 'school_rule')).toEqual([
+        {
+          sessionId: l.sessionId,
+          detail: { category: 'injection', quote: `${WORD}，${INJECTION}` },
+          matchedTerm: PATTERN,
+          revokedAt: null,
+        },
+      ])
+    })
+
+    test('revokes when the other rule was dropped before', async () => {
+      const classId = await newClass()
+      const a = await newStudent(classId)
+      await say(a, await lesson(classId, 0), BOTH)
+
+      expect(await exclude('word', OTHER_WORD)).toEqual({ revoked: 0, lifted: [] })
+      expect(await exclude('word', WORD)).toEqual({ revoked: 1, lifted: [] })
+      expect(await breaks(a.id)).toBe(0)
+    })
+
+    test('revokes when the line is gone', async () => {
+      const classId = await newClass()
+      const a = await newStudent(classId)
+      await say(a, await lesson(classId, 0), BOTH)
+      await t.db.deleteFrom('messages').where('senderId', '=', a.id).execute()
+
+      expect(await exclude('word', WORD)).toEqual({ revoked: 1, lifted: [] })
+      expect(await breaks(a.id)).toBe(0)
+    })
+
+    test('ignores a privacy hit left on the line', async () => {
+      const classId = await newClass()
+      const a = await newStudent(classId)
+      await say(a, await lesson(classId, 0), `${WORD}，${PHONE}`)
+
+      expect(await exclude('word', WORD)).toEqual({ revoked: 1, lifted: [] })
+      expect(await breaks(a.id)).toBe(0)
+    })
   })
 
   test('an expulsion no longer earned is lifted for the whole AI id: bans gone, dropped, and they can re-enrol at once', async () => {
