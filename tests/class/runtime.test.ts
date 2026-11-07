@@ -928,7 +928,7 @@ describe('the day plan', () => {
     })
     await lockTaken
 
-    // The runtime still reads the lesson as approved, then waits for the importer.
+    // The runtime waits for the importer's lock before it plans the day, and then finds a draft.
     const ticking = runtime.tick()
     try {
       await waitFor(async () => (await lockWaits()) > 0)

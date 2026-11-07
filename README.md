@@ -273,7 +273,7 @@ Notes:
 
 - The class service opens a class with the students it has when the doors open; a class created after its doors opened has no lesson that day.
 - A class has only one lesson a day. To run another one the same day: change the start time again, create another class with `dev:seed`, and restart the class service (it reads the config only on startup).
-- With `LLM_FAKE=1` (as in `.env.example`) the teacher answers questions and comments on call-on answers with canned lines. At 30 times the speed the teacher has only 2 seconds to answer before the next segment. With the 第二层·复查老师 switch on, the teacher keeps `secondLayer.batchMillis` and two more seconds after the model's reply for the second check, which leaves no time at that speed: turn the switch off for the simulation, or run it slower (`CLASS_TIMELINE_SPEED=10` leaves 6 seconds), or the teacher answers nothing and comments with the template.
+- With `LLM_FAKE=1` (as in `.env.example`) the teacher answers questions and comments on call-on answers with canned lines. At 30 times the speed the teacher has only 2 seconds to answer before the next segment. With the 第二层·复查老师 switch on, the teacher keeps `secondLayer.batchMillis` and two more seconds after the model's reply for the second check, which leaves no time at that speed: turn the switch off for the simulation, or run it slower (`CLASS_TIMELINE_SPEED=10` leaves 6 seconds), or the teacher stops answering questions, and comments come from the model only when the answer arrives early enough, otherwise from the template.
 
 ## Tests
 
