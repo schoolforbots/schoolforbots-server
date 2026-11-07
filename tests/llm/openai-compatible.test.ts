@@ -118,6 +118,52 @@ test('500, 429 and a non-refusal 400 are LlmUnavailable', async () => {
   }
 })
 
+const replyWith = (status: number, headers: Record<string, string> = {}) => {
+  handler = (_r, _b, res) => {
+    res.statusCode = status
+    for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
+    res.end('出错了')
+  }
+}
+const failure = (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => e as LlmUnavailable)
+
+test('marks timeouts, network errors, 429 and 5xx as retryable', async () => {
+  handler = () => {}
+  expect(await failure(provider().complete('m', { ...req, timeoutMs: 100 }))).toMatchObject({ retryable: true })
+  for (const status of [429, 500, 503]) {
+    replyWith(status)
+    expect(await failure(provider().complete('m', req))).toMatchObject({ retryable: true })
+  }
+  await new Promise((resolve) => server.close(resolve))
+  expect(await failure(provider().complete('m', req))).toMatchObject({ retryable: true })
+})
+
+test('does not retry 400, 401, 402 or a malformed reply', async () => {
+  for (const status of [400, 401, 402]) {
+    replyWith(status)
+    expect(await failure(provider().complete('m', req))).toMatchObject({ retryable: false })
+  }
+  handler = (_r, _b, res) => res.end('<html>nope</html>')
+  expect(await failure(provider().complete('m', req))).toMatchObject({ retryable: false })
+  handler = (_r, _b, res) => res.end(JSON.stringify({ choices: [] }))
+  expect(await failure(provider().complete('m', req))).toMatchObject({ retryable: false })
+})
+
+test('reads Retry-After as seconds or a date', async () => {
+  replyWith(429, { 'retry-after': '2' })
+  expect(await failure(provider().complete('m', req))).toMatchObject({ retryable: true, retryAfterMs: 2000 })
+  replyWith(503, { 'retry-after': new Date(Date.now() + 3000).toUTCString() })
+  const ms = ((await failure(provider().complete('m', req))) as LlmUnavailable).retryAfterMs
+  expect(ms).toBeGreaterThan(1900)
+  expect(ms).toBeLessThanOrEqual(3000)
+  for (const bad of ['soon', '-1', new Date(Date.now() - 60_000).toUTCString()]) {
+    replyWith(429, { 'retry-after': bad })
+    expect(await failure(provider().complete('m', req))).toMatchObject({ retryable: true, retryAfterMs: null })
+  }
+  replyWith(429)
+  expect(await failure(provider().complete('m', req))).toMatchObject({ retryAfterMs: null })
+})
+
 test('a refusal marker is also honoured on non-400 errors', async () => {
   handler = (_r, _b, res) => {
     res.statusCode = 403

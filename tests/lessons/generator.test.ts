@@ -238,8 +238,8 @@ describe('generateMissing', () => {
     expect(await generateMissing(deps)).toEqual({ generated: 3, failed: 0, waitingManual: 0 })
     expect(await failures()).toEqual([])
     expect((await lessonRows()).map((r) => r.division)).toEqual(DIVISIONS)
-    // Each call is tried twice by the client (llm.retries is 1) while the provider is down.
-    expect(provider.calls).toHaveLength(3 * 2 * 2 + 3)
+    // The error is not retryable, so each call reaches the provider once, even though llm.retries is 1.
+    expect(provider.calls).toHaveLength(3 * 2 + 3)
     expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls])).not.toContain('SECRET')
   })
 

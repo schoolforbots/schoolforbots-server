@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import Fastify from 'fastify'
 import type { Kysely } from 'kysely'
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { buildProviders, createLlm, type LlmPurpose } from '../../src/llm/client.js'
 import { createFakeLlm } from '../../src/llm/fake.js'
 import { createOpenAiCompatible } from '../../src/llm/openai-compatible.js'
@@ -56,6 +56,7 @@ const config = {
 const clock = createTestClock(new Date('2026-11-10T04:00:00Z'))
 const ok = (text = 'hi', i = 1000, o = 500): LlmResponse => ({ text, inputTokens: i, outputTokens: o })
 const prompt = { system: '系统提示词SECRET', user: '用户提问SECRET' }
+const unavailable = (opts: { retryAfterMs?: number | null } = {}) => new LlmUnavailable('x', { retryable: true, ...opts })
 const rows = () => db.selectFrom('llmCalls').selectAll().orderBy('id').execute()
 
 describe('routing and recording', () => {
@@ -86,8 +87,8 @@ describe('routing and recording', () => {
 
 describe('retries and refusals', () => {
   test('LlmUnavailable is retried once, then thrown; one failed row per call', async () => {
-    const a = createFakeLlm(() => new LlmUnavailable('x'))
-    const llm = createLlm({ db, config, clock, providers: { a } })
+    const a = createFakeLlm(() => unavailable())
+    const llm = createLlm({ db, config, clock, providers: { a }, random: () => 0 })
     await expect(llm.call('lesson', prompt)).rejects.toBeInstanceOf(LlmUnavailable)
     expect(a.calls).toHaveLength(2)
     expect(await rows()).toMatchObject([{ outcome: 'failed', inputTokens: 0, outputTokens: 0 }])
@@ -96,10 +97,63 @@ describe('retries and refusals', () => {
 
   test('a retry that succeeds returns the reply', async () => {
     let n = 0
-    const a = createFakeLlm(() => (++n === 1 ? new LlmUnavailable('x') : ok('second')))
-    const res = await createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt)
+    const a = createFakeLlm(() => (++n === 1 ? unavailable() : ok('second')))
+    const res = await createLlm({ db, config, clock, providers: { a }, random: () => 0 }).call('lesson', prompt)
     expect(res.text).toBe('second')
     expect(await rows()).toMatchObject([{ outcome: 'ok' }])
+  })
+
+  describe('the wait before a retry', () => {
+    afterEach(() => vi.useRealTimers())
+
+    /** Runs one call that fails once with `err`, on fake timers; returns when each attempt started. */
+    async function gaps(err: LlmUnavailable, random: () => number): Promise<number[]> {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+      const starts: number[] = []
+      const a = createFakeLlm(() => {
+        starts.push(performance.now())
+        return starts.length === 1 ? err : ok()
+      })
+      const done = createLlm({ db, config, clock, providers: { a }, random }).call('lesson', prompt)
+      await vi.advanceTimersByTimeAsync(3000)
+      await done
+      return starts
+    }
+
+    test('waits 500 to 1500 ms before a retry', async () => {
+      const low = await gaps(unavailable(), () => 0)
+      expect(low[1]! - low[0]!).toBeGreaterThanOrEqual(500)
+      expect(low[1]! - low[0]!).toBeLessThan(600)
+      const high = await gaps(unavailable(), () => 1)
+      expect(high[1]! - high[0]!).toBeGreaterThanOrEqual(1500)
+      expect(high[1]! - high[0]!).toBeLessThan(1600)
+    })
+
+    test('waits as long as Retry-After says', async () => {
+      for (const random of [() => 0, () => 1]) {
+        const s = await gaps(unavailable({ retryAfterMs: 800 }), random)
+        expect(s[1]! - s[0]!).toBeGreaterThanOrEqual(800)
+        expect(s[1]! - s[0]!).toBeLessThan(900)
+      }
+    })
+
+    test('does not retry when the wait leaves less than a second', async () => {
+      const a = createFakeLlm(() => unavailable({ retryAfterMs: 500 }))
+      await expect(createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 1200 })).rejects.toBeInstanceOf(LlmUnavailable)
+      expect(a.calls).toHaveLength(1)
+      expect(await rows()).toMatchObject([{ outcome: 'failed' }])
+    })
+  })
+
+  test('an error that is not retryable is not retried', async () => {
+    const a = createFakeLlm(() => new LlmUnavailable('x', { retryable: false }))
+    await expect(createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt)).rejects.toBeInstanceOf(LlmUnavailable)
+    expect(a.calls).toHaveLength(1)
+    expect(await rows()).toMatchObject([{ outcome: 'failed' }])
+  })
+
+  test('an error without options is not retryable and carries the defaults', () => {
+    expect(new LlmUnavailable('x')).toMatchObject({ retryable: false, retryAfterMs: null })
   })
 
   test('LlmTruncated is not retried, and is recorded as failed with the tokens that were billed', async () => {
@@ -202,9 +256,9 @@ describe('concurrency and time budget', () => {
     let n = 0
     const a = createFakeLlm(async () => {
       await new Promise((r) => setTimeout(r, 7))
-      return ++n === 1 ? new LlmUnavailable('x') : ok()
+      return ++n === 1 ? unavailable({ retryAfterMs: 1 }) : ok()
     })
-    await createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 1000 })
+    await createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 2000 })
     for (const c of a.calls) {
       expect(Number.isInteger(c.req.timeoutMs)).toBe(true)
       expect(c.req.timeoutMs).toBeGreaterThan(0)
@@ -215,9 +269,9 @@ describe('concurrency and time budget', () => {
     let n = 0
     const a = createFakeLlm(async () => {
       await new Promise((r) => setTimeout(r, 60))
-      return ++n === 1 ? new LlmUnavailable('x') : ok()
+      return ++n === 1 ? unavailable({ retryAfterMs: 1 }) : ok()
     })
-    await createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 1000 })
+    await createLlm({ db, config, clock, providers: { a } }).call('lesson', prompt, { timeoutMs: 2000 })
     expect(a.calls).toHaveLength(2)
     expect(a.calls[1]!.req.timeoutMs).toBeLessThan(a.calls[0]!.req.timeoutMs - 50)
   })
@@ -249,7 +303,7 @@ describe('through a real provider over HTTP', () => {
     replies = []
   })
 
-  const llmOverHttp = () => createLlm({ db, config, clock, providers: { a: createOpenAiCompatible({ baseUrl, apiKey: 'sk-test', refusalMarkers: [] }) } })
+  const llmOverHttp = () => createLlm({ db, config, clock, random: () => 0, providers: { a: createOpenAiCompatible({ baseUrl, apiKey: 'sk-test', refusalMarkers: [] }) } })
 
   test('a call succeeds although the time left is a fraction of a millisecond', async () => {
     await expect(llmOverHttp().call('lesson', prompt, { json: true, timeoutMs: 5000 })).resolves.toEqual({ text: '{"ok":true}', inputTokens: 10, outputTokens: 5 })
