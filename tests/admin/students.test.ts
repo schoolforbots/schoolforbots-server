@@ -8,6 +8,7 @@ import { slotOccupancy } from '../../src/registration/capacity.js'
 import { loadSchoolRules } from '../../src/shared/school-rules.js'
 import { fileURLToPath } from 'node:url'
 import { buildAdminTestApp, CSRF } from '../helpers/admin.js'
+import { exampleModerator } from '../helpers/app.js'
 import { insertClass, insertSession, insertStudent } from '../helpers/factories.js'
 import { captureLogs } from '../helpers/logs.js'
 
@@ -293,7 +294,7 @@ test('a rule dropped as a false hit does not take back a penalty the admin gave'
   await disciplineRecorder.record(t.db, { studentId: s.id, sessionId, kind: 'school_rule', detail: { category: 'sensitive', quote: '原话' }, matchedTerm: WORD, at: NOW })
   await post(`api/students/${s.id}/suspend`, { days: 5 })
 
-  const out = await excludeRule({ db: t.db, config: t.config, clock: t.clock }, 'word', WORD)
+  const out = await excludeRule({ db: t.db, config: t.config, clock: t.clock, moderator: exampleModerator() }, 'word', WORD)
   expect(out).toEqual({ revoked: 1, lifted: [] })
   expect(await row(s.id)).toMatchObject({ status: 'suspended' })
   const suspension = await t.db.selectFrom('disciplineRecords').select('revokedAt').where('kind', '=', 'suspension').executeTakeFirstOrThrow()
@@ -322,7 +323,7 @@ test('an automatic suspension after a longer one by hand keeps the longer date, 
   expect(await row(s.id)).toMatchObject({ status: 'suspended', suspendedUntil: byHand })
   expect((await suspensions(s.id)).map((r) => r.detail.by ?? 'auto')).toEqual(['admin', 'auto'])
 
-  const out = await excludeRule({ db: t.db, config: t.config, clock: t.clock }, 'word', WORD)
+  const out = await excludeRule({ db: t.db, config: t.config, clock: t.clock, moderator: exampleModerator() }, 'word', WORD)
   expect(out).toEqual({ revoked: 1, lifted: [] })
   expect(await row(s.id)).toMatchObject({ status: 'suspended', suspendedUntil: byHand })
   // The automatic one is no longer earned: its record is revoked; the one by hand stands.
@@ -336,7 +337,7 @@ test('a shorter suspension by hand does not cut an automatic one short, and is w
   const automatic = new Date(NOW.getTime() + t.config.discipline.suspension.days * DAY)
   expect(await row(s.id)).toMatchObject({ status: 'suspended', suspendedUntil: automatic })
 
-  const out = await excludeRule({ db: t.db, config: t.config, clock: t.clock }, 'word', WORD)
+  const out = await excludeRule({ db: t.db, config: t.config, clock: t.clock, moderator: exampleModerator() }, 'word', WORD)
   expect(out).toEqual({ revoked: 1, lifted: [s.id] })
   expect(await row(s.id)).toMatchObject({ status: 'suspended', suspendedUntil: new Date(NOW.getTime() + DAY) })
 })

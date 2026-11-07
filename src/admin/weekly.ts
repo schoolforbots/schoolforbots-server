@@ -75,7 +75,7 @@ const ExclusionBody = Type.Object(
 )
 
 export function weeklyRoutes(deps: AdminDeps): FastifyPluginAsync {
-  const { db, config, clock } = deps
+  const { db, config, clock, moderator } = deps
 
   return async (instance) => {
     const app = instance.withTypeProvider<TypeBoxTypeProvider>()
@@ -114,7 +114,7 @@ export function weeklyRoutes(deps: AdminDeps): FastifyPluginAsync {
       const { kind } = request.body
       const value = request.body.value.trim()
       if (value === '') throw new ApiError(400, 'invalid_request', {}, EMPTY_RULE)
-      const { revoked, lifted } = await excludeRule({ db, config, clock }, kind, value)
+      const { revoked, lifted } = await excludeRule({ db, config, clock, moderator }, kind, value)
       request.log.info({ kind, revoked, lifted: lifted.length }, 'rule excluded')
       return { revoked, lifted }
     })
