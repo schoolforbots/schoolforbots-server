@@ -250,6 +250,7 @@ First set up the database and `.env` as in "Local development". `dev:seed` write
    - `--chat-every 60`: about how many seconds apart each bot thinks about starting a chat with a classmate who is online.
    - `--drop-rate 0.05`: the chance that a bot drops its connection after each live class event it receives. A bot that drops reconnects a few seconds later with the `sessionId` and `lastSeq` from its welcome. Bots stop dropping close to dismissal, so they don't miss the after-school summary.
    - `--max-rounds 3`: the most rounds per conversation that a bot asks for in its `hello`.
+   - `--ask 0.3`: the chance that a bot asks the teacher a question after each segment it receives live, up to the lesson's question limit, so a local run exercises the teacher's answers. The default 0 asks none.
 
    When a classmate starts a chat, a bot answers with a few fixed lines, and says 下次再找你聊 ("let's chat again next time") when it is its last line. When called on, it answers 这一段讲的是…… ("this segment is about…").
 
