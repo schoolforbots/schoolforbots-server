@@ -262,7 +262,7 @@ const RewriteBody = Type.Object(
 )
 const RestoreBody = Type.Object({ baseVersion: Version, toVersion: Version }, noMore)
 const FalsePositiveBody = Type.Object({ baseVersion: Version, rule: Type.String({ minLength: 1 }) }, noMore)
-const CallOnOkBody = Type.Object({ baseVersion: Version, callOn: Type.Union([Type.Literal('review'), Type.Literal('extension')]) }, noMore)
+const CallOnOkBody = Type.Object({ baseVersion: Version, callOn: CallOn }, noMore)
 const ApproveBody = Type.Object({ baseVersion: Version }, noMore)
 const PasteBody = Type.Object(
   {

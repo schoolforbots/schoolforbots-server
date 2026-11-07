@@ -3,6 +3,7 @@ import type { ModerationCategory, Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { Division } from '../shared/config.js'
 import { lessonLockKey, lock } from '../shared/db.js'
+import { CALL_ON_KINDS } from '../shared/schema.js'
 import type {
   CallOnKind,
   Database,
@@ -160,8 +161,6 @@ interface VersionMeta {
   flagCallOns?: readonly CallOnKind[]
 }
 
-const CALL_ON_ORDER: readonly CallOnKind[] = ['review', 'extension']
-
 /**
  * The call-on questions to look at again after a save. A lesson without questions has none, and a new lesson or a
  * rewrite of the whole lesson starts over. Otherwise a question stays flagged until its text changes, and a segment
@@ -178,7 +177,7 @@ export function nextCallOnChecks(
   if (meta.change === 'generate' || meta.change === 'rewrite_lesson' || meta.change === 'topic') return []
   const kept = before.filter((k) => old.callOnQuestions?.[k] === questions[k])
   const added = meta.change === 'rewrite_segment' ? (meta.flagCallOns ?? []) : []
-  return CALL_ON_ORDER.filter((k) => kept.includes(k) || added.includes(k))
+  return CALL_ON_KINDS.filter((k) => kept.includes(k) || added.includes(k))
 }
 
 async function insertVersion(
@@ -499,15 +498,28 @@ export async function confirmCallOn(
   return changeLesson(deps, lessonId, baseVersion, async (trx, lesson) => {
     if (!lesson.callOnChecks.includes(kind)) throw new LessonFormatError('这道点名题现在没有提醒，刷新后再看')
     const version = lesson.version + 1
+    const callOnChecks = JSON.stringify(lesson.callOnChecks.filter((k) => k !== kind))
     await trx
       .updateTable('lessons')
-      .set({
-        callOnChecks: JSON.stringify(lesson.callOnChecks.filter((k) => k !== kind)),
-        version,
-        updatedAt: deps.clock.now(),
-      })
+      .set({ callOnChecks, version, updatedAt: deps.clock.now() })
       .where('id', '=', lessonId)
       .execute()
+    // The latest saved version carries the same reminders, so restoring it does not bring this one back.
+    const latest = await trx
+      .selectFrom('lessonVersions')
+      .select('version')
+      .where('lessonId', '=', lessonId)
+      .orderBy('version', 'desc')
+      .limit(1)
+      .executeTakeFirst()
+    if (latest !== undefined) {
+      await trx
+        .updateTable('lessonVersions')
+        .set({ callOnChecks })
+        .where('lessonId', '=', lessonId)
+        .where('version', '=', latest.version)
+        .execute()
+    }
     return { version }
   })
 }
