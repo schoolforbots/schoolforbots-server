@@ -60,6 +60,23 @@ test('no response_format when json is false; a trailing slash on baseUrl is fine
   expect(seen[0]?.body.response_format).toBeUndefined()
 })
 
+test('requestExtras are merged into the body, and cannot override the fields the provider sets', async () => {
+  const extras = { thinking: { type: 'disabled' }, model: 'other', max_tokens: 1, messages: [], response_format: { type: 'text' }, temperature: 0.2 }
+  const p = createOpenAiCompatible({ baseUrl, apiKey: 'k', refusalMarkers: [], requestExtras: extras })
+  await p.complete('m1', req)
+  expect(seen[0]?.body).toEqual({
+    thinking: { type: 'disabled' },
+    temperature: 0.2,
+    model: 'm1',
+    max_tokens: 100,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: '系统段' },
+      { role: 'user', content: '用户段' },
+    ],
+  })
+})
+
 test('a 400 whose body holds a refusal marker is LlmContentRefused', async () => {
   handler = (_r, _b, res) => {
     res.statusCode = 400

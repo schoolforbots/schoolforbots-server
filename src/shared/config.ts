@@ -31,6 +31,9 @@ const Provider = Type.Object({
   models: Type.Record(Type.String({ minLength: 1 }), Price),
   // Phrases in a provider's error reply that mean it refused the content, so that is told from a failure.
   contentRefusalMarkers: Type.Array(Type.String({ minLength: 1 })),
+  // Extra fields merged into every chat/completions request body, for vendors that need them (for example to switch
+  // off a reasoning mode). The fields the school itself sets always win over these.
+  requestExtras: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.Unknown())),
 })
 const Purpose = Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) })
 

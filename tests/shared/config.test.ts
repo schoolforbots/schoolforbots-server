@@ -594,6 +594,20 @@ describe('calendar', () => {
   })
 })
 
+test('a provider may carry requestExtras, which must be an object; the example leaves them out', () => {
+  expect(loadSchoolConfig('config/school.example.json').llm.providers.main?.requestExtras).toBeUndefined()
+  const withExtras = (requestExtras: unknown) =>
+    writeTmpConfig((c) => {
+      ;(c as any).llm.providers.main.requestExtras = requestExtras
+    })
+  expect(loadSchoolConfig(withExtras({ thinking: { type: 'disabled' } })).llm.providers.main?.requestExtras).toEqual({
+    thinking: { type: 'disabled' },
+  })
+  for (const bad of ['disabled', 5, null, ['a'], true]) {
+    expect(() => loadSchoolConfig(withExtras(bad)), JSON.stringify(bad)).toThrow(/requestExtras/)
+  }
+})
+
 test('the example config has the model, lesson generation, switch and revocation settings', () => {
   const c = loadSchoolConfig('config/school.example.json')
   expect(Object.keys(c.llm.purposes).sort()).toEqual(
