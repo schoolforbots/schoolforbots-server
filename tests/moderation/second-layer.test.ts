@@ -47,9 +47,42 @@ function fakeLlm(handler: (items: Items, call: Call) => string | Error) {
 const base = exampleConfig()
 const config = { ...base, secondLayer: { ...base.secondLayer, batchMillis: 20, timeoutSeconds: 7 } }
 
-function make(llm: Llm | null, sw: Switches = switches(), log?: { warn: ReturnType<typeof vi.fn> }) {
-  return createSecondLayer({ config, llm, switches: sw, prompts, log: log as never })
+function make(llm: Llm | null, sw: Switches = switches(), log?: { warn: ReturnType<typeof vi.fn> }, cfg = config) {
+  return createSecondLayer({ config: cfg, llm, switches: sw, prompts, log: log as never })
 }
+
+const oneSecond = { ...base, secondLayer: { ...base.secondLayer, batchMillis: 20, timeoutSeconds: 1 } }
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * A model that answers like the real client's time limit: a request that needs longer than its `timeoutMs` fails with
+ * `LlmUnavailable` once that time is up. `refuseWhen` makes a request fail with a content refusal after `refuseMs`.
+ */
+function slowLlm(refuseWhen: (items: Items) => boolean, ms: number, refuseMs = 0) {
+  const t0 = performance.now()
+  const calls: { startedAt: number; timeoutMs: number }[] = []
+  const llm: Llm = {
+    async call(_purpose, prompt, opts) {
+      const items = itemsOf(prompt.user)
+      calls.push({ startedAt: performance.now() - t0, timeoutMs: opts?.timeoutMs ?? 0 })
+      if (refuseWhen(items)) {
+        await sleep(refuseMs)
+        throw new LlmContentRefused('x')
+      }
+      if (ms > (opts?.timeoutMs ?? 0)) {
+        await sleep(opts?.timeoutMs ?? 0)
+        throw new LlmUnavailable('timeout')
+      }
+      await sleep(ms)
+      return { text: reply(items), inputTokens: 1, outputTokens: 1 }
+    },
+    async recordManual() {},
+  }
+  return { llm, calls, t0 }
+}
+
+const four = ['line 1', 'line 2', 'line 3', 'line 4']
+const has3 = (items: Items) => items.some((i) => i.text === 'line 3')
 
 describe('second layer', () => {
   test('passes without a call when the switch is off, there is no model, or the layer is off', async () => {
@@ -84,7 +117,8 @@ describe('second layer', () => {
     expect(out).toEqual(['pass', 'pass', 'blocked', 'pass', 'pass'])
     expect(calls).toHaveLength(1)
     expect(calls[0]?.opts?.json).toBe(true)
-    expect(calls[0]?.opts?.timeoutMs).toBe(7000)
+    expect(calls[0]?.opts?.timeoutMs).toBeLessThanOrEqual(7000)
+    expect(calls[0]?.opts?.timeoutMs).toBeGreaterThan(6900)
     expect(itemsOf(calls[0]?.user ?? '').map((i) => i.id)).toEqual([1, 2, 3, 4, 5])
   })
 
@@ -187,5 +221,56 @@ describe('second layer', () => {
     expect(calls).toHaveLength(0)
     expect(warn.mock.calls[0]?.[1]).toBe('second layer prompt could not be built, the lines pass')
     expect(JSON.stringify(warn.mock.calls)).not.toContain('秘密')
+  })
+
+  test('splits a refused batch within the first time budget', async () => {
+    const { llm, calls, t0 } = slowLlm(has3, 300, 300)
+    const layer = make(llm, switches(), undefined, oneSecond)
+    const out = await Promise.all(four.map((t) => layer.check('chat', t)))
+    expect(performance.now() - t0).toBeLessThan(1200)
+    expect(out).toEqual(['pass', 'pass', 'blocked', 'pass'])
+    // Every call ends by the time the first call's budget does (batch window of 20 ms, plus slack).
+    for (const c of calls) expect(c.startedAt + c.timeoutMs).toBeLessThanOrEqual(1100)
+  })
+
+  test('blocks the lines a refused batch has not sorted out when time runs out', async () => {
+    const { llm, t0 } = slowLlm(has3, 2000)
+    const layer = make(llm, switches(), undefined, oneSecond)
+    const out = await Promise.all(four.map((t) => layer.check('chat', t)))
+    expect(performance.now() - t0).toBeLessThan(1200)
+    expect(out).toEqual(['blocked', 'blocked', 'blocked', 'blocked'])
+  })
+
+  test('blocks a half of a refused batch whose call fails or does not match the ids', async () => {
+    const warn = vi.fn()
+    const { llm } = fakeLlm((items) => {
+      if (items.length === 4) return new LlmContentRefused('x')
+      return items.some((i) => i.text === 'line 1') ? new LlmUnavailable('down') : '{"results":[]}'
+    })
+    const layer = make(llm, switches(), { warn })
+    expect(await Promise.all(four.map((t) => layer.check('chat', t)))).toEqual(['blocked', 'blocked', 'blocked', 'blocked'])
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/line [0-9]/)
+  })
+
+  test('still lets lines pass when an unrefused batch times out or fails', async () => {
+    const { llm } = slowLlm(() => false, 2000)
+    const layer = make(llm, switches(), undefined, oneSecond)
+    expect(await Promise.all([layer.check('chat', 'a'), layer.check('chat', 'b')])).toEqual(['pass', 'pass'])
+  })
+
+  test('starts no call once the budget is spent', async () => {
+    const calls: number[] = []
+    const llm: Llm = {
+      async call(_purpose, prompt) {
+        calls.push(itemsOf(prompt.user).length)
+        await sleep(1050)
+        throw new LlmContentRefused('x')
+      },
+      async recordManual() {},
+    }
+    const layer = make(llm, switches(), undefined, oneSecond)
+    expect(await Promise.all(four.map((t) => layer.check('chat', t)))).toEqual(['blocked', 'blocked', 'blocked', 'blocked'])
+    expect(calls).toEqual([4])
   })
 })

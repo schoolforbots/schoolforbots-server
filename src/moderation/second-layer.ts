@@ -61,7 +61,8 @@ interface Pending {
 /**
  * The model-based second moderation layer. Lines from the same source that arrive within `batchMillis` are checked
  * in one call. The layer fails open: an unavailable model, a timeout or a reply that does not match the ids lets the
- * lines pass. Only the vendor refusing a single line blocks it. It holds no database transaction and logs counts,
+ * lines pass. The vendor refusing a single line blocks it; a refused batch is halved within the first call's time
+ * budget, and lines it cannot sort out by then are blocked. It holds no database transaction and logs counts,
  * the source and error names only, never a line or the reply.
  */
 export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
@@ -69,35 +70,50 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
   const { batchMillis, timeoutSeconds } = config.secondLayer
   const open: Partial<Record<SecondLayerSource, Pending[]>> = {}
 
-  async function checkChunk(source: SecondLayerSource, texts: string[]): Promise<SecondVerdict[]> {
-    const pass = () => texts.map((): SecondVerdict => 'pass')
+  /**
+   * Checks the lines against one shared `deadline`. `refused` means an earlier call on these lines was refused by the
+   * vendor: lines such a batch cannot sort out (no time left, the call failed, the reply did not match) are blocked,
+   * while in a batch nobody refused they pass.
+   */
+  async function checkChunk(source: SecondLayerSource, texts: string[], deadline: number, refused: boolean): Promise<SecondVerdict[]> {
+    const unsorted = (reason: string, err?: unknown): SecondVerdict[] => {
+      const fields = { source, items: texts.length, ...(err === undefined ? {} : { err: err instanceof Error ? err.name : 'unknown' }) }
+      if (refused) {
+        log?.warn(fields, 'second layer could not sort out a refused batch, the lines are blocked')
+        return texts.map((): SecondVerdict => 'blocked')
+      }
+      log?.warn(fields, `second layer ${reason}, the lines pass`)
+      return texts.map((): SecondVerdict => 'pass')
+    }
     let prompt: { system: string; user: string }
     try {
       const items = texts.map((text, i) => ({ id: i + 1, text: neutralizeStudentText(text) }))
       prompt = fillPrompt(prompts['second-layer'], { source: SOURCES[source].label, items: JSON.stringify(items), format: FORMAT })
     } catch (err) {
-      log?.warn({ source, items: texts.length, err: err instanceof Error ? err.name : 'unknown' }, 'second layer prompt could not be built, the lines pass')
-      return pass()
+      return unsorted('prompt could not be built', err)
     }
+    const left = deadline - performance.now()
+    if (left <= 0) return unsorted('ran out of time')
     try {
       const reply = await llm!.call(SOURCES[source].purpose, prompt, {
         json: true,
         maxOutputTokens: 100 + 25 * texts.length,
-        timeoutMs: timeoutSeconds * 1000,
+        timeoutMs: Math.ceil(left),
       })
       const verdicts = parseVerdicts(reply.text, texts.length)
       if (verdicts) return verdicts
-      log?.warn({ source, items: texts.length }, 'second layer reply did not match the ids, the lines pass')
-      return pass()
+      return unsorted('reply did not match the ids')
     } catch (err) {
       if (err instanceof LlmContentRefused) {
         if (texts.length === 1) return ['blocked']
         const mid = Math.ceil(texts.length / 2)
-        const halves = await Promise.all([checkChunk(source, texts.slice(0, mid)), checkChunk(source, texts.slice(mid))])
+        const halves = await Promise.all([
+          checkChunk(source, texts.slice(0, mid), deadline, true),
+          checkChunk(source, texts.slice(mid), deadline, true),
+        ])
         return halves.flat()
       }
-      log?.warn({ source, items: texts.length, err: err instanceof Error ? err.name : 'unknown' }, 'second layer call failed, the lines pass')
-      return pass()
+      return unsorted('call failed', err)
     }
   }
 
@@ -108,7 +124,7 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
       chunks.map(async (chunk) => {
         let verdicts: SecondVerdict[]
         try {
-          verdicts = await checkChunk(source, chunk.map((p) => p.text))
+          verdicts = await checkChunk(source, chunk.map((p) => p.text), performance.now() + timeoutSeconds * 1000, false)
         } catch (err) {
           // Not expected (checkChunk handles model errors); still, no check may hang.
           log?.warn({ source, err: err instanceof Error ? err.name : 'unknown' }, 'second layer failed, the lines pass')
