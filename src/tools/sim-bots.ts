@@ -146,6 +146,8 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   /** The most questions a lesson allows, and how many the bot has sent in this session (kept across connections). */
   let questionLimit = 0
   let questionsInSession = 0
+  /** Questions waiting for their moment on this connection: a drop loses them, so they do not use up the allowance. */
+  let questionsPending = 0
 
   // One connection's: reset whenever it closes.
   let welcomed = false
@@ -171,13 +173,16 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     starting = false
     for (const timer of answers) clearTimeout(timer)
     answers.clear()
+    questionsPending = 0
   }
 
-  function send(type: string, body: object): void {
-    if (socket === null || socket.readyState !== WebSocket.OPEN) return
+  /** Whether the frame went out: nothing is sent while the connection is not open. */
+  function send(type: string, body: object): boolean {
+    if (socket === null || socket.readyState !== WebSocket.OPEN) return false
     const id = `${type}-${++nextId}`
     requests.set(id, type)
     socket.send(JSON.stringify({ id, type, ...body }))
+    return true
   }
 
   function end(reason: string): void {
@@ -263,13 +268,15 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
 
   /** Asks the teacher a question about the segment after a moment, within the lesson's allowance. */
   function askSoon(segment: number): void {
-    if (questionsInSession >= questionLimit || endsAt === null || clock.now().getTime() >= endsAt) return
-    // Counted when sent, so questions waiting for their moment cannot go past the allowance.
-    questionsInSession++
+    if (questionsInSession + questionsPending >= questionLimit || endsAt === null || clock.now().getTime() >= endsAt) return
+    // Pending ones count against the allowance so the bot cannot send more than it allows; only a sent one uses it up.
+    questionsPending++
     const timer = setTimeout(() => {
       answers.delete(timer)
+      questionsPending--
+      if (!send('question', { text: QUESTIONS[(segment - 1 + QUESTIONS.length) % QUESTIONS.length] })) return
+      questionsInSession++
       tally.questionsSent++
-      send('question', { text: QUESTIONS[(segment - 1 + QUESTIONS.length) % QUESTIONS.length] })
     }, between(THINK_MS))
     answers.add(timer)
   }

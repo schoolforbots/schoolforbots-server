@@ -66,7 +66,7 @@ test('a bot that drops comes back with the sessionId of its welcome and its last
  * A school that welcomes one bot into a lesson allowing `limit` questions, sends it `segments` segments, answers
  * every question and turns one of them into a `qa` event. Returns what the bot sent.
  */
-async function lessonWithQuestions(ask: number, limit: number, segments: number) {
+async function lessonWithQuestions(ask: number, limit: number, segments: number, dropFirst = false) {
   const sent: unknown[] = []
   const frames = (msg: object) => {
     expect(Value.Check(ServerMessage, msg)).toBe(true)
@@ -74,7 +74,11 @@ async function lessonWithQuestions(ask: number, limit: number, segments: number)
   }
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' })
   let seq = 0
+  let connections = 0
+  const opts = { url: '', chatEvery: 3600, dropRate: dropFirst ? 1 : 0, maxRounds: 3, ask }
   server.on('connection', (ws) => {
+    // Only the first connection is dropped (right after its first live segment).
+    if (++connections > 1) opts.dropRate = 0
     ws.on('message', (data) => {
       const msg = JSON.parse(String(data)) as { id: string; type: string; text?: string }
       sent.push(msg)
@@ -138,7 +142,7 @@ async function lessonWithQuestions(ask: number, limit: number, segments: number)
   const lines: string[] = []
   bot = createBot(
     { studentId: 1, key: 'k', displayName: '小鱼' },
-    { url: `ws://127.0.0.1:${port}/v1/class`, chatEvery: 3600, dropRate: 0, maxRounds: 3, ask },
+    Object.assign(opts, { url: `ws://127.0.0.1:${port}/v1/class` }),
     { clock: systemClock, random: () => 0, print: (line) => void lines.push(line), onEnded: () => {} },
   )
   bot.start()
@@ -175,3 +179,10 @@ test('--ask is off by default and a probability', () => {
   expect(parseSimArgs([...base, '--ask', '1.5'])).toBeNull()
   expect(parseSimArgs([...base, '--ask', 'often'])).toBeNull()
 })
+
+test('a question lost to a drop while it waited does not use up the allowance', async () => {
+  const { sent, tally } = await lessonWithQuestions(1, 2, 4, true)
+  expect(tally.drops).toBe(1)
+  expect(sent.filter((m) => (m as { type: string }).type === 'question')).toHaveLength(2)
+  expect(tally.questionsSent).toBe(2)
+}, 15_000)
