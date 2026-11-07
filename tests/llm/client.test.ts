@@ -330,6 +330,15 @@ describe('budget notice after a call', () => {
     const llm2 = createLlm({ db, config: tight, clock, providers: { a }, budget: { mailer: broken, operatorEmail: 'ops@example.com' } })
     await expect(llm2.call('lesson', prompt)).resolves.toMatchObject({ text: 'hi' })
   })
+
+  test('a failed call that was still billed also checks the budget', async () => {
+    const tight = { ...config, llm: { ...config.llm, monthlyBudgetYuan: 0.001 } }
+    const a = createFakeLlm(() => new LlmTruncated('cut off', 1000, 8000))
+    const mailer = new MemoryMailer()
+    const llm = createLlm({ db, config: tight, clock, providers: { a }, budget: { mailer, operatorEmail: 'ops@example.com' } })
+    await expect(llm.call('lesson', prompt)).rejects.toBeInstanceOf(LlmTruncated)
+    expect(mailer.notices).toHaveLength(1)
+  })
 })
 
 describe('logs', () => {

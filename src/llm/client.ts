@@ -119,7 +119,7 @@ export function createLlm(deps: {
   log?: Pick<FastifyBaseLogger, 'info' | 'error'>
   /** From `env.llmFake`: no provider is called, every call gets the fixed reply of its purpose. */
   fake?: boolean
-  /** When given, the monthly budget is checked after each successful call. */
+  /** When given, the monthly budget is checked after each call that cost money. */
   budget?: { mailer: Mailer; operatorEmail: string | null }
 }): Llm {
   const { db, config, clock, providers, log, fake, budget } = deps
@@ -130,7 +130,7 @@ export function createLlm(deps: {
     outcome: LlmOutcome,
     tokens: { input: number; output: number },
     ms: number,
-  ): Promise<void> {
+  ): Promise<number> {
     const { provider, model } = config.llm.purposes[purpose]
     const price = config.llm.providers[provider]?.models[model]
     const cost = price === undefined ? 0 : (tokens.input * price.inputYuanPerMillion + tokens.output * price.outputYuanPerMillion) / 1_000_000
@@ -149,6 +149,7 @@ export function createLlm(deps: {
       })
       .execute()
     log?.info({ purpose, provider, model, outcome, inputTokens: tokens.input, outputTokens: tokens.output, ms: Math.round(ms) }, 'llm call')
+    return cost
   }
 
   async function runBudgetCheck(): Promise<void> {
@@ -214,7 +215,9 @@ export function createLlm(deps: {
         }
         // A cut-off reply was still billed, so its tokens are recorded.
         const tokens = err instanceof LlmTruncated ? { input: err.inputTokens, output: err.outputTokens } : { input: 0, output: 0 }
-        await record(purpose, outcome, tokens, performance.now() - started)
+        const cost = await record(purpose, outcome, tokens, performance.now() - started)
+        // A billed failure counts towards the month's spend, so it can be the call that crosses the budget.
+        if (cost > 0) await runBudgetCheck()
         throw err
       }
       await record(purpose, 'ok', { input: res.inputTokens, output: res.outputTokens }, performance.now() - started)
