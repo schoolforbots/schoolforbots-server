@@ -4,13 +4,14 @@ import type { Llm } from '../llm/client.js'
 import { extractJson, JsonNotFound } from '../llm/json.js'
 import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmResponse } from '../llm/provider.js'
 import { isLessonDay, lessonDaysAhead, schoolDaysUntil } from '../shared/calendar.js'
-import type { Division } from '../shared/config.js'
+import type { Division, SchoolConfig } from '../shared/config.js'
 import { lessonLockKey, lock } from '../shared/db.js'
 import { localDate } from '../shared/local-time.js'
-import type { Database, LessonContent } from '../shared/schema.js'
+import type { CallOnKind, Database, LessonContent } from '../shared/schema.js'
 import { LessonFormatError, parseLessonContent } from './format.js'
 import {
   applyReply,
+  callOnsCovering,
   lessonById,
   lessonSlot,
   newLessonPrompt,
@@ -308,6 +309,12 @@ function rewriteOf(
   }
 }
 
+/** The call-ons a segment rewrite leaves to be looked at again; none for another kind of rewrite. */
+function callOnsFlagged(config: SchoolConfig, kind: PromptKind, target: { segmentIndex?: number }): CallOnKind[] {
+  if (kind !== 'rewrite_segment' || target.segmentIndex === undefined) return []
+  return callOnsCovering(config.lesson.callOns, target.segmentIndex)
+}
+
 /**
  * Has the model rewrite a segment, a call-on question or the whole lesson, as the reviewer asked and for the reason
  * they gave, and saves the result as the lesson's next version. The version is checked before the model is called
@@ -330,6 +337,7 @@ export async function regenerate(
     change: kind,
     reason: rewriteReason(target.reason),
     segmentIndex: kind === 'rewrite_segment' ? target.segmentIndex : undefined,
+    flagCallOns: callOnsFlagged(deps.config, kind, target),
   })
   return { version: saved.version }
 }
@@ -369,6 +377,7 @@ export async function acceptPasted(deps: GeneratorDeps, target: PastedTarget, pa
       change: target.kind,
       reason,
       segmentIndex: target.kind === 'rewrite_segment' ? target.segmentIndex : undefined,
+      flagCallOns: callOnsFlagged(deps.config, target.kind, target),
     }))
   }
   await deps.llm.recordManual('lesson')

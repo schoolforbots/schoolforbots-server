@@ -413,7 +413,7 @@ describe('buildLessonPrompt', () => {
     // Newest first.
     expect(p.user).toContain('- 光的直线传播\n- 声音的传播')
     for (const left of ['浮力', '植物的根', '春晓']) expect(p.user).not.toContain(left)
-    expect(p.user).toContain('共 5 段，每段大约 5 分钟')
+    expect(p.user).toContain('共 5 段，每段在课上占大约 5 分钟')
     expect(p.user).toContain('复习题范围：第 1 到第 2 段')
     expect(p.user).toMatch(/引申题的方向：.*第 5 段/)
     expect(p.user).toContain('"callOnQuestions"')
@@ -683,6 +683,24 @@ describe('acceptPasted', () => {
     )
     expect(await rejection(noVersion)).toBeInstanceOf(LessonFormatError)
     expect((await lessonOf(THU, 'junior'))?.version).toBe(1)
+  })
+})
+
+describe('call-on reminders after a segment rewrite', () => {
+  test('a pasted segment rewrite flags the call-ons as a model rewrite does', async () => {
+    const { deps } = make(school({ mode: 'manual' }), () => ok('{"text": "模型改的第三段", "gist": "新要点"}'))
+    const a = await saveDraft(deps, { date: THU, division: 'junior' }, content(), { source: 'manual', change: 'generate' })
+    const b = await saveDraft(deps, { date: FRI, division: 'junior' }, content(), { source: 'manual', change: 'generate' })
+    const pasted = '{"text": "贴回来的第三段", "gist": "新要点"}'
+    await acceptPasted(
+      deps,
+      { date: THU, division: 'junior', kind: 'rewrite_segment', lessonId: a.lessonId, baseVersion: 1, segmentIndex: 2, reason: 'r' },
+      pasted,
+    )
+    await regenerate(deps, 'rewrite_segment', { lessonId: b.lessonId, baseVersion: 1, segmentIndex: 2, reason: 'r' })
+    const checks = async (id: number) => (await db.selectFrom('lessons').select('callOnChecks').where('id', '=', id).executeTakeFirstOrThrow()).callOnChecks
+    expect(await checks(a.lessonId)).toEqual(['extension'])
+    expect(await checks(b.lessonId)).toEqual(['extension'])
   })
 })
 

@@ -153,6 +153,8 @@ export interface LessonsTable {
   flags: JsonWithDefault<LessonFlag[]>
   /** The rules a reviewer marked as flagged wrongly. */
   falsePositives: JsonWithDefault<string[]>
+  /** The call-on questions to look at again: a segment they are based on was rewritten since they were last checked. */
+  callOnChecks: JsonWithDefault<CallOnKind[]>
   version: Generated<number>
   updatedAt: Date | null
 }
@@ -184,6 +186,8 @@ export interface LessonVersionsTable {
   /** The segment a `rewrite_segment` changed (0-based); null for the other changes. */
   segmentIndex: number | null
   reason: string | null
+  /** The lesson's `callOnChecks` as of this version. */
+  callOnChecks: JsonWithDefault<CallOnKind[]>
   createdAt: Date
 }
 
@@ -279,6 +283,9 @@ export interface CallOnQuestions {
   review: string
   extension: string
 }
+
+/** A call-on question: the review one or the extension one. */
+export type CallOnKind = keyof CallOnQuestions
 
 /**
  * A place in a lesson that fails the checks (a red mark): `segment` is a segment's text and `gist` its gist, with

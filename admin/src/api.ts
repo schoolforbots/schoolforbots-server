@@ -191,6 +191,8 @@ export interface LessonDetail {
   content: LessonContent
   flags: LessonFlag[]
   falsePositives: string[]
+  /** The call-on questions to look at again: a segment they are based on was rewritten. */
+  callOnChecks: CallOnKind[]
   /** The saved contents, newest first. */
   versions: LessonVersion[]
 }
@@ -216,6 +218,8 @@ export const restore = (lesson: LessonDetail, toVersion: number) =>
   request<LessonDetail>('POST', `${lessonPath(lesson.id)}/restore`, { baseVersion: lesson.version, toVersion })
 export const markFalsePositive = (lesson: LessonDetail, rule: string) =>
   request<LessonDetail>('POST', `${lessonPath(lesson.id)}/false-positive`, { baseVersion: lesson.version, rule })
+export const confirmCallOn = (lesson: LessonDetail, kind: CallOnKind) =>
+  request<LessonDetail>('POST', `${lessonPath(lesson.id)}/call-on-ok`, { baseVersion: lesson.version, callOn: kind })
 export const approve = (lesson: LessonDetail) =>
   request<LessonDetail>('POST', `${lessonPath(lesson.id)}/approve`, { baseVersion: lesson.version })
 

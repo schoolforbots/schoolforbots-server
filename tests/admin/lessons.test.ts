@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { reviewQueue } from '../../src/admin/lessons.js'
 import { buildLessonPrompt } from '../../src/lessons/prompts.js'
-import { approve, editPart, saveDraft, type LessonStoreDeps } from '../../src/lessons/store.js'
+import { approve, editPart, replaceContent, saveDraft, type LessonStoreDeps } from '../../src/lessons/store.js'
 import { LlmContentRefused, LlmTruncated, LlmUnavailable } from '../../src/llm/provider.js'
 import type { Division, SchoolConfig } from '../../src/shared/config.js'
 import type { LessonContent } from '../../src/shared/schema.js'
@@ -228,6 +228,7 @@ describe('a lesson', () => {
       content: { ...c, callOnQuestions: { review: '新的复习题？', extension: c.callOnQuestions?.extension } },
       flags: [{ part: 'title', index: null, kind: 'word', rule: WORD }],
       falsePositives: [],
+      callOnChecks: [],
       versions: [
         { version: 2, change: 'edit', reason: null, segmentIndex: null, createdAt: t.clock.now().toISOString() },
         { version: 1, change: 'generate', reason: null, segmentIndex: null, createdAt: firstAt },
@@ -428,6 +429,28 @@ describe('reviewing a lesson', () => {
     expect(approved.statusCode).toBe(200)
     expect(approved.json()).toMatchObject({ version: 2, approvedAt: t.clock.now().toISOString() })
     expect(slotOf(await queue(), TUE, 'junior')).toMatchObject({ status: 'approved', flags: 0 })
+  })
+
+  test('a call-on reminder is cleared with call-on-ok; a stale version is a 409, no reminder a 422', async () => {
+    await start()
+    const id = await draft(TUE, 'junior')
+    await replaceContent(store(), id, 1, content(), {
+      change: 'rewrite_segment',
+      reason: '太难',
+      segmentIndex: 0,
+      flagCallOns: ['review', 'extension'],
+    })
+    expect((await api('GET', `lessons/${id}`)).json().callOnChecks).toEqual(['review', 'extension'])
+
+    expect((await api('POST', `lessons/${id}/call-on-ok`, { baseVersion: 1, callOn: 'review' })).json()).toEqual(STALE)
+    const ok = await api('POST', `lessons/${id}/call-on-ok`, { baseVersion: 2, callOn: 'review' })
+    expect(ok.statusCode).toBe(200)
+    expect(ok.json()).toMatchObject({ version: 3, callOnChecks: ['extension'] })
+
+    const again = await api('POST', `lessons/${id}/call-on-ok`, { baseVersion: 3, callOn: 'review' })
+    expect(again.statusCode).toBe(422)
+    expect(again.json()).toEqual({ error: { code: 'lesson_format', message: '这道点名题现在没有提醒，刷新后再看' } })
+    expect((await api('POST', `lessons/${id}/call-on-ok`, { baseVersion: 3, callOn: 'other' })).statusCode).toBe(400)
   })
 
   test('once a class has begun the lesson, every change to it is a 409 lesson_locked', async () => {
