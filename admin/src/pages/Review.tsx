@@ -248,6 +248,13 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
           // The row's buttons go with the missing lesson: the lesson's title takes the focus.
           setArrived(key)
         }}
+        onPastedTooLate={(key) => {
+          // The slot got a lesson meanwhile (made by the model, or pasted in elsewhere): the list read again shows it,
+          // and its title takes the focus, as a lesson pasted in here would.
+          queue.reload()
+          setSelected(key)
+          setArrived(key)
+        }}
         onTopicGiven={(date: string, division: Division) => {
           // The focus is back on the topic button; the lesson read again does not take it.
           setArrived(undefined)

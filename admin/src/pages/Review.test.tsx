@@ -813,6 +813,39 @@ describe('the review page in manual mode', () => {
     ])
   })
 
+  it('reads the list again after a lesson pasted in too late, and opens the one the slot got meanwhile', async () => {
+    // The list was read before another tab pasted this day's lesson in.
+    let reads = 0
+    const server = fakeServer({
+      [QUEUE]: () => ok(manualQueue(++reads === 1 ? missing : { status: 'pending', lessonId: 1 })),
+      'POST api/lessons/paste': fail(409, 'stale_version', '这节课在别处改过了，刷新后再改。'),
+      'GET api/lessons/1': ok(lessonDetail({ title: '水是怎么变成云的' })),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    await screen.findByRole('button', { name: '小学部 待生成' })
+    await user.click(row('小学部 待生成').getByRole('button', { name: '粘贴结果' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '粘贴结果：11 月 5 日（周四）小学部' }))
+    await user.click(dialog.getByRole('textbox', { name: '大模型的回复' }))
+    await user.paste('{"title":"秋天的叶子为什么会变色"}')
+    await user.click(dialog.getByRole('button', { name: '存成待审的课' }))
+
+    const reason = await dialog.findByRole('alert')
+    expect(reason).toHaveTextContent('这节课在别处改过了，刷新后再改。')
+    expect(reason).toHaveFocus()
+    expect(lessonCalls(server, LESSON_QUEUE_PATH)).toHaveLength(1)
+    await user.click(within(reason).getByRole('button', { name: '刷新' }))
+
+    // The list read again shows the slot as it is now, and the lesson it got takes the focus.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(await screen.findByRole('heading', { level: 2, name: '水是怎么变成云的' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '小学部 待审' })).toHaveAttribute('aria-current', 'true')
+    expect(row('小学部 待审').queryByRole('button', { name: '粘贴结果' })).not.toBeInTheDocument()
+    expect(lessonCalls(server, LESSON_QUEUE_PATH)).toHaveLength(2)
+    expect(lessonCalls(server, 'api/lessons/paste')).toHaveLength(1)
+  })
+
   it('rewrites by copying the prompt with the reason and pasting the reply', async () => {
     const reason = '换一个生活里的例子'
     const promptPath =
