@@ -136,6 +136,9 @@ test('the answer prompt shows the lesson so far, and the lesson prompts ask for 
   for (const n of ['lesson-generate', 'lesson-rewrite', 'lesson-rewrite-segment'] as const) {
     expect(all[n].system, n).toContain('300–500 字')
   }
+  for (const n of ['lesson-generate', 'lesson-rewrite'] as const) {
+    expect(all[n].user, n).not.toContain('分钟的口语内容')
+  }
 })
 
 test('neutralizeStudentText maps every bracket form and collapses line breaks', () => {
