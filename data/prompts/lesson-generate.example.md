@@ -23,7 +23,7 @@
 最近上过的课（避免重复，可以自然地衔接）：
 {{pastTitles}}
 
-课程结构：共 {{segmentCount}} 段，每段大约 {{segmentMinutes}} 分钟的口语内容。
+课程结构：共 {{segmentCount}} 段，每段在课上占大约 {{segmentMinutes}} 分钟，其中包括学生提问和聊天的时间。
 复习题范围：{{reviewScope}}
 引申题的方向：{{extensionTarget}}
 
