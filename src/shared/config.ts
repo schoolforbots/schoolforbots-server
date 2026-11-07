@@ -138,7 +138,8 @@ export const SchoolConfigSchema = Type.Object({
     }),
     timeoutSeconds: PositiveInt,
     retries: NonNegativeInt,
-    // The most model calls in flight at once; more wait in line.
+    // The most model calls in flight at once in each service (sign-up and classes are separate processes, each with its
+    // own count); more wait in line.
     maxConcurrent: PositiveInt,
     monthlyBudgetYuan: Type.Number({ minimum: 0 }),
   }),

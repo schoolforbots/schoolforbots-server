@@ -1,5 +1,17 @@
 import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmProvider } from './provider.js'
 
+/** `Retry-After` is whole seconds or an HTTP date; anything else, a negative number or a past date means no hint. */
+function parseRetryAfter(value: string | null): number | null {
+  if (value === null) return null
+  const v = value.trim()
+  if (/^\d+$/.test(v)) return Number(v) * 1000
+  if (/^-?\d/.test(v) && !/[a-z]/i.test(v)) return null
+  const at = Date.parse(v)
+  if (Number.isNaN(at)) return null
+  const ms = at - Date.now()
+  return ms > 0 ? ms : null
+}
+
 /**
  * Talks to any vendor that speaks the OpenAI chat-completions format. Error messages carry only the status or the
  * failure kind, never the prompt, the reply or the vendor's error body, so nothing written to program logs holds content.
@@ -32,11 +44,15 @@ export function createOpenAiCompatible(opts: { baseUrl: string; apiKey: string; 
         raw = await res.text()
       } catch (err) {
         const kind = timeout.aborted ? '超时' : signal?.aborted ? '已取消' : '网络错误'
-        throw new LlmUnavailable(`大模型调用失败：${kind}`, { cause: err instanceof Error ? err.name : undefined })
+        throw new LlmUnavailable(`大模型调用失败：${kind}`, { retryable: true, cause: err instanceof Error ? err.name : undefined })
       }
       if (!res.ok) {
         if (opts.refusalMarkers.some((m) => m !== '' && raw.includes(m))) throw new LlmContentRefused(`大模型因内容拒绝了请求（HTTP ${res.status}）`)
-        throw new LlmUnavailable(`大模型返回了错误（HTTP ${res.status}）`)
+        const retryable = res.status === 429 || (res.status >= 500 && res.status <= 599)
+        throw new LlmUnavailable(`大模型返回了错误（HTTP ${res.status}）`, {
+          retryable,
+          retryAfterMs: retryable ? parseRetryAfter(res.headers.get('retry-after')) : null,
+        })
       }
       let parsed: any
       try {

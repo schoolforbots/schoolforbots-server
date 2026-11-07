@@ -22,6 +22,11 @@ export interface Llm {
 }
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 4000
+/** A retry waits `Retry-After` when the vendor gave it, else this minimum plus a random part up to the spread. */
+const RETRY_WAIT_MIN_MS = 500
+const RETRY_WAIT_SPREAD_MS = 1000
+/** No retry is started unless at least this much of the budget is left once the wait is over. */
+const MIN_RETRY_WINDOW_MS = 1000
 
 /**
  * One OpenAI-compatible provider for each provider that some purpose uses, with its key read from `processEnv`.
@@ -107,7 +112,7 @@ async function within<T>(ms: number, work: (signal: AbortSignal) => Promise<T>):
 
 /**
  * Routes each model call to the provider and model of its purpose, within the concurrency limit (checks and comments
- * first in line) and a total time budget (queue wait and every attempt), retrying only `LlmUnavailable` (not a timeout or a cut-off reply). Writes one `llm_calls` row per call. Elapsed
+ * first in line) and a total time budget (queue wait and every attempt), retrying only an `LlmUnavailable` marked retryable (not a timeout or a cut-off reply), after a short wait. Writes one `llm_calls` row per call. Elapsed
  * time is measured with a monotonic timer, not the injected clock, because timeouts run on real timers; `createdAt`
  * comes from the injected clock. Logs hold only purpose, provider, model, outcome, token counts and time.
  */
@@ -121,8 +126,11 @@ export function createLlm(deps: {
   fake?: boolean
   /** When given, the monthly budget is checked after each call that cost money. */
   budget?: { mailer: Mailer; operatorEmail: string | null }
+  /** Only for tests, to fix the wait before a retry. */
+  random?: () => number
 }): Llm {
   const { db, config, clock, providers, log, fake, budget } = deps
+  const random = deps.random ?? Math.random
   const gate = createGate(config.llm.maxConcurrent)
 
   async function record(
@@ -184,8 +192,13 @@ export function createLlm(deps: {
           ),
         )
       } catch (err) {
-        const canRetry = err instanceof LlmUnavailable && !(err instanceof TimedOut) && !(err instanceof LlmTruncated) && attempt < config.llm.retries && deadline - performance.now() > 0
+        const canRetry =
+          err instanceof LlmUnavailable && err.retryable && !(err instanceof TimedOut) && !(err instanceof LlmTruncated) && attempt < config.llm.retries
         if (!canRetry) throw err
+        // The wait holds the concurrency slot (taken in `call`) and no database connection.
+        const wait = err.retryAfterMs ?? RETRY_WAIT_MIN_MS + random() * RETRY_WAIT_SPREAD_MS
+        if (deadline - performance.now() - wait < MIN_RETRY_WINDOW_MS) throw err
+        await new Promise<void>((resolve) => setTimeout(resolve, wait))
       }
     }
   }
