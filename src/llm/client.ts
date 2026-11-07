@@ -37,7 +37,7 @@ export function buildProviders(config: SchoolConfig, processEnv: NodeJS.ProcessE
     if (apiKey === undefined || apiKey === '') {
       throw new Error(`Environment variable ${conf.apiKeyEnv} is not set; the model provider ${name} needs it`)
     }
-    providers[name] = createOpenAiCompatible({ baseUrl: conf.baseUrl, apiKey, refusalMarkers: conf.contentRefusalMarkers })
+    providers[name] = createOpenAiCompatible({ baseUrl: conf.baseUrl, apiKey, refusalMarkers: conf.contentRefusalMarkers, requestExtras: conf.requestExtras })
   }
   return providers
 }

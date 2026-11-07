@@ -4,13 +4,14 @@ import { LlmContentRefused, LlmUnavailable, type LlmProvider } from './provider.
  * Talks to any vendor that speaks the OpenAI chat-completions format. Error messages carry only the status or the
  * failure kind, never the prompt, the reply or the vendor's error body, so nothing written to program logs holds content.
  */
-export function createOpenAiCompatible(opts: { baseUrl: string; apiKey: string; refusalMarkers: string[] }): LlmProvider {
+export function createOpenAiCompatible(opts: { baseUrl: string; apiKey: string; refusalMarkers: string[]; requestExtras?: Record<string, unknown> }): LlmProvider {
   const url = `${opts.baseUrl.replace(/\/+$/, '')}/chat/completions`
   return {
     async complete(model, req, signal) {
       // AbortSignal.timeout throws on a fraction or a negative number, so round up to at least one millisecond.
       const timeout = AbortSignal.timeout(Math.max(1, Math.ceil(req.timeoutMs)))
       const body = {
+        ...opts.requestExtras,
         model,
         max_tokens: req.maxOutputTokens,
         messages: [
