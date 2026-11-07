@@ -80,7 +80,8 @@ function Note({
       {onFalsePositive !== undefined && (
         <Button
           size="small"
-          className="false-positive"
+          // The lesson editor hands the focus on from one 这是误伤 to the next by this.
+          data-focus="false-positive"
           aria-describedby={noteId}
           disabled={disabled}
           onClick={(event) => onFalsePositive(flag.rule, event.currentTarget)}
