@@ -399,6 +399,26 @@ describe('approval', () => {
     expect((await lessonRow(lessonId)).approvedAt).toBeNull()
   })
 
+  test('an approved lesson that gains red marks goes back to review with them', async () => {
+    let words: string[] = []
+    const live = {
+      check: (text: string) => createModerator({ blockedWords: words, injectionPatterns: [] }).check(text),
+      checkAll: (text: string) => createModerator({ blockedWords: words, injectionPatterns: [] }).checkAll(text),
+    }
+    const liveDeps = { db, clock, moderator: live }
+    const { lessonId } = await saveDraft(liveDeps, KEY, content({ title: '讲新词' }), { source: 'api', change: 'generate' })
+    await approve(liveDeps, lessonId, 1)
+    expect((await lessonRow(lessonId)).approvedAt).not.toBeNull()
+
+    words = ['新词']
+    expect(await rejection(approve(liveDeps, lessonId, 1))).toBeInstanceOf(LessonHasFlags)
+    expect(await lessonRow(lessonId)).toMatchObject({
+      flags: [{ part: 'title', index: null, kind: 'word', rule: '新词' }],
+      version: 2,
+      approvedAt: null,
+    })
+  })
+
   test('approving an approved lesson again keeps the first approval', async () => {
     const { lessonId } = await draft()
     await approve(deps, lessonId, 1)
