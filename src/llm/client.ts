@@ -7,6 +7,7 @@ import type { Database, LlmOutcome } from '../shared/schema.js'
 import { checkBudget } from './budget.js'
 import { fakeReply } from './fake-replies.js'
 import { createOpenAiCompatible } from './openai-compatible.js'
+import { costYuan } from './pricing.js'
 import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmProvider, type LlmResponse } from './provider.js'
 
 export type LlmPurpose = keyof SchoolConfig['llm']['purposes']
@@ -136,12 +137,13 @@ export function createLlm(deps: {
   async function record(
     purpose: LlmPurpose,
     outcome: LlmOutcome,
-    tokens: { input: number; output: number },
+    tokens: { input: number; cachedInput: number; output: number },
     ms: number,
   ): Promise<number> {
     const { provider, model } = config.llm.purposes[purpose]
     const price = config.llm.providers[provider]?.models[model]
-    const cost = price === undefined ? 0 : (tokens.input * price.inputYuanPerMillion + tokens.output * price.outputYuanPerMillion) / 1_000_000
+    const at = clock.now()
+    const cost = price === undefined ? 0 : costYuan(price, tokens, at, config.timezone)
     await db
       .insertInto('llmCalls')
       .values({
@@ -149,11 +151,12 @@ export function createLlm(deps: {
         provider,
         model,
         inputTokens: tokens.input,
+        cachedInputTokens: tokens.cachedInput,
         outputTokens: tokens.output,
         costYuan: cost.toFixed(6),
         outcome,
         ms: Math.round(ms),
-        createdAt: clock.now(),
+        createdAt: at,
       })
       .execute()
     log?.info({ purpose, provider, model, outcome, inputTokens: tokens.input, outputTokens: tokens.output, ms: Math.round(ms) }, 'llm call')
@@ -209,8 +212,8 @@ export function createLlm(deps: {
       const { provider, model } = config.llm.purposes[purpose]
       if (fake === true) {
         const text = fakeReply(purpose, prompt.user, config)
-        await record(purpose, 'ok', { input: 0, output: 0 }, performance.now() - started)
-        return { text, inputTokens: 0, outputTokens: 0 }
+        await record(purpose, 'ok', { input: 0, cachedInput: 0, output: 0 }, performance.now() - started)
+        return { text, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
       }
       const deadline = started + (opts.timeoutMs ?? config.llm.timeoutSeconds * 1000)
       let res: LlmResponse
@@ -227,18 +230,20 @@ export function createLlm(deps: {
           log?.error({ purpose, provider, model, err: err instanceof Error ? err.name : 'unknown' }, 'llm call crashed')
         }
         // A cut-off reply was still billed, so its tokens are recorded.
-        const tokens = err instanceof LlmTruncated ? { input: err.inputTokens, output: err.outputTokens } : { input: 0, output: 0 }
+        const tokens = err instanceof LlmTruncated
+            ? { input: err.inputTokens, cachedInput: err.cachedInputTokens, output: err.outputTokens }
+            : { input: 0, cachedInput: 0, output: 0 }
         const cost = await record(purpose, outcome, tokens, performance.now() - started)
         // A billed failure counts towards the month's spend, so it can be the call that crosses the budget.
         if (cost > 0) await runBudgetCheck()
         throw err
       }
-      await record(purpose, 'ok', { input: res.inputTokens, output: res.outputTokens }, performance.now() - started)
+      await record(purpose, 'ok', { input: res.inputTokens, cachedInput: res.cachedInputTokens, output: res.outputTokens }, performance.now() - started)
       await runBudgetCheck()
       return res
     },
     async recordManual(purpose) {
-      await record(purpose, 'manual', { input: 0, output: 0 }, 0)
+      await record(purpose, 'manual', { input: 0, cachedInput: 0, output: 0 }, 0)
     },
   }
 }

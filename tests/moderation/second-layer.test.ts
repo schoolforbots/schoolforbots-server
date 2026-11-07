@@ -37,7 +37,7 @@ function fakeLlm(handler: (items: Items, call: Call) => string | Error) {
       calls.push(call)
       const r = handler(itemsOf(prompt.user), call)
       if (r instanceof Error) throw r
-      return { text: r, inputTokens: 1, outputTokens: 1 }
+      return { text: r, inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 }
     },
     async recordManual() {},
   }
@@ -74,7 +74,7 @@ function slowLlm(refuseWhen: (items: Items) => boolean, ms: number, refuseMs = 0
         throw new LlmUnavailable('timeout')
       }
       await sleep(ms)
-      return { text: reply(items), inputTokens: 1, outputTokens: 1 }
+      return { text: reply(items), inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 }
     },
     async recordManual() {},
   }

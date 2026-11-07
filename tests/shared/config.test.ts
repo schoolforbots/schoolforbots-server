@@ -617,7 +617,7 @@ test('the example config has the model, lesson generation, switch and revocation
     kind: 'openai-compatible',
     baseUrl: 'https://llm.example.com/v1',
     apiKeyEnv: 'LLM_API_KEY',
-    models: { 'example-model': { inputYuanPerMillion: 1, outputYuanPerMillion: 2 } },
+    models: { 'example-model': { inputYuanPerMillion: 1, cachedInputYuanPerMillion: 0.5, outputYuanPerMillion: 2 } },
     contentRefusalMarkers: ['content refused'],
   })
   for (const purpose of Object.values(c.llm.purposes)) expect(purpose).toEqual({ provider: 'main', model: 'example-model' })
@@ -733,4 +733,56 @@ test('secondLayer.implementation accepts off and llm and rejects anything else',
   expect(load('off').secondLayer.implementation).toBe('off')
   expect(load('llm').secondLayer.implementation).toBe('llm')
   expect(() => load('rules')).toThrow(/implementation/)
+})
+
+describe('model prices', () => {
+  const withModel = (model: Record<string, unknown>) =>
+    writeTmpConfig((c) => {
+      const llm = c.llm as any
+      llm.providers.main.models['example-model'] = model
+    })
+  const rates = { inputYuanPerMillion: 1, outputYuanPerMillion: 2 }
+  const window = (over: Record<string, unknown> = {}) => ({
+    inputYuanPerMillion: 0.5,
+    outputYuanPerMillion: 1,
+    weekdays: [1, 2, 3, 4, 5],
+    from: '09:00',
+    to: '12:00',
+    ...over,
+  })
+
+  test('the example config has a cached input price and no windows', () => {
+    const price = loadSchoolConfig('config/school.example.json').llm.providers.main?.models['example-model']
+    expect(price?.cachedInputYuanPerMillion).toBeGreaterThanOrEqual(0)
+    expect(price?.windows).toBeUndefined()
+  })
+
+  test('accepts a cached input price and windows', () => {
+    const config = loadSchoolConfig(
+      withModel({ ...rates, cachedInputYuanPerMillion: 0.1, windows: [window({ cachedInputYuanPerMillion: 0.05 }), window({ weekdays: [6], from: '00:00', to: '23:59' })] }),
+    )
+    expect(config.llm.providers.main?.models['example-model']?.windows).toHaveLength(2)
+  })
+
+  test('a window must end after it starts, with the path in the error', () => {
+    expect(() => loadSchoolConfig(withModel({ ...rates, windows: [window(), window({ from: '12:00', to: '09:00' })] }))).toThrow(
+      /llm\.providers\.main\.models\.example-model\.windows\[1\]: from must be before to/,
+    )
+    expect(() => loadSchoolConfig(withModel({ ...rates, windows: [window({ from: '09:00', to: '09:00' })] }))).toThrow(
+      /windows\[0\]: from must be before to/,
+    )
+  })
+
+  test('weekdays must be 1 to 7, not empty and without repeats', () => {
+    expect(() => loadSchoolConfig(withModel({ ...rates, windows: [window({ weekdays: [1, 1] })] }))).toThrow(
+      /windows\[0\]: weekdays must not repeat a day/,
+    )
+    expect(() => loadSchoolConfig(withModel({ ...rates, windows: [window({ weekdays: [0] })] }))).toThrow(/weekdays/)
+    expect(() => loadSchoolConfig(withModel({ ...rates, windows: [window({ weekdays: [8] })] }))).toThrow(/weekdays/)
+    expect(() => loadSchoolConfig(withModel({ ...rates, windows: [window({ weekdays: [] })] }))).toThrow(/weekdays/)
+  })
+
+  test('prices must not be negative', () => {
+    expect(() => loadSchoolConfig(withModel({ ...rates, cachedInputYuanPerMillion: -1 }))).toThrow(/cachedInputYuanPerMillion/)
+  })
 })

@@ -6,6 +6,7 @@ import {
   isoWeekday,
   localDate,
   localMoment,
+  localTimeOfDay,
   monthDay,
   startOfLocalDay,
 } from '../../src/shared/local-time.js'
@@ -146,5 +147,13 @@ describe('atLocalTime', () => {
     for (const bad of ['24:00', '9:00', '10:60', '10:00:00', '']) {
       expect(() => atLocalTime('2026-11-02', bad, 'UTC'), bad).toThrow()
     }
+  })
+})
+
+describe('localTimeOfDay', () => {
+  test('is the wall-clock time in the timezone as HH:MM', () => {
+    expect(localTimeOfDay(new Date('2026-11-08T16:05:00Z'), 'Asia/Shanghai')).toBe('00:05')
+    expect(localTimeOfDay(new Date('2026-11-08T16:05:00Z'), 'UTC')).toBe('16:05')
+    expect(localTimeOfDay(new Date('2026-11-08T16:05:59Z'), 'America/New_York')).toBe('11:05')
   })
 })

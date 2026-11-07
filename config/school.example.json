@@ -62,7 +62,7 @@
         "kind": "openai-compatible",
         "baseUrl": "https://llm.example.com/v1",
         "apiKeyEnv": "LLM_API_KEY",
-        "models": { "example-model": { "inputYuanPerMillion": 1, "outputYuanPerMillion": 2 } },
+        "models": { "example-model": { "inputYuanPerMillion": 1, "cachedInputYuanPerMillion": 0.5, "outputYuanPerMillion": 2 } },
         "contentRefusalMarkers": ["content refused"]
       }
     },

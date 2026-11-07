@@ -797,7 +797,7 @@ describe('the teacher answering in the class service', () => {
       most = Math.max(most, ++inFlight)
       await sleep(MODEL_MS)
       inFlight--
-      return { text: reply(1, ANSWER), inputTokens: 1, outputTokens: 1 }
+      return { text: reply(1, ANSWER), inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 }
     })
     const base = exampleConfig()
     const s = await buildTestClassApp({
@@ -891,12 +891,12 @@ describe('the teacher answering in the class service', () => {
       if (req.user.includes('[待检查内容开始]')) {
         const ids = [...req.user.matchAll(/"id":\s*(\d+)/g)].map((m) => Number(m[1]))
         checked.push(ids.length)
-        return { text: JSON.stringify({ results: ids.map((id) => ({ id, verdict: 'pass' })) }), inputTokens: 1, outputTokens: 1 }
+        return { text: JSON.stringify({ results: ids.map((id) => ({ id, verdict: 'pass' })) }), inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 }
       }
       // The answers come back one after another, each a little later than the one before: a slot frees every 50 ms
       // while the line of answers waiting is longer than the second layer's budget would last in a first-come line.
       await sleep(500 + 50 * ++answerCalls)
-      return { text: reply(1, ANSWER), inputTokens: 1, outputTokens: 1 }
+      return { text: reply(1, ANSWER), inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 }
     })
     const base = exampleConfig()
     const s = await buildTestClassApp({

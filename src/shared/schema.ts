@@ -213,6 +213,8 @@ export interface LlmCallsTable {
   model: string
   inputTokens: number
   outputTokens: number
+  /** Of the input tokens, the ones the vendor served from its cache. */
+  cachedInputTokens: Generated<number>
   /** numeric(12,6): pg reads it as text. */
   costYuan: ColumnType<string, string | number, string | number>
   outcome: LlmOutcome

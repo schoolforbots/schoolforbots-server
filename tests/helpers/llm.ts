@@ -39,7 +39,7 @@ export function scripted(replies: (Reply | ((call: ModelCall) => Reply))[] = [])
       if (next === undefined) throw new Error('The model was called once too often')
       const out = await (typeof next === 'function' ? next(call) : next)
       if (out instanceof Error) throw out
-      return { text: out, inputTokens: 1, outputTokens: 1 }
+      return { text: out, inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 }
     },
     async recordManual() {},
   }

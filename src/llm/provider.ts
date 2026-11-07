@@ -11,6 +11,8 @@ export interface LlmResponse {
   text: string
   inputTokens: number
   outputTokens: number
+  /** How many of the input tokens the vendor served from its cache; 0 when it did not say. */
+  cachedInputTokens: number
 }
 
 export interface LlmProvider {
@@ -44,6 +46,7 @@ export class LlmTruncated extends LlmUnavailable {
     message: string,
     readonly inputTokens = 0,
     readonly outputTokens = 0,
+    readonly cachedInputTokens = 0,
   ) {
     super(message)
   }
