@@ -455,7 +455,8 @@ export async function markFalsePositive(
  * as it is now: a rule dropped since no longer stands in the way, a word listed since does. While it has any, the
  * approval is refused with `LessonHasFlags`; marks that changed are stored all the same, on the next version number,
  * so a tab that shows the old ones has to reload. Refused with `LessonLocked` once its day is decided (by
- * `lockedWhen`, see `LockRule`). A lesson approved already keeps the time of its approval.
+ * `lockedWhen`, see `LockRule`). A lesson approved already keeps the time of its approval,
+ * unless it has gained red marks: it is back to review then.
  */
 export async function approve(
   deps: LessonStoreDeps,
@@ -466,9 +467,15 @@ export async function approve(
   const write = async (trx: Transaction<Database>, lesson: LessonRow): Promise<number> => {
     const flags = flagsOf(deps.moderator, contentOf(lesson), lesson.falsePositives)
     if (!sameFlags(flags, lesson.flags)) {
+      // A lesson approved before that now has red marks goes back to review with them.
       await trx
         .updateTable('lessons')
-        .set({ flags: JSON.stringify(flags), version: lesson.version + 1, updatedAt: deps.clock.now() })
+        .set({
+          flags: JSON.stringify(flags),
+          version: lesson.version + 1,
+          updatedAt: deps.clock.now(),
+          ...(flags.length > 0 ? { approvedAt: null } : {}),
+        })
         .where('id', '=', lessonId)
         .execute()
     }
