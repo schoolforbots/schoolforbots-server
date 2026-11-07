@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify'
 import { sql, type Kysely } from 'kysely'
 import type { Llm } from '../llm/client.js'
 import { extractJson, JsonNotFound } from '../llm/json.js'
-import { LlmContentRefused, LlmUnavailable, type LlmResponse } from '../llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmResponse } from '../llm/provider.js'
 import { isLessonDay, lessonDaysAhead, schoolDaysUntil } from '../shared/calendar.js'
 import type { Division } from '../shared/config.js'
 import { lessonLockKey, lock } from '../shared/db.js'
@@ -112,9 +112,12 @@ const isExpectedFailure = (err: unknown): boolean =>
   err instanceof LessonFormatError ||
   err instanceof LessonLocked
 
+const TRUNCATED_REASON = '大模型的回复太长，被截断了'
+
 /** Why making a lesson failed, in Chinese, for the admin. It never quotes the model's reply. */
 function failureReason(err: unknown): string {
   if (err instanceof LlmContentRefused) return '大模型以内容为由拒绝了这次生成'
+  if (err instanceof LlmTruncated) return TRUNCATED_REASON
   if (err instanceof LlmUnavailable) return '大模型暂时不可用（超时、网络出错或服务繁忙）'
   if (err instanceof JsonNotFound) return '大模型的回复里没有找到 JSON'
   if (err instanceof LessonFormatError) return `大模型交回的课程格式不对：${err.message}`

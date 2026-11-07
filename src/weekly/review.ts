@@ -4,7 +4,7 @@ import { PRIVACY_FLAG_RULE } from '../lessons/store.js'
 import type { Llm } from '../llm/client.js'
 import { extractJson } from '../llm/json.js'
 import { fillPrompt, neutralizeStudentText, type PromptName, type PromptTemplate } from '../llm/prompts.js'
-import { LlmContentRefused, LlmUnavailable } from '../llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable } from '../llm/provider.js'
 import { normalizeForPrivacy } from '../moderation/normalize.js'
 import { findPrivacyLeak } from '../moderation/privacy.js'
 import type { Clock } from '../shared/clock.js'
@@ -66,6 +66,7 @@ const MAX_DIRECTIONS = 10
 /** Why a model task gave nothing, as the page says it. */
 const FAILED = {
   unavailable: '大模型暂时调不通',
+  truncated: '大模型的回复太长，被截断了',
   refused: '厂商拒绝处理这批内容',
   unreadable: '大模型的回复格式不对',
   other: '生成时出错',
@@ -267,6 +268,7 @@ async function ask<T>(
     const name = err instanceof Error ? err.constructor.name : 'unknown'
     deps.log?.warn({ ...what, err: name }, 'weekly review task failed')
     if (err instanceof LlmContentRefused) return { value: null, failure: FAILED.refused }
+    if (err instanceof LlmTruncated) return { value: null, failure: FAILED.truncated }
     if (err instanceof LlmUnavailable) return { value: null, failure: FAILED.unavailable }
     return { value: null, failure: FAILED.other }
   }

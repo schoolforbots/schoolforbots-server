@@ -18,7 +18,7 @@ import { approve, LessonLocked, LessonNotFound, saveDraft, StaleLessonVersion } 
 import { createLlm } from '../../src/llm/client.js'
 import { createFakeLlm } from '../../src/llm/fake.js'
 import { loadPrompts, type PromptName, type PromptTemplate } from '../../src/llm/prompts.js'
-import { LlmContentRefused, LlmUnavailable, type LlmRequest, type LlmResponse } from '../../src/llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmRequest, type LlmResponse } from '../../src/llm/provider.js'
 import type { Division, SchoolConfig } from '../../src/shared/config.js'
 import type { Database, LessonContent } from '../../src/shared/schema.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
@@ -193,6 +193,23 @@ describe('generateMissing', () => {
     // Monday and Tuesday are a break: next Wednesday is the third school day.
     expect(await generateMissing(deps)).toEqual({ generated: 9, failed: 0, waitingManual: 0 })
     expect([...new Set((await lessonRows()).map((r) => r.date))]).toEqual([THU, FRI, NEXT_WED])
+  })
+
+  test('a reply cut off at the token cap is recorded as too long, not as a format problem', async () => {
+    const { deps, log } = make(school({ horizonDays: 1 }), () => new LlmTruncated('cut off', 100, 8000))
+    const first = clock.now()
+    expect(await generateMissing(deps)).toEqual({ generated: 0, failed: 3, waitingManual: 0 })
+    expect(await failures()).toEqual(
+      DIVISIONS.map((division) => ({
+        date: THU,
+        division,
+        attempts: 1,
+        firstFailedAt: first,
+        lastFailedAt: first,
+        lastError: '大模型的回复太长，被截断了',
+      })),
+    )
+    expect(log.warn).toHaveBeenCalledWith({ date: THU, division: 'junior', outcome: 'failed', err: 'LlmTruncated' }, expect.any(String))
   })
 
   test('a failure is written to lesson_generation with a reason in Chinese; a retry that succeeds clears it', async () => {

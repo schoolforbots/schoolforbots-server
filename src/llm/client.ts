@@ -7,7 +7,7 @@ import type { Database, LlmOutcome } from '../shared/schema.js'
 import { checkBudget } from './budget.js'
 import { fakeReply } from './fake-replies.js'
 import { createOpenAiCompatible } from './openai-compatible.js'
-import { LlmContentRefused, LlmUnavailable, type LlmProvider, type LlmResponse } from './provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmProvider, type LlmResponse } from './provider.js'
 
 export type LlmPurpose = keyof SchoolConfig['llm']['purposes']
 
@@ -107,7 +107,7 @@ async function within<T>(ms: number, work: (signal: AbortSignal) => Promise<T>):
 
 /**
  * Routes each model call to the provider and model of its purpose, within the concurrency limit (checks and comments
- * first in line) and a total time budget (queue wait and every attempt), retrying only `LlmUnavailable`. Writes one `llm_calls` row per call. Elapsed
+ * first in line) and a total time budget (queue wait and every attempt), retrying only `LlmUnavailable` (not a timeout or a cut-off reply). Writes one `llm_calls` row per call. Elapsed
  * time is measured with a monotonic timer, not the injected clock, because timeouts run on real timers; `createdAt`
  * comes from the injected clock. Logs hold only purpose, provider, model, outcome, token counts and time.
  */
@@ -183,7 +183,7 @@ export function createLlm(deps: {
           ),
         )
       } catch (err) {
-        const canRetry = err instanceof LlmUnavailable && !(err instanceof TimedOut) && attempt < config.llm.retries && deadline - performance.now() > 0
+        const canRetry = err instanceof LlmUnavailable && !(err instanceof TimedOut) && !(err instanceof LlmTruncated) && attempt < config.llm.retries && deadline - performance.now() > 0
         if (!canRetry) throw err
       }
     }
@@ -212,7 +212,9 @@ export function createLlm(deps: {
         if (!(err instanceof LlmContentRefused) && !(err instanceof LlmUnavailable)) {
           log?.error({ purpose, provider, model, err: err instanceof Error ? err.name : 'unknown' }, 'llm call crashed')
         }
-        await record(purpose, outcome, { input: 0, output: 0 }, performance.now() - started)
+        // A cut-off reply was still billed, so its tokens are recorded.
+        const tokens = err instanceof LlmTruncated ? { input: err.inputTokens, output: err.outputTokens } : { input: 0, output: 0 }
+        await record(purpose, outcome, tokens, performance.now() - started)
         throw err
       }
       await record(purpose, 'ok', { input: res.inputTokens, output: res.outputTokens }, performance.now() - started)

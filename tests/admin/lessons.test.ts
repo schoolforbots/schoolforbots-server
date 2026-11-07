@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { reviewQueue } from '../../src/admin/lessons.js'
 import { buildLessonPrompt } from '../../src/lessons/prompts.js'
 import { approve, editPart, saveDraft, type LessonStoreDeps } from '../../src/lessons/store.js'
-import { LlmContentRefused, LlmUnavailable } from '../../src/llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable } from '../../src/llm/provider.js'
 import type { Division, SchoolConfig } from '../../src/shared/config.js'
 import type { LessonContent } from '../../src/shared/schema.js'
 import { buildAdminTestApp, CSRF } from '../helpers/admin.js'
@@ -362,6 +362,17 @@ describe('reviewing a lesson', () => {
     expect(refused.json().error.code).toBe('llm_unavailable')
     expect(refused.json().error.message).toContain('拒绝')
     expect(refused.json().error.message).not.toBe(down.json().error.message)
+    expect((await api('GET', `lessons/${id}`)).json().version).toBe(1)
+  })
+
+  test('a rewrite cut off at the token cap is a 503 that says the reply was too long', async () => {
+    const model = scripted([new LlmTruncated('cut off', 10, 8000)])
+    await start({ llm: model.llm })
+    const id = await draft(TUE, 'junior')
+    const res = await api('POST', `lessons/${id}/rewrite`, { baseVersion: 1, kind: 'rewrite_lesson', reason: '换个选题' })
+    expect(res.statusCode).toBe(503)
+    expect(res.json().error.code).toBe('llm_unavailable')
+    expect(res.json().error.message).toContain('大模型的回复太长，被截断了')
     expect((await api('GET', `lessons/${id}`)).json().version).toBe(1)
   })
 
