@@ -110,7 +110,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 
 学校配置里和大模型、后台有关的项（见 `config/school.example.json`）：
 
-- `llm.providers` 列出大模型厂商。每家有 `kind`（`openai-compatible`）、`baseUrl`、`apiKeyEnv`（存钥匙的环境变量的名字；钥匙本身不写进配置）、`models`，以及 `contentRefusalMarkers`（厂商报错时的哪些话表示它拒绝处理这段内容）。`models` 是价目表：每个型号每百万 token 多少元，分输入 `inputYuanPerMillion` 和输出 `outputYuanPerMillion`，另有可选的 `cachedInputYuanPerMillion`，是厂商用缓存命中的输入 token 的价格（不写就按输入价算），每次调用花了多少钱就按它算。型号还可以有可选的 `windows`，给一周里的某些钟点另一套价：每个时段有 `weekdays`（1 是周一，7 是周日）、`from`（含）和 `to`（不含）（`HH:MM`，按学校的 `timezone`）和它自己的三项价格；一次调用按记账那一刻落在的第一个时段的价算，没有时段包含它就按基础价。时段必须是 `from` 早于 `to`，跨午夜的写成两段；`weekdays` 不能重复同一天。例如工作日的两个时段用另一套价：
+- `llm.providers` 列出大模型厂商。每家有 `kind`（`openai-compatible`）、`baseUrl`、`apiKeyEnv`（存钥匙的环境变量的名字；钥匙本身不写进配置）、`models`，以及 `contentRefusalMarkers`（厂商报错时的哪些话表示它拒绝处理这段内容）。`models` 是价目表：每个型号每百万 token 多少元，分输入 `inputYuanPerMillion` 和输出 `outputYuanPerMillion`，另有可选的 `cachedInputYuanPerMillion`，是厂商用缓存命中的输入 token 的价格（不写就按输入价算），每次调用花了多少钱就按它算。型号还可以有可选的 `windows`，给一周里的某些钟点另一套价：每个时段有 `weekdays`（1 是周一，7 是周日）、`from`（含）和 `to`（不含）（`HH:MM`，按学校的 `timezone`）和它自己的三项价格（时段不继承基础的 `cachedInputYuanPerMillion`：时段自己没写缓存价，缓存命中的 token 就按这个时段的 `inputYuanPerMillion` 算）；一次调用按记账那一刻落在的第一个时段的价算，没有时段包含它就按基础价。时段必须是 `from` 早于 `to`，跨午夜的写成两段；`weekdays` 不能重复同一天。例如工作日的两个时段用另一套价：
 
   ```json
   "example-model": {
@@ -137,10 +137,10 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
     ]
   }
   ```
-示例配置里的厂商只是占位（地址、型号名、拒绝标记和价格都是编的）：要换成你用的厂商自己的值，价格按它当前的价目表填，厂商调价时跟着改。有些厂商要求请求里带额外的字段（例如关掉推理模式）：写在这家厂商可选的 `requestExtras` 对象里，它会并进每一次请求；学校自己设的字段（`model`、`messages`、`max_tokens`、`response_format`）永远优先。
+  示例配置里的厂商只是占位（地址、型号名、拒绝标记和价格都是编的）：要换成你用的厂商自己的值，价格按它当前的价目表填，厂商调价时跟着改。有些厂商要求请求里带额外的字段（例如关掉推理模式）：写在这家厂商可选的 `requestExtras` 对象里，它会并进每一次请求；学校自己设的字段（`model`、`messages`、`max_tokens`、`response_format`）永远优先。
 - `llm.purposes` 给每种用途选厂商和型号：`lesson`（写课和重写）、`answer`（答疑）、`comment`（点评点名时的回答）、`weekly`（每周复盘）、`secondLayerTeacher` 和 `secondLayerChat`（第二层复查课上要念出来的话、审查同学之间的消息）、`wordList`（`words:tidy`）。某种用途可以用更便宜的型号，也可以换一家。
 - `llm.timeoutSeconds`、`llm.retries`、`llm.maxConcurrent`：一次调用最多等多久，失败后再试几次，同时最多跑几个调用（多出来的排队）。
-  - `llm.retries` 只对可能自己好起来的失败重试：网络错误、HTTP 429、5xx 回复。总时间用完不重试。请求有误、钥匙被拒、账户欠费、回复不合格或被截断、内容被拒绝，都不重试。重试前先等一会儿：厂商给了 `Retry-After` 就等那么久，没给就随机等 0.5 到 1.5 秒。等完之后 `llm.timeoutSeconds` 的总时间不足一秒的话，就不再重试。
+  - `llm.retries` 只对可能自己好起来的失败重试：网络错误、HTTP 429、5xx 回复。时限用完不重试。请求有误、钥匙被拒、账户欠费、回复不合格或被截断、内容被拒绝，都不重试。重试前先等一会儿：厂商给了 `Retry-After` 就等那么久，没给就随机等 0.5 到 1.5 秒。等完之后这次调用的时限不足一秒的话，就不再重试。
   - `llm.maxConcurrent` 是每个服务各自的上限。报名服务和上课服务各自最多同时跑这么多个调用，合起来最多是它的两倍。
 - `llm.monthlyBudgetYuan` 是每月预算。当月花费超过预算，学校只通知你，每月一次：给 `OPERATOR_EMAIL` 发一封邮件，数据页上显示红色提醒。别的什么都不变：大模型照常在用，不会自动停。要少花钱，到开关页关掉暂时用不着的功能（“老师用大模型”和两个“第二层”开关）。开关管不到 `api` 模式下大模型写课、你让它做的重写，也管不到每周复盘。
 - `lessonGeneration`：
