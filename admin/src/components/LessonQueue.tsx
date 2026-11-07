@@ -91,6 +91,7 @@ export function LessonQueue({
   selected,
   onSelect,
   onPasted,
+  onPastedTooLate,
   onTopicGiven,
   reloadFailure,
   onRetry,
@@ -100,6 +101,8 @@ export function LessonQueue({
   onSelect: (key: string) => void
   /** A lesson pasted in from a row: the slot it fills, and the lesson. */
   onPasted: (key: string, lesson: LessonDetail) => void
+  /** A lesson pasted in from a row was refused, the slot having got one meanwhile, and 刷新 was pressed. */
+  onPastedTooLate: (key: string) => void
   /** A topic was given to a day's division, or taken away. */
   onTopicGiven: (date: string, division: Division) => void
   /** Reading the list again failed: the list shown is the last one read. */
@@ -177,6 +180,10 @@ export function LessonQueue({
           onPasted={(lesson) => {
             setPasting(undefined)
             onPasted(slotKey(pasting.date, pasting.slot.division), lesson)
+          }}
+          onStale={() => {
+            setPasting(undefined)
+            onPastedTooLate(slotKey(pasting.date, pasting.slot.division))
           }}
         />
       )}

@@ -6,13 +6,21 @@ import { useFocusOnMount } from '../focus.js'
 // 粘贴结果: the reply a model gave to a copied prompt, pasted back in whole. The server finds the lesson in it and checks
 // it; when it will not do, its reason goes right under the box, and what was pasted stays there to fix.
 
-/** The server's reason, under the box; it takes the focus (the button that sent the reply was disabled meanwhile). */
-function Refused({ reason }: { reason: string }) {
-  const self = useFocusOnMount<HTMLParagraphElement>()
+/**
+ * The server's reason, under the box; it takes the focus (the button that sent the reply was disabled meanwhile). With
+ * `onRefresh`, the way to read again what moved on meanwhile.
+ */
+function Refused({ reason, onRefresh }: { reason: string; onRefresh?: () => void }) {
+  const self = useFocusOnMount<HTMLDivElement>()
   return (
-    <p ref={self} tabIndex={-1} className="action-error" role="alert">
-      {reason}
-    </p>
+    <div ref={self} tabIndex={-1} className="action-error" role="alert">
+      <p>{reason}</p>
+      {onRefresh !== undefined && (
+        <Button size="small" onClick={onRefresh}>
+          刷新
+        </Button>
+      )}
+    </div>
   )
 }
 
@@ -21,16 +29,22 @@ export function PasteDialog({
   target,
   onClose,
   onPasted,
+  onStale,
 }: {
   title: string
   /** A rewrite names the version of the lesson it was made from. */
   target: PromptTarget & { baseVersion?: number }
   onClose: () => void
   onPasted: (lesson: LessonDetail) => void
+  /**
+   * The server refused the reply because what it was for moved on meanwhile (`stale_version`), and 刷新 was pressed.
+   * Without it, the refusal says so and offers nothing more.
+   */
+  onStale?: () => void
 }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
-  const [refusal, setRefusal] = useState<{ reason: string; n: number }>()
+  const [refusal, setRefusal] = useState<{ error: ApiError; n: number }>()
   const [blank, setBlank] = useState(false)
   const boxId = useId()
   const hintId = useId()
@@ -48,7 +62,7 @@ export function PasteDialog({
     try {
       onPasted(await paste(target, text))
     } catch (error) {
-      setRefusal((last) => ({ reason: (error as ApiError).message, n: (last?.n ?? 0) + 1 }))
+      setRefusal((last) => ({ error: error as ApiError, n: (last?.n ?? 0) + 1 }))
       setSending(false)
     }
   }
@@ -98,7 +112,13 @@ export function PasteDialog({
         </p>
       )}
       {/* Keyed by the try, so each refusal takes the focus anew. */}
-      {refusal !== undefined && !blank && <Refused key={refusal.n} reason={refusal.reason} />}
+      {refusal !== undefined && !blank && (
+        <Refused
+          key={refusal.n}
+          reason={refusal.error.message}
+          onRefresh={refusal.error.code === 'stale_version' ? onStale : undefined}
+        />
+      )}
     </Modal>
   )
 }
