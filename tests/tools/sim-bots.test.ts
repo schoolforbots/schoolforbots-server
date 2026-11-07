@@ -23,7 +23,8 @@ afterEach(async () => {
 
 async function waitUntil(check: () => boolean, what: string): Promise<void> {
   for (let waited = 0; !check(); waited += 10) {
-    if (waited > 5000) throw new Error(`Timed out waiting for ${what}`)
+    // Generous so a loaded machine does not fail it; a passing wait still ends as soon as the condition holds.
+    if (waited > 15_000) throw new Error(`Timed out waiting for ${what}`)
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
@@ -66,7 +67,13 @@ test('a bot that drops comes back with the sessionId of its welcome and its last
  * A school that welcomes one bot into a lesson allowing `limit` questions, sends it `segments` segments, answers
  * every question and turns one of them into a `qa` event. Returns what the bot sent.
  */
-async function lessonWithQuestions(ask: number, limit: number, segments: number, dropFirst = false) {
+async function lessonWithQuestions(
+  ask: number,
+  limit: number,
+  segments: number,
+  expected: { questions: number; answers?: number },
+  dropFirst = false,
+) {
   const sent: unknown[] = []
   const frames = (msg: object) => {
     expect(Value.Check(ServerMessage, msg)).toBe(true)
@@ -146,9 +153,14 @@ async function lessonWithQuestions(ask: number, limit: number, segments: number,
     { clock: systemClock, random: () => 0, print: (line) => void lines.push(line), onEnded: () => {} },
   )
   bot.start()
-  await waitUntil(() => bot!.tally.segments === segments, 'the segments')
-  // Past the longest time a bot takes over a question, so every one it means to ask has gone out.
-  await new Promise((resolve) => setTimeout(resolve, 1500))
+  // At least: after a drop the school sends the segments again, and a poll can step past the exact count.
+  await waitUntil(() => bot!.tally.segments >= segments, 'the segments')
+  // Every question the bot means to ask has gone out, and the answers a test counts on have arrived.
+  await waitUntil(() => bot!.tally.questionsSent === expected.questions, 'the questions')
+  // And the school has them: a frame the bot sent may still be on its way when it counts.
+  const received = () => sent.filter((m) => (m as { type: string }).type === 'question').length
+  await waitUntil(() => received() === expected.questions, 'the questions to arrive')
+  if (expected.answers !== undefined) await waitUntil(() => bot!.tally.answersSeen === expected.answers, 'the answers')
   const closed = new Promise((resolve) => server.close(resolve))
   bot.stop()
   server.clients.forEach((c) => c.terminate())
@@ -157,20 +169,20 @@ async function lessonWithQuestions(ask: number, limit: number, segments: number,
 }
 
 test('with --ask on, a bot asks ordinary questions within the lesson allowance and counts the answers it hears', async () => {
-  const { sent, tally, totals } = await lessonWithQuestions(1, 2, 4)
+  const { sent, tally, totals } = await lessonWithQuestions(1, 2, 4, { questions: 2, answers: 1 })
   const questions = sent.filter((m) => (m as { type: string }).type === 'question') as { text: string }[]
   expect(questions).toHaveLength(2)
   for (const q of sent) expect(Value.Check(ClientMessage, q)).toBe(true)
   expect(new Set(questions.map((q) => q.text)).size).toBe(2)
   expect(tally).toMatchObject({ questionsSent: 2, answersSeen: 1, invalid: 0 })
   expect(totals).toContain('提问 2 个，听到老师答疑 1 次')
-}, 15_000)
+}, 30_000)
 
 test('without --ask a bot never asks a question', async () => {
-  const { sent, tally } = await lessonWithQuestions(0, 2, 3)
+  const { sent, tally } = await lessonWithQuestions(0, 2, 3, { questions: 0 })
   expect(sent.filter((m) => (m as { type: string }).type === 'question')).toEqual([])
   expect(tally.questionsSent).toBe(0)
-}, 15_000)
+}, 30_000)
 
 test('--ask is off by default and a probability', () => {
   const base = ['--keys', 'k.json', '--url', 'ws://localhost:8081/v1/class']
@@ -181,8 +193,8 @@ test('--ask is off by default and a probability', () => {
 })
 
 test('a question lost to a drop while it waited does not use up the allowance', async () => {
-  const { sent, tally } = await lessonWithQuestions(1, 2, 4, true)
+  const { sent, tally } = await lessonWithQuestions(1, 2, 4, { questions: 2 }, true)
   expect(tally.drops).toBe(1)
   expect(sent.filter((m) => (m as { type: string }).type === 'question')).toHaveLength(2)
   expect(tally.questionsSent).toBe(2)
-}, 15_000)
+}, 30_000)
