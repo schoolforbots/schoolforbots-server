@@ -9,9 +9,9 @@ import { SIM_PLUGIN, type SeededStudent } from './dev-seed.js'
 import { isEntryPoint } from './entry-point.js'
 
 // `npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class [--chat-every 60] [--drop-rate 0.05]
-// [--max-rounds 3]`: for local development only. One simulated bot per key in the file `npm run dev:seed` wrote
+// [--max-rounds 3] [--ask 0.3]`: for local development only. One simulated bot per key in the file `npm run dev:seed` wrote
 // comes to class: it says hello, keeps the last class event it has, starts a conversation with an online classmate now
-// and then, replies to whoever talks to it, answers when it is called on, and drops its connection at random to come
+// and then, replies to whoever talks to it, answers when it is called on, may ask the teacher a question after a segment (with `--ask`), and drops its connection at random to come
 // back a few seconds later with the `sessionId` of its welcome and `lastSeq`. Every event is one line on the console
 // (the bot, the type, the number; never what was said), and once every bot is sent home after the lesson (or on
 // Ctrl-C) it prints what each received. A bot turned away at the door before its lesson tries again every few seconds,
@@ -34,6 +34,8 @@ export interface SimOptions {
   dropRate: number
   /** The rounds each bot's hello says its plugin holds a conversation for. */
   maxRounds: number
+  /** The chance that a bot asks the teacher a question after a segment it receives live; 0 never asks. */
+  ask: number
 }
 
 /** What one bot received and did, for the totals. */
@@ -46,6 +48,10 @@ export interface BotTally {
   duplicates: number
   /** Messages the school took and passed on: conversation lines and answers. */
   delivered: number
+  /** Questions to the teacher the bot sent. */
+  questionsSent: number
+  /** Answers of the teacher to the class (`qa` events) the bot received, replayed ones included. */
+  answersSeen: number
   /** Refused messages, by error code. */
   refusals: Map<string, number>
   drops: number
@@ -82,6 +88,15 @@ const START_LINES = ['你好呀，这一段你听懂了吗？', '同学你好，
 const REPLY_LINES = ['我听懂了，你呢？', '我觉得这一段挺有意思的。', '对，我也是这么想的。', '老师讲得很清楚，我记下来了。']
 const LAST_LINE = '下次再找你聊'
 const ANSWER = '这一段讲的是……'
+// Ordinary questions about what was just taught, which fit any lesson; the segment's number picks one.
+const QUESTIONS = [
+  '老师，刚才这一段的重点是什么？',
+  '老师，能再举一个例子吗？',
+  '老师，这个和上一段讲的有什么联系？',
+  '老师，这个在生活里有什么用处吗？',
+  '老师，刚才那个词我没听懂，能再解释一下吗？',
+  '老师，这一段里最容易搞错的地方是哪里？',
+]
 
 /** The chance that a bot thinking of starting a conversation does. */
 const CHAT_CHANCE = 0.5
@@ -105,6 +120,8 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     replayed: 0,
     duplicates: 0,
     delivered: 0,
+    questionsSent: 0,
+    answersSeen: 0,
     refusals: new Map(),
     drops: 0,
     welcomed: false,
@@ -126,6 +143,9 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   let reconnectTimer: NodeJS.Timeout | undefined
   let chatTimer: NodeJS.Timeout | undefined
   let nextId = 0
+  /** The most questions a lesson allows, and how many the bot has sent in this session (kept across connections). */
+  let questionLimit = 0
+  let questionsInSession = 0
 
   // One connection's: reset whenever it closes.
   let welcomed = false
@@ -241,6 +261,19 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     send('chat.start', { to: pick([...online]), text: pick(START_LINES) })
   }
 
+  /** Asks the teacher a question about the segment after a moment, within the lesson's allowance. */
+  function askSoon(segment: number): void {
+    if (questionsInSession >= questionLimit || endsAt === null || clock.now().getTime() >= endsAt) return
+    // Counted when sent, so questions waiting for their moment cannot go past the allowance.
+    questionsInSession++
+    const timer = setTimeout(() => {
+      answers.delete(timer)
+      tally.questionsSent++
+      send('question', { text: QUESTIONS[(segment - 1 + QUESTIONS.length) % QUESTIONS.length] })
+    }, between(THINK_MS))
+    answers.add(timer)
+  }
+
   function onAck(msg: Of<'ack'>): void {
     const type = requests.get(msg.id) ?? '?'
     requests.delete(msg.id)
@@ -261,6 +294,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     const { code } = msg.error
     tally.refusals.set(code, (tally.refusals.get(code) ?? 0) + 1)
     if (code === 'initiation_cap') initiationsLeft = 0
+    if (code === 'question_cap') questionLimit = 0
     say(`ack ${type} 被拒 ${code}`)
   }
 
@@ -275,8 +309,10 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     lastSeq = Math.max(lastSeq, seq)
     if (replayed) tally.replayed++
     if (event.kind === 'segment') tally.segments++
+    if (event.kind === 'qa') tally.answersSeen++
     const detail = event.kind === 'segment' ? ` 第 ${event.index} 段` : ''
     say(`class.event #${seq} ${event.kind}${detail}${replayed ? '（补发）' : ''}`)
+    if (!replayed && event.kind === 'segment' && welcomed && opts.ask > 0 && random() < opts.ask) askSoon(event.index)
     if (!replayed && random() < opts.dropRate && mayDrop()) drop()
   }
 
@@ -315,10 +351,12 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
           sessionId = msg.session.sessionId
           lastSeq = 0
           seen.clear()
+          questionsInSession = 0
         }
         endsAt = Date.parse(msg.session.endsAt)
         probation = msg.probation
         initiationsLeft = msg.limits.initiationsLeft
+        questionLimit = msg.limits.maxQuestionsPerLesson
         online.clear()
         for (const c of msg.online) online.add(c.studentId)
         return say(`welcome 会话 ${msg.session.sessionId}（${msg.session.kind}），在线同学 ${online.size} 位`)
@@ -393,10 +431,13 @@ function refusalsText(refusals: Map<string, number>): string {
   return `被拒 ${total} 次（${[...refusals].map(([code, n]) => `${code} ${n}`).join('、')}）`
 }
 
-function countsText(t: Omit<BotTally, 'welcomed' | 'summary' | 'ended'>): string {
+type Counts = Omit<BotTally, 'welcomed' | 'summary' | 'ended'>
+
+function countsText(t: Counts): string {
   const invalid = t.invalid > 0 ? `，不合协议的消息 ${t.invalid} 条` : ''
   return (
     `正文 ${t.segments} 段，补发 ${t.replayed} 条，重复 ${t.duplicates} 条，送达 ${t.delivered} 条消息，` +
+    `提问 ${t.questionsSent} 个，听到老师答疑 ${t.answersSeen} 次，` +
     `${refusalsText(t.refusals)}，断线 ${t.drops} 次${invalid}`
   )
 }
@@ -404,11 +445,13 @@ function countsText(t: Omit<BotTally, 'welcomed' | 'summary' | 'ended'>): string
 /** The totals printed at the end: one line per bot, then the sum. */
 export function totalsText(bots: readonly Bot[]): string {
   const lines = ['—— 汇总 ——']
-  const sum: Omit<BotTally, 'welcomed' | 'summary' | 'ended'> = {
+  const sum: Counts = {
     segments: 0,
     replayed: 0,
     duplicates: 0,
     delivered: 0,
+    questionsSent: 0,
+    answersSeen: 0,
     refusals: new Map(),
     drops: 0,
     invalid: 0,
@@ -423,6 +466,8 @@ export function totalsText(bots: readonly Bot[]): string {
     sum.replayed += tally.replayed
     sum.duplicates += tally.duplicates
     sum.delivered += tally.delivered
+    sum.questionsSent += tally.questionsSent
+    sum.answersSeen += tally.answersSeen
     sum.drops += tally.drops
     sum.invalid += tally.invalid
     for (const [code, n] of tally.refusals) sum.refusals.set(code, (sum.refusals.get(code) ?? 0) + n)
@@ -453,7 +498,7 @@ export function readKeysFile(path: string): SeededStudent[] {
 }
 
 const USAGE =
-  '用法：npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class [--chat-every 60] [--drop-rate 0.05] [--max-rounds 3]'
+  '用法：npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class [--chat-every 60] [--drop-rate 0.05] [--max-rounds 3] [--ask 0.3]'
 
 /** The command line, or null when it is not as `USAGE` says. */
 export function parseSimArgs(argv: string[]): (SimOptions & { keys: string }) | null {
@@ -467,6 +512,7 @@ export function parseSimArgs(argv: string[]): (SimOptions & { keys: string }) | 
         'chat-every': { type: 'string', default: '60' },
         'drop-rate': { type: 'string', default: '0.05' },
         'max-rounds': { type: 'string', default: '3' },
+        ask: { type: 'string', default: '0' },
       },
       strict: true,
       allowPositionals: false,
@@ -478,11 +524,12 @@ export function parseSimArgs(argv: string[]): (SimOptions & { keys: string }) | 
   const chatEvery = Number(values['chat-every'])
   const dropRate = Number(values['drop-rate'])
   const maxRounds = Number(values['max-rounds'])
+  const ask = Number(values.ask)
   if (keys === undefined || keys === '' || url === undefined || !/^wss?:\/\//.test(url)) return null
-  if (!(chatEvery > 0) || !(dropRate >= 0 && dropRate <= 1)) return null
+  if (!(chatEvery > 0) || !(dropRate >= 0 && dropRate <= 1) || !(ask >= 0 && ask <= 1)) return null
   // The protocol's bounds for hello's maxRounds.
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 50) return null
-  return { keys, url, chatEvery, dropRate, maxRounds }
+  return { keys, url, chatEvery, dropRate, maxRounds, ask }
 }
 
 /**
