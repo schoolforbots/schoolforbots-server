@@ -584,7 +584,8 @@ describe('the review page', () => {
     await user.click(await screen.findByRole('button', { name: '通过，审下一节' }))
 
     const notice = await screen.findByText('这一天已经开课，这节课没赶在开门前通过，那天改上了自习。它不能再改了。')
-    expect(notice).toHaveFocus()
+    // The notice is on the page before its effect gives it the focus, and a busy machine can look in between.
+    await waitFor(() => expect(notice).toHaveFocus())
     expect(screen.queryByRole('button', { name: '通过，审下一节' })).not.toBeInTheDocument()
   })
 

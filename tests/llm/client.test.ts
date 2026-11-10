@@ -221,26 +221,38 @@ describe('concurrency and time budget', () => {
     }
   })
 
+  // The times below run until the call rejects, so they include writing its `llm_calls` row, and a busy runner can
+  // make that and the timer late by a few hundred milliseconds. Each bound only has to tell the call's own 100 ms
+  // from the wrong outcomes, which the tests keep at 1.5 s or more.
+
   test('queue wait counts against the timeout and no request is started for it', async () => {
     const one = { ...config, llm: { ...config.llm, maxConcurrent: 1, retries: 0 } }
-    const a = createFakeLlm(() => new Promise<LlmResponse>(() => {})) // hangs forever
+    let finish: () => void = () => {}
+    const a = createFakeLlm(() => new Promise<LlmResponse>((resolve) => (finish = () => resolve(ok()))))
     const llm = createLlm({ db, config: one, clock, providers: { a } })
-    const first = llm.call('lesson', prompt, { timeoutMs: 400 })
-    const second = llm.call('lesson', prompt, { timeoutMs: 100 })
-    const started = Date.now()
-    await expect(second).rejects.toBeInstanceOf(LlmUnavailable)
-    expect(Date.now() - started).toBeLessThan(300)
-    expect(a.calls).toHaveLength(1)
-    await expect(first).rejects.toBeInstanceOf(LlmUnavailable)
-    expect(await rows()).toMatchObject([{ outcome: 'failed', inputTokens: 0 }, { outcome: 'failed', inputTokens: 0 }])
+    // The first call holds the only slot until the test lets it go, so the second can only give up on its deadline.
+    const first = llm.call('lesson', prompt, { timeoutMs: 60_000 })
+    try {
+      const started = performance.now()
+      await expect(llm.call('lesson', prompt, { timeoutMs: 100 })).rejects.toBeInstanceOf(LlmUnavailable)
+      // On its own 100 ms, not on the default 5 s.
+      expect(performance.now() - started).toBeLessThan(1000)
+      expect(a.calls).toHaveLength(1)
+    } finally {
+      finish()
+    }
+    await expect(first).resolves.toMatchObject({ text: 'hi' })
+    expect(await rows()).toMatchObject([{ outcome: 'failed', inputTokens: 0 }, { outcome: 'ok' }])
   })
 
   test('the timeout is total: a hung attempt leaves no time for a retry', async () => {
     const a = createFakeLlm(() => new Promise<LlmResponse>(() => {}))
-    const llm = createLlm({ db, config, clock, providers: { a } })
-    const started = Date.now()
+    // The longest pause before a retry: 1.5 s.
+    const llm = createLlm({ db, config, clock, providers: { a }, random: () => 1 })
+    const started = performance.now()
     await expect(llm.call('lesson', prompt, { timeoutMs: 100 })).rejects.toBeInstanceOf(LlmUnavailable)
-    expect(Date.now() - started).toBeLessThan(400)
+    // At the 100 ms deadline: not after a pause for a retry, nor on the default 5 s.
+    expect(performance.now() - started).toBeLessThan(1000)
     expect(a.calls).toHaveLength(1)
     expect(a.calls[0]?.req.timeoutMs).toBeLessThanOrEqual(100)
   })
