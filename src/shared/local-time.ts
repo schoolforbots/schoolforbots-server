@@ -148,3 +148,4 @@ export function monthDay(date: string): string {
   const day = new Date(requireDateText(date))
   return `${day.getUTCMonth() + 1}月${day.getUTCDate()}日`
 }
+// CI trial, not for merging
