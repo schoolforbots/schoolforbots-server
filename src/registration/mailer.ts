@@ -1,4 +1,5 @@
 import { createTransport } from 'nodemailer'
+import { isMailServiceFault, mailErrorKind } from './mail-errors.js'
 
 export type CodePurpose = 'register' | 'key_reset'
 
@@ -25,16 +26,23 @@ export function codeMessage(
 }
 
 /**
- * The mailer with `onFailure` called whenever a verification code cannot be sent; the error still goes to the caller.
- * Only `sendCode` is wrapped: a notice to the operator that fails is the alert mail's own business.
+ * The mailer with `onFailure` called whenever a verification code cannot be sent because of the mail service (see
+ * `isMailServiceFault`); a refused recipient only logs one line with the error's code, never the address. The error
+ * still goes to the caller. Only `sendCode` is wrapped: a notice to the operator that fails is the alert mail's own
+ * business.
  */
-export function withMailFailures(mailer: Mailer, onFailure: () => void): Mailer {
+export function withMailFailures(
+  mailer: Mailer,
+  onFailure: () => void,
+  log?: { info(obj: unknown, msg?: string): void },
+): Mailer {
   return {
     async sendCode(to, purpose, code) {
       try {
         await mailer.sendCode(to, purpose, code)
       } catch (err) {
-        onFailure()
+        if (isMailServiceFault(err)) onFailure()
+        else log?.info({ code: mailErrorKind(err) }, 'a recipient address was refused')
         throw err
       }
     },
