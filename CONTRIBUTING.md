@@ -83,7 +83,7 @@ The reason is that during a deploy the old and the new version of the services r
 
 To rename or drop something, take two releases. In the first, add the new column or table, make the code write to both the old and the new, and stop reading the old one. In a later release, once no old version is running, drop the old one.
 
-A test (`tests/shared/migrations-only-add.test.ts`) fails when the `up` of a migration from 0011 on uses `renameColumn`, `renameTo`, `dropColumn`, `dropTable`, `alterColumn` or `modifyColumn`, or raw SQL that does the same (`drop table`, `drop column`, `rename`, `alter column`, which also covers a type change and `set not null`; any case, any whitespace; comments are ignored) (`down` is not checked). For the second release of a rename or drop, list that migration in the test's allow-list with the reason.
+A test (`tests/shared/migrations-only-add.test.ts`) fails when the `up` of a migration from 0011 on uses `renameColumn`, `renameTo`, `dropColumn`, `dropTable`, `alterColumn` or `modifyColumn`, or raw SQL that does the same (`drop table`, `drop column`, `rename`, `alter column`, which also covers a type change and `set not null`; any case, any whitespace; comments are ignored), or when it adds a `NOT NULL` column with no default to a table that exists (`addColumn` with `.notNull()` and no `.defaultTo(…)` on `alterTable`, or raw SQL `add column … not null` with no `default`) (`down` is not checked). For the second release of a rename or drop, list that migration in the test's allow-list with the reason.
 
 ## Developer Certificate of Origin (DCO)
 
