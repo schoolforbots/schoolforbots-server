@@ -70,6 +70,24 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   llm_unavailable: '大模型暂时调不通，稍后再试，或者改用手动粘贴。',
 }
 
+/**
+ * The codes only the admin pages return, never a route under `/v1`. The plugin API reference leaves them out, and
+ * `tests/protocol/api-docs.test.ts` fails if either document names one.
+ */
+export const ADMIN_ERROR_CODES = [
+  'admin_login_required',
+  'admin_login_failed',
+  'admin_locked',
+  'admin_csrf',
+  'stale_version',
+  'lesson_locked',
+  'lesson_has_flags',
+  'lesson_format',
+  'topic_refused',
+  'not_a_lesson_day',
+  'llm_unavailable',
+] as const satisfies readonly ErrorCode[]
+
 export class ApiError extends Error {
   readonly status: number
   readonly code: ErrorCode
