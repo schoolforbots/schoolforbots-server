@@ -17,16 +17,68 @@ const SQL_FORMS: [label: string, pattern: RegExp][] = [
 ]
 const KYSELY_CALLS = ['renameColumn', 'renameTo', 'dropColumn', 'dropTable', 'alterColumn', 'modifyColumn']
 
+/**
+ * Where the text that starts at `from` ends: at the first `)` outside the brackets opened in it, or, when `ends` is
+ * given, at the first of those characters outside brackets; else at the end.
+ */
+function endOfPart(code: string, from: number, ends = ''): number {
+  let depth = 0
+  for (let i = from; i < code.length; i++) {
+    const ch = code[i]!
+    if (ch === '(') depth++
+    else if (ch === ')') {
+      if (depth === 0) return i
+      depth--
+    } else if (depth === 0 && ends.includes(ch)) return i
+  }
+  return code.length
+}
+
+/** The arguments of the call whose `(` is at `open`, up to its matching `)`. */
+function argumentsAt(code: string, open: number): string {
+  return code.slice(open + 1, endOfPart(code, open + 1))
+}
+
+// A NOT NULL column with no default, added to a table that already exists: the old version, which does not know the
+// column, cannot insert a row any more.
+const NOT_NULL_KYSELY = 'addColumn notNull without defaultTo'
+const NOT_NULL_SQL = 'add column not null without default'
+
+/** Whether a chain on `alterTable` (up to its `.execute(`) has an `addColumn` with `.notNull()` and no `.defaultTo(`. */
+function addsNotNullWithKysely(code: string): boolean {
+  for (const chain of code.matchAll(/\balterTable\s*\(/g)) {
+    const end = code.indexOf('.execute(', chain.index)
+    const statement = code.slice(chain.index, end === -1 ? undefined : end)
+    for (const add of statement.matchAll(/\.addColumn\s*\(/g)) {
+      const args = argumentsAt(statement, add.index + add[0].length - 1)
+      if (/\.notNull\s*\(/.test(args) && !/\.defaultTo\s*\(/.test(args)) return true
+    }
+  }
+  return false
+}
+
+/** Whether raw SQL has an `add column` clause (up to its comma) that says `not null` and has no `default`. */
+function addsNotNullWithSql(code: string): boolean {
+  for (const add of code.matchAll(/\badd\s+column\b/gi)) {
+    const clause = code.slice(add.index, endOfPart(code, add.index + add[0].length, ',;`'))
+    if (/\bnot\s+null\b/i.test(clause) && !/\bdefault\b/i.test(clause)) return true
+  }
+  return false
+}
+
 /** The forbidden things the source of an `up` does: Kysely method names and raw SQL forms, each once, in the order found. */
 export function forbiddenInUp(source: string): string[] {
   const code = withoutComments(source)
   const found = KYSELY_CALLS.filter((call) => new RegExp(`\\b${call}\\b`).test(code))
   for (const [label, pattern] of SQL_FORMS) if (pattern.test(code)) found.push(label)
+  if (addsNotNullWithKysely(code)) found.push(NOT_NULL_KYSELY)
+  if (addsNotNullWithSql(code)) found.push(NOT_NULL_SQL)
   return found
 }
 
 // During a deploy the old and the new version of the services share the database for a while, so a migration may only
-// add things (see CONTRIBUTING.md). From 0011 on, the `up` of a migration must not rename, drop or alter anything.
+// add things (see CONTRIBUTING.md). From 0011 on, the `up` of a migration must not rename, drop or alter anything, nor
+// add a NOT NULL column without a default to a table that exists.
 const DIR = 'src/shared/migrations'
 const FIRST_CHECKED = 11
 
@@ -60,15 +112,34 @@ describe('forbiddenInUp', () => {
     ['dropTable', "await db.schema.dropTable('x').execute()", 'dropTable'],
     ['alterColumn', "await db.schema.alterTable('x').alterColumn('a', (c) => c.setNotNull()).execute()", 'alterColumn'],
     ['modifyColumn', "await db.schema.alterTable('x').modifyColumn('a', 'text').execute()", 'modifyColumn'],
+    [
+      'addColumn notNull without defaultTo',
+      "await db.schema.alterTable('x').addColumn('a', 'integer', (c) => c.notNull()).execute()",
+      'addColumn notNull without defaultTo',
+    ],
+    [
+      'the second addColumn of a chain',
+      "await db.schema\n  .alterTable('x')\n  .addColumn('a', 'text')\n  .addColumn('b', sql`numeric(10, 2)`, (c) =>\n    c.notNull().check(sql`b >= 0`))\n  .execute()",
+      'addColumn notNull without defaultTo',
+    ],
+    ['add column not null', "await sql`alter table x add column y integer not null`.execute(db)", 'add column not null without default'],
+    [
+      'add column not null, after a comma in a type',
+      "await sql`ALTER TABLE x ADD COLUMN a text,\n  ADD COLUMN\n b numeric(10, 2) NOT  NULL`.execute(db)",
+      'add column not null without default',
+    ],
   ]
   test.each(cases)('catches %s', (_name, up, expected) => {
     expect(forbiddenInUp(`export async function up(db) {\n  ${up}\n}`)).toContain(expected)
   })
   test('passes create table, add column (nullable or with a default) and create index', () => {
     const up = `
-      await db.schema.createTable('x').addColumn('id', 'serial', (c) => c.primaryKey()).execute()
+      await db.schema.createTable('x').addColumn('id', 'serial', (c) => c.primaryKey()).addColumn('n', 'text', (c) => c.notNull()).execute()
       await db.schema.alterTable('students').addColumn('renamedAt', 'timestamptz').execute()
+      await db.schema.alterTable('students').addColumn('count', 'integer', (c) => c.notNull().defaultTo(0)).execute()
       await sql\`alter table students add column dropped_count integer not null default 0\`.execute(db)
+      await sql\`alter table students add column if not exists note text, add column n numeric(10, 2) default 0 not null\`.execute(db)
+      await sql\`create table y (id serial primary key, name text not null)\`.execute(db)
       await db.schema.createIndex('x_idx').on('x').column('id').execute()`
     expect(forbiddenInUp(up)).toEqual([])
   })
@@ -86,7 +157,7 @@ describe('migrations only add', () => {
   test('there are migrations to check', () => {
     expect(files.length).toBeGreaterThan(0)
   })
-  test.each(files)('%s: up renames, drops and alters nothing', (file) => {
+  test.each(files)('%s: up renames, drops and alters nothing, and adds no NOT NULL column without a default', (file) => {
     const allowed = ALLOWED.find((a) => a.file === file)?.calls ?? []
     const used = forbiddenInUp(upSource(file)).filter((call) => !allowed.includes(call))
     expect(used).toEqual([])

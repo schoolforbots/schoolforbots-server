@@ -83,7 +83,7 @@ README、贡献指南、安全政策这些文档写给所有读这个仓库的�
 
 真要改名或删除，分两次发布：第一次加新的列或表，代码两边都写，并且不再读旧的；下一次发布，等没有旧版在跑了，再删旧的。
 
-有一个测试（`tests/shared/migrations-only-add.test.ts`）卡住这件事：从 `0011` 起的每个迁移，`up` 里出现 `renameColumn`、`renameTo`、`dropColumn`、`dropTable`、`alterColumn`、`modifyColumn`，或者做同样事情的原始 SQL（`drop table`、`drop column`、`rename`、`alter column`（含改类型和 `set not null`），不分大小写，中间任意空白，注释里的字不算），就失败（`down` 不管）。真到了“下一次发布删旧的”那一步，在测试的允许名单上写明是哪个迁移、为什么。
+有一个测试（`tests/shared/migrations-only-add.test.ts`）卡住这件事：从 `0011` 起的每个迁移，`up` 里出现 `renameColumn`、`renameTo`、`dropColumn`、`dropTable`、`alterColumn`、`modifyColumn`，或者做同样事情的原始 SQL（`drop table`、`drop column`、`rename`、`alter column`（含改类型和 `set not null`），不分大小写，中间任意空白，注释里的字不算），或者给已有的表加一个 `NOT NULL` 又没有默认值的列（`alterTable` 上的 `addColumn` 带 `.notNull()` 却没有 `.defaultTo(…)`，或者原始 SQL 的 `add column … not null` 不带 `default`），就失败（`down` 不管）。真到了“下一次发布删旧的”那一步，在测试的允许名单上写明是哪个迁移、为什么。
 
 ## 开发者原创声明（DCO）
 
