@@ -69,7 +69,7 @@ echo "deploy: step 5/6: recreating class and waiting until it is healthy"
 compose up -d --no-deps --force-recreate --wait --wait-timeout "$wait_timeout" class
 
 echo "deploy: step 6/6: bringing up the other services"
-compose up -d --wait --wait-timeout "$wait_timeout"
+compose up -d --build --wait --wait-timeout "$wait_timeout"
 
 # Remembered, so that a later `docker compose up` does not go back to the old tag. A failure here stops the script.
 write_image_tag .env "$tag" || { echo "deploy: could not write IMAGE_TAG to .env" >&2; exit 1; }

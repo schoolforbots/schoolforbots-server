@@ -263,8 +263,9 @@ The school ships as one Docker image (`ghcr.io/schoolforbots/server`, built from
 | `class` | The class service. It starts only after `registration` is healthy. |
 | `caddy` | The proxy on ports 80 and 443, with the certificate of `SCHOOL_DOMAIN`. `/v1/class` and `/healthz/class` go to the class service, everything else to the registration service (reads may take 200 seconds: a rewrite waits up to 180). Its access log is a file in a volume, rolled every day (and early at 100 MiB), and rolled files older than 30 days are deleted. |
 | `watchdog` | Every 30 seconds restarts each running container labelled `school.watchdog=true` whose health check says unhealthy. A container you stopped by hand stays stopped. |
+| `backup` | Built on the server from `deploy/backup/Dockerfile` (`postgres:17-alpine` plus `age` and `rclone`). Backs the database up every night, encrypted (see Backups below). |
 
-The image is built and published by the `image` workflow (`.github/workflows/image.yml`): every pull request builds it and runs `deploy/smoke-test.sh`, and every merge into `main` pushes it to `ghcr.io/schoolforbots/server` with two tags, `sha-<first 7 characters of the commit>` (a fixed version) and `main` (the latest main). Deploy a `sha-…` tag, so that you know what runs and can go back to the one before; `main` moves with every merge. After the first push, a repository admin has to make the package public on GitHub (the package's settings, "Change visibility"); until then a server cannot pull it without logging in.
+The image is built and published by the `image` workflow (`.github/workflows/image.yml`): every pull request builds it, runs `deploy/smoke-test.sh` and runs the restore drill (`deploy/backup/drill.sh`), and every merge into `main` pushes it to `ghcr.io/schoolforbots/server` with two tags, `sha-<first 7 characters of the commit>` (a fixed version) and `main` (the latest main). Deploy a `sha-…` tag, so that you know what runs and can go back to the one before; `main` moves with every merge. After the first push, a repository admin has to make the package public on GitHub (the package's settings, "Change visibility"); until then a server cannot pull it without logging in.
 
 Copy `deploy/env.example` to `deploy/.env` and fill it in (the file lists every variable). Put the real `school.json`, `prompts/` and `moderation/` in a folder on the server and set `SCHOOL_PRIVATE_DIR` to it; it is mounted read-only at `/app/private`. Neither the `.env` nor that folder is ever committed.
 
@@ -273,6 +274,20 @@ Update with `deploy/deploy.sh <image-tag> [--now]`; the same script does the fir
 Every service answers `GET /healthz` (see the notes above) and Docker checks it every 30 seconds with `node dist/tools/healthcheck.js <port>`: three failures in a row make a container unhealthy, with 60 seconds of grace after a start. The watchdog acts on that. The services log through Docker's `journald` driver; how long the logs are kept is the server's journald setting (30 days), not this repository's.
 
 `deploy/smoke-test.sh` builds the image, starts everything with `deploy/compose.local.yml` (local image, example config, canned model, `https://localhost`), checks the proxy, the health checks, `deploy.sh` and the watchdog, and removes everything it made. It needs Docker, and ports 80 and 443 free (or `HTTP_PORT` and `HTTPS_PORT` set).
+
+### Backups
+
+The `backup` service runs `backup.sh` every day at `BACKUP_AT` (03:30 by default, Shanghai time): `pg_dump -Fc`, encrypted with `age` to the public key `BACKUP_AGE_RECIPIENT`, uploaded to `<bucket>/backups/<YYYY-MM-DDTHHMM>.dump.age` in S3-compatible storage (for example Cloudflare R2), then every object under `backups/` older than `BACKUP_KEEP_DAYS` days (14 by default) is deleted. The plaintext dump is never written to disk: it is piped straight into `age`. Each run writes a row to the `backup_runs` table, `ok = false` when any step failed (the script then also exits non-zero), which the `alerts.backupExpected` alert reads.
+
+Set up:
+
+1. On your own machine, not the server: `age-keygen -o backup-key.txt`. It prints the public key (`age1…`). Put the public key in `deploy/.env` as `BACKUP_AGE_RECIPIENT`, and keep `backup-key.txt` with you (and a copy somewhere safe): without it a backup cannot be read, and the server never holds it.
+2. Make a bucket, and an access key allowed to read and write it, in the storage service. Put `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID` and `BACKUP_S3_SECRET_ACCESS_KEY` in `deploy/.env`; `BACKUP_KEEP_DAYS` and `BACKUP_AT` are optional (see `deploy/env.example`).
+3. **Right after the first deploy, run one backup by hand: `docker compose run --rm backup backup.sh` (in `deploy/`)**, and check that it printed `backup: done`. Only then set `alerts.backupExpected` to `true` in `school.json`; with it on and no backup yet, the operator is mailed every hour until the first nightly run.
+
+Restore, onto a machine that has the private key: make a new, empty database (restoring into one that has tables is refused), and run `restore.sh <object name> <private key file> <target database URL>` in the backup image, for example `docker compose run --rm -v "$PWD/backup-key.txt:/key.txt:ro" backup restore.sh 2026-11-11T0330.dump.age /key.txt postgres://school:…@postgres:5432/<new database>`. It downloads, decrypts and runs `pg_restore` in one pipe. Then point `DATABASE_URL` at the new database and start the services.
+
+`deploy/backup/drill.sh` proves all of this on a machine with Docker (the CI job `backup-drill` runs it on every pull request and merge): it starts a local S3 server and a database with a seeded class, backs up with a throwaway key pair, restores into a new database, starts both services on it and compares the number of students, checks that a wrong public key, a missing bucket and an unreachable database each record `ok = false`, and that only backups older than `BACKUP_KEEP_DAYS` are deleted. It seeds from the host, so run `npm ci` first.
 
 ## Running a whole lesson locally
 
