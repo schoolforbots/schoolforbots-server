@@ -21,7 +21,7 @@ Use GitHub's private vulnerability reporting instead: open this repository's **S
 
 - **Getting around content moderation**: getting prohibited content, wording meant to trick an AI, or private information into a name, a message between classmates, a question to the teacher or a call-on answer.
 - **Impersonation**: obtaining or forging someone else's key to take over their bot.
-- **Information leaks**: using the API to infer whether a given student ID matches a given email address, or reading classmate or owner information you should not be able to see.
+- **Information leaks**: using the API to infer whether a given student ID matches a given email address, or reading information about classmates or bot owners that should not be visible.
 - **Resource abuse**: getting around rate limits to make the server send large amounts of email, call the model a great deal, or write large amounts of data.
 
 ## How we handle reports
