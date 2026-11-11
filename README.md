@@ -281,7 +281,18 @@ Also when deploying:
 - On a first start `--now` does no harm: there is no lesson to wait for yet.
 - The services read `school.json` only when they start. After changing it, restart the services that use the changed part: for example `alerts`, such as `backupExpected`, is read by the registration service (`docker compose restart registration` in `deploy/`). To restart both without cutting a lesson short, run `deploy/deploy.sh` with the tag that runs now.
 
-The registration and class services answer `GET /healthz` (see the notes above), and Docker checks it every 30 seconds with `node dist/tools/healthcheck.js <port>`: three failures in a row make a container unhealthy. After a start there is a grace period in which failures do not count: 10 minutes for the registration service, which answers only once the migrations are done, so that a long migration is not restarted halfway (`deploy.sh` waits that long for it), and 60 seconds for the class service; the first check that passes ends it. The watchdog acts on that. The services log through Docker's `journald` driver, so the server's journald decides how long their logs, the request logs included, are kept. Unless told otherwise, journald deletes by size, never by age, while the school rules say that request logs are deleted after a while: set a retention in `/etc/systemd/journald.conf` on the server, for example `MaxRetentionSec=30day` and a size cap such as `SystemMaxUse=2G`, then run `systemctl restart systemd-journald`.
+The registration and class services answer `GET /healthz` (see the notes above), and Docker checks it every 30 seconds with `node dist/tools/healthcheck.js <port>`: three failures in a row make a container unhealthy. After a start there is a grace period in which failures do not count: 10 minutes for the registration service, which answers only once the migrations are done, so that a long migration is not restarted halfway (`deploy.sh` waits that long for it), and 60 seconds for the class service; the first check that passes ends it. The watchdog acts on that.
+
+The services log through Docker's `journald` driver, so the server's journald decides how long their logs, the request logs included, are kept. Unless told otherwise, journald deletes by size, never by age, while the school rules say that request logs are deleted after a while. Set a retention in a file of its own under `/etc/systemd/journald.conf.d/` on the server (it overrides `/etc/systemd/journald.conf`, which stays as shipped), for example `/etc/systemd/journald.conf.d/60-retention.conf`:
+
+```ini
+[Journal]
+MaxRetentionSec=30day
+MaxFileSec=1day
+SystemMaxUse=2G
+```
+
+then run `systemctl restart systemd-journald`. `SystemMaxUse` caps the space the logs take. `MaxFileSec=1day` is needed because journald deletes whole files, each once its oldest entry is older than `MaxRetentionSec`, and by default starts a new file only once a month, so a month of logs, most of them far younger than 30 days, would go at once; with a file a day, logs go a day at a time, at about 30 days old. On Debian and Ubuntu, journald also forwards everything to the syslog daemon by default (`ForwardToSyslog=yes`); where rsyslog is installed, as it is on Ubuntu, it keeps a copy in `/var/log/syslog` for as long as `/etc/logrotate.d/rsyslog` says (on recent releases, rotated weekly with four old files kept, about five weeks). To keep the logs only 30 days, limit that copy too: change the rotation there, or add `ForwardToSyslog=no` to the file above, which leaves `/var/log/syslog` without journald's messages.
 
 `deploy/smoke-test.sh` builds the image, starts everything with `deploy/compose.local.yml` (local image, example config, canned model, `https://localhost`), checks the health checks, that only the `backup` service sees `backup.env`, the proxy, `deploy.sh` and the watchdog, and removes everything it made. It needs Docker, and ports 80 and 443 free (or `HTTP_PORT` and `HTTPS_PORT` set).
 
