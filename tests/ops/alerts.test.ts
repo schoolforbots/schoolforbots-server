@@ -80,7 +80,7 @@ const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; f
       // Two failures inside the window, a third outside it, and no ok.
       await llmCalls('failed', [minutesAgo(1), minutesAgo(9), minutesAgo(30)])
     },
-    subject: /^【机器人网校】大模型连不上，已经 10 分钟$/,
+    subject: /^【机器人网校】大模型连不上：最近 10 分钟失败 3 次$/,
   },
   llm_400: {
     fire: () => llmCalls('failed', Array.from({ length: 5 }, (_, i) => minutesAgo(10 + i * 10)), 400),
