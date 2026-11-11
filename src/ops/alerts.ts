@@ -199,7 +199,7 @@ async function llmDownAlert(deps: AlertDeps, now: Date): Promise<AlertMail | nul
   const failed = Number(row.failed)
   if (failed < LLM_DOWN_MIN_FAILURES || Number(row.ok) > 0 || row.first === null) return null
   return {
-    subject: `${SUBJECT_PREFIX}大模型连不上，已经 ${minutes} 分钟`,
+    subject: `${SUBJECT_PREFIX}大模型连不上：最近 ${minutes} 分钟失败 ${failed} 次`,
     text: `最近 ${minutes} 分钟里，大模型的调用失败了 ${failed} 次，一次成功的也没有，最早一次失败在 ${school(deps, row.first)}。`,
   }
 }
