@@ -263,8 +263,9 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 | `class` | 上课服务。等 `registration` 健康之后才启动。 |
 | `caddy` | 开 80 和 443 的代理，证书对应 `SCHOOL_DOMAIN`。`/v1/class` 和 `/healthz/class` 转给上课服务，其余都转给报名服务（读超时 200 秒：重写一节课最多等 180 秒）。访问日志是卷里的文件，按天滚动（到 100 MiB 也会提前滚动），滚出来的文件超过 30 天就删掉。 |
 | `watchdog` | 每 30 秒把带 `school.watchdog=true`、正在运行、健康检查说不健康的容器逐个重启。手动停掉的容器不会被拉起来。 |
+| `backup` | 在服务器上用 `deploy/backup/Dockerfile` 构建（`postgres:17-alpine` 加装 `age` 和 `rclone`）。每天夜里把数据库加密备份出去（见下面的"备份"）。 |
 
-镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每个拉取请求都会构建它并跑 `deploy/smoke-test.sh`，每次合进 `main` 就推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。部署请用 `sha-…` 标签，这样知道跑的是哪一版，也能退回上一版；`main` 每次合并都会移动。第一次推送之后，要由仓库管理员在 GitHub 上把这个包设为公开（包的设置里的 "Change visibility"）；在此之前服务器不登录就拉不下来。
+镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每个拉取请求都会构建它、跑 `deploy/smoke-test.sh` 并跑恢复演练（`deploy/backup/drill.sh`），每次合进 `main` 就推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。部署请用 `sha-…` 标签，这样知道跑的是哪一版，也能退回上一版；`main` 每次合并都会移动。第一次推送之后，要由仓库管理员在 GitHub 上把这个包设为公开（包的设置里的 "Change visibility"）；在此之前服务器不登录就拉不下来。
 
 把 `deploy/env.example` 复制成 `deploy/.env` 填好（里面列了每个变量）。真实的 `school.json`、`prompts/` 和 `moderation/` 放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。`.env` 和这个文件夹都不提交。
 
@@ -273,6 +274,20 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 每个服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康，启动后给 60 秒宽限。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，保留多久由服务器上 journald 的设置管（30 天），不在这个仓库里。
 
 `deploy/smoke-test.sh` 会构建镜像，用 `deploy/compose.local.yml`（本地镜像、示例配置、写死回复的大模型、`https://localhost`）起全套，检查代理、健康检查、`deploy.sh` 和看门狗，最后把起的东西全部删掉。它需要 Docker，80 和 443 端口空闲（或设置 `HTTP_PORT` 和 `HTTPS_PORT`）。
+
+### 备份
+
+`backup` 服务每天 `BACKUP_AT`（默认 03:30，上海时间）跑一次 `backup.sh`：`pg_dump -Fc`，用 `age` 加密给公钥 `BACKUP_AGE_RECIPIENT`，传到 S3 兼容存储（比如 Cloudflare R2）里的 `<桶>/backups/<YYYY-MM-DDTHHMM>.dump.age`，再把 `backups/` 下早于 `BACKUP_KEEP_DAYS` 天（默认 14 天）的对象删掉。明文的导出不会写到磁盘上：它直接通过管道交给 `age`。每次运行都会在 `backup_runs` 表里写一行，任何一步失败就写 `ok = false`（脚本同时以非 0 退出）；`alerts.backupExpected` 的告警读的就是这张表。
+
+设置：
+
+1. 在你自己的电脑上（不是服务器）运行 `age-keygen -o backup-key.txt`，它会打印公钥（`age1…`）。把公钥写进 `deploy/.env` 的 `BACKUP_AGE_RECIPIENT`；`backup-key.txt` 只留在你自己手里（另存一份在安全的地方）：没有它就读不了备份，服务器上永远没有它。
+2. 在存储服务里建一个桶，和一个能读写这个桶的访问密钥。把 `BACKUP_S3_ENDPOINT`、`BACKUP_S3_BUCKET`、`BACKUP_S3_ACCESS_KEY_ID`、`BACKUP_S3_SECRET_ACCESS_KEY` 写进 `deploy/.env`；`BACKUP_KEEP_DAYS` 和 `BACKUP_AT` 可以不写（见 `deploy/env.example`）。
+3. **第一次部署之后，马上手动跑一次备份：在 `deploy/` 里运行 `docker compose run --rm backup backup.sh`**，确认它打印了 `backup: done`。然后才在 `school.json` 里把 `alerts.backupExpected` 设为 `true`；打开它而还没有备份时，运维会每小时收到一封邮件，直到第一次夜间备份跑完。
+
+恢复，在有私钥的机器上：先建一个新的空数据库（往已经有表的库里恢复会被拒绝），然后在备份镜像里运行 `restore.sh <对象名> <私钥文件> <目标数据库地址>`，例如 `docker compose run --rm -v "$PWD/backup-key.txt:/key.txt:ro" backup restore.sh 2026-11-11T0330.dump.age /key.txt postgres://school:…@postgres:5432/<新库名>`。它在一条管道里下载、解密并 `pg_restore`。然后把 `DATABASE_URL` 指向新库，再启动服务。
+
+`deploy/backup/drill.sh` 在有 Docker 的机器上证明以上都管用（CI 的 `backup-drill` 任务在每个拉取请求和每次合并时都会跑它）：它起一个本地的 S3 服务和一个填了一个班的数据库，用临时的密钥对备份，恢复到一个新库，用它起两个服务并比对学生数；检查公钥写错、桶不存在、数据库连不上这三种失败各记一行 `ok = false`；再检查只删早于 `BACKUP_KEEP_DAYS` 天的备份。它从本机填数据，所以要先 `npm ci`。
 
 ## 本地完整跑一节课
 

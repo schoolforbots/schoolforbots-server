@@ -39,6 +39,9 @@ services:
     environment:
       SCHOOL_DOMAIN: localhost
       CADDY_TLS_LINE: tls internal
+  backup:
+    logging:
+      driver: json-file
   watchdog:
     logging:
       driver: json-file
