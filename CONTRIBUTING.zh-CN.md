@@ -14,6 +14,8 @@
 
 见 README 的[本地开发](README.zh-CN.md#本地开发)一节。需要 Node.js 24 和 Docker（测试会用 Docker 临时起一个数据库）。
 
+在 Windows 上，请在 WSL 2 里 clone 和开发，仓库放在 WSL 自己的文件系统里，不要放在 `/mnt/c` 下：`deploy/` 和 `.github/scripts/` 里的 shell 脚本是照 Linux 写的，测试也要从那里用 Docker（在 Docker Desktop 里打开 WSL 集成）。`.gitattributes` 让所有文本文件检出时都用 LF 换行，请保持这样。
+
 ## 提交改动的流程
 
 1. Fork 本仓库，从 `main` 拉一个新分支。
