@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   const noteEvent = (kind: 'internal_error' | 'mail_failed' | 'job_failed') =>
     recordOpsEvent(db, { service: 'registration', kind, at: systemClock.now() }, log)
   // A verification code that cannot be sent counts for the alert mail; the notices to the operator go as they are.
-  mailer = withMailFailures(mailer, () => noteEvent('mail_failed'))
+  mailer = withMailFailures(mailer, () => noteEvent('mail_failed'), log)
   // Whether mail goes out, for GET /healthz/mail (an outside check reads it; alert mails cannot say it when mail is down).
   const mailHealth = startMailHealth({ clock: systemClock, config, verify: verifyMail, log })
   mailer = reportSends(mailer, mailHealth, systemClock)

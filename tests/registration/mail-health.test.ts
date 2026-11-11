@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { MemoryMailer } from '../../src/registration/mailer.js'
+import { isMailServiceFault } from '../../src/registration/mail-errors.js'
+import { MemoryMailer, withMailFailures } from '../../src/registration/mailer.js'
 import { reportSends, startMailHealth, type MailHealth } from '../../src/registration/mail-health.js'
 import { exampleConfig, buildTestApp } from '../helpers/app.js'
 import { createTestClock } from '../helpers/clock.js'
@@ -115,5 +116,63 @@ describe('GET /healthz/mail', () => {
       void clock
       await t.destroy()
     }
+  })
+})
+
+/** An error as nodemailer shapes it. */
+const mailError = (code: string, command?: string, responseCode?: number) => Object.assign(new Error('x'), { code, command, responseCode })
+
+describe('isMailServiceFault', () => {
+  test.each([
+    ['connection refused', mailError('ECONNECTION', 'CONN'), true],
+    ['socket reset', mailError('ESOCKET'), true],
+    ['timeout', mailError('ETIMEDOUT', 'CONN'), true],
+    ['DNS', mailError('EDNS'), true],
+    ['login failed', mailError('EAUTH', 'AUTH PLAIN', 535), true],
+    ['server shutting down at the greeting', mailError('EPROTOCOL', 'CONN', 421), true],
+    ['sender refused', mailError('EENVELOPE', 'MAIL FROM', 550), true],
+    ['message refused', mailError('EENVELOPE', 'DATA', 554), true],
+    ['the whole server unavailable at RCPT TO (421)', mailError('EENVELOPE', 'RCPT TO', 421), true],
+    ['temporary server error at RCPT TO (454)', mailError('EENVELOPE', 'RCPT TO', 454), true],
+    ['an error that is not nodemailer\'s', new Error('boom'), true],
+    ['not even an Error', 'boom', true],
+    ['recipient does not exist (550)', mailError('EENVELOPE', 'RCPT TO', 550), false],
+    ['recipient address rejected (553)', mailError('EENVELOPE', 'RCPT TO', 553), false],
+    ['recipient deferred (450)', mailError('EENVELOPE', 'RCPT TO', 450), false],
+    ['malformed recipient caught by nodemailer', mailError('EENVELOPE', 'API'), false],
+  ])('%s', (_name, err, fault) => {
+    expect(isMailServiceFault(err)).toBe(fault)
+  })
+})
+
+describe('refused recipients are not the mail service failing', () => {
+  const failing = (err: Error) => {
+    const inner = new MemoryMailer()
+    vi.spyOn(inner, 'sendCode').mockRejectedValue(err)
+    return inner
+  }
+
+  test('several refused recipients in a row: /healthz/mail stays ok, no mail_failed, the error still reaches the caller, one log line without the address', async () => {
+    const clock = createTestClock(start())
+    health = startMailHealth({ clock, config, verify: null })
+    const onFailure = vi.fn()
+    const lines: unknown[] = []
+    const inner = failing(mailError('EENVELOPE', 'RCPT TO', 550))
+    const mailer = reportSends(withMailFailures(inner, onFailure, { info: (o) => void lines.push(o) }), health, clock)
+    for (let i = 0; i < 5; i++) await expect(mailer.sendCode('fake@example.com', 'register', '1')).rejects.toThrow('x')
+    expect(health.ok()).toBe(true)
+    expect(onFailure).not.toHaveBeenCalled()
+    expect(lines).toEqual(Array(5).fill({ code: 'EENVELOPE' }))
+    expect(JSON.stringify(lines)).not.toContain('fake@example.com')
+  })
+
+  test('several connection failures in a row: not ok, and mail_failed is reported each time', async () => {
+    const clock = createTestClock(start())
+    health = startMailHealth({ clock, config, verify: null })
+    const onFailure = vi.fn()
+    const mailer = reportSends(withMailFailures(failing(mailError('ECONNECTION', 'CONN')), onFailure), health, clock)
+    for (let i = 0; i < 3; i++) await expect(mailer.sendCode('a@example.com', 'register', '1')).rejects.toThrow('x')
+    expect(health.ok()).toBe(false)
+    expect(onFailure).toHaveBeenCalledTimes(3)
   })
 })

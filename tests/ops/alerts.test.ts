@@ -77,9 +77,8 @@ const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; f
   llm_down: {
     fire: () => llmCalls('failed', [minutesAgo(1), minutesAgo(5), minutesAgo(9)]),
     almost: async () => {
-      await llmCalls('failed', [minutesAgo(1), minutesAgo(5), minutesAgo(9)])
-      await llmCalls('ok', [minutesAgo(3)])
-      await llmCalls('failed', [minutesAgo(30)])
+      // Two failures inside the window, a third outside it, and no ok.
+      await llmCalls('failed', [minutesAgo(1), minutesAgo(9), minutesAgo(30)])
     },
     subject: /^【机器人网校】大模型连不上，已经 10 分钟$/,
   },
@@ -209,6 +208,13 @@ describe('repeating after an hour', () => {
     expect(results.flat()).toEqual(['disk'])
     expect(t.mailer.notices).toHaveLength(1)
   })
+})
+
+test('an ok call in the window keeps llm_down quiet even with three failures', async () => {
+  await llmCalls('failed', [minutesAgo(1), minutesAgo(5), minutesAgo(9)])
+  await llmCalls('ok', [minutesAgo(3)])
+  const t = setup()
+  expect(await t.check()).toEqual([])
 })
 
 describe('job_failed', () => {

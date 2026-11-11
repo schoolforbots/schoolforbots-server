@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { isMailServiceFault } from './mail-errors.js'
 import type { Mailer } from './mailer.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
@@ -66,13 +67,17 @@ export function startMailHealth(deps: {
   }
 }
 
-/** The mailer with the outcome of every send (codes and notices) reported to `health`; errors still reach the caller. */
+/**
+ * The mailer with the outcome of every send (codes and notices) reported to `health`, counting only problems of the
+ * mail service (see `isMailServiceFault`); errors still reach the caller.
+ */
 export function reportSends(mailer: Mailer, health: Pick<MailHealth, 'record'>, clock: Clock): Mailer {
   const track = async (send: () => Promise<void>): Promise<void> => {
     try {
       await send()
     } catch (err) {
-      health.record(false, clock.now())
+      // A refused recipient says nothing about the mail service: it is neither a failure nor a success.
+      if (isMailServiceFault(err)) health.record(false, clock.now())
       throw err
     }
     health.record(true, clock.now())
