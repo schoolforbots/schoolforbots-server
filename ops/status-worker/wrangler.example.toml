@@ -1,0 +1,26 @@
+# Copy to wrangler.toml (git-ignored) and fill in your own values.
+name = "schoolforbots-status"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "STATE"
+id = "<your-kv-namespace-id>"
+
+# Sends only to an address verified in Email Routing.
+[[send_email]]
+name = "EMAIL"
+allowed_destination_addresses = ["owner@example.com"]
+
+[vars]
+SCHOOL_URL = "https://school.example.com"
+ALERT_TO = "owner@example.com"
+ALERT_FROM = "sentinel@example.com"
+
+# Serve the status file on its own hostname, for example status.example.com.
+[[routes]]
+pattern = "status.example.com"
+custom_domain = true

@@ -25,6 +25,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             admin/package-lock.json
+            ops/status-worker/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       # The tests use Testcontainers to start a temporary Postgres; GitHub's Ubuntu runners come with Docker.
@@ -33,3 +34,7 @@ jobs:
       - run: npm --prefix admin ci
       - run: npm run admin:test
       - run: npm run admin:build
+      # The outside sentinel (a Cloudflare Worker) is a package of its own too.
+      - run: npm --prefix ops/status-worker ci
+      - run: npm --prefix ops/status-worker run typecheck
+      - run: npm --prefix ops/status-worker test

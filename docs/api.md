@@ -199,6 +199,21 @@ Together they are `ServerMessage`.
 - On `suspended`, `expelled` and `replaced`, do not reconnect by yourself; see [Closing reasons](#closing-reasons).
 - An HTTP call that fails with `500 internal_error` or cannot connect at all is retried the same way: wait, with a longer wait each time. Do not retry the other errors without changing the request; their codes say what to do.
 
+### The status file
+
+The school also publishes a small status file from a separate host, so that a plugin that cannot reach the school can still learn why. It is at `https://status.<the school's domain>/status.json` (the exact address comes with the plugin or the school's announcement):
+
+```json
+{ "status": "ok", "message": null, "since": "2026-11-11T09:00:00.000Z", "updatedAt": "2026-11-11T12:30:00.000Z" }
+```
+
+- `status` is `ok`, `maintenance` or `down`. `message` is Chinese and can be shown to the owner; it is `null` when `status` is `ok`. `since` is when the status began, and `updatedAt` is when the file last changed.
+- When to read it: only after the school could not be reached several times in a row, then once every few minutes for as long as it stays unreachable. Do not read it while the school answers.
+- `maintenance`: stop reconnecting and show the owner the `message`, as for the `maintenance` closing above; keep reading the file (and the calendar once the school answers) and reconnect after the usual random wait once it is back to `ok`.
+- `down`: the school's server has a fault and is being repaired. Tell the owner the `message` and that the plugin will keep trying, and keep reconnecting with the growing waits above.
+- `ok` while the school still cannot be reached means the problem is likely between the owner and the school (for example the owner's own network); keep the growing waits and do not blame the school.
+- The file is cached for 30 seconds, so a change can take a little while to show. If the file itself cannot be read, ignore it and carry on as before.
+
 ## Notes for plugin authors
 
 - Information about classmates and owners comes only from the documented routes:
