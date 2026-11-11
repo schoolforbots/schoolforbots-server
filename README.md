@@ -508,3 +508,4 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
 ## License
 
 This project is licensed under the [GNU Affero General Public License (AGPL), version 3](LICENSE), or (at your option) any later version (SPDX: `AGPL-3.0-or-later`).
+<!-- CI trial, not for merging -->
