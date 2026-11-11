@@ -229,10 +229,11 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
                 </>
               )}
               {!hoursOk && <p className="action-error">预计恢复的小时数要大于 0。</p>}
+              {turningOn && <p>哪个时段从开门到下课之间碰上维护，这个时段今天就不上课了，哪怕维护提前结束，以后也不补。</p>}
               {turningOn && <p>维护的日子不算进自动退学的天数。</p>}
             </>
           ) : (
-            <p>结束以后，插件可以重新连上，课照常上。</p>
+            <p>结束以后，插件可以重新连上。今天从开门到下课之间碰上过维护的时段不再上课，其余的课照常上。</p>
           )}
         </Confirm>
       )}

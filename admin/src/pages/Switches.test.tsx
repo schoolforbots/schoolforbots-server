@@ -179,6 +179,8 @@ describe('the switches page', () => {
       await user.click(within(await screen.findByRole('region', { name: '维护中' })).getByRole('button', { name: '开始维护' }))
       const dialog = within(await screen.findByRole('dialog', { name: '开始维护？' }))
       expect(dialog.getByText(/在线的插件都会被断开/)).toBeInTheDocument()
+      // The slots it overlaps are not held today, even if it ends early.
+      expect(dialog.getByText('哪个时段从开门到下课之间碰上维护，这个时段今天就不上课了，哪怕维护提前结束，以后也不补。')).toBeInTheDocument()
       const confirm = dialog.getByRole('button', { name: '开始维护' })
       expect(confirm).toBeDisabled()
 
@@ -219,6 +221,8 @@ describe('the switches page', () => {
 
       await user.click(maint.getByRole('button', { name: '结束维护' }))
       const dialog = within(await screen.findByRole('dialog', { name: '结束维护？' }))
+      // Not every lesson goes on: a slot it overlapped today stays off.
+      expect(dialog.getByText('结束以后，插件可以重新连上。今天从开门到下课之间碰上过维护的时段不再上课，其余的课照常上。')).toBeInTheDocument()
       await user.click(dialog.getByRole('button', { name: '先不结束' }))
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
       expect(server.calls.filter((call) => call.method === 'PUT')).toHaveLength(0)
