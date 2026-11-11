@@ -37,6 +37,9 @@ compose() { docker compose "${files[@]}" "$@"; }
 
 export IMAGE_TAG="$tag"
 wait_timeout=240
+# The registration service migrates the database before it is healthy: its start period in compose.yml (10 minutes),
+# then three failed checks 30 seconds apart before it counts as unhealthy.
+registration_wait_timeout=720
 
 echo "deploy: step 1/6: pulling the image (tag ${tag})"
 if [ "${SKIP_PULL:-0}" = 1 ]; then
@@ -49,7 +52,7 @@ echo "deploy: step 2/6: starting postgres if it is not running, and waiting unti
 compose up -d --wait --wait-timeout "$wait_timeout" postgres
 
 echo "deploy: step 3/6: recreating registration (migrates the database) and waiting until it is healthy"
-compose up -d --no-deps --force-recreate --wait --wait-timeout "$wait_timeout" registration
+compose up -d --no-deps --force-recreate --wait --wait-timeout "$registration_wait_timeout" registration
 
 echo "deploy: step 4/6: waiting for the class service to be free"
 if [ "$now" = 1 ]; then

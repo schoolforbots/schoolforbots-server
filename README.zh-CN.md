@@ -271,7 +271,7 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 
 更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。
 
-每个服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康，启动后给 60 秒宽限。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，保留多久由所在主机的 journald 设置管，不在这个仓库里。
+每个服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康。启动后有一段宽限期，期间失败不算：报名服务是 10 分钟，因为它跑完迁移才应答，这样迁移跑得久也不会被中途重启（`deploy.sh` 也等它这么久）；上课服务是 60 秒。有一次检查通过，宽限期就结束。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，保留多久由所在主机的 journald 设置管，不在这个仓库里。
 
 `deploy/smoke-test.sh` 会构建镜像，用 `deploy/compose.local.yml`（本地镜像、示例配置、写死回复的大模型、`https://localhost`）起全套，检查健康检查、只有 `backup` 服务看得到 `backup.env`、代理、`deploy.sh` 和看门狗，最后把起的东西全部删掉。它需要 Docker，80 和 443 端口空闲（或设置 `HTTP_PORT` 和 `HTTPS_PORT`）。
 

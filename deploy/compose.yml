@@ -51,7 +51,10 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      # It listens only once the migrations are done. A long one must not make it unhealthy, or the watchdog restarts
+      # it halfway, again and again. The first check that passes ends the start period, so it costs nothing after.
+      # deploy.sh waits at least this long for it.
+      start_period: 10m
     depends_on:
       postgres:
         condition: service_healthy
