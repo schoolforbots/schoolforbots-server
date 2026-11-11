@@ -89,6 +89,7 @@ export async function buildTestClassApp(
     config,
     tick: service.tick,
     disconnectAll: service.disconnectAll,
+    watchTicker: service.watchTicker,
     async destroy() {
       await app.close()
       await destroyDb()

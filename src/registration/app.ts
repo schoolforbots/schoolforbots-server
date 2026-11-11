@@ -7,6 +7,7 @@ import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/db.js'
+import { databaseAlive, registerHealthz } from '../shared/healthz.js'
 import type { SchoolRules } from '../shared/school-rules.js'
 import { ApiError, registerErrorHandler } from './errors.js'
 import { keyResetRoutes } from './key-resets.js'
@@ -71,6 +72,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
     errorResponseBuilder: () => new ApiError(429, 'rate_limited'),
     allowList: (request) => isAdminApiRequest(request),
   })
+  registerHealthz(app, () => databaseAlive(deps.db))
   app.register(registrationRoutes(deps))
   app.register(meRoutes(deps))
   app.register(recordsRoutes(deps))

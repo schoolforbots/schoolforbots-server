@@ -217,6 +217,19 @@ describe('starting the class service', () => {
     expect(welcome).toMatchObject({ type: 'welcome', session: { kind: 'lesson', title: '光的折射' } })
   })
 
+  test('hands the ticker it starts to /healthz, so a started service is healthy', async () => {
+    service = await buildTestClassApp()
+    expect((await service.app.inject({ method: 'GET', url: '/healthz' })).statusCode).toBe(503)
+
+    ticker = await startClassService(service, { port: 0, host: '127.0.0.1', speed: 1 })
+
+    // The first tick finished before listening, but the ticker's own first run has not: it is healthy once one has.
+    await new Promise((resolve) => setTimeout(resolve, tickIntervalMs(1) + 200))
+    const res = await service.app.inject({ method: 'GET', url: '/healthz' })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe('{"ok":true}')
+  })
+
   test('a first tick that cannot open the sessions fails the start, and nothing listens', async () => {
     service = await buildTestClassApp()
     const failure = new Error('the database is down')

@@ -6,6 +6,7 @@ import type { Moderator } from '../moderation/moderator.js'
 import type { SecondLayer } from '../moderation/second-layer.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
+import { databaseAlive } from '../shared/healthz.js'
 import type { Database } from '../shared/schema.js'
 import type { Switches } from '../shared/switches.js'
 import { buildClassApp } from './app.js'
@@ -80,7 +81,15 @@ export interface ClassService {
    * them. From then on nobody comes in (see `ClassDeps.stopping`).
    */
   disconnectAll(): void
+  /**
+   * Hands the service the ticker that runs `tick()` every `intervalMs`, so `/healthz` can tell a stuck clock: until it
+   * is handed over, or when its last run ended more than `max(30 s, 3 intervals)` ago, the service is unhealthy.
+   */
+  watchTicker(ticker: Pick<Ticker, 'lastFinishedAt'>, intervalMs: number): void
 }
+
+/** The least time without a finished tick that makes `/healthz` fail. */
+export const STUCK_TICK_FLOOR_MS = 30_000
 
 /**
  * The class service on one database: the hub, the chat engine, the questions and the call-ons, the teacher's answers
@@ -95,6 +104,14 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
   const logError = (obj: object, msg: string) => app.log.error(obj, msg)
   // Set by `disconnectAll`, for good.
   let stopping = false
+  let watched: { ticker: Pick<Ticker, 'lastFinishedAt'>; intervalMs: number } | null = null
+  const healthy = async () => {
+    if (watched === null) return false
+    const finishedAt = watched.ticker.lastFinishedAt()
+    if (finishedAt === null) return false
+    if (Date.now() - finishedAt > Math.max(STUCK_TICK_FLOOR_MS, 3 * watched.intervalMs)) return false
+    return databaseAlive(db)
+  }
 
   const hub = createHub()
   const chat = createChatEngine({
@@ -154,6 +171,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     pingIntervalMs: deps.pingIntervalMs,
     rateWindowMs: deps.rateWindowMs,
     stopping: () => stopping,
+    healthCheck: healthy,
     trustProxy: deps.trustProxy,
     logger: deps.logger,
   })
@@ -182,6 +200,9 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
       stopping = true
       hub.disconnectAll(MAINTENANCE)
     },
+    watchTicker(ticker, intervalMs) {
+      watched = { ticker, intervalMs }
+    },
   }
 }
 
@@ -205,7 +226,7 @@ export function tickIntervalMs(speed: number): number {
  * on, not the whole service from starting. Later failures are logged.
  */
 export async function startClassService(
-  service: Pick<ClassService, 'app' | 'tick'>,
+  service: Pick<ClassService, 'app' | 'tick'> & Partial<Pick<ClassService, 'watchTicker'>>,
   p: { port: number; host?: string; speed: number },
 ): Promise<Ticker> {
   const { app, tick } = service
@@ -217,5 +238,8 @@ export async function startClassService(
     logFailure(err)
   }
   await app.listen({ port: p.port, host: p.host ?? '0.0.0.0' })
-  return startTicker(tick, tickIntervalMs(p.speed), logFailure)
+  const intervalMs = tickIntervalMs(p.speed)
+  const ticker = startTicker(tick, intervalMs, logFailure)
+  service.watchTicker?.(ticker, intervalMs)
+  return ticker
 }
