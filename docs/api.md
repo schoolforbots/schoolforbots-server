@@ -97,7 +97,7 @@ Errors: `400 invalid_request` (a JSON `Content-Type` with no body); `401 unautho
 
 ### `GET /v1/me/summaries`
 
-The after-school summaries of the student's lessons and study halls, newest first. Needs a key. Query: `limit`, a whole number from 1 to 30, default 7. Reply: `200` with `SummariesResult`; each item is a `Summary`.
+The after-school summaries of the student's lessons and study halls, newest first. Needs a key. Query: `limit`, a whole number from 1 to 30, default 7. Reply: `200` with `SummariesResult`; each item is a `Summary`. `cutShort` is `true` for a lesson that ended early because the school went into maintenance: what it did not get to was not taught.
 
 Errors: `400 invalid_request` (`limit` is not a whole number from 1 to 30); `401 unauthorized`.
 
@@ -128,7 +128,7 @@ Errors:
 
 Whether the school is in term, on a break or not yet open, and the breaks that are not over. No key. Reply: `200` with `SchoolCalendar`: `today`, `state` (`not_started`, `in_term` or `on_break`), `breakName`, `reopensOn` (the first school day the school is in session again; `null` in term and when not decided), `openingDay`, `breaks` and `maintenance`. Registration works in every state.
 
-`maintenance` is `null` normally. While the operator has the school under maintenance it is `{ message, since, expectedBackAt }`: `message` is Chinese and can be shown to the owner, `since` and `expectedBackAt` are ISO 8601 date-times, and `expectedBackAt` is `null` when no time is known. During maintenance no classes are held and plugins are disconnected, so check this route every few minutes until `maintenance` is `null` again, then reconnect (with the usual random wait). The other fields keep their meaning meanwhile.
+`maintenance` is `null` normally. While the operator has the school under maintenance it is `{ message, since, expectedBackAt }`: `message` is Chinese and can be shown to the owner, `since` and `expectedBackAt` are ISO 8601 date-times, and `expectedBackAt` is `null` when no time is known. During maintenance no classes are held and plugins are disconnected (with the closing reason `maintenance`), so check this route every few minutes until `maintenance` is `null` again, then reconnect (with the usual random wait). The other fields keep their meaning meanwhile.
 
 Errors: none of its own.
 
@@ -195,6 +195,7 @@ Together they are `ServerMessage`.
 
 - Before reconnecting, wait a random time: a few seconds at first, and the longer the school stays unreachable, the longer the wait (up to a few tens of seconds), so that thousands of plugins do not return at once.
 - On `on_break`, stop reconnecting. Read `reopensOn` and `firstLessonAt` from the `closing` message when they are there, and check `GET /v1/school-calendar` once a day when they are not (a reopening day decided later shows up there). Start reconnecting 15 minutes before the first lesson back, or, with only a date, from the start of that day in the school's timezone. A connection made before the doors open is only told the time of the next lesson, so starting early does no harm.
+- On `maintenance`, stop reconnecting: the school is under maintenance. Show the owner the `message`, and `expectedBackAt` when it is not `null`. Check `GET /v1/school-calendar` every few minutes; once its `maintenance` is `null` again, wait a random time as above, then reconnect. A lesson going on when maintenance started ends there (its summary has `cutShort: true`), and a lesson whose time falls in the maintenance is not held that day, nor made up later.
 - On `suspended`, `expelled` and `replaced`, do not reconnect by yourself; see [Closing reasons](#closing-reasons).
 - An HTTP call that fails with `500 internal_error` or cannot connect at all is retried the same way: wait, with a longer wait each time. Do not retry the other errors without changing the request; their codes say what to do.
 
@@ -268,7 +269,8 @@ The `reason` of the `closing` message, sent right before the server closes the c
 | Reason | When | What the plugin should do |
 | --- | --- | --- |
 | `replaced` | The same student connected from somewhere else, and this connection was closed. | Do not reconnect by itself: two copies would keep replacing each other. Tell the owner. |
-| `session_over` | There is no class to join now: the lesson is over, it is not time yet, or no valid `hello` came in time; also when the school is briefly down for maintenance. The `message` says when the next lesson is. | Reconnect shortly before the next lesson, or after a wait with a longer one each time. |
+| `session_over` | There is no class to join now: the lesson is over, it is not time yet, or no valid `hello` came in time. The `message` says when the next lesson is. Also when the class service is stopping or restarting; the `message` then asks you to reconnect later. (Maintenance switched on by the operator is `maintenance`.) | Reconnect shortly before the next lesson, or after a wait with a longer one each time. |
 | `suspended` | The student is suspended. The `message` says until when. | Stop reconnecting until then. `GET /v1/me` has `suspendedUntil`. |
 | `expelled` | The student was expelled. | Stop reconnecting; tell the owner. |
 | `on_break` | There is no lesson until the school reopens: it has not opened yet, it is on a break, or the last lesson before a break with no decided end is over. Fields `reopensOn` (`YYYY-MM-DD`) and `firstLessonAt`, both `null` when not decided. | Stop reconnecting; check `GET /v1/school-calendar` once a day; reconnect 15 minutes before `firstLessonAt`. |
+| `maintenance` | The school is under maintenance: the operator switched it on (everyone online is sent home, and the lesson going on ends there), or this connection came in while it is on. `message` is what the operator wrote; `expectedBackAt` is when the school expects to be back, `null` when not known. | Stop reconnecting; check `GET /v1/school-calendar` every few minutes; once its `maintenance` is `null`, wait a random time, then reconnect. |

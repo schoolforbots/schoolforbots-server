@@ -22,7 +22,8 @@ import type { TeacherAi } from './teacher-ai.js'
  *
  * A session the service catches up after its close (it was down through it), or after its class has opened a newer
  * one, is finished quietly: `callOn`, `callOnClose`, `startClosing` and `endAll` are not called, `callouts` is (its
- * lines are recorded, not pushed), and `afterClass` is called with `live: false`.
+ * lines are recorded, not pushed), and `afterClass` is called with `live: false`. So is a session cut short by
+ * maintenance, whose steps before the close are skipped without calling any hook (see `cutShort` in runtime.ts).
  */
 export interface LessonHooks {
   /** The teacher's discipline callouts for what was recorded in [from, to); empty when there is nothing to say. */

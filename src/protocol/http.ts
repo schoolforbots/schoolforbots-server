@@ -226,6 +226,8 @@ export const KeyResetResult = Type.Object({
  * the lesson's own question, `answer` is null when they gave none in time, `comment` null until the teacher said one);
  * `chattedWith` names each classmate a message reached once.
  * Each criticism's `text` is a sentence in the student's own voice, ready to show the owner.
+ * `cutShort` is true when the lesson ended early because the school went into maintenance: the steps it did not get
+ * to were never taught.
  */
 export const Summary = Type.Object({
   /** The school day as `YYYY-MM-DD` in the school's timezone. */
@@ -272,6 +274,7 @@ export const Summary = Type.Object({
       text: Type.String(),
     }),
   ),
+  cutShort: Type.Boolean(),
 })
 
 /**

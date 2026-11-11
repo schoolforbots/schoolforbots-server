@@ -25,6 +25,18 @@ export async function readMaintenance(db: Kysely<Database>): Promise<Maintenance
   return row === undefined ? null : { message: row.message, since: row.startedAt, expectedBackAt: row.expectedBackAt }
 }
 
+/** Whether maintenance was on at some moment in [from, to), by the periods on record. */
+export async function maintenanceBetween(db: Kysely<Database>, from: Date, to: Date): Promise<boolean> {
+  const row = await db
+    .selectFrom('maintenancePeriods')
+    .select('id')
+    .where('startedAt', '<', to)
+    .where((eb) => eb.or([eb('endedAt', 'is', null), eb('endedAt', '>', from)]))
+    .limit(1)
+    .executeTakeFirst()
+  return row !== undefined
+}
+
 /**
  * Switches maintenance on (a value) or off (null) at `at`. A value while it is on only changes the message and the
  * expected time; `since` stays. Off while it is off does nothing.

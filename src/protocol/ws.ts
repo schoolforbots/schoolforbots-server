@@ -257,20 +257,28 @@ export const SummaryMessage = Type.Object({
  * back, `YYYY-MM-DD` in the school's timezone, and `firstLessonAt` the moment the student's first lesson that day
  * starts (the start of the student's slot); both are null when the day is not decided yet, and present only with this
  * reason.
+ * `maintenance`: the school's operator has it under maintenance; no class is held until it is over (see
+ * `SchoolCalendar.maintenance`). `message` is what the operator wrote, and `expectedBackAt` the moment the school is
+ * expected back, null when no time is known. `expectedBackAt` comes with this reason and with no other.
  */
-export const ClosingMessage = Type.Object({
-  type: Type.Literal('closing'),
-  reason: Type.Union([
-    Type.Literal('replaced'),
-    Type.Literal('session_over'),
-    Type.Literal('suspended'),
-    Type.Literal('expelled'),
-    Type.Literal('on_break'),
-  ]),
-  message: Type.String(),
-  reopensOn: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }), Type.Null()])),
-  firstLessonAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
-})
+export const ClosingMessage = Type.Object(
+  {
+    type: Type.Literal('closing'),
+    reason: Type.Union([
+      Type.Literal('replaced'),
+      Type.Literal('session_over'),
+      Type.Literal('suspended'),
+      Type.Literal('expelled'),
+      Type.Literal('on_break'),
+      Type.Literal('maintenance'),
+    ]),
+    message: Type.String(),
+    reopensOn: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }), Type.Null()])),
+    firstLessonAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+    expectedBackAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+  },
+  { dependentSchemas: { expectedBackAt: { properties: { reason: { const: 'maintenance' } } } } },
+)
 
 export const ServerMessage = Type.Union([
   AckMessage,

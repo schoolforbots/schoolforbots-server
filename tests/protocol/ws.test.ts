@@ -72,7 +72,7 @@ describe('server messages', () => {
     lesson: { subject: '语文', title: '春晓', segments: [{ index: 1, gist: '春天睡醒了' }] },
     weekTitles: [], teacherAnswers: [], myQuestions: [{ question: '春天为什么睡觉？', picked: false }],
     calledOn: { kind: 'review', question: '春眠不觉晓的下一句？', answer: null, comment: null }, chattedWith: [classmate],
-    criticisms: [{ kind: 'initiations', text: '主动搭话次数过多' }],
+    criticisms: [{ kind: 'initiations', text: '主动搭话次数过多' }], cutShort: false,
   }
   const classEvent = (event: unknown) => ({ type: 'class.event', seq: 1, replayed: false, at: '2026-11-02T12:00:00.000Z', event })
 

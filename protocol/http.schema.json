@@ -944,7 +944,8 @@
               "myQuestions",
               "calledOn",
               "chattedWith",
-              "criticisms"
+              "criticisms",
+              "cutShort"
             ],
             "properties": {
               "sessionId": {
@@ -1188,6 +1189,9 @@
                     }
                   }
                 }
+              },
+              "cutShort": {
+                "type": "boolean"
               }
             }
           }
@@ -1207,7 +1211,8 @@
         "myQuestions",
         "calledOn",
         "chattedWith",
-        "criticisms"
+        "criticisms",
+        "cutShort"
       ],
       "properties": {
         "date": {
@@ -1448,6 +1453,9 @@
               }
             }
           }
+        },
+        "cutShort": {
+          "type": "boolean"
         }
       }
     },

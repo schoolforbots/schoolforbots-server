@@ -8,6 +8,13 @@ import type { Database } from '../shared/schema.js'
 /** The kind of a marker that records a step which had nothing to say. It is never sent and never replayed. */
 export const NOOP = 'noop'
 
+/**
+ * The step of the marker that records a session cut short because the school went into maintenance: a `noop` of its
+ * own, written with the `noop` markers of the steps the session skipped (see `cutShort` in runtime.ts). The session's
+ * summaries say so.
+ */
+export const CUT_SHORT = 'cut-short'
+
 export interface StoredEvent {
   seq: number
   step: string
