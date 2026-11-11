@@ -10,6 +10,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
     "dev:registration": "tsx watch --env-file=.env src/registration/main.ts",
     "dev:class": "tsx watch --env-file=.env src/class/main.ts",
     "job:daily": "tsx --env-file-if-exists=.env src/registration/run-daily-job.ts",

@@ -1,0 +1,46 @@
+# For this machine and for CI, on top of compose.yml:
+#   docker compose -f compose.yml -f compose.local.yml up -d
+# Builds the image from this checkout, uses the example config and a canned model, prints verification codes to the
+# log instead of mailing them, and serves https://localhost with a certificate of Caddy's own authority. Not for
+# production: it must not set NODE_ENV=production, which refuses LLM_FAKE.
+
+x-local: &local
+  image: schoolforbots-server:local
+  logging:
+    driver: json-file
+  environment: &local-environment
+    NODE_ENV: development
+    LLM_FAKE: '1'
+    MAIL_TRANSPORT: console
+    SCHOOL_CONFIG: config/school.example.json
+    PROMPTS_DIR: data/prompts
+    MODERATION_DATA_DIR: data/moderation
+
+services:
+  postgres:
+    logging:
+      driver: json-file
+  registration:
+    <<: *local
+    # Built once, here; class uses the same image.
+    build:
+      context: ${BUILD_CONTEXT:-..}
+    environment:
+      <<: *local-environment
+      REGISTRATION_PORT: '8080'
+  class:
+    <<: *local
+    environment:
+      <<: *local-environment
+      CLASS_PORT: '8081'
+  caddy:
+    logging:
+      driver: json-file
+    environment:
+      SCHOOL_DOMAIN: localhost
+      CADDY_TLS_LINE: tls internal
+  watchdog:
+    logging:
+      driver: json-file
+    environment:
+      WATCHDOG_INTERVAL: '5'

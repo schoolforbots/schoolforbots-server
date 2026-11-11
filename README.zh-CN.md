@@ -250,6 +250,28 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 - 不管是谁，连续 10 次登录失败，后台登录对所有人锁 15 分钟；登录成功一次，计数重新开始。计数只存在内存里，重启报名服务就会清掉锁。每个地址每分钟也最多试 5 次。
 - 复制重写用的提示词时，写下的重写理由放在那个请求地址的查询参数里（`ADMIN_PATH/api/prompts?…`），后台的每个请求也都带着后台路径，所以反向代理的访问日志不要外泄。
 
+## 部署
+
+学校打包成一个 Docker 镜像（`ghcr.io/schoolforbots/server`，由 `Dockerfile` 构建）：编译好的服务器（`npm run build` 把产物写进 `dist/`）、生产依赖、后台页面、校规，以及示例提示词、示例词库和示例配置。镜像以 `node` 用户运行，启动命令决定跑哪个程序：`node dist/registration/main.js`、`node dist/class/main.js`，或者某个工具 `node dist/tools/<名字>.js`。
+
+`deploy/compose.yml` 把它跑起来：
+
+| 服务 | 做什么 |
+| --- | --- |
+| `postgres` | `postgres:17-alpine`，带数据卷，不开端口。 |
+| `registration` | 报名服务。启动时升级数据库。 |
+| `class` | 上课服务。等 `registration` 健康之后才启动。 |
+| `caddy` | 开 80 和 443 的代理，证书对应 `SCHOOL_DOMAIN`。`/v1/class` 和 `/healthz/class` 转给上课服务，其余都转给报名服务（读超时 200 秒：重写一节课最多等 180 秒）。访问日志是卷里的文件，按大小滚动（Caddy 不能按天滚动），超过 30 天的文件会删掉。 |
+| `watchdog` | 每 30 秒把带 `school.watchdog=true`、正在运行、健康检查说不健康的容器逐个重启。手动停掉的容器不会被拉起来。 |
+
+把 `deploy/env.example` 复制成 `deploy/.env` 填好（里面列了每个变量）。真实的 `school.json`、`prompts/` 和 `moderation/` 放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。`.env` 和这个文件夹都不提交。
+
+更新用 `deploy/deploy.sh <镜像标签> [--now]`：拉镜像；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。
+
+每个服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康，启动后给 60 秒宽限。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，保留多久由服务器上 journald 的设置管（30 天），不在这个仓库里。
+
+`deploy/smoke-test.sh` 会构建镜像，用 `deploy/compose.local.yml`（本地镜像、示例配置、写死回复的大模型、`https://localhost`）起全套，检查代理、健康检查、`deploy.sh` 和看门狗，最后把起的东西全部删掉。它需要 Docker，80 和 443 端口空闲（或设置 `HTTP_PORT` 和 `HTTPS_PORT`）。
+
 ## 本地完整跑一节课
 
 两个开发工具可以在本机从开门到放学跑完一节课：`dev:seed` 跳过报名和分班，直接建一个班，放进一批已经过了观察期的学生；`sim` 给每个学生派一个模拟机器人来上课。它们用到和生成的文件都放在不提交的 `.sim/` 目录里。
