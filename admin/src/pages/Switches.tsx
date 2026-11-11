@@ -188,12 +188,11 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
               ? {
                   on: true,
                   message: message.trim(),
-                  expectedBackAt:
-                    hoursNumber !== null
-                      ? new Date(Date.now() + hoursNumber * 3_600_000).toISOString()
-                      : editing && !clearBack
-                        ? (current?.expectedBackAt ?? null)
-                        : null,
+                  ...(hoursNumber !== null && !clearBack
+                    ? { expectedBackAt: new Date(Date.now() + hoursNumber * 3_600_000).toISOString() }
+                    : clearBack || (turningOn && hoursNumber === null)
+                      ? { expectedBackAt: null }
+                      : {}),
                 }
               : { on: false }
             read.set(await setMaintenance(body))
@@ -218,7 +217,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
               <label className="field-label" htmlFor={hoursId}>
                 预计几小时后恢复（可以不填）
               </label>
-              <Input id={hoursId} type="number" min={0} step={0.5} value={hours} onChange={(event) => setHours(event.target.value)} />
+              <Input id={hoursId} type="number" disabled={clearBack} min={0} step={0.5} value={hours} onChange={(event) => setHours(event.target.value)} />
               {editing && current?.expectedBackAt != null && (
                 <>
                   <p>

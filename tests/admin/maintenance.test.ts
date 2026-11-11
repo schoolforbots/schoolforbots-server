@@ -62,3 +62,21 @@ test('on, change, off: GET follows, every change is in the table, and the watch 
   const rows = await t.db.selectFrom('maintenancePeriods').select(['message', 'startedAt', 'endedAt']).execute()
   expect(rows).toEqual([{ message: '还要一会儿', startedAt: new Date(started), endedAt: t.clock.now() }])
 })
+
+test('an edit without expectedBackAt keeps the stored time, even when it has passed; null clears it; a past value is a 400', async () => {
+  t = await buildAdminTestApp()
+  const cookie = await t.session()
+  // Switched on without an expected time: none.
+  expect((await put(cookie, { on: true, message: '甲' })).json().maintenance.expectedBackAt).toBeNull()
+
+  const back = '2026-11-02T06:00:00.000Z'
+  await put(cookie, { on: true, message: '甲', expectedBackAt: back })
+  t.clock.advance(5 * 3_600_000) // the stored time is now in the past
+  const edited = await put(cookie, { on: true, message: '乙' })
+  expect(edited.statusCode).toBe(200)
+  expect(edited.json().maintenance).toMatchObject({ message: '乙', expectedBackAt: back })
+
+  expect((await put(cookie, { on: true, message: '乙', expectedBackAt: back })).statusCode).toBe(400)
+  const cleared = await put(cookie, { on: true, message: '乙', expectedBackAt: null })
+  expect(cleared.json().maintenance).toMatchObject({ message: '乙', expectedBackAt: null })
+})
