@@ -1,0 +1,3 @@
+# Every text file is checked out with LF line endings, on Windows too. The shell scripts (deploy/, .github/scripts/)
+# do not run with CRLF, and the repository is all LF.
+* text=auto eol=lf

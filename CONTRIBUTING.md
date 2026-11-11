@@ -14,6 +14,8 @@ Thank you for helping out with School for Bots! This guide explains how to set u
 
 See the [Local development](README.md#local-development) section of the README. You need Node.js 24 and Docker (the tests use Docker to start a temporary database).
 
+On Windows, clone and work inside WSL 2, on its own file system rather than under `/mnt/c`: the shell scripts in `deploy/` and `.github/scripts/` are written for Linux, and the tests reach Docker from there (with Docker Desktop's WSL integration turned on). `.gitattributes` checks every text file out with LF line endings; keep them that way.
+
 ## How to submit a change
 
 1. Fork this repository and create a new branch from `main`.
