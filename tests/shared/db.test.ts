@@ -65,6 +65,56 @@ describe('database schema', () => {
   })
 })
 
+// Rolling back means deploying an older image on a database a newer version has already migrated. Migrations only add,
+// so the older version works on it; it must start rather than refuse the migrations it does not know.
+describe('a database migrated by a newer version', () => {
+  let db: Kysely<Database>
+  let destroy: () => Promise<void>
+
+  beforeAll(async () => {
+    ;({ db, destroy } = await createTestDb())
+  })
+
+  afterAll(async () => {
+    await destroy()
+  })
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    await sql`delete from kysely_migration where name = '9999_future'`.execute(db)
+  })
+
+  const executed = async () =>
+    (await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db)).rows.map((r) => r.name)
+  const newerRan = () =>
+    sql`insert into kysely_migration (name, timestamp) values ('9999_future', ${new Date().toISOString()})`.execute(db)
+
+  test('starts without migrating when every migration it knows has run, and logs the names it does not know', async () => {
+    await newerRan()
+    const before = await executed()
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    await expect(migrateToLatest(db)).resolves.toBeUndefined()
+    expect(warned).toHaveBeenCalledTimes(1)
+    expect(String(warned.mock.calls[0]![0])).toContain('9999_future')
+    expect(await executed()).toEqual(before)
+  })
+
+  test('refuses to start, naming it, when a migration it knows has not run', async () => {
+    await newerRan()
+    const { rows } = await sql<{ timestamp: string }>`
+      delete from kysely_migration where name = '0012_ops' returning timestamp`.execute(db)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      await expect(migrateToLatest(db)).rejects.toThrow(/0012_ops/)
+      // It runs none of them: the newer version's migrations came after it, so it cannot be run in its place.
+      expect(await executed()).not.toContain('0012_ops')
+    } finally {
+      await sql`insert into kysely_migration (name, timestamp) values ('0012_ops', ${rows[0]!.timestamp})`.execute(db)
+    }
+  })
+})
+
 describe('connection pool', () => {
   afterEach(() => {
     vi.restoreAllMocks()

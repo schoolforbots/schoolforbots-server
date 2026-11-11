@@ -72,13 +72,48 @@ const provider: MigrationProvider = {
   },
 }
 
+/** The names of the migrations the database has run, oldest name first; none when it was never migrated. */
+async function executedMigrations(db: Kysely<Database>): Promise<string[]> {
+  const table = await sql<{ name: string | null }>`select to_regclass('kysely_migration')::text as name`.execute(db)
+  if (table.rows[0]?.name == null) return []
+  const { rows } = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db)
+  return rows.map((r) => r.name)
+}
+
+/** The migrations of this version the database has not run. */
+async function pendingMigrations(db: Kysely<Database>): Promise<string[]> {
+  const migrations = await new Migrator({ db, provider }).getMigrations()
+  return migrations.filter((m) => m.executedAt === undefined).map((m) => m.name)
+}
+
 /**
  * Runs the migrations not run yet, on one connection with no statement timeout: building an index on a big table may
  * take longer than any query of the services should, and a migration cancelled halfway would fail every start. The
  * lock timeout stays, so a migration waiting for a table that is in use gives up rather than queueing every query of
  * that table behind it.
+ *
+ * A database that has run migrations this version does not know was migrated by a newer version: this one has been
+ * rolled back to. As migrations only add, it works on that database, so it migrates nothing, says so (the names only),
+ * and starts, provided every migration it knows has run; otherwise it throws.
  */
 export async function migrateToLatest(db: Kysely<Database>): Promise<void> {
+  const known = new Set(Object.keys(await provider.getMigrations()))
+  const unknown = (await executedMigrations(db)).filter((name) => !known.has(name))
+  if (unknown.length > 0) {
+    const pending = await pendingMigrations(db)
+    if (pending.length > 0) {
+      throw new Error(
+        `The database has migrations of a newer version (${unknown.join(', ')}) but not all of this version's ` +
+          `(pending: ${pending.join(', ')}); not migrating it.`,
+      )
+    }
+    console.warn(
+      `[db] The database has migrations of a newer version (${unknown.join(', ')}); this older version leaves it as ` +
+        'it is and starts.',
+    )
+    return
+  }
+
   const { error } = await db.connection().execute(async (conn) => {
     await sql`set statement_timeout = 0`.execute(conn)
     try {
@@ -96,8 +131,7 @@ export async function migrateToLatest(db: Kysely<Database>): Promise<void> {
  * database itself (the class service: the registration service runs the migrations).
  */
 export async function assertMigrationsUpToDate(db: Kysely<Database>): Promise<void> {
-  const migrations = await new Migrator({ db, provider }).getMigrations()
-  const pending = migrations.filter((m) => m.executedAt === undefined).map((m) => m.name)
+  const pending = await pendingMigrations(db)
   if (pending.length > 0) {
     throw new Error(
       `The database is not migrated to the latest version (pending: ${pending.join(', ')}). ` +

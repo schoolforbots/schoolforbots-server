@@ -265,11 +265,11 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 | `watchdog` | 每 30 秒把带 `school.watchdog=true`、正在运行、健康检查说不健康的容器逐个重启。手动停掉的容器不会被拉起来。 |
 | `backup` | 在服务器上用 `deploy/backup/Dockerfile` 构建（`postgres:17-alpine` 加装 `age` 和 `rclone`）。每天夜里把数据库加密备份出去（见下面的"备份"）。 |
 
-镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每个拉取请求都会构建它、跑 `deploy/smoke-test.sh` 并跑恢复演练（`deploy/backup/drill.sh`），每次合进 `main` 就推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。部署请用 `sha-…` 标签，这样知道跑的是哪一版，也能退回上一版；`main` 每次合并都会移动。不登录就能拉取镜像，前提是这个包在 GitHub 上是公开的。
+镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每个拉取请求都会构建它、跑 `deploy/smoke-test.sh` 并跑恢复演练（`deploy/backup/drill.sh`），每次合进 `main` 就推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。部署请用 `sha-…` 标签，这样知道跑的是哪一版；`main` 每次合并都会移动。要退回上一版，用同样的方法部署之前的 `sha-…` 标签（见下面）。不登录就能拉取镜像，前提是这个包在 GitHub 上是公开的。
 
 把 `deploy/env.example` 复制成 `deploy/.env` 填好（里面列了每个变量）。真实的 `school.json`、`prompts/` 和 `moderation/` 放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。`.env` 和这个文件夹都不提交。
 
-更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。
+更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。
 
 每个服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康，启动后给 60 秒宽限。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，保留多久由所在主机的 journald 设置管，不在这个仓库里。
 
