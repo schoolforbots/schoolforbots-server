@@ -261,12 +261,12 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 | `postgres` | `postgres:17-alpine`，带数据卷，不开端口。 |
 | `registration` | 报名服务。启动时升级数据库。 |
 | `class` | 上课服务。等 `registration` 健康之后才启动。 |
-| `caddy` | 开 80 和 443 的代理，证书对应 `SCHOOL_DOMAIN`。`/v1/class` 和 `/healthz/class` 转给上课服务，其余都转给报名服务（读超时 200 秒：重写一节课最多等 180 秒）。访问日志是卷里的文件，按大小滚动（Caddy 不能按天滚动），超过 30 天的文件会删掉。 |
+| `caddy` | 开 80 和 443 的代理，证书对应 `SCHOOL_DOMAIN`。`/v1/class` 和 `/healthz/class` 转给上课服务，其余都转给报名服务（读超时 200 秒：重写一节课最多等 180 秒）。访问日志是卷里的文件，按天滚动（到 100 MiB 也会提前滚动），滚出来的文件超过 30 天就删掉。 |
 | `watchdog` | 每 30 秒把带 `school.watchdog=true`、正在运行、健康检查说不健康的容器逐个重启。手动停掉的容器不会被拉起来。 |
 
 把 `deploy/env.example` 复制成 `deploy/.env` 填好（里面列了每个变量）。真实的 `school.json`、`prompts/` 和 `moderation/` 放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。`.env` 和这个文件夹都不提交。
 
-更新用 `deploy/deploy.sh <镜像标签> [--now]`：拉镜像；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。
+更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。
 
 每个服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康，启动后给 60 秒宽限。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，保留多久由服务器上 journald 的设置管（30 天），不在这个仓库里。
 

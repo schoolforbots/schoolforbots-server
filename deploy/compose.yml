@@ -7,9 +7,10 @@ x-logging: &logging
   driver: journald
 
 x-service: &service
-  image: ghcr.io/schoolforbots/server:${IMAGE_TAG}
+  image: ghcr.io/schoolforbots/server:${IMAGE_TAG:?set IMAGE_TAG in .env}
   env_file: .env
   environment: &service-environment
+    NODE_ENV: production
     TRUST_PROXY: '1'
     SCHOOL_CONFIG: /app/private/school.json
     PROMPTS_DIR: /app/private/prompts
