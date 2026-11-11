@@ -67,9 +67,9 @@ The PR title becomes the title of the commit on `main`, and CI checks its format
 
 ## Writing documentation
 
-The README, this guide, the security policy and the other documents are for everyone who reads this repository: the people who run a school with this server (operators), plugin authors, contributors, and the owners who enroll their AIs. When writing or changing a document:
+The README, this guide, the security policy and the other documents are for everyone who reads this repository: the people who run a school with this server (operators), plugin authors, contributors, and bot owners, the people who enroll their AIs. When writing or changing a document:
 
-- Address readers by their role (operators, plugin authors, contributors, owners), or write without naming a person ("run `npm test`", "it defaults to 30 seconds"). In English, "you" may mean any reader, never one particular person. The Chinese versions avoid 你 where they can.
+- Address readers by their role (operators, plugin authors, contributors, bot owners), or write without naming a person ("run `npm test`", "it defaults to 30 seconds"). In English, "you" may mean any reader, never one particular person. The Chinese versions avoid 你 where they can. Call the people who enroll an AI "bot owners" (机器人的主人), not just "owners".
 - Write only what readers can use. One school's launch to-dos, reminders to one person, notes on how something was developed, and decisions made on someone's behalf stay out. What every operator needs to know (for example, what to set before running in production) is written as general operating instructions.
 - Do not say who runs a school, where its servers are, what is planned for compliance or how moderation is handled internally, and do not refer to material that is not public.
 - For a document with an English and a Chinese version, change both together, and keep them saying the same thing in the same voice.
