@@ -226,6 +226,7 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 
 ### Deployment notes
 
+- Both services answer `GET /healthz` (not under `/v1`, not in the API docs) with only good or bad: `200 {"ok":true}` or `503 {"ok":false}`, no other detail. It is outside the rate limit and writes no request log. The registration service is good when the database answers; the class service also needs its clock to keep ticking (a tick finished within the last 30 seconds, or 3 tick intervals if longer).
 - Serve the admin over HTTPS: its session cookie is `Secure`, which browsers accept only over HTTPS (and from `localhost`).
 - A rewrite keeps its request open until the model answers, for up to `lessonGeneration.timeoutSeconds` (180 seconds in the example config). A reverse proxy in front of the registration service must allow reads at least that long under the admin path, or it cuts the rewrite off with an error.
 - After 10 wrong logins in a row, from anyone, the login is locked for everyone for 15 minutes; a right login starts the count again. The count is kept in memory, so restarting the registration service clears the lock. Each address may also try at most 5 times a minute.

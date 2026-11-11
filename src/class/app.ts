@@ -4,6 +4,7 @@ import type { Kysely } from 'kysely'
 import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
+import { databaseAlive, registerHealthz } from '../shared/healthz.js'
 import { inetAddress } from '../shared/net.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
@@ -60,6 +61,8 @@ export interface ClassDeps {
    * messages are kept with is then the client's that the proxy names, not the proxy's. Unset: false.
    */
   trustProxy?: boolean
+  /** What `GET /healthz` checks. Unset: only that the database answers. */
+  healthCheck?: () => Promise<boolean>
   /** Fastify logger options; unset means no logging. */
   logger?: FastifyServerOptions['logger']
 }
@@ -83,6 +86,8 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
   const ctx: ConnectionContext = { deps, announced: new WeakSet() }
   // The student each upgrade's key belongs to, from the auth hook to the WebSocket handler.
   const students = new WeakMap<FastifyRequest, StudentRow>()
+
+  registerHealthz(app, deps.healthCheck ?? (() => databaseAlive(deps.db)))
 
   app.register(websocket, {
     options: { maxPayload: WS_MAX_PAYLOAD },
