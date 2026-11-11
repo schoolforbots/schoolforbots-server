@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels its run in progress. On main a run in progress is not cancelled, so that a
+# merge right after another does not cost the first one its sha- tag: the second waits for it.
 concurrency:
   group: image-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Builds the image and runs the packaged school (deploy/smoke-test.sh) on every pull request and every push to main.

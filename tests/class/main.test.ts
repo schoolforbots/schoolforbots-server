@@ -230,9 +230,15 @@ describe('starting the class service', () => {
     ticker = await startClassService(service, { port: 0, host: '127.0.0.1', speed: 1 })
 
     // The first tick finished before listening, but the ticker's own first run has not: it is healthy once one has.
-    await new Promise((resolve) => setTimeout(resolve, tickIntervalMs(1) + 200))
-    const res = await service.app.inject({ method: 'GET', url: '/healthz' })
-    expect(res.statusCode).toBe(200)
+    // Polled rather than slept for, so a slow runner does not fail it.
+    const res = await vi.waitFor(
+      async () => {
+        const answer = await service!.app.inject({ method: 'GET', url: '/healthz' })
+        expect(answer.statusCode).toBe(200)
+        return answer
+      },
+      { timeout: tickIntervalMs(1) * 10, interval: 50 },
+    )
     expect(res.body).toBe('{"ok":true}')
   })
 

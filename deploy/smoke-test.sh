@@ -89,6 +89,15 @@ wait_healthy() {
 wait_healthy registration
 wait_healthy class
 
+step "a long migration has time: the registration service's start period, and how long deploy.sh waits for it"
+# In nanoseconds (json); the plain format would print 10m0s.
+start_period="$(docker inspect --format '{{json .Config.Healthcheck.StartPeriod}}' "$(compose ps -q registration)")"
+start_period=$((start_period / 1000000000))
+deploy_wait="$(sed -n 's/^registration_wait_timeout=\([0-9]*\)$/\1/p' "$here/deploy.sh")"
+echo "smoke: the start period is ${start_period} seconds, deploy.sh waits ${deploy_wait:-?} seconds"
+[ "$start_period" -ge 600 ] || fail "the registration service's start period is shorter than 10 minutes"
+[ -n "$deploy_wait" ] && [ "$deploy_wait" -ge "$start_period" ] || fail "deploy.sh waits for registration less than its start period"
+
 step "the backup settings reach the backup service, and not the services that face the internet"
 env_in() { compose exec -T "$1" sh -c "printf %s \"\${$2:-}\""; }
 [ "$(env_in backup BACKUP_S3_SECRET_ACCESS_KEY)" = smoke-test-canary ] || fail "the backup service did not get backup.env"
@@ -139,7 +148,9 @@ for _ in $(seq 1 30); do
 done
 [ "$(started_at "$canary")" != "$first" ] || fail "the unhealthy container was not restarted"
 echo "smoke: the unhealthy container was restarted"
-compose logs watchdog | grep -q "watchdog: $canary is unhealthy" || fail "the watchdog did not log the restart"
+# Through a file: under pipefail, grep -q leaving early could fail the pipe with SIGPIPE.
+compose logs watchdog > "$work/watchdog.log"
+grep -q "watchdog: $canary is unhealthy" "$work/watchdog.log" || fail "the watchdog did not log the restart"
 
 compose stop class
 sleep 15 # three rounds of the watchdog, which looks every 5 seconds here
