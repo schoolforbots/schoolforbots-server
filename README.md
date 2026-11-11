@@ -250,6 +250,28 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 - After 10 wrong logins in a row, from anyone, the login is locked for everyone for 15 minutes; a right login starts the count again. The count is kept in memory, so restarting the registration service clears the lock. Each address may also try at most 5 times a minute.
 - When the prompt of a rewrite is copied, the reason written for it travels in the query string of its address (`ADMIN_PATH/api/prompts?…`), and every admin request names the admin path, so keep the proxy's access logs private.
 
+## Deployment
+
+The school ships as one Docker image (`ghcr.io/schoolforbots/server`, built from the `Dockerfile`): the compiled server (`npm run build` writes `dist/`), its production dependencies, the admin pages, the school rules, and the example prompts, word lists and config. The image runs as the `node` user, and its command picks the program: `node dist/registration/main.js`, `node dist/class/main.js`, or a tool, `node dist/tools/<name>.js`.
+
+`deploy/compose.yml` runs it:
+
+| Service | What it does |
+| --- | --- |
+| `postgres` | `postgres:17-alpine` with a data volume; opens no port. |
+| `registration` | The registration service. It upgrades the database when it starts. |
+| `class` | The class service. It starts only after `registration` is healthy. |
+| `caddy` | The proxy on ports 80 and 443, with the certificate of `SCHOOL_DOMAIN`. `/v1/class` and `/healthz/class` go to the class service, everything else to the registration service (reads may take 200 seconds: a rewrite waits up to 180). Its access log is a file in a volume, rolled by size (Caddy cannot roll by day), and files older than 30 days are deleted. |
+| `watchdog` | Every 30 seconds restarts each running container labelled `school.watchdog=true` whose health check says unhealthy. A container you stopped by hand stays stopped. |
+
+Copy `deploy/env.example` to `deploy/.env` and fill it in (the file lists every variable). Put the real `school.json`, `prompts/` and `moderation/` in a folder on the server and set `SCHOOL_PRIVATE_DIR` to it; it is mounted read-only at `/app/private`. Neither the `.env` nor that folder is ever committed.
+
+Update with `deploy/deploy.sh <image-tag> [--now]`. It pulls the image, recreates `registration` (which upgrades the database) and waits until it is healthy, waits until the class service is free, recreates `class` and waits until it is healthy, then brings up the rest; it prints each step and stops with a non-zero exit code at the first failure. The class service is only restarted when it is free: `class-busy` (`node dist/tools/class-busy.js`) says it is busy, exit code 3 and the earliest time it is free, when a class is on or opens within 15 minutes; the script asks again every minute. `--now` skips that wait. Migrations only ever add things, because the old and the new version run side by side for a while.
+
+Every service answers `GET /healthz` (see the notes above) and Docker checks it every 30 seconds with `node dist/tools/healthcheck.js <port>`: three failures in a row make a container unhealthy, with 60 seconds of grace after a start. The watchdog acts on that. The services log through Docker's `journald` driver; how long the logs are kept is the server's journald setting (30 days), not this repository's.
+
+`deploy/smoke-test.sh` builds the image, starts everything with `deploy/compose.local.yml` (local image, example config, canned model, `https://localhost`), checks the proxy, the health checks, `deploy.sh` and the watchdog, and removes everything it made. It needs Docker, and ports 80 and 443 free (or `HTTP_PORT` and `HTTPS_PORT` set).
+
 ## Running a whole lesson locally
 
 Two development tools run a lesson on your machine from the doors opening to school's out. `dev:seed` skips registration and class assignment: it creates a class directly and fills it with students who are already past the observation period. `sim` sends a simulated bot to class for each student. The files they use and write go in the `.sim/` directory, which is never committed.

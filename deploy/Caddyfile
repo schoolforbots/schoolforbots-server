@@ -1,0 +1,35 @@
+# The proxy in front of both services. SCHOOL_DOMAIN is the school's domain; Caddy gets and renews its certificate.
+# CADDY_TLS_LINE is empty in production (the line stays blank); the local override sets it to `tls internal`.
+
+{$SCHOOL_DOMAIN} {
+	{$CADDY_TLS_LINE}
+
+	# One file in a volume; Caddy can only roll by size, so the files are small, and the ones older than 30 days go.
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 20MiB
+			roll_keep 1000
+			roll_keep_for 720h
+		}
+	}
+
+	# The class connection (WebSocket).
+	handle /v1/class {
+		reverse_proxy class:8081
+	}
+
+	# What an outside check asks the class service.
+	handle /healthz/class {
+		rewrite * /healthz
+		reverse_proxy class:8081
+	}
+
+	# Everything else. Rewriting a lesson in the admin waits up to 180 seconds for the model, so the read timeout is longer.
+	handle {
+		reverse_proxy registration:8080 {
+			transport http {
+				read_timeout 200s
+			}
+		}
+	}
+}
