@@ -218,7 +218,10 @@ async function llm400Alert(deps: AlertDeps, now: Date): Promise<AlertMail | null
   if (n < limit || row.first === null) return null
   return {
     subject: `${SUBJECT_PREFIX}大模型一小时里回了 ${n} 次 400 错误`,
-    text: `最近一小时里，大模型有 ${n} 次调用被它以 HTTP 400 拒绝，最早一次在 ${school(deps, row.first)}。多半是请求的格式或参数出了问题。`,
+    text:
+      `最近一小时里，大模型有 ${n} 次调用被它以 HTTP 400 拒绝，最早一次在 ${school(deps, row.first)}。` +
+      '先看学校配置里的 contentRefusalMarkers 还对不对得上厂商拒绝处理内容时的回复：厂商改了措辞，学校就认不出这是拒绝，会把它记成失败的调用。' +
+      '对得上的话，多半是请求的格式或参数出了问题。',
   }
 }
 

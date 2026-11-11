@@ -217,6 +217,15 @@ test('an ok call in the window keeps llm_down quiet even with three failures', a
   expect(await t.check()).toEqual([])
 })
 
+test('the 400 mail first points at refusal markers that no longer match, then at a malformed request', async () => {
+  await llmCalls('failed', Array.from({ length: 5 }, (_, i) => minutesAgo(10 + i * 10)), 400)
+  const t = setup()
+  expect(await t.check()).toEqual(['llm_400'])
+  const { text } = t.mailer.notices[0]!
+  expect(text).toContain('contentRefusalMarkers')
+  expect(text.indexOf('contentRefusalMarkers')).toBeLessThan(text.indexOf('格式或参数'))
+})
+
 describe('job_failed', () => {
   test('counts only what happened since the last mail of the kind, and says how many', async () => {
     await events('job_failed', [hoursAgo(5), hoursAgo(4)])
