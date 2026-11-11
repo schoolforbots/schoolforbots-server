@@ -15,3 +15,4 @@
 - [ ] Documentation that describes the change is updated, in English and Chinese, following "Writing documentation" in CONTRIBUTING.md
 - [ ] If the API changed, I ran `npm run protocol:export` and committed the generated files
 - [ ] No secrets, `.env`, real configuration, real word lists, or personal information are committed
+- [ ] Database migrations only add things: no rename, drop, type change or new `NOT NULL` on existing columns (see CONTRIBUTING.md)
