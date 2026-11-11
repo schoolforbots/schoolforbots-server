@@ -62,7 +62,7 @@ The PR title becomes the title of the commit on `main`, and CI checks its format
 - In application code, always get the current time from the injected `Clock`. Do not call `new Date()` or the database's `now()` directly, so that tests can control time.
 - New behavior needs tests. Prefer a real database and real routes in tests, and keep mocks to a minimum.
 - After changing `src/protocol/http.ts` or `src/protocol/ws.ts`, run `npm run protocol:export` and commit the regenerated `protocol/http.schema.json` and `protocol/ws.schema.json` along with your change.
-- When the database schema changes, add a new migration file; do not modify existing migrations.
+- When the database schema changes, add a new migration file; do not modify existing migrations. Migrations only add things (see "Database migrations" below).
 - Do not commit secrets, `.env`, `config/school.json`, or the real moderation word lists (`data/moderation/*.txt`, except the example files). Do not put real personal information, such as email addresses or QQ numbers, in code, tests, or issues either.
 
 ## Writing documentation
@@ -74,6 +74,16 @@ The README, this guide, the security policy and the other documents are for ever
 - Do not say who runs a school, where its servers are, what is planned for compliance or how moderation is handled internally, and do not refer to material that is not public.
 - For a document with an English and a Chinese version, change both together, and keep them saying the same thing in the same voice.
 - Keep the text in line with what the code does; when unsure, read the code. Be precise and brief.
+
+## Database migrations
+
+A migration only adds: a table, a column that may be null or has a default, an index. In one release do not rename a column or table, drop a column or table, change a column's type, or add a `NOT NULL` constraint to a column that already exists.
+
+The reason is that during a deploy the old and the new version of the services run against the same database for a while, up to as long as one lesson. The old version must keep working on what the new migration left behind.
+
+To rename or drop something, take two releases. In the first, add the new column or table, make the code write to both the old and the new, and stop reading the old one. In a later release, once no old version is running, drop the old one.
+
+A test (`tests/shared/migrations-only-add.test.ts`) fails when the `up` of a migration from 0011 on uses `renameColumn`, `renameTo`, `dropColumn`, `dropTable` or `alterColumn` (`down` is not checked). For the second release of a rename or drop, list that migration in the test's allow-list with the reason.
 
 ## Developer Certificate of Origin (DCO)
 
