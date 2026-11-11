@@ -7,6 +7,12 @@ export interface Samples {
   segmentMs: number[]
   /** Conversation line delays: from a bot sending a line to the classmate it is meant for receiving it. */
   chatMs: number[]
+  /** Conversation lines the school took (not refused) and that were meant to be seen by a classmate's bot. */
+  chatSent: number
+  /** Connection tries that never got in: connection refused, an error on the way, or an HTTP refusal at the door. */
+  connectFailures: number
+  /** Bots that were never welcomed to class during the run. */
+  neverWelcomed: number
   /** Connections that were closed that neither the bot nor the school meant to close (no `closing`, no drop). */
   unexpectedDisconnects: number
   /** Messages the school refused, by error code. */
@@ -25,7 +31,12 @@ export interface Stat {
 export interface Report {
   segment: Stat
   chat: Stat
+  /** Lines sent with a tag, and how many of them were never matched with a receipt (lost, or still on their way). */
+  chatSent: number
+  chatUnmatched: number
   unexpectedDisconnects: number
+  connectFailures: number
+  neverWelcomed: number
   errors: Record<string, number>
 }
 
@@ -57,14 +68,20 @@ export function summarize(samples: Samples): Report {
   return {
     segment: statOf(samples.segmentMs),
     chat: statOf(samples.chatMs),
+    chatSent: samples.chatSent,
+    chatUnmatched: Math.max(0, samples.chatSent - samples.chatMs.length),
     unexpectedDisconnects: samples.unexpectedDisconnects,
+    connectFailures: samples.connectFailures,
+    neverWelcomed: samples.neverWelcomed,
     errors: { ...samples.errors },
   }
 }
 
 /**
  * Whether the run is within the pass line: the p99 of the segment delays within `segmentMs` and of the conversation
- * line delays within `chatMs` (each only when given; exactly on the line passes), and no unexpected disconnect.
+ * line delays within `chatMs` (each only when given; exactly on the line passes), no unexpected disconnect, no
+ * connection try that never got in, and no bot that was never welcomed: a bot that cannot connect has no delays to
+ * measure, so it must not pass as if it were fast.
  * A limit that is given with no samples to measure fails: a run that measured nothing proves nothing.
  */
 export function verdict(
@@ -80,5 +97,7 @@ export function verdict(
   check('课文延迟', report.segment, expect.segmentMs)
   check('搭话延迟', report.chat, expect.chatMs)
   if (report.unexpectedDisconnects > 0) failures.push(`有 ${report.unexpectedDisconnects} 次意外断开`)
+  if (report.connectFailures > 0) failures.push(`有 ${report.connectFailures} 次连接失败（连不上，或在门口被拒）`)
+  if (report.neverWelcomed > 0) failures.push(`有 ${report.neverWelcomed} 个机器人一直没进得了教室`)
   return { pass: failures.length === 0, failures }
 }

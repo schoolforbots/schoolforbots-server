@@ -158,9 +158,7 @@ export async function seedClasses(
 function checkStudents(config: SchoolConfig, count: number): void {
   const max = config.classSize.max
   if (!Number.isInteger(count) || count < 1 || count > max) {
-    throw new DevSeedError(
-      `--students 必须是 1 到 ${max} 之间的整数（学校配置里一个班最多 ${max} 人），现在是 ${count}`,
-    )
+    throw new DevSeedError(`--students 必须是 1 到 ${max} 之间的整数（学校配置里一个班最多 ${max} 人），现在是 ${count}`)
   }
 }
 
@@ -171,77 +169,65 @@ async function insertClassWithStudents(
 ): Promise<SeedResult> {
   const { division, slot, students: count } = opts
   const now = opts.clock.now()
-  {
-    // The nightly job opens classes under the slot locks too, so the two never give a class the same number.
-    await lock(trx, slotLockKey(slot))
-    const { highest } = await trx
-      .selectFrom('classes')
-      .select((eb) => eb.fn.max('classNo').as('highest'))
-      .where('division', '=', division)
-      .where('slot', '=', slot)
-      .executeTakeFirstOrThrow()
-    const { classes } = await trx
-      .selectFrom('classes')
-      .select((eb) => eb.fn.countAll().as('classes'))
-      .executeTakeFirstOrThrow()
-    const classNo = (highest ?? 0) + 1
-    const persona = teacherPersonaFor(config, Number(classes))
-    const { id: classId } = await trx
-      .insertInto('classes')
+  // The nightly job opens classes under the slot locks too, so the two never give a class the same number.
+  await lock(trx, slotLockKey(slot))
+  const { highest } = await trx
+    .selectFrom('classes')
+    .select((eb) => eb.fn.max('classNo').as('highest'))
+    .where('division', '=', division)
+    .where('slot', '=', slot)
+    .executeTakeFirstOrThrow()
+  const { classes } = await trx
+    .selectFrom('classes')
+    .select((eb) => eb.fn.countAll().as('classes'))
+    .executeTakeFirstOrThrow()
+  const classNo = (highest ?? 0) + 1
+  const persona = teacherPersonaFor(config, Number(classes))
+  const { id: classId } = await trx
+    .insertInto('classes')
+    .values({ division, slot, classNo, teacherPersonaId: persona.id, createdAt: now })
+    .returning('id')
+    .executeTakeFirstOrThrow()
+
+  const seeded: SeededStudent[] = []
+  for (let n = 1; n <= count; n++) {
+    const ownerName = `模拟主人${n}`
+    const aiName = `机器人${n}`
+    const key = generateStudentKey()
+    const { id } = await trx
+      .insertInto('students')
       .values({
+        // The class number keeps the addresses of every seeding apart; example.invalid never reaches anyone.
+        email: `sim-${classId}-${n}@example.invalid`,
+        ownerName,
+        aiName,
         division,
         slot,
-        classNo,
-        teacherPersonaId: persona.id,
+        status: 'active',
+        classId,
+        aiId: randomUUID(),
+        pluginType: SIM_PLUGIN.type,
+        pluginVersion: SIM_PLUGIN.version,
+        keyHash: hashSecret(key),
+        registrationIp: '127.0.0.1',
         createdAt: now,
+        queuedAt: now,
+        assignedAt: now,
+        lastAttendedAt: null,
+        lastRenamedAt: null,
+        lessonsAttended: config.chat.probationLessons,
+        suspendedUntil: null,
       })
       .returning('id')
       .executeTakeFirstOrThrow()
+    seeded.push({ studentId: id, key, displayName: displayName(ownerName, aiName) })
+  }
 
-    const seeded: SeededStudent[] = []
-    for (let n = 1; n <= count; n++) {
-      const ownerName = `模拟主人${n}`
-      const aiName = `机器人${n}`
-      const key = generateStudentKey()
-      const { id } = await trx
-        .insertInto('students')
-        .values({
-          // The class number keeps the addresses of every seeding apart; example.invalid never reaches anyone.
-          email: `sim-${classId}-${n}@example.invalid`,
-          ownerName,
-          aiName,
-          division,
-          slot,
-          status: 'active',
-          classId,
-          aiId: randomUUID(),
-          pluginType: SIM_PLUGIN.type,
-          pluginVersion: SIM_PLUGIN.version,
-          keyHash: hashSecret(key),
-          registrationIp: '127.0.0.1',
-          createdAt: now,
-          queuedAt: now,
-          assignedAt: now,
-          lastAttendedAt: null,
-          lastRenamedAt: null,
-          lessonsAttended: config.chat.probationLessons,
-          suspendedUntil: null,
-        })
-        .returning('id')
-        .executeTakeFirstOrThrow()
-      seeded.push({
-        studentId: id,
-        key,
-        displayName: displayName(ownerName, aiName),
-      })
-    }
-
-    return {
-      classId,
-      className: className(division, slot, classNo, config),
-      teacher: persona.name,
-      students: seeded,
-    }
+  return {
+    classId,
+    className: className(division, slot, classNo, config),
+    teacher: persona.name,
+    students: seeded,
   }
 }
 
@@ -250,9 +236,7 @@ export function writeKeysFile(path: string, students: SeededStudent[]): void {
   mkdirSync(dirname(path), { recursive: true })
   // The keys let anyone into class as these students: the file is for its owner alone. The mode given to the write
   // only applies to a new file, so one that was already there is tightened after.
-  writeFileSync(path, `${JSON.stringify(students, null, 2)}\n`, {
-    mode: 0o600,
-  })
+  writeFileSync(path, `${JSON.stringify(students, null, 2)}\n`, { mode: 0o600 })
   chmodSync(path, 0o600)
 }
 

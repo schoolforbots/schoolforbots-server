@@ -112,20 +112,10 @@ describe('seedClass', () => {
     await insertClass(db, { division: 'junior', slot: 'evening', classNo: 1 })
     await insertClass(db, { division: 'senior', slot: 'evening', classNo: 4 })
 
-    const seeded = await seedClass(db, config, {
-      division: 'junior',
-      slot: 'evening',
-      students: 3,
-      clock,
-    })
+    const seeded = await seedClass(db, config, { division: 'junior', slot: 'evening', students: 3, clock })
 
     const cls = await db.selectFrom('classes').selectAll().where('id', '=', seeded.classId).executeTakeFirstOrThrow()
-    expect(cls).toMatchObject({
-      division: 'junior',
-      slot: 'evening',
-      classNo: 2,
-      teacherPersonaId: personas[2],
-    })
+    expect(cls).toMatchObject({ division: 'junior', slot: 'evening', classNo: 2, teacherPersonaId: personas[2] })
     expect(cls.createdAt).toEqual(clock.now())
     expect(seeded.className).toBe('初中部·晚班·2 班')
 
@@ -167,12 +157,7 @@ describe('seedClass', () => {
 
     // Seeding again opens the class after it, with the next teacher, and with emails of its own.
     clock.advance(60_000)
-    const again = await seedClass(db, config, {
-      division: 'junior',
-      slot: 'evening',
-      students: 2,
-      clock,
-    })
+    const again = await seedClass(db, config, { division: 'junior', slot: 'evening', students: 2, clock })
     const next = await db.selectFrom('classes').selectAll().where('id', '=', again.classId).executeTakeFirstOrThrow()
     expect(next).toMatchObject({ classNo: 3, teacherPersonaId: personas[3] })
     const emails = await db.selectFrom('students').select('email').execute()
@@ -185,33 +170,18 @@ describe('seedClass', () => {
     const config = { ...service.config, classSize: { standard: 2, max: 3 } }
 
     for (const students of [4, 0, 1.5]) {
-      await expect(
-        seedClass(db, config, {
-          division: 'junior',
-          slot: 'evening',
-          students,
-          clock,
-        }),
-      ).rejects.toThrow(DevSeedError)
+      await expect(seedClass(db, config, { division: 'junior', slot: 'evening', students, clock })).rejects.toThrow(
+        DevSeedError,
+      )
     }
-    await expect(
-      seedClass(db, config, {
-        division: 'junior',
-        slot: 'evening',
-        students: 4,
-        clock,
-      }),
-    ).rejects.toThrow('--students 必须是 1 到 3 之间的整数')
+    await expect(seedClass(db, config, { division: 'junior', slot: 'evening', students: 4, clock })).rejects.toThrow(
+      '--students 必须是 1 到 3 之间的整数',
+    )
     expect(await db.selectFrom('classes').select('id').execute()).toEqual([])
     expect(await db.selectFrom('students').select('id').execute()).toEqual([])
 
     // A full class is fine.
-    const seeded = await seedClass(db, config, {
-      division: 'junior',
-      slot: 'evening',
-      students: 3,
-      clock,
-    })
+    const seeded = await seedClass(db, config, { division: 'junior', slot: 'evening', students: 3, clock })
     expect(seeded.students).toHaveLength(3)
   })
 
@@ -224,25 +194,13 @@ describe('seedClass', () => {
       const unwritable = join(dir, 'keys.json')
       mkdirSync(unwritable)
       await expect(
-        seedClass(db, config, {
-          division: 'junior',
-          slot: 'evening',
-          students: 2,
-          clock,
-          keysFile: unwritable,
-        }),
+        seedClass(db, config, { division: 'junior', slot: 'evening', students: 2, clock, keysFile: unwritable }),
       ).rejects.toThrow()
       expect(await db.selectFrom('classes').select('id').execute()).toEqual([])
       expect(await db.selectFrom('students').select('id').execute()).toEqual([])
 
       const path = join(dir, '.sim', 'keys.json')
-      const seeded = await seedClass(db, config, {
-        division: 'junior',
-        slot: 'evening',
-        students: 2,
-        clock,
-        keysFile: path,
-      })
+      const seeded = await seedClass(db, config, { division: 'junior', slot: 'evening', students: 2, clock, keysFile: path })
       expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(seeded.students)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -253,12 +211,7 @@ describe('seedClass', () => {
     // Monday 19:00, before the evening doors.
     service = await buildTestClassApp()
     const { db, config, clock } = service
-    const { students } = await seedClass(db, config, {
-      division: 'junior',
-      slot: 'evening',
-      students: 2,
-      clock,
-    })
+    const { students } = await seedClass(db, config, { division: 'junior', slot: 'evening', students: 2, clock })
     const [first, second] = students
     if (first === undefined || second === undefined) throw new Error('Two students were seeded')
 
@@ -271,19 +224,11 @@ describe('seedClass', () => {
       const ws = await service!.app.injectWS(
         '/v1/class',
         { headers: { authorization: `Bearer ${key}` } },
-        {
-          onInit: (socket) => void socket.on('message', (data) => void received.push(JSON.parse(String(data)))),
-        },
+        { onInit: (socket) => void socket.on('message', (data) => void received.push(JSON.parse(String(data)))) },
       )
       sockets.push(ws)
       ws.send(
-        JSON.stringify({
-          id: 'h1',
-          type: 'hello',
-          protocol: 'v1',
-          plugin: { type: 'sim', version: '0.0.0' },
-          maxRounds: 3,
-        }),
+        JSON.stringify({ id: 'h1', type: 'hello', protocol: 'v1', plugin: { type: 'sim', version: '0.0.0' }, maxRounds: 3 }),
       )
       for (let waited = 0; received.length < 2; waited += 5) {
         if (waited > 5000) throw new Error(`Timed out waiting for the welcome: ${JSON.stringify(received)}`)
@@ -296,10 +241,7 @@ describe('seedClass', () => {
     const welcome = await welcomeOf(first.key)
     expect(welcome).toMatchObject({
       type: 'welcome',
-      student: {
-        studentId: first.studentId,
-        displayName: '模拟主人1家的机器人1',
-      },
+      student: { studentId: first.studentId, displayName: '模拟主人1家的机器人1' },
       class: { className: '初中部·晚班·1 班', teacher: { name: '老周' } },
       online: [],
       // Past the probation: they may start conversations from their first lesson.
@@ -308,10 +250,7 @@ describe('seedClass', () => {
 
     const theOther = await welcomeOf(second.key)
     expect(theOther).toMatchObject({
-      student: {
-        studentId: second.studentId,
-        displayName: '模拟主人2家的机器人2',
-      },
+      student: { studentId: second.studentId, displayName: '模拟主人2家的机器人2' },
       online: [{ studentId: first.studentId, displayName: '模拟主人1家的机器人1' }],
       probation: false,
     })

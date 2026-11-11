@@ -141,14 +141,7 @@ async function lessonWithQuestions(
               seq: ++seq,
               replayed: false,
               at: new Date().toISOString(),
-              event: {
-                kind: 'qa',
-                segment: 1,
-                studentId: 1,
-                displayName: '小鱼',
-                question: msg.text,
-                answer: '好问题',
-              },
+              event: { kind: 'qa', segment: 1, studentId: 1, displayName: '小鱼', question: msg.text, answer: '好问题' },
             }),
           )
         }
@@ -488,4 +481,71 @@ test('buildReport writes the numbers, the pass line and whether the run passed',
   const bad = buildReport(sampler.samples, { segmentMs: 5000 })
   expect(bad.pass).toBe(false)
   expect(bad.lines.join('\n')).toContain('课文延迟')
+})
+
+test('--quiet is off by default', () => {
+  expect(parseSimArgs(BASE_ARGS)?.quiet).toBe(false)
+  expect(parseSimArgs([...BASE_ARGS, '--quiet'])?.quiet).toBe(true)
+})
+
+test('a bot that cannot connect counts one connect failure per try, and is never welcomed', async () => {
+  // A port nobody listens on: bind one, then close it.
+  const probe = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+  await new Promise((resolve) => probe.once('listening', resolve))
+  const { port } = probe.address() as AddressInfo
+  await new Promise((resolve) => probe.close(resolve))
+
+  const sampler = createSampler()
+  const b = startBot(`ws://127.0.0.1:${port}/v1/class`, sampler)
+  await waitUntil(() => sampler.samples.connectFailures >= 1, 'the failure')
+  expect(b.tally.welcomed).toBe(false)
+  expect(sampler.samples.unexpectedDisconnects).toBe(0)
+  const report = summarize({ ...sampler.samples, neverWelcomed: 1 })
+  expect(report.connectFailures).toBeGreaterThanOrEqual(1)
+})
+
+test('a bot turned away at the door with an HTTP status counts a connect failure once per try', async () => {
+  let tries = 0
+  const server = new WebSocketServer({
+    port: 0,
+    host: '127.0.0.1',
+    verifyClient: (_info, done) => {
+      tries++
+      done(false, 503, 'Service Unavailable')
+    },
+  })
+  await new Promise((resolve) => server.once('listening', resolve))
+  const { port } = server.address() as AddressInfo
+  const sampler = createSampler()
+  const b = startBot(`ws://127.0.0.1:${port}/v1/class`, sampler)
+  await waitUntil(() => sampler.samples.connectFailures >= 1, 'the failure')
+  // Let any error of the same try arrive: it must not be counted again.
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  expect(sampler.samples.connectFailures).toBe(tries)
+  expect(b.tally.welcomed).toBe(false)
+  b.stop()
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('a refused conversation line is taken back, and an unmatched line is reported', async () => {
+  const school = await fakeSchool((ws) => {
+    ws.on('message', (data) => {
+      const msg = JSON.parse(String(data)) as { id: string; type: string }
+      if (msg.type === 'chat.start') {
+        ws.send(school.frame({ type: 'ack', id: msg.id, ok: false, error: { code: 'peer_busy', message: '对方忙' } }))
+      }
+    })
+  })
+  const sampler = createSampler()
+  startBot(school.url, sampler, { chatEvery: 0.02 })
+  await waitUntil(() => (sampler.samples.errors.peer_busy ?? 0) >= 1, 'the refusal')
+  // The refused line is not a lost one: nothing is waiting for its receipt.
+  await waitUntil(() => sampler.sent.size === 0 && sampler.samples.chatSent === 0, 'the line taken back')
+  expect(summarize(sampler.samples).chatUnmatched).toBe(0)
+
+  // A line the school accepted but nobody received is reported as unmatched.
+  sampler.samples.chatSent = 3
+  sampler.samples.chatMs.push(5)
+  expect(summarize(sampler.samples).chatUnmatched).toBe(2)
+  await school.close()
 })

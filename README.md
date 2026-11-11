@@ -401,6 +401,7 @@ npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class \
 ```
 
 - `--ramp <seconds>`: the bots make their first connection at random moments within this many seconds, instead of all at once (default 0). Start the bots early enough that the ramp is over before the doors open, or the late ones miss the start of the lesson.
+- `--quiet`: prints no line per event; only the start, a progress line every 10 seconds, the summary and the verdict. Use it for a big run: thousands of bots in one process writing to the console slow their own event loop, and the delays you measure grow with it.
 - `--report <file>`: writes the report as JSON (it is printed on the console either way).
 - `--expect-segment-ms` and `--expect-chat-ms`: the pass line (see below). When one is given and the run misses it, `sim` says which item failed and exits with 1. Without them the report is printed and the run exits as before, except that an unexpected disconnect is always reported as a fail.
 
@@ -410,13 +411,15 @@ npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class \
 
 - `segment`: for every lesson segment a bot received live, the time it was received minus the `at` of the `class.event`. Segments replayed after a reconnect are not counted. The bots read the `at` the school wrote, so run `sim` on a machine whose clock is in step with the school's (off by more than a few hundred milliseconds, the numbers mean little).
 - `chat`: the time from a bot sending a conversation line to the classmate's bot receiving it. All the bots are in one process, and each line ends with a tag made of letters (never digits, so that the privacy filter does not stop it), which matches a line with its receipt. A line that is never received (a conversation ended first) has no sample.
+- `chatSent` and `chatUnmatched`: how many lines the school took (a line it refused is not counted), and how many of them were never matched with a receipt, so lost lines are visible rather than silently missing.
+- `connectFailures` and `neverWelcomed`: connection tries that never got in (connection refused, an error on the way, an HTTP refusal at the door), and bots that were never welcomed to class. A bot that cannot connect has no delays to measure, so either one above 0 is a fail.
 - `unexpectedDisconnects`: connections closed that were not the bot's own deliberate drop, and not announced by a `closing` message (including the end of the lesson).
 - `errors`: how many messages the school refused, by error code.
 - `pass`, `failures` and `expect`: whether the run passed, why not, and the pass line used.
 
-**The pass line:** 99% of the segment delays no more than `--expect-segment-ms` (5000 suggested), 99% of the chat delays no more than `--expect-chat-ms` (1000 suggested), and no unexpected disconnect. A limit that is given while there are no samples to measure also fails.
+**The pass line:** 99% of the segment delays no more than `--expect-segment-ms` (5000 suggested), 99% of the chat delays no more than `--expect-chat-ms` (1000 suggested), no unexpected disconnect, no connection failure, and no bot that never got in. A limit that is given while there are no samples to measure also fails.
 
-**For the real test** (thousands of bots against a school as it will be deployed): run `sim` from another machine, not the one that serves the school, or the bots compete with it for CPU. Watch the server's CPU and memory while it runs (`docker stats`). Use the fake model (`LLM_FAKE=1`), so that the test costs nothing and the model's own speed is not what is measured. Seed with `DEV_SEED_ALLOWED_HOSTS` on a copy of the school, and when it is over empty the database before going live: the seeded classes and students are not real ones.
+**For the real test** (thousands of bots against a school as it will be deployed): run `sim` from another machine, not the one that serves the school, or the bots compete with it for CPU, and with `--quiet`. Watch the server's CPU and memory while it runs (`docker stats`). Use the fake model (`LLM_FAKE=1`), so that the test costs nothing and the model's own speed is not what is measured. Seed with `DEV_SEED_ALLOWED_HOSTS` on a copy of the school, and when it is over empty the database before going live: the seeded classes and students are not real ones.
 
 ## Tests
 
