@@ -2,7 +2,7 @@ import { once } from 'node:events'
 import type { Socket } from 'node:net'
 import { sql } from 'kysely'
 import Value from 'typebox/value'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import WebSocket from 'ws'
 import { markAttendance } from '../../src/class/attendance.js'
 import type { AckResult, MessageHandlers, Participant } from '../../src/class/connection.js'
@@ -1239,6 +1239,28 @@ describe('Review Focus 1: the newest connection wins', () => {
     }
     expect(s.disconnects).toEqual([a!.id])
     expect(s.hub.online(classId)).toEqual([c!.id])
+  })
+})
+
+describe('an unexpected error in a connection', () => {
+  test('closes it with 1011 and is reported once to onInternalError', async () => {
+    const onInternalError = vi.fn()
+    const s = await start({
+      onInternalError,
+      handlers: { question: async () => Promise.reject(new Error('the handler broke')) },
+    })
+    const { students } = await seedClass(s, 1)
+    await tickAt(s, at('19:50'))
+    const client = await connect(students[0]!.key)
+    await hello(client)
+    expect(onInternalError).not.toHaveBeenCalled()
+
+    client.send({ id: 'q1', type: 'question', text: '为什么？' })
+    expect(await client.closed()).toBe(1011)
+    expect(onInternalError).toHaveBeenCalledTimes(1)
+    // The failure was logged at error level on purpose.
+    expect(s.logs.entries().filter((e) => e.level >= 50)).toHaveLength(1)
+    logs = undefined
   })
 })
 

@@ -155,12 +155,22 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 - `teacherAi`：`questionSampleSize` 是一段的提问最多交给大模型几个（多了就随机抽）；`answerLeadSeconds` 是老师在下一段开始前多久开始答疑（必须比最短的一段短）；`commentTimeoutSeconds` 是点评最多等多久。
 - `secondLayer` 是词库之后的第二层自动审核：`implementation` 是 `off` 或 `llm`（用大模型，走 `secondLayerTeacher` 和 `secondLayerChat` 两种用途），`batchMillis` 和 `timeoutSeconds` 管它的时间。改了要重启；运行时用开关打开或关掉它的两部分。
 - `switchDefaults` 是每个开关的初始值，在后台第一次切换这个开关之前用它；`switchRefreshSeconds` 是两个服务隔多久读一次开关。
+- `alerts` 决定报名服务什么时候给 `OPERATOR_EMAIL` 发出了问题的邮件（整块和其中每一项都可以省，省了就用示例配置里的值）。它每分钟检查一次，每一类问题发一封，同一类一小时最多一封（`repeatAfterMinutes`；上次发信的时间存在数据库里，所以重启不会重发）。各类和它们的条件：
+  - `internalErrors`：`minutes` 分钟里意外错误至少 `count` 次（报名服务回 HTTP 500、上课服务的节拍失败或连接里出了意外，两个服务合计）。
+  - `llmDownMinutes`：最近这么多分钟里，大模型至少失败 3 次、一次成功也没有。
+  - `llm400PerHour`：最近一小时里，大模型厂商用 HTTP 400 拒绝的调用至少这么多次，多半是学校发出去的请求有毛病。这是一个固定的次数，不是和平时比较。
+  - `mailFailures`：`minutes` 分钟里，验证码邮件发不出去至少 `count` 次。
+  - 任务失败：上次发这一类以后（第一次就看最近 24 小时），每天零点的任务、生成课程或每周复盘至少失败过一次。
+  - `restarts`：同一个服务在 `minutes` 分钟里启动至少 `count` 次。
+  - `backupExpected`、`backupMaxAgeHours`：`backupExpected` 为 `true` 时，最近 `backupMaxAgeHours` 小时里没有一次成功的备份、或者最新一次备份失败，就发信。备份由备份脚本记在 `backup_runs` 表里。默认是 `false`，免得开发环境被一直提醒：**正式环境要设成 `true`。**
+  - `diskPercent`：`/` 所在的磁盘用了至少这么多。
+  维护期间只发备份和磁盘这两类：那时出错、大模型没人用都是正常的。没有 `OPERATOR_EMAIL` 就不发信。邮件标题以 `【机器人网校】` 开头，直接说出了什么事；正文写几次、从什么时候起（学校时区），不写学生说的话、邮箱或 IP。检查所数的记录（`ops_events`、`service_starts`、`backup_runs`）由每天零点的任务在 30 天后删掉。
 - `revocationWindowDays`：在每周复盘里删掉一个词或一条规则时，它在这么多天里造成的违纪会被撤销；在查学生页手动解除处罚时，这个学生这么多天里的违反校规记录也一起撤销。
 
 ### 环境变量
 
 - `PROMPTS_DIR`（默认 `data/prompts`）放提示词，每种用途和写法一个文件，文件名是 `<名字>.md`。仓库里只有 `<名字>.example.md`，写明了每个提示词能用哪些占位符；服务找不到 `<名字>.md` 时改用示例文件，并在启动时打印警告。两个服务都读它。真实的提示词不会提交到仓库。
-- `OPERATOR_EMAIL`：当月花费超过预算时，报名服务把通知发到这个地址。不填的话，通知只显示在数据页上。
+- `OPERATOR_EMAIL`：当月花费超过预算时，报名服务把通知发到这个地址，告警邮件（见上面的 `alerts`）也发到这里。不填的话，预算通知只显示在数据页上，也不发任何告警邮件。
 - `ADMIN_PATH`、`ADMIN_PASSWORD_HASH`、`ADMIN_TOTP_SECRET`：三个都填了，报名服务才提供后台页面（只填了一部分时会打印警告）。`ADMIN_PATH` 是后台的路径，比如 `/your-secret-path`，要以 `/` 开头，不能以 `/v1` 开头。选一个别人猜不到的，也不要写进任何会提交的文件。另外两个用 `npm run admin:password` 生成。
 - 每家厂商的钥匙，放在它的 `apiKeyEnv` 指定的变量里。两个服务和 `words:tidy` 都读，缺了哪个就拒绝启动。
 - `LLM_FAKE=1` 让每次调用大模型都拿到一条写死的回复，不用钥匙，也不联网。只用于本地开发：服务带着它启动时会打印警告，设了 `NODE_ENV=production` 又设了它，服务会拒绝启动。`words:tidy` 遇到它会拒绝运行。

@@ -69,6 +69,11 @@ export interface ClassDeps {
   trustProxy?: boolean
   /** What `GET /healthz` checks. Unset: only that the database answers. */
   healthCheck?: () => Promise<boolean>
+  /**
+   * Called each time something unexpected goes wrong in a connection (the places that close it with 1011), to count it
+   * for the alert mails. Unset: nobody is told.
+   */
+  onInternalError?: () => void
   /** Fastify logger options; unset means no logging. */
   logger?: FastifyServerOptions['logger']
 }
@@ -90,6 +95,13 @@ const BEARER = /^Bearer\s+(\S+)$/i
 export function buildClassApp(deps: ClassDeps): FastifyInstance {
   const app = Fastify({ trustProxy: deps.trustProxy ?? false, logger: deps.logger })
   const ctx: ConnectionContext = { deps, announced: new WeakSet() }
+  const noteInternalError = () => {
+    try {
+      deps.onInternalError?.()
+    } catch {
+      // Counting an error must not change what happens to the connection.
+    }
+  }
   // The student each upgrade's key belongs to, from the auth hook to the WebSocket handler.
   const students = new WeakMap<FastifyRequest, StudentRow>()
 
@@ -100,7 +112,10 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
     // Errors of an open connection (a frame too big, a client gone uncleanly): `ws` closes the connection itself.
     errorHandler(error, socket, request) {
       request.log.warn({ err: error }, 'class connection error')
-      if (socket.readyState === socket.OPEN) socket.close(1011)
+      if (socket.readyState === socket.OPEN) {
+        noteInternalError()
+        socket.close(1011)
+      }
     },
   })
 
@@ -133,6 +148,7 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
           serveConnection(ctx, socket, { student, ip: inetAddress(request.ip), log: request.log })
         } catch (err) {
           request.log.error({ err }, 'class connection failed')
+          noteInternalError()
           socket.close(1011)
         }
       },

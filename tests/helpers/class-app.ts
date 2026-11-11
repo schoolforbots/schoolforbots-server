@@ -50,6 +50,7 @@ export async function buildTestClassApp(
     pingIntervalMs?: number
     rateWindowMs?: number
     trustProxy?: boolean
+    onInternalError?: () => void
     model?: (p: { db: Kysely<Database>; config: SchoolConfig; clock: Clock }) => ModelDeps
   } = {},
 ) {
@@ -73,6 +74,7 @@ export async function buildTestClassApp(
     pingIntervalMs: overrides.pingIntervalMs,
     rateWindowMs: overrides.rateWindowMs,
     trustProxy: overrides.trustProxy,
+    onInternalError: overrides.onInternalError,
     model: overrides.model?.({ db, config, clock }),
     maintenance,
   })

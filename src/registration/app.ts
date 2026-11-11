@@ -32,6 +32,8 @@ export interface RegistrationDeps {
   trustProxy: boolean
   /** Fastify logger options; unset means no logging. Unexpected errors are logged at error level. */
   logger?: FastifyServerOptions['logger']
+  /** Called for every 500 the service answers, to count it for the alert mails. */
+  onInternalError?: () => void
   /** The admin pages. They are served only when `admin.env.admin` is set; without it every path under them is a 404. */
   admin?: AdminDeps
 }
@@ -65,7 +67,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   const app = Fastify({ trustProxy: deps.trustProxy, logger }).withTypeProvider<TypeBoxTypeProvider>()
   app.setValidatorCompiler(TypeBoxValidatorCompiler)
 
-  registerErrorHandler(app)
+  registerErrorHandler(app, { onInternalError: deps.onInternalError })
   // The limiter counts in real time (its own in-memory store), not with the injected clock. The routes that send
   // or check a code have a stricter limit of their own (see codeRouteConfig), which replaces this one for them; the
   // admin API behind its login has a larger one of its own, so this one lets its requests through.

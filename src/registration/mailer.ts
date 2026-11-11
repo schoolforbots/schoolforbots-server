@@ -24,6 +24,24 @@ export function codeMessage(
   }
 }
 
+/**
+ * The mailer with `onFailure` called whenever a verification code cannot be sent; the error still goes to the caller.
+ * Only `sendCode` is wrapped: a notice to the operator that fails is the alert mail's own business.
+ */
+export function withMailFailures(mailer: Mailer, onFailure: () => void): Mailer {
+  return {
+    async sendCode(to, purpose, code) {
+      try {
+        await mailer.sendCode(to, purpose, code)
+      } catch (err) {
+        onFailure()
+        throw err
+      }
+    },
+    sendNotice: (to, subject, text) => mailer.sendNotice(to, subject, text),
+  }
+}
+
 /** The part of a nodemailer transport that the mailer uses. */
 export interface MailTransport {
   sendMail(message: { from: string; to: string; subject: string; text: string }): Promise<unknown>

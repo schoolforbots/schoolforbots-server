@@ -40,11 +40,11 @@ describe('the startup check of the migrations', () => {
     const db = await migratedDb()
     await sql`
       delete from kysely_migration
-      where name in ('0003_student_queue_time', '0004_class_service', '0005_school_rules_agreement', '0006_ai_id', '0007_llm', '0008_admin_discipline', '0009_llm_cached_tokens', '0010_call_on_checks', '0011_maintenance')`.execute(db)
+      where name in ('0003_student_queue_time', '0004_class_service', '0005_school_rules_agreement', '0006_ai_id', '0007_llm', '0008_admin_discipline', '0009_llm_cached_tokens', '0010_call_on_checks', '0011_maintenance', '0012_ops')`.execute(db)
 
     await expect(assertMigrationsUpToDate(db)).rejects.toThrow(
       'The database is not migrated to the latest version ' +
-        '(pending: 0003_student_queue_time, 0004_class_service, 0005_school_rules_agreement, 0006_ai_id, 0007_llm, 0008_admin_discipline, 0009_llm_cached_tokens, 0010_call_on_checks, 0011_maintenance)',
+        '(pending: 0003_student_queue_time, 0004_class_service, 0005_school_rules_agreement, 0006_ai_id, 0007_llm, 0008_admin_discipline, 0009_llm_cached_tokens, 0010_call_on_checks, 0011_maintenance, 0012_ops)',
     )
     // The class service never migrates: that is the registration service's job.
     expect(await executed(db)).toEqual(['0001_init', '0002_key_reset_decoys'])
@@ -56,7 +56,7 @@ describe('the startup check of the migrations', () => {
 
     await expect(assertMigrationsUpToDate(db)).rejects.toThrow(
       'pending: 0001_init, 0002_key_reset_decoys, 0003_student_queue_time, 0004_class_service, ' +
-        '0005_school_rules_agreement, 0006_ai_id, 0007_llm, 0008_admin_discipline, 0009_llm_cached_tokens, 0010_call_on_checks, 0011_maintenance',
+        '0005_school_rules_agreement, 0006_ai_id, 0007_llm, 0008_admin_discipline, 0009_llm_cached_tokens, 0010_call_on_checks, 0011_maintenance, 0012_ops',
     )
   })
 })
@@ -245,6 +245,21 @@ describe('starting the class service', () => {
       startClassService({ app: service.app, tick: () => Promise.reject(both) }, { port: 0, host: '127.0.0.1', speed: 1 }),
     ).rejects.toBe(both)
     expect(service.app.server.listening).toBe(false)
+  })
+
+  test('every failed tick is reported to onTickFailure: a class whose step failed at the first one, and later ones', async () => {
+    service = await buildTestClassApp()
+    const onTickFailure = vi.fn()
+    let calls = 0
+    const tick = async () => {
+      calls++
+      if (calls === 1) throw new AggregateError([new ClassStepError(1, 1, 'opening', new Error('x'))])
+      if (calls === 3) throw new Error('the database blinked')
+    }
+
+    ticker = await startClassService({ app: service.app, tick }, { port: 0, host: '127.0.0.1', speed: 1, onTickFailure })
+    expect(onTickFailure).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(onTickFailure).toHaveBeenCalledTimes(2), { timeout: 5000 })
   })
 
   test('a class whose step fails at the first tick is left behind: the service starts, and the other classes go on', async () => {

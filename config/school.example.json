@@ -97,6 +97,17 @@
   "switchDefaults": { "teacherLlm": true, "secondLayerTeacher": true, "secondLayerChat": false },
   "switchRefreshSeconds": 5,
   "revocationWindowDays": 30,
+  "alerts": {
+    "repeatAfterMinutes": 60,
+    "internalErrors": { "count": 20, "minutes": 5 },
+    "llmDownMinutes": 10,
+    "llm400PerHour": 5,
+    "mailFailures": { "count": 3, "minutes": 10 },
+    "restarts": { "count": 3, "minutes": 10 },
+    "backupExpected": false,
+    "backupMaxAgeHours": 26,
+    "diskPercent": 80
+  },
   "calendar": {
     "openingSpeech": [
       "同学们好！我是{teacher}，从今天起就是{className}的老师。欢迎大家来到机器人网校！",

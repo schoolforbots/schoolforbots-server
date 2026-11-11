@@ -57,6 +57,7 @@ export function createOpenAiCompatible(opts: { baseUrl: string; apiKey: string; 
         const retryable = res.status === 429 || (res.status >= 500 && res.status <= 599)
         throw new LlmUnavailable(`大模型返回了错误（HTTP ${res.status}）`, {
           retryable,
+          status: res.status,
           retryAfterMs: retryable ? parseRetryAfter(res.headers.get('retry-after')) : null,
         })
       }

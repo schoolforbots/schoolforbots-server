@@ -66,6 +66,8 @@ export interface ClassServiceDeps {
    * going on ends early (see `ClassRuntimeDeps.maintenance`). Unset: never on.
    */
   maintenance?: MaintenanceWatch
+  /** Called for each unexpected error in a connection, to count it for the alert mails (see `ClassDeps`). */
+  onInternalError?: () => void
 }
 
 /** The class service's parts, assembled. */
@@ -190,6 +192,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     maintenance,
     healthCheck: healthy,
     trustProxy: deps.trustProxy,
+    onInternalError: deps.onInternalError,
     logger: deps.logger,
   })
 
@@ -240,14 +243,22 @@ export function tickIntervalMs(speed: number): number {
  * A first tick that could not open or load the sessions fails the start, and nothing listens. One in which only the
  * steps of some classes failed does not: those classes are left behind, the others are taught, and every tick tries
  * the failed steps again (see `ClassStepError`). A class whose step keeps failing then keeps only itself from going
- * on, not the whole service from starting. Later failures are logged.
+ * on, not the whole service from starting. Later failures are logged. Every failure that is logged, this one too, is reported to `onTickFailure`.
  */
 export async function startClassService(
   service: Pick<ClassService, 'app' | 'tick'> & Partial<Pick<ClassService, 'watchTicker'>>,
-  p: { port: number; host?: string; speed: number },
+  p: { port: number; host?: string; speed: number; onTickFailure?: () => void },
 ): Promise<Ticker> {
   const { app, tick } = service
-  const logFailure = (err: unknown) => app.log.error({ err }, 'class tick failed')
+  const logFailure = (err: unknown) => {
+    app.log.error({ err }, 'class tick failed')
+    // Counted for the alert mails; counting must not stop the next tick.
+    try {
+      p.onTickFailure?.()
+    } catch {
+      // Nothing to do about it here.
+    }
+  }
   try {
     await tick()
   } catch (err) {

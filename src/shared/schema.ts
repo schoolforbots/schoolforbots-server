@@ -222,6 +222,8 @@ export interface LlmCallsTable {
   /** numeric(12,6): pg reads it as text. */
   costYuan: ColumnType<string, string | number, string | number>
   outcome: LlmOutcome
+  /** The HTTP status of the vendor's error reply when the call failed with one; null otherwise. */
+  httpStatus: Generated<number | null>
   ms: number
   createdAt: Date
 }
@@ -252,6 +254,34 @@ export interface MaintenancePeriodsTable {
   startedAt: Date
   /** Null while the maintenance is on: at most one row has no end. */
   endedAt: Date | null
+}
+
+export interface ServiceStartsTable {
+  id: Generated<number>
+  service: string
+  startedAt: Date
+}
+
+export type OpsEventKind = 'internal_error' | 'mail_failed' | 'job_failed'
+
+export interface OpsEventsTable {
+  id: Generated<number>
+  service: string
+  kind: OpsEventKind
+  at: Date
+}
+
+/** When the alert mail of each kind was last sent. */
+export interface AlertNoticesTable {
+  kind: string
+  lastSentAt: Date
+}
+
+/** One row per backup run, written by the backup script. */
+export interface BackupRunsTable {
+  id: Generated<number>
+  finishedAt: Date
+  ok: boolean
 }
 
 export interface ModerationExclusionsTable {
@@ -433,6 +463,10 @@ export interface Database {
   switches: SwitchesTable
   switchChanges: SwitchChangesTable
   maintenancePeriods: MaintenancePeriodsTable
+  serviceStarts: ServiceStartsTable
+  opsEvents: OpsEventsTable
+  alertNotices: AlertNoticesTable
+  backupRuns: BackupRunsTable
   moderationExclusions: ModerationExclusionsTable
   weeklyReviews: WeeklyReviewsTable
   adminSessions: AdminSessionsTable

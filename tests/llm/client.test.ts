@@ -336,7 +336,21 @@ describe('through a real provider over HTTP', () => {
     replies = [500]
     await expect(llmOverHttp().call('lesson', prompt, { timeoutMs: 5000 })).resolves.toMatchObject({ text: '{"ok":true}' })
     expect(replies).toEqual([])
-    expect(await rows()).toMatchObject([{ outcome: 'ok' }])
+    expect(await rows()).toMatchObject([{ outcome: 'ok', httpStatus: null }])
+  })
+
+  test('a vendor error status is recorded as http_status on the failed row; a network error leaves it null', async () => {
+    replies = [400]
+    await expect(llmOverHttp().call('lesson', prompt, { timeoutMs: 5000 })).rejects.toMatchObject({ status: 400 })
+    replies = [503, 503]
+    await expect(llmOverHttp().call('lesson', prompt, { timeoutMs: 5000 })).rejects.toMatchObject({ status: 503 })
+    const dead = createLlm({ db, config, clock, random: () => 0, providers: { a: createOpenAiCompatible({ baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'k', refusalMarkers: [] }) } })
+    await expect(dead.call('lesson', prompt, { timeoutMs: 5000 })).rejects.toMatchObject({ status: null })
+    expect((await rows()).map((r) => [r.outcome, r.httpStatus])).toEqual([
+      ['failed', 400],
+      ['failed', 503],
+      ['failed', null],
+    ])
   })
 })
 

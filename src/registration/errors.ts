@@ -122,9 +122,9 @@ function errorBody(code: string, message: string, extra: Record<string, unknown>
  * Every failure leaves in the standard `{ error: { code, message, ... } }` body:
  * ApiError as itself, Fastify's own 4xx (schema validation, unparseable JSON,
  * unsupported media type, ...) as invalid_request, unknown routes as not_found,
- * and anything else as a 500 whose details stay in the server log.
+ * and anything else as a 500 whose details stay in the server log (`onInternalError` is called for each of those).
  */
-export function registerErrorHandler(app: FastifyInstance): void {
+export function registerErrorHandler(app: FastifyInstance, opts: { onInternalError?: () => void } = {}): void {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ApiError) {
       return reply.status(error.status).send(errorBody(error.code, error.message, error.extra))
@@ -136,6 +136,11 @@ export function registerErrorHandler(app: FastifyInstance): void {
     }
 
     request.log.error(error)
+    try {
+      opts.onInternalError?.()
+    } catch {
+      // Noting the error must not change the answer.
+    }
     return reply.status(500).send(errorBody('internal_error', '服务器出了点问题，请稍后再试。'))
   })
 

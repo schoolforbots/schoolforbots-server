@@ -962,6 +962,20 @@ describe('logging', () => {
     expect(errors[0]).toMatchObject({ err: { message: 'smtp down' }, msg: 'smtp down' })
   })
 
+  test('a 500 calls onInternalError once; a 400 and a 404 do not', async () => {
+    const onInternalError = vi.fn()
+    await t.destroy()
+    t = await buildTestApp({ onInternalError })
+
+    expect((await register({ nonsense: true })).statusCode).toBe(400)
+    expect((await t.app.inject({ method: 'GET', url: '/v1/no-such-route' })).statusCode).toBe(404)
+    expect(onInternalError).not.toHaveBeenCalled()
+
+    vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(new Error('smtp down'))
+    expect((await register(registrationBody())).statusCode).toBe(500)
+    expect(onInternalError).toHaveBeenCalledTimes(1)
+  })
+
   test('client mistakes are not logged as errors', async () => {
     const logs = captureLogs()
     await useLogger(logs.stream)
