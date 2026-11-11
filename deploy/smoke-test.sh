@@ -37,7 +37,7 @@ trap cleanup EXIT
 
 # A working copy of deploy/, so that the .env and the private folder made here never touch the checkout.
 step "preparing a working copy of deploy/ in $work"
-cp "$here"/compose.yml "$here"/compose.local.yml "$here"/Caddyfile "$here"/watchdog.sh "$here"/deploy.sh "$work"/
+cp "$here"/compose.yml "$here"/compose.local.yml "$here"/Caddyfile "$here"/watchdog.sh "$here"/deploy.sh "$here"/env-tag.sh "$work"/
 mkdir -p "$work/private"
 cat > "$work/.env" <<ENV
 IMAGE_TAG=local
@@ -55,6 +55,11 @@ step "checking the scripts parse"
 sh -n "$here/watchdog.sh"
 bash -n "$here/deploy.sh"
 bash -n "$here/smoke-test.sh"
+bash -n "$here/env-tag.sh"
+bash -n "$here/test-env-tag.sh"
+
+step "checking the .env tag rewrite"
+"$here/test-env-tag.sh"
 
 step "1/5 building the image and starting everything"
 compose build
