@@ -19,6 +19,7 @@ import { calendarStatus, nextSchoolDay, undecidedBreakAhead, type CalendarStatus
 import { MEMBER_STATUSES } from '../shared/db.js'
 import { className, displayName } from '../shared/identity.js'
 import { addDaysToDate, atLocalTime, localDate, localMoment, monthDay } from '../shared/local-time.js'
+import type { Maintenance } from '../shared/maintenance.js'
 import type { Database, StudentStatus } from '../shared/schema.js'
 import type { ClassDeps } from './app.js'
 import { lessonsAttendedBefore, markAttendance } from './attendance.js'
@@ -118,7 +119,15 @@ const closing = (reason: Closing['reason'], message: string): Closing => ({ type
 const REPLACED = closing('replaced', '这个学号在别的地方连上了，这里的连接已经断开。')
 const HELLO_TIMEOUT = closing('session_over', '连上以后没有及时收到 hello，连接已经断开。')
 /** What everyone is told when the service stops (see `ClassDeps.stopping`). */
-export const MAINTENANCE = closing('session_over', '学校正在维护，请稍后重连。')
+export const SHUTTING_DOWN = closing('session_over', '学校正在维护，请稍后重连。')
+
+/**
+ * What everyone is told while the school is under maintenance (see `ClassDeps.maintenance`): what the operator wrote,
+ * as written, and when the school is expected back (null when that is not known).
+ */
+export function maintenanceClosing(m: Maintenance): Closing {
+  return { ...closing('maintenance', m.message), expectedBackAt: m.expectedBackAt?.toISOString() ?? null }
+}
 
 /** Neither the day the school is back nor the first lesson is decided yet. */
 const UNDECIDED = { reopensOn: null, firstLessonAt: null }
@@ -159,7 +168,8 @@ const fail = (code: WsErrorCode): AckResult => ({ ok: false, code })
 
 /**
  * Serves one connection whose key belongs to `student` (the upgrade checked it). A student who may not come in now
- * (suspended, in no class, or outside the session's doors-to-close) gets a `closing` saying why and is disconnected.
+ * (the service is stopping, the school is under maintenance, the student is suspended or in no class, or it is
+ * outside the session's doors-to-close) gets a `closing` saying why and is disconnected.
  */
 export function serveConnection(
   ctx: ConnectionContext,
@@ -265,9 +275,17 @@ export function serveConnection(
 
   // ---- At the door ----
 
-  /** The student's class, or why the student may not come in now. */
+  /** The school under maintenance now, as the `closing` that says so; or null. */
+  const underMaintenance = (): Closing | null => {
+    const m = deps.maintenance?.() ?? null
+    return m === null ? null : maintenanceClosing(m)
+  }
+
+  /** The student's class, or why the student may not come in now: first the service stopping, then maintenance. */
   const atTheDoor = (): { classId: number } | { refusal: Closing } => {
-    if (deps.stopping?.() === true) return { refusal: MAINTENANCE }
+    if (deps.stopping?.() === true) return { refusal: SHUTTING_DOWN }
+    const maintenance = underMaintenance()
+    if (maintenance !== null) return { refusal: maintenance }
     const until = student.suspendedUntil
     if (student.status === 'suspended' && (until === null || until.getTime() > clock.now().getTime())) {
       const message =
@@ -373,7 +391,14 @@ export function serveConnection(
     // would stay behind, its queries landing after the database is gone. Also right before registering, so the stop
     // either finds this connection in the hub or this check finds the stop.
     if (deps.stopping?.() === true) {
-      sendClosing(MAINTENANCE)
+      sendClosing(SHUTTING_DOWN)
+      return
+    }
+    // Nor while the school is under maintenance, for the same reason: when it came on, everyone in the hub was sent
+    // home (see service.ts), and the lesson ends at the next tick.
+    const maintenance = underMaintenance()
+    if (maintenance !== null) {
+      sendClosing(maintenance)
       return
     }
 

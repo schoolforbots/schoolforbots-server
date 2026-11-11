@@ -7,11 +7,12 @@ import type { SecondLayer } from '../moderation/second-layer.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { databaseAlive } from '../shared/healthz.js'
+import type { MaintenanceWatch } from '../shared/maintenance.js'
 import type { Database } from '../shared/schema.js'
 import type { Switches } from '../shared/switches.js'
 import { buildClassApp } from './app.js'
 import { chatHandlers, createChatEngine, type ChatEngine } from './chat.js'
-import { MAINTENANCE, type MessageHandlers } from './connection.js'
+import { maintenanceClosing, SHUTTING_DOWN, type MessageHandlers } from './connection.js'
 import { disciplineRecorder } from './discipline.js'
 import { createLessonHooks, type LessonHooks } from './hooks.js'
 import { createHub, type MemoryHub } from './hub.js'
@@ -59,6 +60,12 @@ export interface ClassServiceDeps {
   pingIntervalMs?: number
   /** The window the frames per minute are counted in, in real milliseconds (see `ClassDeps`); tests shorten it. */
   rateWindowMs?: number
+  /**
+   * The maintenance switch, as the database says it is (see `startMaintenanceWatch`). When it comes on, everyone
+   * connected is sent the `maintenance` `closing` and disconnected; while it is on, nobody comes in and the lesson
+   * going on ends early (see `ClassRuntimeDeps.maintenance`). Unset: never on.
+   */
+  maintenance?: MaintenanceWatch
 }
 
 /** The class service's parts, assembled. */
@@ -77,8 +84,8 @@ export interface ClassService {
   /** What the service runs on its interval: the lesson runtime's steps, then the conversations overdue by the clock. */
   tick(): Promise<void>
   /**
-   * The service is stopping: tells every student connected that the school is under maintenance and disconnects
-   * them. From then on nobody comes in (see `ClassDeps.stopping`).
+   * The service is stopping: tells every student connected so (`SHUTTING_DOWN`: the school is under maintenance,
+   * reconnect later) and disconnects them. From then on nobody comes in (see `ClassDeps.stopping`).
    */
   disconnectAll(): void
   /**
@@ -94,8 +101,8 @@ export const STUCK_TICK_FLOOR_MS = 30_000
 /**
  * The class service on one database: the hub, the chat engine, the questions and the call-ons, the teacher's answers
  * and comments (with a model), the lesson hooks, the lesson runtime and the WebSocket app. One chat engine serves both
- * the hooks and the app's handlers, as do the questions; the same hooks go to the runtime and to the app. Nothing runs
- * until something calls `tick()`.
+ * the hooks and the app's handlers, as do the questions; the same hooks go to the runtime and to the app, and the
+ * maintenance switch to the runtime, the app and the hub. Nothing runs until something calls `tick()`.
  */
 export function createClassService(deps: ClassServiceDeps): ClassService {
   const { db, config, moderator, clock, speed } = deps
@@ -113,7 +120,16 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     return databaseAlive(db)
   }
 
+  const maintenance = () => deps.maintenance?.current() ?? null
+
   const hub = createHub()
+  // Switched on, or its message or expected time changed while on: everyone still connected is sent home with what the
+  // operator wrote. Nobody gets in while it is on, so after the first time the hub is empty.
+  deps.maintenance?.onChange((now) => {
+    if (now === null) return
+    log({}, 'maintenance on, every connection closed')
+    hub.disconnectAll(maintenanceClosing(now))
+  })
   const chat = createChatEngine({
     db,
     config,
@@ -155,7 +171,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     ...createLessonHooks({ db, config, clock, chat, questions, hub, teacherAi: teacherAi ?? undefined, log }),
     ...deps.hooks,
   }
-  const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks, log })
+  const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks, maintenance, log })
 
   const app = buildClassApp({
     db,
@@ -171,6 +187,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     pingIntervalMs: deps.pingIntervalMs,
     rateWindowMs: deps.rateWindowMs,
     stopping: () => stopping,
+    maintenance,
     healthCheck: healthy,
     trustProxy: deps.trustProxy,
     logger: deps.logger,
@@ -198,7 +215,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     },
     disconnectAll() {
       stopping = true
-      hub.disconnectAll(MAINTENANCE)
+      hub.disconnectAll(SHUTTING_DOWN)
     },
     watchTicker(ticker, intervalMs) {
       watched = { ticker, intervalMs }

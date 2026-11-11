@@ -5,6 +5,7 @@ import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { databaseAlive, registerHealthz } from '../shared/healthz.js'
+import type { Maintenance } from '../shared/maintenance.js'
 import { inetAddress } from '../shared/net.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
@@ -51,11 +52,16 @@ export interface ClassDeps {
    */
   rateWindowMs?: number
   /**
-   * Whether the service is stopping: it has sent everyone connected the maintenance `closing`. From then on nobody
-   * comes in: a new connection is told the same at the door, and a hello still going is answered with it instead of
-   * joining. Unset: never.
+   * Whether the service is stopping: it has sent everyone connected the `closing` that says so (`SHUTTING_DOWN`). From
+   * then on nobody comes in: a new connection is told the same at the door, and a hello still going is answered with
+   * it instead of joining. Unset: never.
    */
   stopping?: () => boolean
+  /**
+   * The maintenance now on, or null (see `MaintenanceWatch`). While it is on nobody comes in: a new connection, and a
+   * hello still going, is answered with the `maintenance` `closing` instead (see `maintenanceClosing`). Unset: never.
+   */
+  maintenance?: () => Maintenance | null
   /**
    * True when the service runs behind a reverse proxy whose X-Forwarded-For can be trusted: the address a student's
    * messages are kept with is then the client's that the proxy names, not the proxy's. Unset: false.

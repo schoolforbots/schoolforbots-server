@@ -7,6 +7,7 @@ import { className } from '../shared/identity.js'
 import { recordText } from '../shared/record-text.js'
 import type { Database, DisciplineKind } from '../shared/schema.js'
 import { namesOf } from './discipline.js'
+import { CUT_SHORT } from './events.js'
 import type { Hub } from './hub.js'
 import { studyWeekTitles } from './planning.js'
 import { callsOf, MalformedCallError, type Call } from './questions.js'
@@ -142,6 +143,13 @@ async function summariesOf(
 
   const calls = await callsOfSession(deps, sessionId)
   const teacherAnswers = await teacherAnswersOf(db, sessionId)
+  // The session's marker of a lesson cut short by maintenance (see `cutShort` in runtime.ts).
+  const cut = await db
+    .selectFrom('classEvents')
+    .select('id')
+    .where('sessionId', '=', sessionId)
+    .where('step', '=', CUT_SHORT)
+    .executeTakeFirst()
   // A question the moderator stopped was never asked of the teacher, so it is left out; the rest are the student's own.
   const asked = await db
     .selectFrom('messages')
@@ -191,10 +199,16 @@ async function summariesOf(
             : { kind: call.kind, question: bareQuestion(call), answer: call.answer, comment: call.comment },
         chattedWith,
         criticisms,
+        cutShort: cut !== undefined,
       }
       return [studentId, summary]
     }),
   )
+}
+
+/** A summary as stored. One written before summaries said whether the lesson was cut short was not. */
+export function storedSummary(payload: Record<string, unknown>): Summary {
+  return { cutShort: false, ...(payload as Omit<Summary, 'cutShort'> & { cutShort?: boolean }) }
 }
 
 /**
@@ -248,7 +262,7 @@ export async function writeSummaries(
         .orderBy('studentId')
         .execute()
       for (const { studentId, payload } of stored) {
-        hub.send(studentId, { type: 'summary', sessionId, summary: payload as Summary })
+        hub.send(studentId, { type: 'summary', sessionId, summary: storedSummary(payload) })
       }
     }
   }

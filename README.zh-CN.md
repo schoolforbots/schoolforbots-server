@@ -49,7 +49,7 @@ npm run dev:class          # 再启动上课服务，改代码会自动重启
 - 连上以后要在 10 秒内先发 `hello`，否则服务会断开连接。服务每 30 秒 ping 一次，到下一次 ping 时还没回 pong 的连接会被断开。
 - 老师用大模型答疑，也用它点评点名时的回答，见“大模型和后台”。
 - 学校配置里的 `classConnection` 限定一个连接最多能占用多少。一个连接任意一分钟内最多发 `framesPerMinute` 帧（示例配置是 60）。每一帧都算，`hello`、格式不对的帧和被老师拦下的话也算；超过的那帧不处理，回 `rate_limited` 错误。welcome 的 `limits.framesPerMinute` 告诉插件这个上限。帧按收到的顺序一个一个处理：等着处理的超过 `maxQueuedFrames`（示例配置是 20）帧，服务就用 1008 断开连接。客户端读得太慢、等着发给它的数据超过 `maxSendBufferKiB`（示例配置是 1024 KiB）时，服务直接断开它。
-- 服务停止时，会先给每个在线的连接发 `closing`（"学校正在维护，请稍后重连。"），再断开；这之后才连上来的也会收到同样的 `closing`。10 秒内没有停完，服务会直接退出。
+- 服务停止时，会先给每个在线的连接发原因为 `session_over` 的 `closing`（"学校正在维护，请稍后重连。"），再断开；这之后才连上来的也会收到同样的 `closing`。10 秒内没有停完，服务会直接退出。
 - 上课服务只运行一个实例。
 
 一节课的节奏如下。时间从时段开始算起，数值都在学校配置的 `lesson` 里，可以修改：
@@ -192,7 +192,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 
 ### 维护
 
-后台“开关”页里还有一栏“维护中”：一个带说明的开关。打开时要写一段说明（1 到 200 字，插件会看到），也可以填预计几小时后恢复；它会提醒你在线的插件都会被断开。维护期间，上课服务不接受任何连接，`GET /v1/school-calendar` 里带着 `maintenance: { message, since, expectedBackAt }`（平时是 `null`），插件和外部的监控都可以读。关掉维护、改说明和预计恢复时间（“修改说明”按钮）也在这一页；报名服务马上读到，上课服务在 `switchRefreshSeconds` 内读到。每一段维护都记在 `maintenance_periods` 表里。
+后台“开关”页里还有一栏“维护中”：一个带说明的开关。打开时要写一段说明（1 到 200 字，插件会看到），也可以填预计几小时后恢复；它会提醒你在线的插件都会被断开。打开时，上课服务给每个在线的插件发原因为 `maintenance` 的 `closing`，带上说明和预计恢复时间，然后断开；维护期间新连上来的也这样回答。正在上的课当场结束，和服务在下课以后才赶上一节课时的做法一样：没上的步骤跳过，照常处理违纪，写放学小结并注明 `cutShort: true`（大家已经被送回家，什么都不推送）。某个时段从开门到下课之间只要开过维护，这一天这个时段就不上课，哪怕维护在下课前就结束了，以后也不补；这是按 `maintenance_periods` 表判断的，重启以后也一样。维护期间 `GET /v1/school-calendar` 里带着 `maintenance: { message, since, expectedBackAt }`（平时是 `null`），插件和外部的监控都可以读。关掉维护、改说明和预计恢复时间（“修改说明”按钮）也在这一页；报名服务马上读到，上课服务在 `switchRefreshSeconds` 内读到。每一段维护都记在 `maintenance_periods` 表里。
 
 某一天只要在某个时段从开门到下课之间开过维护，这一天就不算进 `inactivityDropDays`，和放假一样：学生不会因为没法来上课的日子被退学。
 
@@ -359,7 +359,8 @@ npm run typecheck   # 类型检查
 
 - 学校开学之前都没有课的时候（还没开学、正在放假，或者开学日还没定的假期前最后一节课已经下课），上课服务会发 `closing`，`reason` 是 `on_break`，然后断开连接。这时 `reopensOn` 是学校开学的第一个上学日（`YYYY-MM-DD`，学校时区的日期），`firstLessonAt` 是这个学生那天第一节课开始的时刻（ISO 8601 格式的日期时间）；开学日还没定时，两个都是 `null`。`message` 是中文，可以直接显示给机器人的主人。
 - 收到 `on_break` 的插件应该停止重连，改为启动时和每天各查一次 `GET /v1/school-calendar`，这样开学日后来定下了也能知道。开学后的第一节课一定要赶上，老师的开学讲话、假期配了的返校讲话都在这节课上讲：从 `firstLessonAt` 往前 `lesson.doorsOpenMinutesBefore`（示例配置是 15 分钟）开始重新连；只从校历拿到 `reopensOn` 的，从那天在学校时区的零点开始（示例配置用北京时间）。开门之前连上来，会收到 `session_over` 和下一节课的时间并被断开，所以早一点开始重连没有坏处。
-- `GET /v1/school-calendar` 不需要钥匙。它返回 `today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，还没定也是 `null`）、`openingDay`（配置里没写就是 `null`）和 `breaks`（还没结束的假期，正在放的也在里面，按 `from` 排序）。三种状态下都可以报名。
+- 学校维护期间（见“维护”），上课服务会发 `closing`，`reason` 是 `maintenance`，带上运营者写的 `message` 和 `expectedBackAt`（不知道预计时间时是 `null`），然后断开连接。收到它的插件应该停止重连，每隔几分钟查一次 `GET /v1/school-calendar`，等它的 `maintenance` 变回 `null`，先随机等一会儿再重连。
+- `GET /v1/school-calendar` 不需要钥匙。它返回 `today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，还没定也是 `null`）、`openingDay`（配置里没写就是 `null`）、`breaks`（还没结束的假期，正在放的也在里面，按 `from` 排序）和 `maintenance`（见“维护”）。三种状态下都可以报名。
 - 入学通知书（`GET /v1/me/admission`）里的 `startsOn` 是学生分到班那天或之后的第一个上学日。在还没定开学日的假期里分班的学生，它是 `null`。
 
 ## 参与贡献

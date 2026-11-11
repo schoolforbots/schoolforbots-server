@@ -326,12 +326,20 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   function onClosing(msg: Of<'closing'>): void {
     say(`closing ${msg.reason}：${msg.message}`)
     if (msg.reason === 'session_over') {
-      // After the dismissal that is the lesson over. Before it (the doors not open yet, the service going down for
-      // maintenance), the close of the connection is followed by another try.
+      // After the dismissal that is the lesson over. Before it (the doors not open yet, the service stopping), the close
+      // of the connection is followed by another try.
       if (endsAt !== null && clock.now().getTime() >= endsAt) end('下课')
       return
     }
-    end({ replaced: '学号在别处连上了', suspended: '停课', expelled: '开除', on_break: '学校放假' }[msg.reason])
+    end(
+      {
+        replaced: '学号在别处连上了',
+        suspended: '停课',
+        expelled: '开除',
+        on_break: '学校放假',
+        maintenance: '学校维护',
+      }[msg.reason],
+    )
   }
 
   function onMessage(text: string): void {

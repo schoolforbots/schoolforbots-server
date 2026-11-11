@@ -56,6 +56,7 @@ const summary = (over: Partial<Static<typeof Summary>> = {}): Static<typeof Summ
   calledOn: null,
   chattedWith: [],
   criticisms: [],
+  cutShort: false,
   ...over,
 })
 

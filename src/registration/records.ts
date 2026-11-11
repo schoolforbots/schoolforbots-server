@@ -1,6 +1,7 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
-import { Type, type Static } from 'typebox'
-import { RecordsResult, SummariesResult, type Summary } from '../protocol/http.js'
+import { Type } from 'typebox'
+import { storedSummary } from '../class/summaries.js'
+import { RecordsResult, SummariesResult } from '../protocol/http.js'
 import { recordText } from '../shared/record-text.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf } from './auth.js'
@@ -48,8 +49,8 @@ export function recordsRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox
           .orderBy('s.id', 'desc')
           .limit(limit)
           .execute()
-        // The payload is what `writeSummaries` stored: a `Summary`.
-        return { summaries: rows.map((r) => ({ ...(r.payload as Static<typeof Summary>), sessionId: r.sessionId })) }
+        // The payload is what `writeSummaries` stored: a `Summary`, without `cutShort` when written before it existed.
+        return { summaries: rows.map((r) => ({ ...storedSummary(r.payload), sessionId: r.sessionId })) }
       },
     )
 

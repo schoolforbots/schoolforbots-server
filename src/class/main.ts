@@ -8,6 +8,7 @@ import { createSecondLayer } from '../moderation/second-layer.js'
 import { systemClock } from '../shared/clock.js'
 import { loadClassEnv, loadSchoolConfig } from '../shared/config.js'
 import { assertMigrationsUpToDate, createDb } from '../shared/db.js'
+import { startMaintenanceWatch } from '../shared/maintenance.js'
 import { createShutdown, SHUTDOWN_DEADLINE_MS } from '../shared/shutdown.js'
 import { startSwitches } from '../shared/switches.js'
 import { createClassService, startClassService } from './service.js'
@@ -42,6 +43,9 @@ async function main(): Promise<void> {
 
   // Read from the database, so a change made in the admin reaches this service within a few seconds.
   const switches = await startSwitches({ db, config, clock: systemClock, log })
+  // The same for the maintenance switch, read before the first tick: a service started while it is on lets nobody in
+  // and ends the lesson going on (see service.ts).
+  const maintenance = await startMaintenanceWatch({ db, config, log })
 
   // The model, with the cost of every call recorded. The monthly budget is watched by the registration service, which
   // has the mail settings for the notice: it checks the spend of both services after each of its runs.
@@ -62,6 +66,7 @@ async function main(): Promise<void> {
     trustProxy: env.trustProxy,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     model: { llm, prompts, secondLayer, switches },
+    maintenance,
   })
   const { app } = service
   logger = app.log
@@ -72,6 +77,7 @@ async function main(): Promise<void> {
   const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
     switches.stop()
+    maintenance.stop()
     moderator.stop()
     await ticker.stop() // waits for a tick still running; after it no answering starts
     // The answers still being worked on get half the time the shutdown has to reach the class; any later is dropped.

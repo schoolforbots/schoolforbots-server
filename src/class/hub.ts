@@ -33,8 +33,9 @@ export interface MemoryHub extends Hub {
    */
   remove(connection: HubConnection): boolean
   /**
-   * Sends every connection `message` (a `closing`) as its last message and closes it: the service is stopping. All
-   * are forgotten before the first is closed, so no student leaving finds a classmate left to tell.
+   * Sends every connection `message` (a `closing`) as its last message and closes it: the service is stopping, or the
+   * school went into maintenance. All are forgotten before the first is closed, so no student leaving finds a
+   * classmate left to tell.
    */
   disconnectAll(message: object): void
 }

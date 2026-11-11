@@ -6,8 +6,9 @@ import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { lessonLockKey, lock, MEMBER_STATUSES } from '../shared/db.js'
 import { className, displayName } from '../shared/identity.js'
 import { atLocalTime, localDate } from '../shared/local-time.js'
+import { maintenanceBetween, type Maintenance } from '../shared/maintenance.js'
 import type { CallOnQuestions, Database, LessonSegment, SessionKind, SessionMember } from '../shared/schema.js'
-import { appendClassEvent, classEventMessage, lockSession, NOOP, stepWritten } from './events.js'
+import { appendClassEvent, classEventMessage, CUT_SHORT, lockSession, NOOP, stepWritten } from './events.js'
 import type { LessonHooks } from './hooks.js'
 import type { Hub } from './hub.js'
 import { isSchoolDay, planSession } from './planning.js'
@@ -71,6 +72,12 @@ export interface ClassRuntimeDeps {
   /** Timeline speed: 1 is real time (see `lessonSteps`). */
   speed: number
   hooks: LessonHooks
+  /**
+   * The maintenance now on, or null (see `MaintenanceWatch`). While it is on, every session between its doors and its
+   * dismissal is cut short (see `cutShort`). Unset: never on. Whether a slot opens at all goes by the periods on
+   * record instead (see `openDueSlots`).
+   */
+  maintenance?: () => Maintenance | null
   /** A program log line. Only step names and numbers go into it, never what anyone said. */
   log?: (obj: object, msg: string) => void
 }
@@ -113,6 +120,8 @@ interface Tracked {
   steps: { step: StepName; at: Date }[]
   /** The steps already run: by this runtime, or (read back after a restart) by an earlier one. */
   done: Set<string>
+  /** Cut short by maintenance (see `cutShort`): the session is over, and closes at once. */
+  cutShort: boolean
   lesson?: LessonContent
 }
 
@@ -189,6 +198,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
       .execute()
     for (const r of rows) {
       const { steps, doorsAt, closeAt } = timesOf(r.startsAt, r.kind)
+      const done = new Set(written.filter((w) => w.sessionId === r.id).map((w) => w.step))
       tracked.set(r.id, {
         session: {
           sessionId: r.id,
@@ -205,7 +215,8 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
         teacher: teacherName(r.teacherPersonaId),
         doorsAt,
         steps,
-        done: new Set(written.filter((w) => w.sessionId === r.id).map((w) => w.step)),
+        done,
+        cutShort: done.has(CUT_SHORT),
       })
     }
   }
@@ -285,7 +296,11 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     })
   }
 
-  /** Opens today's slots whose doors have opened and whose close has not come yet, each once; none on a holiday. */
+  /**
+   * Opens today's slots whose doors have opened and whose close has not come yet, each once; none on a holiday, and
+   * none that the school was under maintenance for at any moment from its doors to its close. That goes by the periods
+   * on record, so a runtime started after the maintenance (a restart) does not open the slot either.
+   */
   async function openDueSlots(now: Date): Promise<void> {
     const today = localDate(now, config.timezone)
     if (openedDay !== today) {
@@ -299,6 +314,11 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
       // The doors and the close do not depend on the kind of session.
       const { doorsAt, endsAt, closeAt } = timesOf(startsAt, 'lesson')
       if (before(now, doorsAt) || !before(now, closeAt)) continue
+      // Maintenance that is on now started before now, so it is on record too.
+      if (await maintenanceBetween(db, doorsAt, closeAt)) {
+        openedSlots.add(slot)
+        continue
+      }
       // Opening again is harmless (a class's session for the day is written once), so a slot only counts as open
       // once its sessions are tracked.
       const opened = await openSessions(today, slot, startsAt, endsAt)
@@ -308,12 +328,15 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     }
   }
 
-  /** The class's session from its doors until its close at `now`, the latest one if two overlap; or null. */
+  /**
+   * The class's session from its doors until its close at `now`, the latest one if two overlap; or null. A session cut
+   * short is over, closed or not.
+   */
   function currentOf(classId: number, now: Date): ActiveSession | null {
     let found: ActiveSession | null = null
     for (const t of tracked.values()) {
       const s = t.session
-      if (s.classId !== classId || before(now, t.doorsAt) || !before(now, s.closeAt)) continue
+      if (s.classId !== classId || t.cutShort || before(now, t.doorsAt) || !before(now, s.closeAt)) continue
       if (found === null || before(found.startsAt, s.startsAt)) found = s
     }
     return found
@@ -325,8 +348,10 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
    * through its close) is finished quietly: its steps are written and its after-class work is done, but nothing is
    * pushed, nobody is called on, and pending renames are left for the class's next opening. Nobody is disconnected
    * either, except at its close those still connected when no newer session of the class is on (see the close step).
+   * A session cut short by maintenance is finished quietly too: everyone was sent home when it came on.
    */
   function isLive(t: Tracked, now: Date): boolean {
+    if (t.cutShort) return false
     if (now.getTime() > t.session.closeAt.getTime() + liveToleranceMs) return false
     for (const other of tracked.values()) {
       if (
@@ -636,11 +661,35 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     return closed.numUpdatedRows > 0n ? [] : null
   }
 
-  /** Runs the session's steps that are due and have not run, in order. */
+  /**
+   * The school went into maintenance between the session's doors and its dismissal: the lesson ends now. The steps
+   * before the close that have not run are marked as skipped with `noop` markers (never sent, and the step is done:
+   * a teacher's answer still being worked on finds the next segment written and is dropped), together with the
+   * `cut-short` marker, in one transaction. The close then runs at once, quietly (see `isLive`): the after-class work
+   * as at any close, with the summaries saying the lesson was cut short. Recorded, so a restart neither teaches the
+   * skipped steps nor forgets the session was cut short. A failure counts as the close's, tried again at the next tick.
+   */
+  async function cutShort(t: Tracked, now: Date): Promise<void> {
+    const { sessionId, classId } = t.session
+    const skipped = t.steps.filter(({ step }) => step !== 'close' && !t.done.has(step)).map(({ step }) => step)
+    try {
+      await commitAndPush(t, now, false, async () =>
+        [...skipped, CUT_SHORT].map((step) => ({ step, kind: NOOP, payload: {} })),
+      )
+    } catch (err) {
+      throw new ClassStepError(sessionId, classId, 'close', err)
+    }
+    for (const step of skipped) t.done.add(step)
+    t.done.add(CUT_SHORT)
+    t.cutShort = true
+    log({ sessionId, classId, skipped: skipped.length }, 'class session cut short by maintenance')
+  }
+
+  /** Runs the session's steps that are due and have not run, in order; all of them at once in a session cut short. */
   async function advance(t: Tracked, now: Date): Promise<void> {
     const { sessionId, classId } = t.session
     for (const { step, at } of t.steps) {
-      if (before(now, at)) break
+      if (before(now, at) && !t.cutShort) break
       if (t.done.has(step)) continue
       let seqs: number[] | null
       try {
@@ -656,6 +705,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
 
   async function runTick(): Promise<void> {
     const now = clock.now()
+    const underMaintenance = (deps.maintenance?.() ?? null) !== null
     const failures: unknown[] = []
     try {
       if (!loaded) {
@@ -673,6 +723,8 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     )
     for (const t of order) {
       try {
+        const between = !before(now, t.doorsAt) && before(now, t.session.endsAt)
+        if (underMaintenance && between && !t.cutShort) await cutShort(t, now)
         await advance(t, now)
       } catch (err) {
         failures.push(err)

@@ -205,6 +205,7 @@ describe('writeSummaries', () => {
     calledOn: null,
     chattedWith: [],
     criticisms: [],
+    cutShort: false,
     ...over,
   })
 
@@ -776,6 +777,7 @@ describe('after class, through the lesson hooks', () => {
       teacher: { name: '老周' },
       lesson: LESSON,
       weekTitles: [],
+      cutShort: false,
     }
     const forA = {
       ...expected,
