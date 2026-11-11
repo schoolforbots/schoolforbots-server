@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Updates the school to an image tag:
 #   deploy/deploy.sh <image-tag> [--now]
-# Pulls the image, recreates the registration service (it upgrades the database when it starts) and waits until it is
+# Pulls the image, starts postgres (a no-op when it runs; on a new server this is what creates it) and waits until it
+# is healthy, recreates the registration service (it upgrades the database when it starts) and waits until it is
 # healthy, waits for the class service to be free (no class on, none opening within 15 minutes; --now skips the wait),
 # recreates it and waits until it is healthy, then brings up the rest. Stops with a non-zero exit code at the first
 # step that fails.
@@ -16,6 +17,8 @@ usage() {
 
 [ $# -ge 1 ] && [ $# -le 2 ] || usage
 tag="$1"
+# Docker's grammar of a tag; it also keeps the value safe to write into .env.
+[[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo "deploy: not a valid image tag: ${tag}" >&2; exit 2; }
 now=0
 if [ $# -eq 2 ]; then
   [ "$2" = "--now" ] || usage
@@ -32,17 +35,20 @@ compose() { docker compose "${files[@]}" "$@"; }
 export IMAGE_TAG="$tag"
 wait_timeout=240
 
-echo "deploy: step 1/5: pulling the image (tag ${tag})"
+echo "deploy: step 1/6: pulling the image (tag ${tag})"
 if [ "${SKIP_PULL:-0}" = 1 ]; then
   echo "deploy: SKIP_PULL is set, not pulling"
 else
   compose pull registration class
 fi
 
-echo "deploy: step 2/5: recreating registration (migrates the database) and waiting until it is healthy"
+echo "deploy: step 2/6: starting postgres if it is not running, and waiting until it is healthy"
+compose up -d --wait --wait-timeout "$wait_timeout" postgres
+
+echo "deploy: step 3/6: recreating registration (migrates the database) and waiting until it is healthy"
 compose up -d --no-deps --force-recreate --wait --wait-timeout "$wait_timeout" registration
 
-echo "deploy: step 3/5: waiting for the class service to be free"
+echo "deploy: step 4/6: waiting for the class service to be free"
 if [ "$now" = 1 ]; then
   echo "deploy: --now, not waiting"
 else
@@ -57,15 +63,21 @@ else
   done
 fi
 
-echo "deploy: step 4/5: recreating class and waiting until it is healthy"
+echo "deploy: step 5/6: recreating class and waiting until it is healthy"
 compose up -d --no-deps --force-recreate --wait --wait-timeout "$wait_timeout" class
 
-echo "deploy: step 5/5: bringing up the other services"
+echo "deploy: step 6/6: bringing up the other services"
 compose up -d --wait --wait-timeout "$wait_timeout"
 
-# Remembered, so that a later `docker compose up` does not go back to the old tag.
+# Remembered, so that a later `docker compose up` does not go back to the old tag. The copy is private from the start
+# and takes the mode of the original; a failure here stops the script.
 if grep -q '^IMAGE_TAG=' .env; then
-  sed "s|^IMAGE_TAG=.*|IMAGE_TAG=${tag}|" .env > .env.new && cat .env.new > .env && rm .env.new
+  (
+    umask 077
+    sed "s|^IMAGE_TAG=.*|IMAGE_TAG=${tag}|" .env > .env.new
+    chmod --reference=.env .env.new 2>/dev/null || chmod "$(stat -c %a .env 2>/dev/null || stat -f %Lp .env)" .env.new
+    mv .env.new .env
+  ) || { rm -f .env.new; echo "deploy: could not write IMAGE_TAG to .env" >&2; exit 1; }
 else
   echo "IMAGE_TAG=${tag}" >> .env
 fi

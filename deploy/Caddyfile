@@ -4,10 +4,12 @@
 {$SCHOOL_DOMAIN} {
 	{$CADDY_TLS_LINE}
 
-	# One file in a volume; Caddy can only roll by size, so the files are small, and the ones older than 30 days go.
+	# One file in a volume, rolled every day (and early at 100 MiB); the rolled files older than 30 days are deleted.
+	# roll_keep only needs to be larger than the number of files 30 days can make.
 	log {
 		output file /var/log/caddy/access.log {
-			roll_size 20MiB
+			roll_interval 1d
+			roll_size 100MiB
 			roll_keep 1000
 			roll_keep_for 720h
 		}

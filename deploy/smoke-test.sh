@@ -92,12 +92,12 @@ expect_status 200 /healthz/mail
 expect_status 200 /v1/school-calendar
 
 # A WebSocket upgrade without a key is turned away by the class service itself (401 with its own error), not by the
-# proxy (502 or 404).
-ws_reply="$(curl -ksS -i --max-time 10 "$base/v1/class" \
+# proxy (502 or 404). HTTP/1.1 is forced: over HTTP/2 curl sends no Upgrade header at all.
+ws_reply="$(curl -ksS -i --http1.1 --max-time 10 "$base/v1/class" \
   -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
   -H 'Sec-WebSocket-Key: c21va2UtdGVzdC1rZXktMTY=' || true)"
 echo "$ws_reply" | head -1
-echo "$ws_reply" | head -1 | grep -q ' 401' || fail "the class connection without a key was not refused with 401"
+echo "$ws_reply" | head -1 | grep -q '^HTTP/1.1 401' || fail "the upgrade without a key was not refused with HTTP/1.1 401"
 echo "$ws_reply" | grep -q 'unauthorized' || fail "the refusal does not come from the class service"
 
 step "running deploy.sh on the local files"
