@@ -12,5 +12,6 @@
 - [ ] Every commit has a `Signed-off-by` sign-off (commit with `git commit -s`)
 - [ ] `npm test` and `npm run typecheck` pass locally
 - [ ] New behavior has tests
+- [ ] Documentation that describes the change is updated, in English and Chinese, following "Writing documentation" in CONTRIBUTING.md
 - [ ] If the API changed, I ran `npm run protocol:export` and committed the generated files
 - [ ] No secrets, `.env`, real configuration, real word lists, or personal information are committed
