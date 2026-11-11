@@ -92,8 +92,9 @@ for _ in $(seq 1 60); do
 done
 docker exec "$src" pg_isready -U school -d school -h 127.0.0.1 >/dev/null || fail "the source database did not start"
 
-# What the backup container is given, as the .env gives it on a server. The rclone variables are for this script's own
-# helper commands (remote "drill"); backup.sh makes its own.
+# What the backup container is given, as compose gives it on a server: the settings of backup.env, and DATABASE_URL
+# from .env. It sits next to the working copy of compose.yml, whose backup service reads a backup.env there. The rclone
+# variables are for this script's own helper commands (remote "drill"); backup.sh makes its own.
 cat > "$work/backup.env" <<ENV
 DATABASE_URL=postgres://school:$pg_password@$src:5432/school
 BACKUP_S3_ENDPOINT=http://$minio:9000

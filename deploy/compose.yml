@@ -1,6 +1,6 @@
 # The school in production: one image run as two services, a database, a proxy that holds the certificate, a watchdog
 # and the nightly backup. Start and update it with deploy.sh. The variables below come from the .env next to this file
-# (see env.example).
+# (see env.example); the backup's settings come from backup.env (see backup.env.example).
 
 x-logging: &logging
   # The server's journald keeps the logs; how long is set there, not here.
@@ -95,20 +95,16 @@ services:
   # Every day at BACKUP_AT (Shanghai time) dumps the database, encrypts it with the public key BACKUP_AGE_RECIPIENT and
   # uploads it to S3-compatible storage; see backup/backup.sh. One backup on demand:
   #   docker compose run --rm backup backup.sh
-  # Built on the server from backup/Dockerfile; the private key is never here.
+  # Built on the server from backup/Dockerfile; the private key is never here. Its BACKUP_ settings are in backup.env,
+  # which no other service reads: the storage key can delete backups, so it stays out of the services that face the
+  # internet. Only DATABASE_URL comes from .env.
   backup:
     build: ./backup
     # PID 1 of its own: docker stop reaches a running backup as a TERM, not after a silent kill.
     init: true
+    env_file: backup.env
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
-      BACKUP_AT: ${BACKUP_AT:-03:30}
-      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
-      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
-      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
-      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
-      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
-      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
     depends_on:
       postgres:
         condition: service_healthy
