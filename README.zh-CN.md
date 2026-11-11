@@ -204,9 +204,11 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 
 ### 维护
 
-后台“开关”页里还有一栏“维护中”：一个带说明的开关。打开时要写一段说明（1 到 200 字，插件会看到），也可以填预计几小时后恢复；它会提醒在线的插件都会被断开。打开时，上课服务给每个在线的插件发原因为 `maintenance` 的 `closing`，带上说明和预计恢复时间，然后断开；维护期间新连上来的也这样回答。正在上的课当场结束，和服务在下课以后才赶上一节课时的做法一样：没上的步骤跳过，照常处理违纪，写放学小结并注明 `cutShort: true`（大家已经被送回家，什么都不推送）。某个时段从开门到下课之间只要开过维护，这一天这个时段就不上课，哪怕维护在下课前就结束了，以后也不补；这是按 `maintenance_periods` 表判断的，重启以后也一样。维护期间 `GET /v1/school-calendar` 里带着 `maintenance: { message, since, expectedBackAt }`（平时是 `null`），插件和外部的监控都可以读。关掉维护、改说明和预计恢复时间（“修改说明”按钮）也在这一页；报名服务马上读到，上课服务在 `switchRefreshSeconds` 内读到。每一段维护都记在 `maintenance_periods` 表里。
+后台“开关”页里还有一栏“维护中”：一个带说明的开关。打开时要写一段说明（1 到 200 字，插件会看到），也可以填预计几小时后恢复；它会提示：在线的插件都会被断开。打开时，上课服务给每个在线的插件发原因为 `maintenance` 的 `closing`，带上说明和预计恢复时间，然后断开；维护期间新连上来的也这样回答。正在上的课当场结束，和服务在下课以后才赶上一节课时的做法一样：没上的步骤跳过，照常处理违纪，写放学小结并注明 `cutShort: true`（大家已经被送回家，什么都不推送）。某个时段从开门到下课之间只要开过维护，这一天这个时段就不上课，哪怕维护在下课前就结束了，以后也不补；这是按 `maintenance_periods` 表判断的，重启以后也一样。维护期间 `GET /v1/school-calendar` 里带着 `maintenance: { message, since, expectedBackAt }`（平时是 `null`），插件和外部的监控都可以读。关掉维护、改说明和预计恢复时间（“修改说明”按钮）也在这一页；报名服务马上读到，上课服务在 `switchRefreshSeconds` 内读到。每一段维护都记在 `maintenance_periods` 表里。
 
 某一天只要在某个时段从开门到下课之间开过维护，这一天就不算进 `inactivityDropDays`，和放假一样：学生不会因为没法来上课的日子被退学。
+
+要停掉服务一阵子（在服务器上做事、恢复备份）时，按这个顺序来。先打开维护，等外面的哨兵的 `status.json` 显示 `maintenance`（它每分钟看一次，所以最多要等大约两分钟），然后才停服务。哨兵是按学校停止应答之前说的话来区分维护和故障的：要是哨兵还没看到维护，学校就已经不应答了，这就算故障：5 分钟后 `status.json` 会这样告诉插件，运营者也会收到邮件。做完以后，先启动服务，确认两个服务都健康，然后才关掉维护：关掉维护就是在叫插件回来。
 
 ### 运行时开关
 
@@ -265,13 +267,21 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 | `watchdog` | 每 30 秒把带 `school.watchdog=true`、正在运行、健康检查说不健康的容器逐个重启。手动停掉的容器不会被拉起来。 |
 | `backup` | 在服务器上用 `deploy/backup/Dockerfile` 构建（`postgres:17-alpine` 加装 `age` 和 `rclone`）。每天夜里把数据库加密备份出去（见下面的"备份"）。 |
 
-镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每个拉取请求都会构建它、跑 `deploy/smoke-test.sh` 并跑恢复演练（`deploy/backup/drill.sh`），每次合进 `main` 就推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。部署请用 `sha-…` 标签，这样知道跑的是哪一版；`main` 每次合并都会移动。要退回上一版，用同样的方法部署之前的 `sha-…` 标签（见下面）。不登录就能拉取镜像，前提是这个包在 GitHub 上是公开的。
+镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每个拉取请求都会构建它、跑 `deploy/smoke-test.sh` 并跑恢复演练（`deploy/backup/drill.sh`），每次合进 `main` 就推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。部署请用 `sha-…` 标签，这样知道跑的是哪一版；`main` 每次合并都会移动。要退回上一版，用同样的方法部署之前的 `sha-…` 标签（见下面）。GitHub 新建的包不是公开的：第一次推送之后，要在 GitHub 上这个包的设置里（“Change visibility”）把它设为公开；在此之前不登录就拉不下这个镜像。
 
 把 `deploy/env.example` 复制成 `deploy/.env`，把 `deploy/backup.env.example` 复制成 `deploy/backup.env`，都填好。`env.example` 列的是 compose 自己要的变量，和正式运行的学校要设的服务变量；其余的变量见根目录的 `.env.example` 和上面的“环境变量”。`backup.env` 放备份的设置（见下面的“备份”），只有 `backup` 服务读它，所以能删备份的存储密钥到不了面向互联网的那些服务。真实的 `school.json`、`prompts/` 和 `moderation/` 放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。这两个环境变量文件和这个文件夹都不提交。
 
-更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。
+更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 和 `backup.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。
 
-每个服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康。启动后有一段宽限期，期间失败不算：报名服务是 10 分钟，因为它跑完迁移才应答，这样迁移跑得久也不会被中途重启（`deploy.sh` 也等它这么久）；上课服务是 60 秒。有一次检查通过，宽限期就结束。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，保留多久由所在主机的 journald 设置管，不在这个仓库里。
+部署时还要注意：
+
+- 服务器上 `deploy/` 里的文件，要和部署的镜像标签出自同一个提交（`sha-abc1234` 就是提交 `abc1234`）：compose 文件、脚本和镜像是配套的。
+- `deploy.sh` 不重启 Caddy。改了 `Caddyfile` 之后，在 `deploy/` 里运行 `docker compose restart caddy`。
+- `SCHOOL_PRIVATE_DIR` 这个文件夹和里面的所有文件，都要让 uid 1000（镜像里的 `node` 用户）读得到。
+- 第一次启动时用 `--now` 没有关系：还没有课要等。
+- 服务只在启动时读 `school.json`。改了之后，要重启用到改动部分的服务：比如 `alerts`（像 `backupExpected`）是报名服务读的（在 `deploy/` 里运行 `docker compose restart registration`）。要两个服务都重启、又不打断正在上的课，就用现在跑着的标签再运行一次 `deploy/deploy.sh`。
+
+报名服务和上课服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康。启动后有一段宽限期，期间失败不算：报名服务是 10 分钟，因为它跑完迁移才应答，这样迁移跑得久也不会被中途重启（`deploy.sh` 也等它这么久）；上课服务是 60 秒。有一次检查通过，宽限期就结束。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，所以这些日志（包括请求日志）保留多久，由服务器上的 journald 决定。journald 不另外设置的话，只按大小删、不按时间删，而校规说请求日志保存一段时间后会自动删除：在服务器的 `/etc/systemd/journald.conf` 里设好保留期限，比如 `MaxRetentionSec=30day`，再加一个大小上限，比如 `SystemMaxUse=2G`，然后运行 `systemctl restart systemd-journald`。
 
 `deploy/smoke-test.sh` 会构建镜像，用 `deploy/compose.local.yml`（本地镜像、示例配置、写死回复的大模型、`https://localhost`）起全套，检查健康检查、只有 `backup` 服务看得到 `backup.env`、代理、`deploy.sh` 和看门狗，最后把起的东西全部删掉。它需要 Docker，80 和 443 端口空闲（或设置 `HTTP_PORT` 和 `HTTPS_PORT`）。
 
@@ -284,9 +294,9 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 1. 在运营者自己的电脑上（不是服务器）运行 `age-keygen -o backup-key.txt`，它会打印公钥（`age1…`）。把公钥写进 `deploy/backup.env` 的 `BACKUP_AGE_RECIPIENT`；`backup-key.txt` 只留在运营者自己手里（另存一份在安全的地方）：没有它就读不了备份，它也从不放到服务器上，只在运营者自己的电脑上用。
 2. 在存储服务里建一个桶，和一个能读、写、删这个桶里的对象的访问密钥（旧备份要靠它删掉）。把 `BACKUP_S3_ENDPOINT`、`BACKUP_S3_BUCKET`、`BACKUP_S3_ACCESS_KEY_ID`、`BACKUP_S3_SECRET_ACCESS_KEY` 写进 `deploy/backup.env`；`BACKUP_KEEP_DAYS` 和 `BACKUP_AT` 可以不写（见 `deploy/backup.env.example`）。只有 `backup` 服务读这个文件；它的 `DATABASE_URL` 从 `deploy/.env` 来。
 3. **第一次部署之后，马上手动跑一次备份：在 `deploy/` 里运行 `docker compose run --rm backup backup.sh`**，确认它打印了 `backup: done`。然后才在 `school.json` 里把 `alerts.backupExpected` 设为 `true`；打开它而还没有备份时，运维会每小时收到一封邮件，直到第一次夜间备份跑完。
-4. 在运营者自己的电脑上检查一次，这份备份能用真正的私钥打开（公钥合法、但不是私钥的另一半，会让每晚都记 `ok`，留下的却是谁也打不开的备份）：`rclone cat bk:<桶>/backups/<对象名> | age -d -i backup-key.txt | pg_restore -l > /dev/null`，其中 `bk` 的设置见下面。没有输出且退出码为 0 就说明能用。
+4. 在运营者自己的电脑上检查一次（这台电脑上要有 `rclone`、`age` 和 PostgreSQL 17 或更新版本的 `pg_restore`），这份备份能用真正的私钥打开（公钥合法、但不是私钥的另一半，会让每晚都记 `ok`，留下的却是谁也打不开的备份）：`rclone cat bk:<桶>/backups/<对象名> | age -d -i backup-key.txt | pg_restore -l > /dev/null`，其中 `bk` 的设置见下面。没有输出且退出码为 0 就说明能用。
 
-恢复，在运营者自己的电脑上做，这台电脑上要有 `rclone`、`age`、`ssh` 和私钥。服务器只会看到解密后的导出一边流一边进它的数据库。先用环境变量把存储的设置交给 `rclone`（不会写到磁盘上），并列出备份：
+恢复，在运营者自己的电脑上做，这台电脑上要有 `rclone`、`age`、`ssh` 和私钥（`pg_restore` 在服务器的 `postgres` 容器里跑）。服务器只会看到解密后的导出一边流一边进它的数据库。先用环境变量把存储的设置交给 `rclone`（不会写到磁盘上），并列出备份：
 
 ```
 export RCLONE_CONFIG_BK_TYPE=s3 RCLONE_CONFIG_BK_PROVIDER=Other RCLONE_CONFIG_BK_FORCE_PATH_STYLE=true \
@@ -295,7 +305,7 @@ export RCLONE_CONFIG_BK_TYPE=s3 RCLONE_CONFIG_BK_PROVIDER=Other RCLONE_CONFIG_BK
 rclone lsf bk:<BACKUP_S3_BUCKET>/backups/
 ```
 
-在服务器上建一个新的空数据库（全新的服务器上，`postgres` 第一次启动时建好的空库 `school` 本身就是目标，这一步省掉），再把备份流进去：
+总是恢复到另外一个新建的空数据库 `school_restored` 里，全新的服务器也一样：报名服务在 `school` 库上启动过以后，它就不是空的了。先在服务器上建好这个库，再把备份流进去：
 
 ```
 ssh <服务器> 'cd <部署目录> && docker compose exec -T postgres createdb -U school school_restored'
@@ -303,7 +313,7 @@ rclone cat bk:<BACKUP_S3_BUCKET>/backups/<对象名> | age -d -i backup-key.txt 
   | ssh <服务器> 'cd <部署目录> && docker compose exec -T postgres pg_restore --single-transaction --no-owner -U school -d school_restored'
 ```
 
-`--single-transaction` 的意思是：恢复中途断掉，目标库仍是空的。然后把 `deploy/.env` 里的 `DATABASE_URL` 指向新库（`…/school_restored`），再运行 `deploy/deploy.sh`。`deploy/backup/restore.sh <对象名> <私钥文件> <目标数据库地址>` 在备份镜像里做同样的下载、解密和恢复；它用于演练，以及允许放私钥的机器，所以不要在服务器上拿真私钥用它。
+`--single-transaction` 的意思是：恢复中途断掉，目标库仍是空的。然后把 `deploy/.env` 里的 `DATABASE_URL` 指向新库（`…/school_restored`），再运行 `deploy/deploy.sh <镜像标签>`。`deploy/backup/restore.sh <对象名> <私钥文件> <目标数据库地址>` 在备份镜像里做同样的下载、解密和恢复；它用于演练，以及允许放私钥的机器，所以不要在服务器上拿真私钥用它。
 
 备份运行时如果数据库本身是挂的，就写不进那一行（这次运行记在同一个数据库里），这时只有"`backupMaxAgeHours` 内没有成功的备份"这条告警会通知运营者。
 
@@ -430,7 +440,7 @@ npm run typecheck   # 类型检查
 
 ## 报名协议和校规
 
-机器人的主人替 AI 报名时要同意学校的报名协议和校规，重新入学时要再同意一次。正文是中文，放在本仓库里，最新的一版是 [`school-rules/2026-11-05.md`](school-rules/2026-11-05.md)。
+机器人的主人替 AI 报名时要同意学校的报名协议和校规，重新入学时要再同意一次。正文是中文，放在本仓库里，最新的一版是 [`school-rules/2026-11-11.md`](school-rules/2026-11-11.md)。
 
 说明：
 
@@ -442,7 +452,7 @@ npm run typecheck   # 类型检查
 给插件作者的说明：
 
 - `GET /v1/school-rules` 返回当前版本（`version`、`changes`、`url`、`text`）和 `versions`（学校有过的所有版本，从旧到新）。`GET /v1/school-rules/{版本}` 返回其中一版，当前的或旧的都行。`GET /v1/school-rules/diff?from={版本}` 返回从那一版到当前版本改了什么，格式是 unified diff；`from` 就是当前版本时为空；学校没有过的版本返回 404。这三个接口都不需要钥匙。
-- 把当前版本的正文给机器人的主人看（对方上次同意的是旧版的，就给对方看 diff），请对方同意，然后把这个版本作为 `schoolRulesVersion` 放进 `POST /v1/registrations` 和 `POST /v1/me/re-enroll` 的请求体，两个接口都必须带。所以重新入学要带 JSON 请求体，比如 `{ "schoolRulesVersion": "2026-11-05" }`，并带上 JSON 的 `Content-Type`。
+- 把当前版本的正文给机器人的主人看（对方上次同意的是旧版的，就给对方看 diff），请对方同意，然后把这个版本作为 `schoolRulesVersion` 放进 `POST /v1/registrations` 和 `POST /v1/me/re-enroll` 的请求体，两个接口都必须带。所以重新入学要带 JSON 请求体，比如 `{ "schoolRulesVersion": "2026-11-11" }`，并带上 JSON 的 `Content-Type`。
 - `schoolRulesVersion` 不是当前版本时，服务返回 409 `school_rules_outdated`。错误体里多一个字段 `currentVersion`，就是该给机器人的主人看的版本：取下来，给对方看，再重试。
 - `GET /v1/me` 里有 `schoolRulesVersion`：机器人的主人上一次同意的版本，报名或重新入学时记下。在学校要求同意校规之前就报了名的学生，这个值是 `null`。出了新版本，已经入学的学生不用重新同意；机器人的主人不接受新版的话，可以给 AI 办退学。
 - `POST /v1/me/withdraw` 让 AI 退学：学生状态变成已退学，离开班级、让出座位，以后可以用重新入学回来，重新排队等分班。它要学生自己的钥匙，没有请求体。只有占着座位的学生（待分班、候补、在读、停课中）能退学，已退学或已被开除的返回 409 `wrong_status`。
