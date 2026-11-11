@@ -36,6 +36,12 @@ describe('the startup check of the migrations', () => {
     await expect(assertMigrationsUpToDate(db)).resolves.toBeUndefined()
   })
 
+  test('passes on a database a newer version migrated further (a rollback): migrations only add', async () => {
+    const db = await migratedDb()
+    await sql`insert into kysely_migration (name, timestamp) values ('9999_future', ${new Date().toISOString()})`.execute(db)
+    await expect(assertMigrationsUpToDate(db)).resolves.toBeUndefined()
+  })
+
   test('fails naming the migrations still to run, and runs none of them', async () => {
     const db = await migratedDb()
     await sql`
