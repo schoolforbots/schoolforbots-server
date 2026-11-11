@@ -192,7 +192,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 
 ### 维护
 
-后台“开关”页里还有一栏“维护中”：一个带说明的开关。打开时要写一段说明（1 到 200 字，插件会看到），也可以填预计几小时后恢复；它会提醒你在线的插件都会被断开。维护期间，上课服务不接受任何连接，`GET /v1/school-calendar` 里带着 `maintenance: { message, since, expectedBackAt }`（平时是 `null`），插件和外部的监控都可以读。关掉维护、改说明也在这一页；报名服务马上读到，上课服务在 `switchRefreshSeconds` 内读到。每一段维护都记在 `maintenance_periods` 表里。
+后台“开关”页里还有一栏“维护中”：一个带说明的开关。打开时要写一段说明（1 到 200 字，插件会看到），也可以填预计几小时后恢复；它会提醒你在线的插件都会被断开。维护期间，上课服务不接受任何连接，`GET /v1/school-calendar` 里带着 `maintenance: { message, since, expectedBackAt }`（平时是 `null`），插件和外部的监控都可以读。关掉维护、改说明和预计恢复时间（“修改说明”按钮）也在这一页；报名服务马上读到，上课服务在 `switchRefreshSeconds` 内读到。每一段维护都记在 `maintenance_periods` 表里。
 
 某一天只要在某个时段从开门到下课之间开过维护，这一天就不算进 `inactivityDropDays`，和放假一样：学生不会因为没法来上课的日子被退学。
 

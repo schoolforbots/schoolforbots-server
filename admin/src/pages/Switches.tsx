@@ -121,12 +121,15 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
 
   const current = read.data?.maintenance ?? null
   const turningOn = current === null
-  const verb = turningOn ? '开始维护' : '结束维护'
+  const [editing, setEditing] = useState(false)
+  const asksMessage = turningOn || editing
+  const verb = turningOn ? '开始维护' : editing ? '修改说明' : '结束维护'
   const hoursNumber = hours.trim() === '' ? null : Number(hours)
   const hoursOk = hoursNumber === null || (Number.isFinite(hoursNumber) && hoursNumber > 0)
   const messageOk = message.trim().length >= 1 && [...message.trim()].length <= MAX_MESSAGE
 
-  function open() {
+  function open(edit = false) {
+    setEditing(edit)
     setMessage(current?.message ?? '')
     setHours('')
     setAsking(true)
@@ -140,9 +143,14 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
         </h2>
         <p className="switch-state">{read.data === undefined ? '' : turningOn ? '现在没在维护' : '现在维护中'}</p>
         {read.data !== undefined && (
-          <Button ref={opener} onClick={open}>
-            {verb}
-          </Button>
+          <>
+            {!turningOn && (
+              <Button onClick={() => open(true)}>修改说明</Button>
+            )}
+            <Button ref={opener} onClick={() => open(false)}>
+              {turningOn ? '开始维护' : '结束维护'}
+            </Button>
+          </>
         )}
       </div>
       {read.error !== undefined && <p className="action-error" role="alert">没能读取维护状态。{read.error.message}</p>}
@@ -167,14 +175,14 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
           title={`${verb}？`}
           confirm={verb}
           busy={`正在${verb}`}
-          cancel={turningOn ? '先不维护' : '先不结束'}
-          canConfirm={!turningOn || (messageOk && hoursOk)}
+          cancel={turningOn ? '先不维护' : editing ? '先不改' : '先不结束'}
+          canConfirm={!asksMessage || (messageOk && hoursOk)}
           onCancel={() => {
             setAsking(false)
             opener.current?.focus()
           }}
           onConfirm={async () => {
-            const body = turningOn
+            const body = asksMessage
               ? {
                   on: true,
                   message: message.trim(),
@@ -186,9 +194,9 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
             setDone((last) => ({ text: `已${verb}。`, n: (last?.n ?? 0) + 1 }))
           }}
         >
-          {turningOn ? (
+          {asksMessage ? (
             <>
-              <p>开始维护以后，在线的插件都会被断开，新的连接也不让进，直到结束维护。</p>
+              {turningOn ? <p>开始维护以后，在线的插件都会被断开，新的连接也不让进，直到结束维护。</p> : <p>只改说明和预计恢复时间，维护照常进行。</p>}
               <label className="field-label" htmlFor={messageId}>
                 说明（插件会看到，最多 {MAX_MESSAGE} 字）
               </label>
@@ -205,7 +213,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
               </label>
               <Input id={hoursId} type="number" min={0} step={0.5} value={hours} onChange={(event) => setHours(event.target.value)} />
               {!hoursOk && <p className="action-error">预计恢复的小时数要大于 0。</p>}
-              <p>维护的日子不算进自动退学的天数。</p>
+              {turningOn && <p>维护的日子不算进自动退学的天数。</p>}
             </>
           ) : (
             <p>结束以后，插件可以重新连上，课照常上。</p>

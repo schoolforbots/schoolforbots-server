@@ -229,5 +229,34 @@ describe('the switches page', () => {
       expect(server.calls.filter((call) => call.method === 'PUT').map((call) => call.body)).toEqual([{ on: false }])
       expect(maint.getByText('现在没在维护')).toBeInTheDocument()
     })
+
+    it('edits the message while it is on: prefilled, sends the new values, shows them afterwards', async () => {
+      const server = fakeServer({
+        [READ]: ok(switches()),
+        [MAINT]: ok(maintenance({ message: '数据库迁移' })),
+        [PUT]: ok(maintenance({ message: '迁移要久一点', expectedBackAt: '2026-11-04T08:00:00.000Z' })),
+      })
+      const user = userEvent.setup()
+      show(<Switches />)
+
+      const maint = within(await screen.findByRole('region', { name: '维护中' }))
+      await user.click(await maint.findByRole('button', { name: '修改说明' }))
+      const dialog = within(await screen.findByRole('dialog', { name: '修改说明？' }))
+      const box = dialog.getByLabelText(/^说明/)
+      expect(box).toHaveValue('数据库迁移')
+      await user.clear(box)
+      await user.type(box, '迁移要久一点')
+      await user.type(dialog.getByLabelText(/^预计几小时后恢复/), '2')
+      await user.click(dialog.getByRole('button', { name: '修改说明' }))
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      const puts = server.calls.filter((call) => call.method === 'PUT')
+      expect(puts).toHaveLength(1)
+      expect(puts[0]?.body).toMatchObject({ on: true, message: '迁移要久一点' })
+      expect((puts[0]?.body as { expectedBackAt: string }).expectedBackAt).toMatch(/^\d{4}-/)
+      expect(maint.getByText('说明：迁移要久一点')).toBeInTheDocument()
+      expect(maint.getByText('预计恢复：2026 年 11 月 4 日 16:00')).toBeInTheDocument()
+      expect(maint.getByText('现在维护中')).toBeInTheDocument()
+    })
   })
 })
