@@ -33,6 +33,10 @@ Maintenance (reported by the school, or switched on by hand) never causes a mail
 
 The worker writes only when something changes (the free plan allows 1,000 KV writes a day).
 
+## Stopping the school
+
+The worker tells maintenance from an outage by what the school said before it stopped answering. So when the school's services are to be stopped for a while: switch maintenance on in the school's admin, wait until `status.json` shows `maintenance` (up to about two minutes, as the worker looks every minute), and only then stop the services. A school that stops answering before the worker has seen the maintenance counts as down: after 5 minutes `status.json` tells the plugins so and the operator is mailed. After the work, start the services, check that they are healthy, and only then switch maintenance off: switching it off is what tells the plugins to come back.
+
 ## Deploying
 
 You need a Cloudflare account, a domain on Cloudflare for the status host (for example `status.example.com`), and a mailbox for the operator that receives the alert mails.
