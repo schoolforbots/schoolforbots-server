@@ -603,6 +603,11 @@ export function serveConnection(
       .catch((err: unknown) => {
         // Only what kind of frame failed is logged, never what it said.
         log.error({ err, studentId }, 'class connection frame failed')
+        try {
+          deps.onInternalError?.()
+        } catch {
+          // Counting an error must not change what happens to the connection.
+        }
         closeSocket(1011)
       })
       .finally(() => {

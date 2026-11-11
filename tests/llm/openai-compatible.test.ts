@@ -118,6 +118,22 @@ test('500, 429 and a non-refusal 400 are LlmUnavailable', async () => {
   }
 })
 
+test('an error reply carries its HTTP status; a network error or a bad body carries none', async () => {
+  for (const status of [400, 429, 500]) {
+    handler = (_r, _b, res) => {
+      res.statusCode = status
+      res.end('出错了')
+    }
+    const err = await provider().complete('m', req).then(() => undefined, (e: unknown) => e as LlmUnavailable)
+    expect(err?.status).toBe(status)
+  }
+  handler = (_r, _b, res) => res.end('<html>nope</html>')
+  expect(((await provider().complete('m', req).catch((e: unknown) => e)) as LlmUnavailable).status).toBeNull()
+  await new Promise((resolve) => server.close(resolve))
+  expect(((await provider().complete('m', req).catch((e: unknown) => e)) as LlmUnavailable).status).toBeNull()
+  expect(new LlmUnavailable('x').status).toBeNull()
+})
+
 const replyWith = (status: number, headers: Record<string, string> = {}) => {
   handler = (_r, _b, res) => {
     res.statusCode = status

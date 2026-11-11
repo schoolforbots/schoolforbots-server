@@ -793,3 +793,20 @@ describe('purging old messages', () => {
     expect(await remaining()).toEqual([kept])
   })
 })
+
+describe('the records the alert mails count', () => {
+  test('ops events, service starts and backup runs older than 30 days are deleted, newer ones kept', async () => {
+    const now = clock.now()
+    const old = new Date(now.getTime() - 31 * DAY)
+    const recent = new Date(now.getTime() - 29 * DAY)
+    for (const at of [old, recent]) {
+      await db.insertInto('opsEvents').values({ service: 'class', kind: 'internal_error', at }).execute()
+      await db.insertInto('serviceStarts').values({ service: 'class', startedAt: at }).execute()
+      await db.insertInto('backupRuns').values({ finishedAt: at, ok: true }).execute()
+    }
+    await job()
+    expect((await db.selectFrom('opsEvents').select('at').execute()).map((r) => r.at)).toEqual([recent])
+    expect((await db.selectFrom('serviceStarts').select('startedAt').execute()).map((r) => r.startedAt)).toEqual([recent])
+    expect((await db.selectFrom('backupRuns').select('finishedAt').execute()).map((r) => r.finishedAt)).toEqual([recent])
+  })
+})

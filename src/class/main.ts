@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import type { FastifyBaseLogger } from 'fastify'
 import { buildProviders, createLlm } from '../llm/client.js'
+import { recordOpsEvent, recordStart } from '../ops/events.js'
 import { loadPrompts } from '../llm/prompts.js'
 import { loadModerationData } from '../moderation/load.js'
 import { startLiveModerator } from '../moderation/rules.js'
@@ -25,6 +26,10 @@ async function main(): Promise<void> {
   // The registration service migrates the database; this one only checks that it has, and does not start otherwise.
   const db = createDb(env.databaseUrl, env.databaseTimeouts)
   await assertMigrationsUpToDate(db)
+  // Counted for the alert about a service that keeps restarting. Failing to note it does not stop the start.
+  await recordStart(db, 'class', systemClock.now()).catch((err: unknown) =>
+    console.error('Could not record the start', err instanceof Error ? err.name : 'unknown'),
+  )
 
   // What starts before the service logs through the service's logger, made with the service below: the first reads of
   // the rules and the switches come before it (a failure of the rules then stops the start), everything later after.
@@ -52,6 +57,10 @@ async function main(): Promise<void> {
   const llm = createLlm({ db, config, clock: systemClock, providers, fake: env.llmFake, log })
   const secondLayer = createSecondLayer({ config, llm, switches, prompts, log })
 
+  // What the alert mails count: a failed tick and an unexpected error in a connection. Noted without holding anything
+  // up; a failed write is only logged.
+  const noteInternalError = () => recordOpsEvent(db, { service: 'class', kind: 'internal_error', at: systemClock.now() }, log)
+
   const speed = env.classTimelineSpeed
   if (speed !== 1) {
     console.warn(`[class] CLASS_TIMELINE_SPEED=${speed}：每节课按 ${speed} 倍速播放（仅限本地开发使用）`)
@@ -67,12 +76,13 @@ async function main(): Promise<void> {
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     model: { llm, prompts, secondLayer, switches },
     maintenance,
+    onInternalError: noteInternalError,
   })
   const { app } = service
   logger = app.log
 
   // Ticks once before it listens (a failure ends the start here), then on every interval.
-  const ticker = await startClassService(service, { port: env.classPort, speed })
+  const ticker = await startClassService(service, { port: env.classPort, speed, onTickFailure: noteInternalError })
 
   const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')

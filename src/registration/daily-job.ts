@@ -14,6 +14,9 @@ const DAILY_JOB_LOCK = 4242001
 
 // Fixed orders: slots are locked in this order, and classes are created in this order.
 const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
+/** How long the records the alert mails count (events, starts, backup runs) are kept. */
+const OPS_RETENTION_DAYS = 30
+
 const DIVISIONS: readonly Division[] = ['primary', 'junior', 'senior']
 
 export interface DailyJobReport {
@@ -40,7 +43,8 @@ export function teacherPersonaFor(config: SchoolConfig, classesBefore: number): 
 /**
  * The nightly job, in one transaction: drop students who stopped coming, promote the waitlist into the freed
  * seats, put the pending students who joined the queue before today into a class, bring back the suspended
- * students whose suspension is over, and delete the chat messages past their retention.
+ * students whose suspension is over, delete the chat messages past their retention, and the ops records (events,
+ * service starts, backup runs) older than 30 days.
  *
  * The rules that count days go by today's date in the school's timezone, not by the time of the run: a run that
  * starts late, or one that makes up for a missed midnight, does what the midnight run would have done, and running
@@ -70,6 +74,7 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
     const { assigned, classesCreated } = await assignPending(trx, config, now, today)
     const reinstated = await reinstateSuspended(trx, now)
     const messagesPurged = await purgeMessages(trx, startOfLocalDay(now, config.timezone, config.messageRetentionDays))
+    await purgeOps(trx, new Date(now.getTime() - OPS_RETENTION_DAYS * 24 * 60 * 60_000))
     return { dropped, promoted, assigned, classesCreated, reinstated, messagesPurged }
   })
 }
@@ -245,4 +250,11 @@ async function reinstateSuspended(trx: Trx, now: Date): Promise<number> {
 async function purgeMessages(trx: Trx, cutoff: Date): Promise<number> {
   const result = await trx.deleteFrom('messages').where('createdAt', '<', cutoff).executeTakeFirstOrThrow()
   return Number(result.numDeletedRows)
+}
+
+/** Deletes the ops records written before `cutoff`. */
+async function purgeOps(trx: Trx, cutoff: Date): Promise<void> {
+  await trx.deleteFrom('opsEvents').where('at', '<', cutoff).execute()
+  await trx.deleteFrom('serviceStarts').where('startedAt', '<', cutoff).execute()
+  await trx.deleteFrom('backupRuns').where('finishedAt', '<', cutoff).execute()
 }

@@ -25,15 +25,21 @@ export class LlmContentRefused extends Error {}
 /**
  * The model could not give a usable reply: timeout, network failure, an error status, or a reply that is not in the
  * expected shape. `retryable` says whether trying again can help (timeouts, network errors, 429 and 5xx); it is false
- * unless the thrower says otherwise. `retryAfterMs` is how long the vendor asked to wait first, when it said.
+ * unless the thrower says otherwise. `retryAfterMs` is how long the vendor asked to wait first, when it said. `status`
+ * is the HTTP status of the vendor's error reply, and null when there was none (timeout, network, a bad reply).
  */
 export class LlmUnavailable extends Error {
   readonly retryable: boolean
   readonly retryAfterMs: number | null
-  constructor(message: string, opts: { retryable?: boolean; retryAfterMs?: number | null; cause?: unknown } = {}) {
+  readonly status: number | null
+  constructor(
+    message: string,
+    opts: { retryable?: boolean; retryAfterMs?: number | null; status?: number | null; cause?: unknown } = {},
+  ) {
     super(message, opts.cause === undefined ? undefined : { cause: opts.cause })
     this.retryable = opts.retryable ?? false
     this.retryAfterMs = opts.retryAfterMs ?? null
+    this.status = opts.status ?? null
   }
 }
 

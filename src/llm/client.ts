@@ -139,6 +139,7 @@ export function createLlm(deps: {
     outcome: LlmOutcome,
     tokens: { input: number; cachedInput: number; output: number },
     ms: number,
+    httpStatus: number | null = null,
   ): Promise<number> {
     const { provider, model } = config.llm.purposes[purpose]
     const price = config.llm.providers[provider]?.models[model]
@@ -155,6 +156,7 @@ export function createLlm(deps: {
         outputTokens: tokens.output,
         costYuan: cost.toFixed(6),
         outcome,
+        httpStatus,
         ms: Math.round(ms),
         createdAt: at,
       })
@@ -233,7 +235,7 @@ export function createLlm(deps: {
         const tokens = err instanceof LlmTruncated
             ? { input: err.inputTokens, cachedInput: err.cachedInputTokens, output: err.outputTokens }
             : { input: 0, cachedInput: 0, output: 0 }
-        const cost = await record(purpose, outcome, tokens, performance.now() - started)
+        const cost = await record(purpose, outcome, tokens, performance.now() - started, err instanceof LlmUnavailable ? err.status : null)
         // A billed failure counts towards the month's spend, so it can be the call that crosses the budget.
         if (cost > 0) await runBudgetCheck()
         throw err

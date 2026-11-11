@@ -3,6 +3,8 @@ import { generateMissing, type GeneratorDeps } from '../lessons/generator.js'
 import { checkBudget } from '../llm/budget.js'
 import { buildProviders, createLlm } from '../llm/client.js'
 import { loadPrompts } from '../llm/prompts.js'
+import { checkAlerts, diskUsedPercent } from '../ops/alerts.js'
+import { recordOpsEvent, recordStart } from '../ops/events.js'
 import { loadModerationData } from '../moderation/load.js'
 import { startLiveModerator } from '../moderation/rules.js'
 import { systemClock } from '../shared/clock.js'
@@ -15,7 +17,7 @@ import { startSwitches } from '../shared/switches.js'
 import { runWeeklyReview } from '../weekly/review.js'
 import { buildRegistrationApp } from './app.js'
 import { runDailyJob } from './daily-job.js'
-import { ConsoleMailer, createSmtpMailer, type Mailer } from './mailer.js'
+import { ConsoleMailer, createSmtpMailer, withMailFailures, type Mailer } from './mailer.js'
 import { isWeeklyReviewDay, startDailyJob, startPeriodicJob } from './scheduler.js'
 
 async function main(): Promise<void> {
@@ -29,6 +31,10 @@ async function main(): Promise<void> {
 
   const db = createDb(env.databaseUrl, env.databaseTimeouts)
   await migrateToLatest(db)
+  // Counted for the alert about a service that keeps restarting. Failing to note it does not stop the start.
+  await recordStart(db, 'registration', systemClock.now()).catch((err: unknown) =>
+    console.error('Could not record the start', err instanceof Error ? err.name : 'unknown'),
+  )
 
   // The rules less the ones dropped in the admin, read again every few seconds. They log through the app's logger,
   // made with them below: their first read comes before it (and a failure then stops the start), every later one after.
@@ -55,6 +61,11 @@ async function main(): Promise<void> {
     console.warn('[mail] MAIL_TRANSPORT=console：验证码只会打印在服务日志里，不会发邮件（仅限本地开发使用）')
     mailer = new ConsoleMailer(config.verificationCode.ttlMinutes)
   }
+  // What the alert mails count, noted without holding anything up (a failed write is only logged).
+  const noteEvent = (kind: 'internal_error' | 'mail_failed' | 'job_failed') =>
+    recordOpsEvent(db, { service: 'registration', kind, at: systemClock.now() }, log)
+  // A verification code that cannot be sent counts for the alert mail; the notices to the operator go as they are.
+  mailer = withMailFailures(mailer, () => noteEvent('mail_failed'))
 
   // The model, with its costs recorded and the monthly budget watched. The lessons are made with it, and the admin
   // is given it and the prompts too.
@@ -81,6 +92,7 @@ async function main(): Promise<void> {
     maintenance,
     schoolRules,
     trustProxy: env.trustProxy,
+    onInternalError: () => noteEvent('internal_error'),
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     admin: { db, config, clock: systemClock, env, llm, prompts, moderator, switches, maintenance, mailer },
   })
@@ -94,6 +106,7 @@ async function main(): Promise<void> {
       return report
     } catch (err) {
       app.log.error({ err, trigger }, 'daily job failed')
+      noteEvent('job_failed')
       throw err
     }
   }
@@ -118,13 +131,19 @@ async function main(): Promise<void> {
   const lessonGeneration = startPeriodicJob(
     async () => {
       try {
-        app.log.info({ report: await generateMissing(lessons) }, 'lesson generation finished')
+        const report = await generateMissing(lessons)
+        app.log.info({ report }, 'lesson generation finished')
+        // Each lesson the model could not make counts as a failure; the next run tries them again.
+        for (let i = 0; i < report.failed; i++) noteEvent('job_failed')
       } finally {
         await checkSpend()
       }
     },
     config.lessonGeneration.retryMinutes,
-    (err) => app.log.error({ err: err instanceof Error ? err.constructor.name : 'unknown' }, 'lesson generation failed'),
+    (err) => {
+      app.log.error({ err: err instanceof Error ? err.constructor.name : 'unknown' }, 'lesson generation failed')
+      noteEvent('job_failed')
+    },
   )
   void lessonGeneration.runNow()
 
@@ -135,6 +154,7 @@ async function main(): Promise<void> {
       await runWeeklyReview({ db, config, clock: systemClock, llm, prompts, log: app.log })
     } catch (err) {
       app.log.error({ err: err instanceof Error ? err.constructor.name : 'unknown', trigger }, 'weekly review failed')
+      noteEvent('job_failed')
     }
   }
   void runWeekly('startup')
@@ -148,10 +168,30 @@ async function main(): Promise<void> {
     }
   }, config.timezone)
 
+  // The alert mails to the operator: checked every minute; a failed check is only logged and the next one comes.
+  const alerts = startPeriodicJob(
+    async () => {
+      const sent = await checkAlerts({
+        db,
+        config,
+        clock: systemClock,
+        mailer,
+        operatorEmail: env.operatorEmail,
+        maintenance: () => maintenance.current(),
+        diskPercent: diskUsedPercent,
+        log: app.log,
+      })
+      if (sent.length > 0) app.log.info({ sent }, 'alert mails sent')
+    },
+    1,
+    (err) => app.log.error({ err: err instanceof Error ? err.name : 'unknown' }, 'alert check failed'),
+  )
+
   const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
     dailyJob.stop()
     lessonGeneration.stop()
+    alerts.stop()
     switches.stop()
     maintenance.stop()
     moderator.stop()

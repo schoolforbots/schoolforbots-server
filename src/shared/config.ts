@@ -65,6 +65,49 @@ export const LLM_PURPOSES = [
 const SPEECH_PLACEHOLDERS = ['teacher', 'className', 'division', 'classSize']
 const braced = (names: string[]) => names.map((name) => `{${name}}`).join(', ')
 
+/** `count` times within `minutes` minutes. */
+const CountInMinutes = Type.Object({ count: PositiveInt, minutes: PositiveInt })
+// When the operator is mailed. Every field may be left out and then has its default (see `DEFAULT_ALERTS`).
+const AlertsSchema = Type.Object({
+  // A kind of alert is mailed at most once in this long.
+  repeatAfterMinutes: Type.Optional(PositiveInt),
+  internalErrors: Type.Optional(CountInMinutes),
+  // The model has failed every call, at least three, for this long.
+  llmDownMinutes: Type.Optional(PositiveInt),
+  // Calls the vendor refused with HTTP 400 in an hour.
+  llm400PerHour: Type.Optional(PositiveInt),
+  mailFailures: Type.Optional(CountInMinutes),
+  restarts: Type.Optional(CountInMinutes),
+  // Whether backups are expected at all: turn it on for the real school.
+  backupExpected: Type.Optional(Type.Boolean()),
+  backupMaxAgeHours: Type.Optional(PositiveInt),
+  diskPercent: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+})
+
+export interface AlertsConfig {
+  repeatAfterMinutes: number
+  internalErrors: { count: number; minutes: number }
+  llmDownMinutes: number
+  llm400PerHour: number
+  mailFailures: { count: number; minutes: number }
+  restarts: { count: number; minutes: number }
+  backupExpected: boolean
+  backupMaxAgeHours: number
+  diskPercent: number
+}
+
+export const DEFAULT_ALERTS: AlertsConfig = {
+  repeatAfterMinutes: 60,
+  internalErrors: { count: 20, minutes: 5 },
+  llmDownMinutes: 10,
+  llm400PerHour: 5,
+  mailFailures: { count: 3, minutes: 10 },
+  restarts: { count: 3, minutes: 10 },
+  backupExpected: false,
+  backupMaxAgeHours: 26,
+  diskPercent: 80,
+}
+
 export const SchoolConfigSchema = Type.Object({
   timezone: Type.String({ minLength: 1 }),
   classSize: Type.Object({ standard: PositiveInt, max: PositiveInt }),
@@ -138,6 +181,7 @@ export const SchoolConfigSchema = Type.Object({
     expulsion: Type.Object({ schoolRuleCount: PositiveInt, windowDays: PositiveInt, banDays: PositiveInt }),
   }),
   messageRetentionDays: PositiveInt,
+  alerts: Type.Optional(AlertsSchema),
   llm: Type.Object({
     providers: Type.Record(Type.String({ minLength: 1 }), Provider),
     purposes: Type.Object({
@@ -217,7 +261,8 @@ export const SchoolConfigSchema = Type.Object({
   ),
 })
 
-export type SchoolConfig = Static<typeof SchoolConfigSchema>
+/** The config as loaded: `alerts` is always there, with the defaults for whatever the file left out. */
+export type SchoolConfig = Omit<Static<typeof SchoolConfigSchema>, 'alerts'> & { alerts: AlertsConfig }
 
 function pointerToPath(pointer: string): string {
   if (pointer === '') return '(root)'
@@ -303,7 +348,8 @@ export function loadSchoolConfig(path: string): SchoolConfig {
     throw new Error(`Invalid school config ${path}:\n  ${problems.join('\n  ')}`)
   }
 
-  const config = raw as SchoolConfig
+  const parsed = raw as Static<typeof SchoolConfigSchema>
+  const config: SchoolConfig = { ...parsed, alerts: { ...DEFAULT_ALERTS, ...parsed.alerts } }
   const crossFieldProblems: string[] = []
   if (config.classSize.max < config.classSize.standard) {
     crossFieldProblems.push(

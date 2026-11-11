@@ -77,6 +77,44 @@ test('example config loads with spec defaults', () => {
   expect(c.messageRetentionDays).toBe(183)
 })
 
+test('the example config writes out every alert setting', () => {
+  expect(loadSchoolConfig('config/school.example.json').alerts).toEqual({
+    repeatAfterMinutes: 60,
+    internalErrors: { count: 20, minutes: 5 },
+    llmDownMinutes: 10,
+    llm400PerHour: 5,
+    mailFailures: { count: 3, minutes: 10 },
+    restarts: { count: 3, minutes: 10 },
+    backupExpected: false,
+    backupMaxAgeHours: 26,
+    diskPercent: 80,
+  })
+})
+
+test('a config without alerts, or with only some of them, gets the default for the rest', () => {
+  const none = writeTmpConfig((c) => {
+    delete c.alerts
+  })
+  expect(loadSchoolConfig(none).alerts).toMatchObject({ repeatAfterMinutes: 60, diskPercent: 80, backupExpected: false, internalErrors: { count: 20, minutes: 5 } })
+  const some = writeTmpConfig((c) => {
+    c.alerts = { backupExpected: true, restarts: { count: 5, minutes: 30 } }
+  })
+  expect(loadSchoolConfig(some).alerts).toMatchObject({ backupExpected: true, restarts: { count: 5, minutes: 30 }, diskPercent: 80, llm400PerHour: 5 })
+})
+
+test.each([
+  ['diskPercent', { diskPercent: 'full' }],
+  ['diskPercent', { diskPercent: 101 }],
+  ['repeatAfterMinutes', { repeatAfterMinutes: 0 }],
+  ['backupExpected', { backupExpected: 'yes' }],
+  ['internalErrors', { internalErrors: { count: 'many', minutes: 5 } }],
+])('a wrong alerts.%s stops the start and names it', (name, alerts) => {
+  const tmpPath = writeTmpConfig((c) => {
+    c.alerts = alerts
+  })
+  expect(() => loadSchoolConfig(tmpPath)).toThrow(new RegExp(`alerts.*${name}|${name}`))
+})
+
 test('classSize.max below standard is rejected with the field path', () => {
   const tmpPath = writeTmpConfig((c) => {
     c.classSize = { standard: 100, max: 90 }

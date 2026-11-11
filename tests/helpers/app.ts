@@ -44,7 +44,12 @@ export function exampleModerator(): Moderator {
  * repository (unless `schoolRules` replaces them) and a controllable clock.
  */
 export async function buildTestApp(
-  overrides: { config?: ConfigOverrides; schoolRules?: SchoolRules; logger?: FastifyServerOptions['logger'] } = {},
+  overrides: {
+    config?: ConfigOverrides
+    schoolRules?: SchoolRules
+    logger?: FastifyServerOptions['logger']
+    onInternalError?: () => void
+  } = {},
 ) {
   const { db, destroy: destroyDb } = await createTestDb()
 
@@ -67,6 +72,7 @@ export async function buildTestApp(
     schoolRules,
     trustProxy: false,
     logger: overrides.logger,
+    onInternalError: overrides.onInternalError,
   })
   try {
     await app.ready()
