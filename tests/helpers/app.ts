@@ -5,6 +5,7 @@ import { buildRegistrationApp } from '../../src/registration/app.js'
 import { MemoryMailer } from '../../src/registration/mailer.js'
 import { createModerator, type Moderator } from '../../src/moderation/moderator.js'
 import { parseInjectionPatterns, parseWordList } from '../../src/moderation/load.js'
+import { startMaintenanceWatch } from '../../src/shared/maintenance.js'
 import { loadSchoolConfig, type SchoolConfig } from '../../src/shared/config.js'
 import { loadSchoolRules, type SchoolRules } from '../../src/shared/school-rules.js'
 import { createTestClock } from './clock.js'
@@ -53,12 +54,16 @@ export async function buildTestApp(
   const mailer = new MemoryMailer()
   const clock = createTestClock(new Date('2026-11-02T12:00:00+08:00'))
 
+  // Read when asked (`refresh`), never on a timer.
+  const maintenance = await startMaintenanceWatch({ db, config }, { refreshMs: 3_600_000 })
+
   const app = buildRegistrationApp({
     db,
     config,
     moderator,
     mailer,
     clock,
+    maintenance,
     schoolRules,
     trustProxy: false,
     logger: overrides.logger,
@@ -75,8 +80,10 @@ export async function buildTestApp(
     db,
     mailer,
     clock,
+    maintenance,
     schoolRules,
     async destroy() {
+      maintenance.stop()
       await app.close()
       await destroyDb()
     },

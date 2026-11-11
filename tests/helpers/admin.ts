@@ -4,6 +4,7 @@ import type { AdminDeps } from '../../src/admin/app.js'
 import type { Llm } from '../../src/llm/client.js'
 import { buildRegistrationApp } from '../../src/registration/app.js'
 import { MemoryMailer } from '../../src/registration/mailer.js'
+import { startMaintenanceWatch, type MaintenanceWatch } from '../../src/shared/maintenance.js'
 import { loadEnv, type SchoolConfig } from '../../src/shared/config.js'
 import { loadSchoolRules } from '../../src/shared/school-rules.js'
 import { createTestClock } from './clock.js'
@@ -30,6 +31,7 @@ export async function buildAdminTestApp(
     logger?: FastifyServerOptions['logger']
     distDir?: string
     switches?: AdminDeps['switches']
+    maintenance?: MaintenanceWatch
     config?: SchoolConfig
     llm?: Llm | null
     now?: Date
@@ -51,12 +53,14 @@ export async function buildAdminTestApp(
     () => {},
   )
   const switches = opts.switches ?? fixedSwitches()
+  const maintenance = opts.maintenance ?? (await startMaintenanceWatch({ db, config }, { refreshMs: 3_600_000 }))
   const app = buildRegistrationApp({
     db,
     config,
     moderator,
     mailer,
     clock,
+    maintenance,
     schoolRules: loadSchoolRules(fileURLToPath(new URL('../../school-rules', import.meta.url))),
     trustProxy: false,
     logger: opts.logger,
@@ -72,6 +76,7 @@ export async function buildAdminTestApp(
             prompts: examplePrompts(),
             moderator,
             switches,
+            maintenance,
             mailer,
             distDir: opts.distDir,
           },
@@ -123,6 +128,7 @@ export async function buildAdminTestApp(
     login,
     session,
     async destroy() {
+      maintenance.stop()
       await app.close()
       await destroyDb()
     },

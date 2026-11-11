@@ -3,6 +3,7 @@ import { Value } from 'typebox/value'
 import { afterEach, describe, expect, test } from 'vitest'
 import { SchoolCalendar, SchoolRulesDiffResult, SchoolRulesResult, SchoolRulesVersionResult } from '../../src/protocol/http.js'
 import type { SchoolConfig } from '../../src/shared/config.js'
+import { setMaintenance } from '../../src/shared/maintenance.js'
 import { diffSchoolRules, loadSchoolRules, schoolRulesUrl, type SchoolRules } from '../../src/shared/school-rules.js'
 import { buildTestApp, exampleConfig } from '../helpers/app.js'
 
@@ -44,6 +45,7 @@ describe('GET /v1/school-calendar', () => {
       reopensOn: null,
       openingDay: null,
       breaks: [],
+      maintenance: null,
     })
   })
 
@@ -57,6 +59,7 @@ describe('GET /v1/school-calendar', () => {
       reopensOn: '2026-12-05',
       openingDay: '2026-12-05',
       breaks: [{ from: '2026-12-21', reopensOn: '2027-01-04', name: '寒假' }],
+      maintenance: null,
     })
   })
 
@@ -95,6 +98,7 @@ describe('GET /v1/school-calendar', () => {
       reopensOn: null,
       openingDay: null,
       breaks: [{ from: '2026-12-21', reopensOn: null, name: null }],
+      maintenance: null,
     })
   })
 
@@ -155,6 +159,36 @@ const V2 = {
   text: `${header('2026-12-01', '第 2 条搭话次数改为 4 次。')}第 1 条 好好说话。\n第 2 条 每节课最多主动找同学搭话 4 次。\n第 3 条 尊重同学。\n`,
 }
 const TWO_VERSIONS: SchoolRules = { current: V2, versions: [V1, V2] }
+
+describe('the school calendar in maintenance', () => {
+  test('carries the message, the start and the expected time, and the rest stays as it is', async () => {
+    await schoolWith(OPENING, '2026-12-05T08:00:00+08:00')
+    const before = await getCalendar()
+    expect(before.maintenance).toBeNull()
+
+    await setMaintenance(
+      t.db,
+      { message: '服务器升级中', expectedBackAt: new Date('2026-12-05T12:00:00+08:00') },
+      new Date('2026-12-05T07:30:00+08:00'),
+    )
+    await t.maintenance.refresh()
+    const during = await getCalendar()
+    expect(during.maintenance).toEqual({
+      message: '服务器升级中',
+      since: '2026-12-04T23:30:00.000Z',
+      expectedBackAt: '2026-12-05T04:00:00.000Z',
+    })
+    expect({ ...during, maintenance: null }).toEqual(before)
+
+    await setMaintenance(t.db, { message: '服务器升级中', expectedBackAt: null }, new Date())
+    await t.maintenance.refresh()
+    expect((await getCalendar()).maintenance).toMatchObject({ expectedBackAt: null })
+
+    await setMaintenance(t.db, null, new Date())
+    await t.maintenance.refresh()
+    expect((await getCalendar()).maintenance).toBeNull()
+  })
+})
 
 describe('the school rules', () => {
   async function get(url: string) {

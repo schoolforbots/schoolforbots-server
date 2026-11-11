@@ -9,6 +9,7 @@ import {
 } from '../protocol/http.js'
 import { calendarStatus, nextSchoolDay } from '../shared/calendar.js'
 import type { SchoolConfig } from '../shared/config.js'
+import type { Maintenance } from '../shared/maintenance.js'
 import { localDate } from '../shared/local-time.js'
 import { diffSchoolRules, schoolRulesUrl, type SchoolRulesVersion } from '../shared/school-rules.js'
 import type { RegistrationDeps } from './app.js'
@@ -24,7 +25,7 @@ const SchoolRulesDiffQuery = Type.Object({ from: DateText })
 export function schoolRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
   return async (app) => {
     app.get('/v1/school-calendar', { schema: { response: { 200: SchoolCalendar } } }, async () =>
-      schoolCalendarOn(localDate(deps.clock.now(), deps.config.timezone), deps.config),
+      schoolCalendarOn(localDate(deps.clock.now(), deps.config.timezone), deps.config, deps.maintenance.current()),
     )
 
     const { schoolRules } = deps
@@ -64,7 +65,11 @@ function published(v: SchoolRulesVersion): Static<typeof SchoolRulesVersionResul
 }
 
 /** The calendar as it stands on the school day `today`: the state of the school, and the breaks not over yet. */
-function schoolCalendarOn(today: string, config: SchoolConfig): Static<typeof SchoolCalendar> {
+function schoolCalendarOn(
+  today: string,
+  config: SchoolConfig,
+  maintenance: Maintenance | null,
+): Static<typeof SchoolCalendar> {
   const { state, breakName, reopensOn } = calendarStatus(today, config)
   // A break is over from the day the school is back; the one that is on now is not.
   const breaks = (config.calendar?.breaks ?? [])
@@ -75,5 +80,15 @@ function schoolCalendarOn(today: string, config: SchoolConfig): Static<typeof Sc
       name: b.name ?? null,
     }))
     .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))
-  return { today, state, breakName, reopensOn, openingDay: config.calendar?.openingDay ?? null, breaks }
+  return { today, state, breakName, reopensOn, openingDay: config.calendar?.openingDay ?? null,
+    breaks,
+    maintenance:
+      maintenance === null
+        ? null
+        : {
+            message: maintenance.message,
+            since: maintenance.since.toISOString(),
+            expectedBackAt: maintenance.expectedBackAt?.toISOString() ?? null,
+          },
+  }
 }

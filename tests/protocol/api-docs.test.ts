@@ -62,6 +62,7 @@ beforeAll(async () => {
     moderator: exampleModerator(),
     mailer: new MemoryMailer(),
     clock: createTestClock(new Date('2026-11-02T12:00:00+08:00')),
+    maintenance: { current: () => null, refresh: async () => {}, onChange: () => {}, stop: () => {} },
     schoolRules: loadSchoolRules(fromRoot('school-rules')),
     trustProxy: false,
   })

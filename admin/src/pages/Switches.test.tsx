@@ -1,10 +1,11 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { fail, fakeServer, ok, show, switches, textContrast } from '../test-api.js'
+import { fail, fakeServer, maintenance, ok, show, switches, textContrast } from '../test-api.js'
 import { Switches } from './Switches.js'
 
 const READ = 'GET api/switches'
+const MAINT = 'GET api/maintenance'
 
 function row(name: string) {
   return within(screen.getByRole('region', { name }))
@@ -25,7 +26,7 @@ describe('the switches page', () => {
 
   it('says what failed, and reads again', async () => {
     let up = false
-    fakeServer({ [READ]: () => (up ? ok(switches()) : fail(503, 'unavailable', '服务器正忙。')) })
+    fakeServer({ [READ]: () => (up ? ok(switches()) : fail(503, 'unavailable', '服务器正忙。')), [MAINT]: ok(maintenance()) })
     const user = userEvent.setup()
     show(<Switches />)
 
@@ -44,11 +45,15 @@ describe('the switches page', () => {
   })
 
   it('has a row for each switch: what on and off do, where it stands, and when it last changed', async () => {
-    fakeServer({ [READ]: ok(switches({ secondLayerChat: { on: true, updatedAt: '2026-11-03T12:05:00.000Z' } })) })
+    fakeServer({
+      [READ]: ok(switches({ secondLayerChat: { on: true, updatedAt: '2026-11-03T12:05:00.000Z' } })),
+      [MAINT]: ok(maintenance()),
+    })
     show(<Switches />)
 
     await screen.findByRole('region', { name: '老师用大模型' })
     expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      '维护中',
       '老师用大模型',
       '第二层·复查老师',
       '第二层·审查同学',
@@ -76,6 +81,7 @@ describe('the switches page', () => {
   it('asks before it switches, then shows the new state and when it changed', async () => {
     const server = fakeServer({
       [READ]: ok(switches()),
+      [MAINT]: ok(maintenance()),
       'PUT api/switches/teacherLlm': ok({ name: 'teacherLlm', on: false, updatedAt: '2026-11-04T01:30:00.000Z' }),
     })
     const user = userEvent.setup()
@@ -114,7 +120,7 @@ describe('the switches page', () => {
   })
 
   it('says it is switching, in words that can be read, while the change is sent', async () => {
-    fakeServer({ [READ]: ok(switches()), 'PUT api/switches/teacherLlm': { pending: true } })
+    fakeServer({ [READ]: ok(switches()), [MAINT]: ok(maintenance()), 'PUT api/switches/teacherLlm': { pending: true } })
     const user = userEvent.setup()
     show(<Switches />)
 
@@ -134,6 +140,7 @@ describe('the switches page', () => {
   it('shows the server’s reason when it will not switch', async () => {
     fakeServer({
       [READ]: ok(switches()),
+      [MAINT]: ok(maintenance()),
       'PUT api/switches/secondLayerChat': fail(503, 'unavailable', '服务器正忙。'),
     })
     const user = userEvent.setup()
@@ -146,5 +153,81 @@ describe('the switches page', () => {
 
     expect(await dialog.findByRole('alert')).toHaveTextContent('服务器正忙。')
     expect(row('第二层·审查同学').getByText('现在关着')).toBeInTheDocument()
+  })
+
+  describe('maintenance', () => {
+    const PUT = 'PUT api/maintenance'
+
+    it('has a row that says nothing is under maintenance', async () => {
+      fakeServer({ [READ]: ok(switches()), [MAINT]: ok(maintenance()) })
+      show(<Switches />)
+
+      const maint = within(await screen.findByRole('region', { name: '维护中' }))
+      expect(maint.getByText('现在没在维护')).toBeInTheDocument()
+      expect(maint.getByRole('button', { name: '开始维护' })).toBeInTheDocument()
+    })
+
+    it('asks for a message and warns that the plugins online are disconnected; it cannot be confirmed empty', async () => {
+      const server = fakeServer({
+        [READ]: ok(switches()),
+        [MAINT]: ok(maintenance()),
+        [PUT]: ok(maintenance({ message: '服务器升级中', expectedBackAt: '2026-11-04T04:00:00.000Z' })),
+      })
+      const user = userEvent.setup()
+      show(<Switches />)
+
+      await user.click(within(await screen.findByRole('region', { name: '维护中' })).getByRole('button', { name: '开始维护' }))
+      const dialog = within(await screen.findByRole('dialog', { name: '开始维护？' }))
+      expect(dialog.getByText(/在线的插件都会被断开/)).toBeInTheDocument()
+      const confirm = dialog.getByRole('button', { name: '开始维护' })
+      expect(confirm).toBeDisabled()
+
+      await user.type(dialog.getByLabelText(/^说明/), '   ')
+      expect(confirm).toBeDisabled()
+      await user.type(dialog.getByLabelText(/^说明/), '服务器升级中')
+      expect(confirm).toBeEnabled()
+      await user.type(dialog.getByLabelText(/^预计几小时后恢复/), '3')
+      await user.click(confirm)
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      const puts = server.calls.filter((call) => call.method === 'PUT')
+      expect(puts).toHaveLength(1)
+      expect(puts[0]?.body).toMatchObject({ on: true, message: '服务器升级中' })
+      const sent = (puts[0]?.body as { expectedBackAt: string }).expectedBackAt
+      expect(new Date(sent).getTime() - Date.now()).toBeGreaterThan(2.9 * 3_600_000)
+
+      const maint = within(screen.getByRole('region', { name: '维护中' }))
+      expect(maint.getByText('现在维护中')).toBeInTheDocument()
+      expect(maint.getByText('说明：服务器升级中')).toBeInTheDocument()
+      expect(maint.getByText('开始时间：2026 年 11 月 4 日 09:00')).toBeInTheDocument()
+      expect(maint.getByText('预计恢复：2026 年 11 月 4 日 12:00')).toBeInTheDocument()
+      expect(maint.getByRole('button', { name: '结束维护' })).toBeInTheDocument()
+    })
+
+    it('shows what is on, and asks before it ends it', async () => {
+      const server = fakeServer({
+        [READ]: ok(switches()),
+        [MAINT]: ok(maintenance({ message: '数据库迁移' })),
+        [PUT]: ok(maintenance()),
+      })
+      const user = userEvent.setup()
+      show(<Switches />)
+
+      const maint = within(await screen.findByRole('region', { name: '维护中' }))
+      expect(await maint.findByText('说明：数据库迁移')).toBeInTheDocument()
+      expect(maint.getByText('预计恢复：没有写')).toBeInTheDocument()
+
+      await user.click(maint.getByRole('button', { name: '结束维护' }))
+      const dialog = within(await screen.findByRole('dialog', { name: '结束维护？' }))
+      await user.click(dialog.getByRole('button', { name: '先不结束' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(server.calls.filter((call) => call.method === 'PUT')).toHaveLength(0)
+
+      await user.click(maint.getByRole('button', { name: '结束维护' }))
+      await user.click(within(await screen.findByRole('dialog', { name: '结束维护？' })).getByRole('button', { name: '结束维护' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(server.calls.filter((call) => call.method === 'PUT').map((call) => call.body)).toEqual([{ on: false }])
+      expect(maint.getByText('现在没在维护')).toBeInTheDocument()
+    })
   })
 })

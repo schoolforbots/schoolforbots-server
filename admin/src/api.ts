@@ -519,3 +519,13 @@ export interface SwitchState {
 
 export const SWITCHES_PATH = 'api/switches'
 export const setSwitch = (name: SwitchName, on: boolean) => request<SwitchState>('PUT', `api/switches/${name}`, { on })
+
+export interface MaintenanceState {
+  message: string
+  since: string
+  expectedBackAt: string | null
+}
+
+export const MAINTENANCE_PATH = 'api/maintenance'
+export const setMaintenance = (body: { on: boolean; message?: string; expectedBackAt?: string | null }) =>
+  request<{ maintenance: MaintenanceState | null }>('PUT', MAINTENANCE_PATH, body)

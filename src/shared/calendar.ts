@@ -169,16 +169,22 @@ export function speechOn(date: string, config: SchoolConfig): string[] | null {
 /**
  * The day D with `days` days that are not a holiday in `[D, today)`, for dropping students who have not come to class
  * since before D. Weekends count as days; days on a break, and all the days before the opening day, do not. Null when
- * there are not that many such days since the opening day, so that nobody is dropped for it yet.
+ * there are not that many such days since the opening day, so that nobody is dropped for it yet. The days in `skip`
+ * (days the school was under maintenance) do not count either, like a holiday.
  */
-export function inactivityCutoffDay(today: string, days: number, config: SchoolConfig): string | null {
+export function inactivityCutoffDay(
+  today: string,
+  days: number,
+  config: SchoolConfig,
+  skip: ReadonlySet<string> = new Set(),
+): string | null {
   const openingDay = config.calendar?.openingDay
   let day = today
   let counted = 0
   while (counted < days) {
     day = addDaysToDate(day, -1)
     if (openingDay !== undefined && day < openingDay) return null
-    if (!isOnBreak(day, config)) counted += 1
+    if (!isOnBreak(day, config) && !skip.has(day)) counted += 1
   }
   return day
 }

@@ -3,6 +3,7 @@ import { inactivityCutoffDay } from '../shared/calendar.js'
 import type { Clock } from '../shared/clock.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
+import { allMaintenanceDays } from '../shared/maintenance.js'
 import { displayName, nameKey } from '../shared/identity.js'
 import { atLocalTime, localDate, startOfLocalDay } from '../shared/local-time.js'
 import { assignClasses, type ClassState } from './assignment.js'
@@ -59,7 +60,11 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
     const today = startOfLocalDay(now, config.timezone)
     // The day the last `inactivityDropDays` days that are not a holiday start on; none when the school has not been
     // open that many days yet, so nobody is dropped for staying away.
-    const cutoffDay = inactivityCutoffDay(localDate(now, config.timezone), config.inactivityDropDays, config)
+    // The days under maintenance are not counted either: nobody could come. The set covers every maintenance period on
+    // record, because a look-back stretched by breaks can reach back any distance.
+    const todayText = localDate(now, config.timezone)
+    const skipped = await allMaintenanceDays(trx, todayText, config)
+    const cutoffDay = inactivityCutoffDay(todayText, config.inactivityDropDays, config, skipped)
     const dropped = cutoffDay === null ? 0 : await dropInactive(trx, atLocalTime(cutoffDay, '00:00', config.timezone))
     const promoted = await promoteWaitlist(trx, config)
     const { assigned, classesCreated } = await assignPending(trx, config, now, today)

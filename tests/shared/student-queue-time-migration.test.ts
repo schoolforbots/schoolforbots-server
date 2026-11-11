@@ -11,6 +11,7 @@ import * as m0007 from '../../src/shared/migrations/0007_llm.js'
 import * as m0008 from '../../src/shared/migrations/0008_admin_discipline.js'
 import * as m0009 from '../../src/shared/migrations/0009_llm_cached_tokens.js'
 import * as m0010 from '../../src/shared/migrations/0010_call_on_checks.js'
+import * as m0011 from '../../src/shared/migrations/0011_maintenance.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertStudent } from '../helpers/factories.js'
 
@@ -27,6 +28,7 @@ const provider: MigrationProvider = {
       '0008_admin_discipline': m0008,
       '0009_llm_cached_tokens': m0009,
       '0010_call_on_checks': m0010,
+      '0011_maintenance': m0011,
     }
   },
 }
