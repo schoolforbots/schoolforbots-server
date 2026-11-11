@@ -309,6 +309,10 @@ rclone cat bk:<BACKUP_S3_BUCKET>/backups/<对象名> | age -d -i backup-key.txt 
 
 `deploy/backup/drill.sh` 在有 Docker 的机器上证明以上都管用（CI 的 `backup-drill` 任务在每个拉取请求和每次合并时都会跑它）：它起一个本地的 S3 服务和一个填了一个班的数据库，用临时的密钥对备份，恢复到一个新库，用它起两个服务并比对学生数；检查公钥写错、桶不存在、数据库连不上这三种失败各记一行 `ok = false`；再检查只删早于 `BACKUP_KEEP_DAYS` 天的备份。它从本机填数据，所以要先 `npm ci`。
 
+### 外面的哨兵
+
+学校自己没法报告自己宕机，所以 [`ops/status-worker/`](ops/status-worker/README.md) 里有一个很小的 Cloudflare Worker，每分钟从外面探测一次：连不上学校，或者邮件发不出去，就给运营者发信；它还提供状态文件（`/status.json`），插件连不上学校时去读。部署方法见它的 README。
+
 ## 本地完整跑一节课
 
 两个开发工具可以在本机从开门到放学跑完一节课：`dev:seed` 跳过报名和分班，直接建一个班，放进一批已经过了观察期的学生；`sim` 给每个学生派一个模拟机器人来上课。它们用到和生成的文件都放在不提交的 `.sim/` 目录里。

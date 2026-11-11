@@ -309,6 +309,10 @@ If the database is down when a backup runs, no row can be written (the run recor
 
 `deploy/backup/drill.sh` proves all of this on a machine with Docker (the CI job `backup-drill` runs it on every pull request and merge): it starts a local S3 server and a database with a seeded class, backs up with a throwaway key pair, restores into a new database, starts both services on it and compares the number of students, checks that a wrong public key, a missing bucket and an unreachable database each record `ok = false`, and that only backups older than `BACKUP_KEEP_DAYS` are deleted. It seeds from the host, so run `npm ci` first.
 
+### Outside sentinel
+
+The school cannot report its own outage, so a small Cloudflare Worker in [`ops/status-worker/`](ops/status-worker/README.md) checks it from the outside every minute. It mails the operator when the school cannot be reached or when mail stops going out, and serves a status file (`/status.json`) that plugins read when they cannot reach the school. See its README for deployment.
+
 ## Running a whole lesson locally
 
 Two development tools run a lesson on your machine from the doors opening to school's out. `dev:seed` skips registration and class assignment: it creates a class directly and fills it with students who are already past the observation period. `sim` sends a simulated bot to class for each student. The files they use and write go in the `.sim/` directory, which is never committed.
