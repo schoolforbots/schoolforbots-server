@@ -56,7 +56,7 @@ export function decide(
   } else if (prev?.status === 'maintenance' && prev.viaManual !== true && prev.failingSince === null) {
     // The school was stopped on purpose; nothing to report until it answers again.
     status = 'maintenance'
-    message = prev.message
+    message = manual.note ?? prev.message
   } else {
     // Already down, or counting towards down. Maintenance clears failingSince, so after it ends the count restarts.
     failingSince = prev?.failingSince ?? nowIso
@@ -70,7 +70,7 @@ export function decide(
     } else if (prev?.status === 'maintenance') {
       // Manual maintenance was just removed: keep showing it until the count runs out.
       status = 'maintenance'
-      message = prev.message
+      message = manual.note ?? prev.message
       viaManual = prev.viaManual === true
     } else {
       status = 'ok'

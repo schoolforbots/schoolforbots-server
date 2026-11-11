@@ -102,28 +102,53 @@ async function send(env: Env, kind: keyof typeof MAILS): Promise<boolean> {
   }
 }
 
+type MailKind = keyof typeof MAILS
+
+async function put(env: Env, key: string, value: unknown): Promise<boolean> {
+  try {
+    await env.STATE.put(key, JSON.stringify(value))
+    return true
+  } catch (err) {
+    console.error('sentinel: KV write failed', key, err instanceof Error ? err.message : '')
+    return false
+  }
+}
+
+// Publishing never waits on sending: the new state is written first. A mail is queued in the
+// `pending` key only after the write that caused it succeeded, then sent; the queue is written
+// only when its content changes (so a mail that keeps failing costs no KV write per minute).
+// Trade-off when KV itself is down: nothing is written, so no mail is queued or sent (the same
+// decision comes back every minute, and sending would repeat it every minute); status.json keeps
+// its last content. Each check is independent: one failure never stops the other.
 export async function runOnce(env: Env, now: Date): Promise<void> {
-  const [prev, prevMail, manualRaw, note] = await Promise.all([
+  const [prev, prevMail, manualRaw, note, pendingRaw] = await Promise.all([
     readJson<StoredState>(env.STATE, 'state'),
     readJson<MailState>(env.STATE, 'mail'),
     env.STATE.get('manual'),
     env.STATE.get('note'),
+    readJson<MailKind[]>(env.STATE, 'pending'),
   ])
+  const pending: MailKind[] = Array.isArray(pendingRaw) ? pendingRaw.filter((k) => k in MAILS) : []
   const manual: Manual = {
     maintenance: manualRaw?.trim() === 'maintenance',
     note: note?.trim() ? note.trim() : null,
   }
   const { probe, mailOk } = await probeSchool(env.SCHOOL_URL)
 
-  const state = decide(prev, probe, manual, now)
-  // If the mail fails to go out, skip the write so the next minute tries again.
-  const stateSent = state.mail === null || (await send(env, state.mail))
-  if (state.write && stateSent) await env.STATE.put('state', JSON.stringify(state.next))
+  const queue = [...pending]
 
-  const inMaintenance = state.next.status === 'maintenance'
-  const mail = decideMail(prevMail, probe.healthy ? mailOk : null, inMaintenance, now)
-  const mailSent = mail.mail === null || (await send(env, mail.mail))
-  if (mail.write && mailSent) await env.STATE.put('mail', JSON.stringify(mail.next))
+  const state = decide(prev, probe, manual, now)
+  if (state.write && (await put(env, 'state', state.next)) && state.mail) queue.push(state.mail)
+
+  // mailOk is null when the registration service could not be read at all.
+  const mail = decideMail(prevMail, mailOk, state.next.status === 'maintenance', now)
+  if (mail.write && (await put(env, 'mail', mail.next)) && mail.mail) queue.push(mail.mail)
+
+  const left: MailKind[] = []
+  for (const kind of queue) {
+    if (!(await send(env, kind))) left.push(kind)
+  }
+  if (JSON.stringify(left) !== JSON.stringify(pending)) await put(env, 'pending', left)
 }
 
 const HEADERS = {
