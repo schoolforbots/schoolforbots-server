@@ -22,6 +22,8 @@ See the [Local development](README.md#local-development) section of the README. 
 4. Push to your fork, open a PR against this repository's `main`, and fill in the template.
 5. Once CI passes and a maintainer has reviewed it, the PR is merged. External PRs are always squash-merged: the whole PR becomes a single commit on `main`, and the PR title becomes that commit's title.
 
+CI skips the checks a PR's changes cannot affect: a PR that only changes the README, for example, does not run the tests, the smoke test or the restore drill. Which changed paths run which checks is in `.github/scripts/affected.sh`. A change to the workflows, or to a path not listed there, runs all of them, and so does every merge into `main`. The sign-off and PR title checks always run.
+
 The history of `main` is never rewritten, so if you find a problem after a merge, please open a new PR to fix it.
 
 ## Commit messages and PR titles
