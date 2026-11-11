@@ -606,6 +606,22 @@ function parseLlmFake(get: Get): boolean {
 }
 
 /**
+ * `MAIL_FROM` must be one sender address, bare (`a@b.c`) or with a name (`name <a@b.c>`), with no line break, `<` or
+ * `>` inside the address: the mailer refuses such a sender on every send, which would fail every verification mail.
+ * Checked here with a simple pattern of our own (not nodemailer's address parser, which accepts leniently what its
+ * sender check then refuses), so a malformed value stops the start.
+ */
+function parseMailFrom(value: string): string {
+  const bad = () =>
+    new Error(`Invalid MAIL_FROM: ${JSON.stringify(value)} (expected one address, as a@b.c or name <a@b.c>, with no line break, < or > inside it)`)
+  if (/[\r\n]/.test(value)) throw bad()
+  const named = /^[^<>]*<([^<>\s@]+@[^<>\s@]+)>$/.exec(value.trim())
+  const bare = /^[^<>\s@]+@[^<>\s@]+$/.test(value.trim())
+  if (!named && !bare) throw bad()
+  return value
+}
+
+/**
  * The environment of the registration service and the tools. `warn` takes the notices that do not stop the start
  * (a half-set admin configuration).
  */
@@ -644,7 +660,7 @@ export function loadEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void 
     databaseUrl,
     databaseTimeouts,
     mail,
-    mailFrom: get('MAIL_FROM') ?? '机器人网校 <no-reply@example.com>',
+    mailFrom: parseMailFrom(get('MAIL_FROM') ?? '机器人网校 <no-reply@example.com>'),
     moderationDataDir: moderationDataDirOf(get),
     configPath: configPathOf(get),
     schoolRulesDir: get('SCHOOL_RULES_DIR') ?? 'school-rules',

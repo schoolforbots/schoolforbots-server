@@ -171,6 +171,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 ### 环境变量
 
 - `PROMPTS_DIR`（默认 `data/prompts`）放提示词，每种用途和写法一个文件，文件名是 `<名字>.md`。仓库里只有 `<名字>.example.md`，写明了每个提示词能用哪些占位符；服务找不到 `<名字>.md` 时改用示例文件，并在启动时打印警告。两个服务都读它。真实的提示词不会提交到仓库。
+- `MAIL_FROM`：所有邮件的发件人，一个地址，可以只写地址，也可以带名字（默认 `机器人网校 <no-reply@example.com>`）。格式不对（`<` `>` 不成对、含换行）时，服务不会启动。
 - `OPERATOR_EMAIL`：当月花费超过预算时，报名服务把通知发到这个地址，告警邮件（见上面的 `alerts`）也发到这里。不填的话，预算通知只显示在数据页上，也不发任何告警邮件。
 - `ADMIN_PATH`、`ADMIN_PASSWORD_HASH`、`ADMIN_TOTP_SECRET`：三个都填了，报名服务才提供后台页面（只填了一部分时会打印警告）。`ADMIN_PATH` 是后台的路径，比如 `/your-secret-path`，要以 `/` 开头，不能以 `/v1` 开头。选一个别人猜不到的，也不要写进任何会提交的文件。另外两个用 `npm run admin:password` 生成。
 - 每家厂商的钥匙，放在它的 `apiKeyEnv` 指定的变量里。两个服务和 `words:tidy` 都读，缺了哪个就拒绝启动。

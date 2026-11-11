@@ -143,6 +143,21 @@ test('loadEnv requires DATABASE_URL and fills defaults', () => {
   })
 })
 
+test.each(['机器人网校 <no-reply@example.com>', 'no-reply@example.com', 'a <a@b.c>'])('MAIL_FROM %s is accepted', (from) => {
+  expect(loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25', MAIL_FROM: from }).mailFrom).toBe(from)
+})
+
+test.each([
+  ['unbalanced brackets', '机器人网校 <no-reply@example.com'],
+  ['stray closing bracket', 'no-reply@example.com>'],
+  ['brackets inside the address', 'a <a<b>@c.d>'],
+  ['an embedded newline', 'a <a@b.c>\nBcc: x@y.z'],
+  ['a carriage return', 'a@b.c\rx'],
+  ['no address', '机器人网校'],
+])('MAIL_FROM with %s stops the start and names MAIL_FROM', (_name, from) => {
+  expect(() => loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25', MAIL_FROM: from })).toThrow(/MAIL_FROM/)
+})
+
 test('loadEnv reads overrides', () => {
   expect(loadEnv({
     DATABASE_URL: 'postgres://x', MAIL_TRANSPORT: 'smtp', SMTP_URL: 'smtp://mail:25', MAIL_FROM: 'a <a@b.c>',
