@@ -281,7 +281,18 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 - 第一次启动时用 `--now` 没有关系：还没有课要等。
 - 服务只在启动时读 `school.json`。改了之后，要重启用到改动部分的服务：比如 `alerts`（像 `backupExpected`）是报名服务读的（在 `deploy/` 里运行 `docker compose restart registration`）。要两个服务都重启、又不打断正在上的课，就用现在跑着的标签再运行一次 `deploy/deploy.sh`。
 
-报名服务和上课服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康。启动后有一段宽限期，期间失败不算：报名服务是 10 分钟，因为它跑完迁移才应答，这样迁移跑得久也不会被中途重启（`deploy.sh` 也等它这么久）；上课服务是 60 秒。有一次检查通过，宽限期就结束。看门狗就看这个状态。服务的日志走 Docker 的 `journald` 驱动，所以这些日志（包括请求日志）保留多久，由服务器上的 journald 决定。journald 不另外设置的话，只按大小删、不按时间删，而校规说请求日志保存一段时间后会自动删除：在服务器的 `/etc/systemd/journald.conf` 里设好保留期限，比如 `MaxRetentionSec=30day`，再加一个大小上限，比如 `SystemMaxUse=2G`，然后运行 `systemctl restart systemd-journald`。
+报名服务和上课服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康。启动后有一段宽限期，期间失败不算：报名服务是 10 分钟，因为它跑完迁移才应答，这样迁移跑得久也不会被中途重启（`deploy.sh` 也等它这么久）；上课服务是 60 秒。有一次检查通过，宽限期就结束。看门狗就看这个状态。
+
+服务的日志走 Docker 的 `journald` 驱动，所以这些日志（包括请求日志）保留多久，由服务器上的 journald 决定。journald 不另外设置的话，只按大小删、不按时间删，而校规说请求日志保存一段时间后会自动删除。在服务器的 `/etc/systemd/journald.conf.d/` 下单独放一个文件设好保留期限（它会盖过 `/etc/systemd/journald.conf`，原文件保持不动），比如 `/etc/systemd/journald.conf.d/60-retention.conf`：
+
+```ini
+[Journal]
+MaxRetentionSec=30day
+MaxFileSec=1day
+SystemMaxUse=2G
+```
+
+然后运行 `systemctl restart systemd-journald`。`SystemMaxUse` 限制日志占用的空间。要加 `MaxFileSec=1day`，是因为 journald 删日志是整个文件整个文件地删，文件里最老的一条超过 `MaxRetentionSec` 就删掉整个文件，而它默认一个月才换一个新文件，这样一删就是一个月的日志，其中大多远不到 30 天；一天一个文件，日志就一天一天地删，删的时候差不多 30 天。Debian 和 Ubuntu 上，journald 默认还会把日志都转发给 syslog（`ForwardToSyslog=yes`）；装了 rsyslog 的话（Ubuntu 默认就装了），`/var/log/syslog` 里还有一份，按 `/etc/logrotate.d/rsyslog` 的规则保存（较新的版本是每周轮转、留 4 份旧的，约 5 周）。要做到日志只留 30 天，这一份也要管：改那里的轮转规则，或者在上面的文件里加一行 `ForwardToSyslog=no`，这样 `/var/log/syslog` 里就不再有 journald 转来的日志。
 
 `deploy/smoke-test.sh` 会构建镜像，用 `deploy/compose.local.yml`（本地镜像、示例配置、写死回复的大模型、`https://localhost`）起全套，检查健康检查、只有 `backup` 服务看得到 `backup.env`、代理、`deploy.sh` 和看门狗，最后把起的东西全部删掉。它需要 Docker，80 和 443 端口空闲（或设置 `HTTP_PORT` 和 `HTTPS_PORT`）。
 
