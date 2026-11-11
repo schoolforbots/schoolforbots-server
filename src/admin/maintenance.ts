@@ -50,11 +50,14 @@ export const maintenanceRoutes = (deps: AdminDeps): FastifyPluginAsync => async 
       } else {
         const text = message?.trim() ?? ''
         if (text.length < 1 || [...text].length > MAX_MESSAGE) throw new ApiError(400, 'invalid_request')
-        let back: Date | null = null
-        if (expectedBackAt !== undefined && expectedBackAt !== null) {
+        // Absent keeps the expected time of maintenance already on (none when switching on); null clears it.
+        let back: Date | null | undefined
+        if (expectedBackAt === null) back = null
+        else if (expectedBackAt !== undefined) {
           back = new Date(expectedBackAt)
           if (Number.isNaN(back.getTime()) || back.getTime() <= now.getTime()) throw new ApiError(400, 'invalid_request')
         }
+        if (back === undefined) back = (await readMaintenance(deps.db))?.expectedBackAt ?? null
         await setMaintenance(deps.db, { message: text, expectedBackAt: back }, now)
       }
       await deps.maintenance.refresh()

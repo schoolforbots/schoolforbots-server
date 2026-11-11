@@ -280,7 +280,7 @@ describe('the switches page', () => {
 
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
       expect(server.calls.filter((call) => call.method === 'PUT').map((call) => call.body)).toEqual([
-        { on: true, message: '改一下', expectedBackAt: BACK },
+        { on: true, message: '改一下' },
       ])
       expect(maint.getByText('预计恢复：2026 年 11 月 4 日 16:00')).toBeInTheDocument()
     })
@@ -297,7 +297,10 @@ describe('the switches page', () => {
       const maint = within(await screen.findByRole('region', { name: '维护中' }))
       await user.click(await maint.findByRole('button', { name: '修改说明' }))
       const dialog = within(await screen.findByRole('dialog', { name: '修改说明？' }))
+      const hours = dialog.getByLabelText(/^预计几小时后恢复/)
+      expect(hours).toBeEnabled()
       await user.click(dialog.getByRole('checkbox', { name: '不写预计时间（清掉现在的）' }))
+      expect(hours).toBeDisabled()
       await user.click(dialog.getByRole('button', { name: '修改说明' }))
 
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
