@@ -182,6 +182,25 @@ describe('decide', () => {
   })
 })
 
+describe('decide: note in the keep-maintenance and counting branches', () => {
+  it('applies a note added while a stopped school stays in maintenance', () => {
+    const { r, step } = runner()
+    step(0, { healthy: true, maintenance: { message: '升级中' } })
+    step(1, dead)
+    expect(r.state?.message).toBe('升级中')
+    step(2, dead, { maintenance: false, note: '新说明' })
+    expect(r.state).toMatchObject({ status: 'maintenance', message: '新说明' })
+  })
+
+  it('applies a note while counting after manual maintenance was removed', () => {
+    const { r, step } = runner()
+    step(0, up, { maintenance: true, note: null })
+    step(1, dead)
+    step(2, dead, { maintenance: false, note: '说明' })
+    expect(r.state).toMatchObject({ status: 'maintenance', message: '说明' })
+  })
+})
+
 describe('decideMail', () => {
   const stepper = () => {
     const s = { state: null as MailState | null, writes: 0, mails: [] as string[] }

@@ -27,6 +27,7 @@ Maintenance (reported by the school, or switched on by hand) never causes a mail
 | --- | --- | --- |
 | `state` | the worker | The current status, as JSON. |
 | `mail` | the worker | When mail started failing and when the operator was last told. |
+| `pending` | the worker | Mails that could not be sent yet; retried every minute and cleared once sent. |
 | `manual` | the operator | The value `maintenance` forces the status to maintenance. Delete the key to go back to automatic. |
 | `note` | the operator | One sentence that replaces the generated message in `status.json`. Delete the key to remove it. |
 
