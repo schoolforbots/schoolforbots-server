@@ -13,12 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # `test` is a required check, so the job runs on every change and skips the steps a pull request's changes cannot
+  # affect (.github/scripts/affected.sh says which). Skipping the whole workflow instead would leave the check waiting.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+        with:
+          # GitHub's merge commit for a pull request and its base, for affected.sh to compare.
+          fetch-depth: 2
+      - id: affected
+        name: See what the change can affect
+        run: .github/scripts/affected.sh
+      - if: >-
+          steps.affected.outputs.backend == 'true' || steps.affected.outputs.admin == 'true' ||
+          steps.affected.outputs.worker == 'true'
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -26,15 +37,24 @@ jobs:
             package-lock.json
             admin/package-lock.json
             ops/status-worker/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
+      - if: steps.affected.outputs.backend == 'true'
+        run: npm ci
+      - if: steps.affected.outputs.backend == 'true'
+        run: npm run typecheck
       # The tests use Testcontainers to start a temporary Postgres; GitHub's Ubuntu runners come with Docker.
-      - run: npm test
+      - if: steps.affected.outputs.backend == 'true'
+        run: npm test
       # The admin pages are a package of their own: their tests run in jsdom, and the build makes admin/dist.
-      - run: npm --prefix admin ci
-      - run: npm run admin:test
-      - run: npm run admin:build
+      - if: steps.affected.outputs.admin == 'true'
+        run: npm --prefix admin ci
+      - if: steps.affected.outputs.admin == 'true'
+        run: npm run admin:test
+      - if: steps.affected.outputs.admin == 'true'
+        run: npm run admin:build
       # The outside sentinel (a Cloudflare Worker) is a package of its own too.
-      - run: npm --prefix ops/status-worker ci
-      - run: npm --prefix ops/status-worker run typecheck
-      - run: npm --prefix ops/status-worker test
+      - if: steps.affected.outputs.worker == 'true'
+        run: npm --prefix ops/status-worker ci
+      - if: steps.affected.outputs.worker == 'true'
+        run: npm --prefix ops/status-worker run typecheck
+      - if: steps.affected.outputs.worker == 'true'
+        run: npm --prefix ops/status-worker test
