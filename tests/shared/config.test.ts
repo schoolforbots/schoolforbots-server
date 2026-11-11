@@ -85,6 +85,7 @@ test('the example config writes out every alert setting', () => {
     llm400PerHour: 5,
     mailFailures: { count: 3, minutes: 10 },
     restarts: { count: 3, minutes: 10 },
+    mailCheckMinutes: 10,
     backupExpected: false,
     backupMaxAgeHours: 26,
     diskPercent: 80,
@@ -106,6 +107,7 @@ test.each([
   ['diskPercent', { diskPercent: 'full' }],
   ['diskPercent', { diskPercent: 101 }],
   ['repeatAfterMinutes', { repeatAfterMinutes: 0 }],
+  ['mailCheckMinutes', { mailCheckMinutes: 0 }],
   ['backupExpected', { backupExpected: 'yes' }],
   ['internalErrors', { internalErrors: { count: 'many', minutes: 5 } }],
 ])('a wrong alerts.%s stops the start and names it', (name, alerts) => {

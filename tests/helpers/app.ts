@@ -49,6 +49,7 @@ export async function buildTestApp(
     schoolRules?: SchoolRules
     logger?: FastifyServerOptions['logger']
     onInternalError?: () => void
+    mailHealth?: { ok(): boolean }
   } = {},
 ) {
   const { db, destroy: destroyDb } = await createTestDb()
@@ -73,6 +74,7 @@ export async function buildTestApp(
     trustProxy: false,
     logger: overrides.logger,
     onInternalError: overrides.onInternalError,
+    mailHealth: overrides.mailHealth,
   })
   try {
     await app.ready()

@@ -17,6 +17,7 @@ import { startSwitches } from '../shared/switches.js'
 import { runWeeklyReview } from '../weekly/review.js'
 import { buildRegistrationApp } from './app.js'
 import { runDailyJob } from './daily-job.js'
+import { reportSends, startMailHealth } from './mail-health.js'
 import { ConsoleMailer, createSmtpMailer, withMailFailures, type Mailer } from './mailer.js'
 import { isWeeklyReviewDay, startDailyJob, startPeriodicJob } from './scheduler.js'
 
@@ -55,8 +56,11 @@ async function main(): Promise<void> {
   }
 
   let mailer: Mailer
+  let verifyMail: (() => Promise<void>) | null = null
   if (env.mail.transport === 'smtp') {
-    mailer = createSmtpMailer(env.mail.smtpUrl, env.mailFrom, config.verificationCode.ttlMinutes)
+    const smtp = createSmtpMailer(env.mail.smtpUrl, env.mailFrom, config.verificationCode.ttlMinutes)
+    mailer = smtp
+    verifyMail = () => smtp.verify()
   } else {
     console.warn('[mail] MAIL_TRANSPORT=console：验证码只会打印在服务日志里，不会发邮件（仅限本地开发使用）')
     mailer = new ConsoleMailer(config.verificationCode.ttlMinutes)
@@ -66,6 +70,9 @@ async function main(): Promise<void> {
     recordOpsEvent(db, { service: 'registration', kind, at: systemClock.now() }, log)
   // A verification code that cannot be sent counts for the alert mail; the notices to the operator go as they are.
   mailer = withMailFailures(mailer, () => noteEvent('mail_failed'))
+  // Whether mail goes out, for GET /healthz/mail (an outside check reads it; alert mails cannot say it when mail is down).
+  const mailHealth = startMailHealth({ clock: systemClock, config, verify: verifyMail, log })
+  mailer = reportSends(mailer, mailHealth, systemClock)
 
   // The model, with its costs recorded and the monthly budget watched. The lessons are made with it, and the admin
   // is given it and the prompts too.
@@ -93,6 +100,7 @@ async function main(): Promise<void> {
     schoolRules,
     trustProxy: env.trustProxy,
     onInternalError: () => noteEvent('internal_error'),
+    mailHealth,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     admin: { db, config, clock: systemClock, env, llm, prompts, moderator, switches, maintenance, mailer },
   })
@@ -192,6 +200,7 @@ async function main(): Promise<void> {
     dailyJob.stop()
     lessonGeneration.stop()
     alerts.stop()
+    mailHealth.stop()
     switches.stop()
     maintenance.stop()
     moderator.stop()

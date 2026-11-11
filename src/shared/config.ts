@@ -78,6 +78,8 @@ const AlertsSchema = Type.Object({
   llm400PerHour: Type.Optional(PositiveInt),
   mailFailures: Type.Optional(CountInMinutes),
   restarts: Type.Optional(CountInMinutes),
+  // How often the mail service is tried (a connection check) for `GET /healthz/mail`, in minutes.
+  mailCheckMinutes: Type.Optional(PositiveInt),
   // Whether backups are expected at all: turn it on for the real school.
   backupExpected: Type.Optional(Type.Boolean()),
   backupMaxAgeHours: Type.Optional(PositiveInt),
@@ -91,6 +93,7 @@ export interface AlertsConfig {
   llm400PerHour: number
   mailFailures: { count: number; minutes: number }
   restarts: { count: number; minutes: number }
+  mailCheckMinutes: number
   backupExpected: boolean
   backupMaxAgeHours: number
   diskPercent: number
@@ -103,6 +106,7 @@ export const DEFAULT_ALERTS: AlertsConfig = {
   llm400PerHour: 5,
   mailFailures: { count: 3, minutes: 10 },
   restarts: { count: 3, minutes: 10 },
+  mailCheckMinutes: 10,
   backupExpected: false,
   backupMaxAgeHours: 26,
   diskPercent: 80,

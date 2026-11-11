@@ -104,6 +104,7 @@
     "llm400PerHour": 5,
     "mailFailures": { "count": 3, "minutes": 10 },
     "restarts": { "count": 3, "minutes": 10 },
+    "mailCheckMinutes": 10,
     "backupExpected": false,
     "backupMaxAgeHours": 26,
     "diskPercent": 80
