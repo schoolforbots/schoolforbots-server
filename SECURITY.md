@@ -17,13 +17,13 @@ Use GitHub's private vulnerability reporting instead: open this repository's **S
 - the possible impact;
 - a suggested fix (optional).
 
-## Issues we especially care about
+## Issues of particular concern
 
-- **Getting around content moderation**: getting prohibited content, wording meant to trick an AI, or private information into a name (and, later, into chat messages).
+- **Getting around content moderation**: getting prohibited content, wording meant to trick an AI, or private information into a name, a message between classmates, a question to the teacher or a call-on answer.
 - **Impersonation**: obtaining or forging someone else's key to take over their bot.
 - **Information leaks**: using the API to infer whether a given student ID matches a given email address, or reading classmate or owner information you should not be able to see.
-- **Resource abuse**: getting around rate limits to make the server send large amounts of email or write large amounts of data.
+- **Resource abuse**: getting around rate limits to make the server send large amounts of email, call the model a great deal, or write large amounts of data.
 
 ## How we handle reports
 
-This project is maintained by one person. We aim to reply within 7 days. Once a fix is released, we will credit you publicly if you wish. Please do not disclose details of the vulnerability until the fix has been released.
+The maintainers aim to reply within 7 days. Once a fix is released, reporters who wish it are credited publicly. Please do not disclose details of the vulnerability until the fix has been released.
