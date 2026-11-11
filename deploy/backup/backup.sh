@@ -62,3 +62,4 @@ else
   record false || echo "backup: could not record the failed run in backup_runs" >&2
   exit 1
 fi
+# CI trial, not for merging
