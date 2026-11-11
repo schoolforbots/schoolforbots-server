@@ -3,7 +3,8 @@
 #   restore.sh <object name> <age private key file> <target database URL>
 # The object name is the file under backups/ (for example 2026-11-11T0330.dump.age). The S3 variables of backup.sh
 # (BACKUP_S3_*) say where it is. Downloads, decrypts and pg_restores in one pipe, so the plaintext never touches the
-# disk. Refuses a target database that has any table in it.
+# disk, in one transaction (an interrupted restore leaves the target as it was). For the drill and for use on a machine
+# that is allowed to hold the private key; on a real server restore as the README says. Refuses a target database that has any table in it.
 set -eu
 
 if [ "$#" -ne 3 ]; then
@@ -35,5 +36,5 @@ if [ "$tables" != 0 ]; then
 fi
 
 echo "restore: downloading, decrypting and restoring backups/$object"
-rclone cat "bk:$BACKUP_S3_BUCKET/backups/$object" | age -d -i "$key" | pg_restore --no-owner --exit-on-error -d "$target"
+rclone cat "bk:$BACKUP_S3_BUCKET/backups/$object" | age -d -i "$key" | pg_restore --single-transaction --no-owner --exit-on-error -d "$target"
 echo "restore: done"

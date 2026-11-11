@@ -28,7 +28,7 @@ cleanup() {
   fi
   step "cleaning up"
   docker rm -f "$canary" >/dev/null 2>&1 || true
-  if [ -f "$work/compose.yml" ]; then compose down --volumes --remove-orphans --timeout 5 || true; fi
+  if [ -f "$work/compose.yml" ]; then compose down --volumes --remove-orphans --rmi local --timeout 5 || true; fi
   docker image rm schoolforbots-server:local >/dev/null 2>&1 || true
   rm -rf "$work"
   exit "$status"
@@ -58,9 +58,9 @@ bash -n "$here/deploy.sh"
 bash -n "$here/smoke-test.sh"
 bash -n "$here/env-tag.sh"
 bash -n "$here/test-env-tag.sh"
-bash -n "$here/backup/backup.sh"
-bash -n "$here/backup/restore.sh"
-bash -n "$here/backup/entrypoint.sh"
+sh -n "$here/backup/backup.sh"
+sh -n "$here/backup/restore.sh"
+sh -n "$here/backup/entrypoint.sh"
 bash -n "$here/backup/drill.sh"
 
 step "checking the .env tag rewrite"

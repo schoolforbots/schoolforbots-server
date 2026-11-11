@@ -49,8 +49,11 @@ trap cleanup EXIT
 step "checking the scripts parse"
 for f in backup.sh restore.sh entrypoint.sh drill.sh; do
   [ -f "$here/$f" ] || fail "$here/$f does not exist"
-  bash -n "$here/$f"
 done
+sh -n "$here/backup.sh"
+sh -n "$here/restore.sh"
+sh -n "$here/entrypoint.sh"
+bash -n "$here/drill.sh"
 
 step "preparing a working copy of deploy/ in $work"
 cp "$deploy"/compose.yml "$deploy"/compose.local.yml "$work"/
@@ -77,7 +80,7 @@ docker build -q -t "$backup_image" "$here"
 
 step "starting the S3 storage and the source database"
 docker network create "$net" >/dev/null
-docker run -d --name "$minio" --network "$net" rclone/rclone serve s3 /data --addr :9000 \
+docker run -d --name "$minio" --network "$net" rclone/rclone:1.76.0 serve s3 /data --addr :9000 \
   --auth-key "$minio_user,$minio_password" >/dev/null
 docker run -d --name "$src" --network "$net" -p 127.0.0.1::5432 \
   -e POSTGRES_USER=school -e POSTGRES_DB=school -e POSTGRES_PASSWORD="$pg_password" postgres:17-alpine >/dev/null
@@ -175,6 +178,15 @@ restored="$(compose exec -T postgres psql -U school -d school -tAc 'select count
 echo "drill: students in the restored database: $restored, in the source: $students"
 [ "$restored" = "$students" ] || fail "the restored database has $restored students, the source $students"
 
+echo "drill: the README's restore, with docker exec in place of ssh: decrypt outside the server, stream in"
+compose exec -T postgres createdb -U school school_restored
+docker run --rm --network "$net" --env-file "$work/backup.env" -v "$work/age-key.txt:/key.txt:ro" --entrypoint sh "$backup_image" -c \
+  "rclone cat drill:$bucket/backups/$object | age -d -i /key.txt" \
+  | compose exec -T postgres pg_restore --single-transaction --no-owner -U school -d school_restored
+streamed="$(compose exec -T postgres psql -U school -d school_restored -tAc 'select count(*) from students' | tr -d '[:space:]')"
+[ "$streamed" = "$students" ] || fail "the streamed restore has $streamed students, the source $students"
+echo "drill: students after the streamed restore: $streamed"
+
 step "3/5 each of three failures records a failed run and exits non-zero"
 expect_failure() {
   local what="$1" before after
@@ -192,6 +204,7 @@ expect_failure "a wrong public key" -e BACKUP_AGE_RECIPIENT=age1notakeynotakeyno
 expect_failure "a bucket that does not exist" -e BACKUP_S3_BUCKET=no-such-bucket
 # The dump cannot connect; the run is still recorded in the real database.
 expect_failure "an unreachable database" -e "BACKUP_DATABASE_URL=postgres://school:$pg_password@$src:1/school?connect_timeout=3"
+expect_failure "BACKUP_KEEP_DAYS=0" -e BACKUP_KEEP_DAYS=0
 [ "$(rc lsf "drill:$bucket/backups/" | grep -c '\.dump\.age$')" = 1 ] || fail "a failed backup left an object in the bucket"
 [ "$(runs true)" = 1 ] || fail "the failed runs changed the ok rows"
 

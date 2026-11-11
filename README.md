@@ -281,11 +281,31 @@ The `backup` service runs `backup.sh` every day at `BACKUP_AT` (03:30 by default
 
 Set up:
 
-1. On your own machine, not the server: `age-keygen -o backup-key.txt`. It prints the public key (`age1…`). Put the public key in `deploy/.env` as `BACKUP_AGE_RECIPIENT`, and keep `backup-key.txt` with you (and a copy somewhere safe): without it a backup cannot be read, and the server never holds it.
+1. On your own machine, not the server: `age-keygen -o backup-key.txt`. It prints the public key (`age1…`). Put the public key in `deploy/.env` as `BACKUP_AGE_RECIPIENT`, and keep `backup-key.txt` with you (and a copy somewhere safe): without it a backup cannot be read, and it is never put on the server; it is only used on your own machine.
 2. Make a bucket, and an access key allowed to read and write it, in the storage service. Put `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID` and `BACKUP_S3_SECRET_ACCESS_KEY` in `deploy/.env`; `BACKUP_KEEP_DAYS` and `BACKUP_AT` are optional (see `deploy/env.example`).
 3. **Right after the first deploy, run one backup by hand: `docker compose run --rm backup backup.sh` (in `deploy/`)**, and check that it printed `backup: done`. Only then set `alerts.backupExpected` to `true` in `school.json`; with it on and no backup yet, the operator is mailed every hour until the first nightly run.
+4. Once, on your own machine, check that the backup opens with the real private key (a valid public key that is not the pair of your private key would record `ok` every night and leave only backups nobody can read): `rclone cat bk:<bucket>/backups/<name> | age -d -i backup-key.txt | pg_restore -l > /dev/null`, with the `bk` remote set up as below. No output and exit code 0 means it works.
 
-Restore, onto a machine that has the private key: make a new, empty database (restoring into one that has tables is refused), and run `restore.sh <object name> <private key file> <target database URL>` in the backup image, for example `docker compose run --rm -v "$PWD/backup-key.txt:/key.txt:ro" backup restore.sh 2026-11-11T0330.dump.age /key.txt postgres://school:…@postgres:5432/<new database>`. It downloads, decrypts and runs `pg_restore` in one pipe. Then point `DATABASE_URL` at the new database and start the services.
+Restore, from your own machine, which has `rclone`, `age`, `ssh` and the private key. The server only ever sees the decrypted dump as it streams into its database. First give `rclone` the storage settings, as environment variables (nothing is written to disk), and list the backups:
+
+```
+export RCLONE_CONFIG_BK_TYPE=s3 RCLONE_CONFIG_BK_PROVIDER=Other RCLONE_CONFIG_BK_FORCE_PATH_STYLE=true \
+  RCLONE_CONFIG_BK_ENDPOINT=<BACKUP_S3_ENDPOINT> RCLONE_CONFIG_BK_ACCESS_KEY_ID=<BACKUP_S3_ACCESS_KEY_ID> \
+  RCLONE_CONFIG_BK_SECRET_ACCESS_KEY=<BACKUP_S3_SECRET_ACCESS_KEY>
+rclone lsf bk:<BACKUP_S3_BUCKET>/backups/
+```
+
+Make a new, empty database on the server (on a brand new server, the empty `school` database that `postgres` creates when it first starts is the target already, and this step is skipped), then stream the backup into it:
+
+```
+ssh <server> 'cd <deploy dir> && docker compose exec -T postgres createdb -U school school_restored'
+rclone cat bk:<BACKUP_S3_BUCKET>/backups/<name> | age -d -i backup-key.txt \
+  | ssh <server> 'cd <deploy dir> && docker compose exec -T postgres pg_restore --single-transaction --no-owner -U school -d school_restored'
+```
+
+`--single-transaction` means an interrupted restore leaves the target empty. Then point `DATABASE_URL` in `deploy/.env` at the new database (`…/school_restored`) and run `deploy/deploy.sh`. `deploy/backup/restore.sh <object name> <private key file> <target database URL>` does the same download, decrypt and restore inside the backup image; it is for the drill and for a machine that is allowed to hold the private key, so do not use it on the server with the real key.
+
+If the database is down when a backup runs, no row can be written (the run records itself in that same database), so then only the "no successful backup in the last `backupMaxAgeHours`" alert tells you.
 
 `deploy/backup/drill.sh` proves all of this on a machine with Docker (the CI job `backup-drill` runs it on every pull request and merge): it starts a local S3 server and a database with a seeded class, backs up with a throwaway key pair, restores into a new database, starts both services on it and compares the number of students, checks that a wrong public key, a missing bucket and an unreachable database each record `ok = false`, and that only backups older than `BACKUP_KEEP_DAYS` are deleted. It seeds from the host, so run `npm ci` first.
 

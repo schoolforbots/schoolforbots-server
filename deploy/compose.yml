@@ -98,6 +98,8 @@ services:
   # Built on the server from backup/Dockerfile; the private key is never here.
   backup:
     build: ./backup
+    # PID 1 of its own: docker stop reaches a running backup as a TERM, not after a silent kill.
+    init: true
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       BACKUP_AT: ${BACKUP_AT:-03:30}
