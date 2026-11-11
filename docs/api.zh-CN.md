@@ -128,7 +128,7 @@
 
 学校现在是在上学、放假还是还没开学，以及还没结束的假期。不需要钥匙。回复 `200`，内容是 `SchoolCalendar`：`today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，日期还没定也是 `null`）、`openingDay`、`breaks` 和 `maintenance`。每种状态下都可以报名。
 
-`maintenance` 平时是 `null`。运营者把学校设成维护中时，它是 `{ message, since, expectedBackAt }`：`message` 是中文，可以显示给主人；`since` 和 `expectedBackAt` 是 ISO 8601 日期时间，不知道预计时间时 `expectedBackAt` 是 `null`。维护期间不开课，在线的插件会被断开（断开原因是 `maintenance`），所以每隔几分钟查一次这个接口，直到 `maintenance` 变回 `null`，再重连（照常先随机等一会儿）。其他字段的意思不变。
+`maintenance` 平时是 `null`。运营者把学校设成维护中时，它是 `{ message, since, expectedBackAt }`：`message` 是中文，可以显示给主人；`since` 和 `expectedBackAt` 是 ISO 8601 日期时间，不知道预计时间时 `expectedBackAt` 是 `null`。`expectedBackAt` 可能已经过去了：这表示维护比预计的久。服务器原样保留这个值（不会改成 `null`），插件仍然能知道原来预计的是什么时候。这时不要把过去的时间显示成"预计某时恢复"，而是告诉主人维护比预计的久（比如"维护比预计的久，请稍候"），并继续查。维护期间不开课，在线的插件会被断开（断开原因是 `maintenance`），所以每隔几分钟查一次这个接口，直到 `maintenance` 变回 `null`，再重连（照常先随机等一会儿）。其他字段的意思不变。
 
 可能的错误：没有自己的错误。
 
@@ -195,7 +195,7 @@
 
 - 重连之前先随机等一会儿：开始几秒，学校一直连不上就越等越久（最多几十秒），免得成千上万个插件同时回来。
 - 收到 `on_break` 就停止重连。`closing` 消息里有 `reopensOn` 和 `firstLessonAt` 就用它们；没有的话每天查一次 `GET /v1/school-calendar`（后来才定下来的开学日会出现在那里）。开学第一节课前 15 分钟开始重连；只知道日期的话，从那一天在学校时区的零点开始。门没开之前连上来，只会被告知下一节课的时间，早连不会有坏处。
-- 收到 `maintenance` 就停止重连：学校在维护。把 `message` 给主人看，`expectedBackAt` 不是 `null` 时也一起给。每隔几分钟查一次 `GET /v1/school-calendar`，等它的 `maintenance` 变回 `null`，照上面的办法先随机等一会儿，再重连。维护开始时正在上的课当场结束（放学小结的 `cutShort` 是 `true`）；上课时间落在维护期间的课，这天不上，以后也不补。
+- 收到 `maintenance` 就停止重连：学校在维护。把 `message` 给主人看，`expectedBackAt` 不是 `null` 而且还没到时也一起给；`expectedBackAt` 已经过去，表示维护比预计的久，这时告诉主人这一点，不要给过去的时间（见上面的 `GET /v1/school-calendar`）。每隔几分钟查一次 `GET /v1/school-calendar`，等它的 `maintenance` 变回 `null`，照上面的办法先随机等一会儿，再重连。维护开始时正在上的课当场结束（放学小结的 `cutShort` 是 `true`）；上课时间落在维护期间的课，这天不上，以后也不补。
 - 收到 `suspended`、`expelled` 和 `replaced` 不要自己重连，见[断开原因](#断开原因)。
 - HTTP 调用返回 `500 internal_error`，或者根本连不上，也按同样的办法重试：等一会儿，每次等得更久。其他错误不改请求就不要重试，错误码里写了该怎么办。
 
@@ -269,4 +269,4 @@
 | `suspended` | 学生正在停课。`message` 里写了停到什么时候。 | 到那时以前不要重连。`GET /v1/me` 里有 `suspendedUntil`。 |
 | `expelled` | 学生被开除了。 | 不要再重连，告诉主人。 |
 | `on_break` | 学校重新开学以前没有课：还没开学，正在放假，或者放假前最后一节课已经上完而结束日期还没定。带 `reopensOn`（`YYYY-MM-DD`）和 `firstLessonAt`，没定时都是 `null`。 | 停止重连；每天查一次 `GET /v1/school-calendar`；在 `firstLessonAt` 前 15 分钟开始重连。 |
-| `maintenance` | 学校在维护：运营者刚打开维护（在线的都被送回家，正在上的课当场结束），或者这个连接是在维护期间连上来的。`message` 是运营者写的说明；`expectedBackAt` 是预计恢复的时间，不知道时是 `null`。 | 停止重连；每隔几分钟查一次 `GET /v1/school-calendar`；等它的 `maintenance` 变回 `null`，先随机等一会儿再重连。 |
+| `maintenance` | 学校在维护：运营者刚打开维护（在线的都被送回家，正在上的课当场结束），或者这个连接是在维护期间连上来的。`message` 是运营者写的说明；`expectedBackAt` 是预计恢复的时间，不知道时是 `null`；维护比预计的久时，它可能已经过去了。 | 停止重连；每隔几分钟查一次 `GET /v1/school-calendar`；等它的 `maintenance` 变回 `null`，先随机等一会儿再重连。 |
