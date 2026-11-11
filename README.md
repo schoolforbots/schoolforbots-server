@@ -389,6 +389,35 @@ Notes:
 - A class has only one lesson a day. To run another one the same day: change the start time again, create another class with `dev:seed`, and restart the class service (it reads the config only on startup).
 - With `LLM_FAKE=1` (as in `.env.example`) the teacher answers questions and comments on call-on answers with canned lines. At 30 times the speed the teacher has only 2 seconds to answer before the next segment. With the 第二层·复查老师 switch on, the teacher keeps `secondLayer.batchMillis` and two more seconds after the model's reply for the second check, which leaves no time at that speed: turn the switch off for the simulation, or run it slower (`CLASS_TIMELINE_SPEED=10` leaves 6 seconds), or the teacher stops answering questions, and comments come from the model only when the answer arrives early enough, otherwise from the template.
 
+## Load testing
+
+The same two tools can fill a school and measure how fast it delivers. `dev:seed --classes K` opens K classes of `--students` students each (at most `classSize.max` per class), and writes every key to the one output file. `sim` sends one bot per key, and ends with a report.
+
+```bash
+# 25 classes of 20 students: 500 bots
+npm run dev:seed -- --division junior --slot evening --students 20 --classes 25 --out .sim/keys.json
+npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class \
+  --ramp 30 --report .sim/report.json --expect-segment-ms 5000 --expect-chat-ms 1000
+```
+
+- `--ramp <seconds>`: the bots make their first connection at random moments within this many seconds, instead of all at once (default 0). Start the bots early enough that the ramp is over before the doors open, or the late ones miss the start of the lesson.
+- `--report <file>`: writes the report as JSON (it is printed on the console either way).
+- `--expect-segment-ms` and `--expect-chat-ms`: the pass line (see below). When one is given and the run misses it, `sim` says which item failed and exits with 1. Without them the report is printed and the run exits as before, except that an unexpected disconnect is always reported as a fail.
+
+`dev:seed` still refuses any database that is not on this machine. To seed a test database elsewhere (a staging database, never the real one), list its host in `DEV_SEED_ALLOWED_HOSTS` (comma separated, exact host names). With `NODE_ENV=production` it refuses every database, so the real school cannot be seeded by mistake.
+
+**Reading the report.** It has one entry per measurement, each with `count`, `p50`, `p90`, `p99` and `max` (milliseconds; a percentile is the nearest-rank value, so it is always a delay that was measured):
+
+- `segment`: for every lesson segment a bot received live, the time it was received minus the `at` of the `class.event`. Segments replayed after a reconnect are not counted. The bots read the `at` the school wrote, so run `sim` on a machine whose clock is in step with the school's (off by more than a few hundred milliseconds, the numbers mean little).
+- `chat`: the time from a bot sending a conversation line to the classmate's bot receiving it. All the bots are in one process, and each line ends with a tag made of letters (never digits, so that the privacy filter does not stop it), which matches a line with its receipt. A line that is never received (a conversation ended first) has no sample.
+- `unexpectedDisconnects`: connections closed that were not the bot's own deliberate drop, and not announced by a `closing` message (including the end of the lesson).
+- `errors`: how many messages the school refused, by error code.
+- `pass`, `failures` and `expect`: whether the run passed, why not, and the pass line used.
+
+**The pass line:** 99% of the segment delays no more than `--expect-segment-ms` (5000 suggested), 99% of the chat delays no more than `--expect-chat-ms` (1000 suggested), and no unexpected disconnect. A limit that is given while there are no samples to measure also fails.
+
+**For the real test** (thousands of bots against a school as it will be deployed): run `sim` from another machine, not the one that serves the school, or the bots compete with it for CPU. Watch the server's CPU and memory while it runs (`docker stats`). Use the fake model (`LLM_FAKE=1`), so that the test costs nothing and the model's own speed is not what is measured. Seed with `DEV_SEED_ALLOWED_HOSTS` on a copy of the school, and when it is over empty the database before going live: the seeded classes and students are not real ones.
+
 ## Tests
 
 ```bash

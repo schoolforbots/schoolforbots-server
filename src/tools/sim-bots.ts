@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import type { Static } from 'typebox'
 import { Value } from 'typebox/value'
@@ -7,15 +7,20 @@ import { ServerMessage } from '../protocol/ws.js'
 import { systemClock, type Clock } from '../shared/clock.js'
 import { SIM_PLUGIN, type SeededStudent } from './dev-seed.js'
 import { isEntryPoint } from './entry-point.js'
+import { summarize, verdict, type Report, type Samples } from './sim-report.js'
 
 // `npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class [--chat-every 60] [--drop-rate 0.05]
-// [--max-rounds 3] [--ask 0.3]`: for local development only. One simulated bot per key in the file `npm run dev:seed` wrote
+// [--max-rounds 3] [--ask 0.3] [--ramp 30] [--report report.json] [--expect-segment-ms 5000] [--expect-chat-ms 1000]`: for local development only. One simulated bot per key in the file `npm run dev:seed` wrote
 // comes to class: it says hello, keeps the last class event it has, starts a conversation with an online classmate now
 // and then, replies to whoever talks to it, answers when it is called on, may ask the teacher a question after a segment (with `--ask`), and drops its connection at random to come
 // back a few seconds later with the `sessionId` of its welcome and `lastSeq`. Every event is one line on the console
 // (the bot, the type, the number; never what was said), and once every bot is sent home after the lesson (or on
 // Ctrl-C) it prints what each received. A bot turned away at the door before its lesson tries again every few seconds,
-// so it can be started early.
+// so it can be started early. For a load test: `--ramp` spreads the bots' first connections over that many seconds, and
+// the run ends with a report (`--report` writes it as JSON): the delay of every live lesson segment, the delay of every
+// conversation line from sent to received (the bots are all in this process; each line carries a tag of letters to be
+// matched by), the connections closed that nobody meant to close, and the refusals by error code. With `--expect-*` a
+// run that misses the pass line exits with 1.
 
 /** A simulation that cannot start. The message says why, in Chinese, for the person running the command. */
 export class SimError extends Error {
@@ -64,8 +69,44 @@ export interface BotTally {
   ended: string | null
 }
 
+/**
+ * What the bots of one process measure together: the samples of the report, and the conversation lines sent whose
+ * receipt has not been seen yet (by tag, with the time they went out).
+ */
+export interface Sampler {
+  samples: Samples
+  sent: Map<string, number>
+  /** A new tag for a line: letters only, unique in this sampler. */
+  nextTag(): string
+}
+
+// The letters of a tag: no vowels, so that a tag never spells a word a word filter could stop; and no digits, whose
+// runs the privacy filter may take for a phone or QQ number (which would lose the sample).
+const TAG_LETTERS = 'bcdfghjklmnpqrstvwxz'
+const TAG_PATTERN = new RegExp(`（([${TAG_LETTERS}]{3,})）`)
+
+export function createSampler(): Sampler {
+  let counter = 0
+  return {
+    samples: { segmentMs: [], chatMs: [], unexpectedDisconnects: 0, errors: {} },
+    sent: new Map(),
+    nextTag() {
+      // The counter in base 20, at least three letters long.
+      let n = counter++
+      let tag = ''
+      do {
+        tag = TAG_LETTERS[n % TAG_LETTERS.length]! + tag
+        n = Math.floor(n / TAG_LETTERS.length)
+      } while (n > 0)
+      return tag.padStart(3, TAG_LETTERS[0])
+    },
+  }
+}
+
 export interface BotDeps {
   clock: Clock
+  /** Where the bot records what it measures; a bot of its own when there is none. */
+  sampler?: Sampler
   random: () => number
   /** Writes one line of the console. */
   print: (line: string) => void
@@ -79,13 +120,20 @@ export interface Bot {
   start(): void
   /** Stops the bot where it is (Ctrl-C). */
   stop(): void
+  /** Handles a message of the school as if it came over the connection (for tests). */
+  receive(message: object): void
 }
 
 type Message = Static<typeof ServerMessage>
 type Of<T extends Message['type']> = Extract<Message, { type: T }>
 
 const START_LINES = ['你好呀，这一段你听懂了吗？', '同学你好，我们来聊聊刚才讲的内容吧。', '嗨，你觉得老师讲得怎么样？']
-const REPLY_LINES = ['我听懂了，你呢？', '我觉得这一段挺有意思的。', '对，我也是这么想的。', '老师讲得很清楚，我记下来了。']
+const REPLY_LINES = [
+  '我听懂了，你呢？',
+  '我觉得这一段挺有意思的。',
+  '对，我也是这么想的。',
+  '老师讲得很清楚，我记下来了。',
+]
 const LAST_LINE = '下次再找你聊'
 const ANSWER = '这一段讲的是……'
 // Ordinary questions about what was just taught, which fit any lesson; the segment's number picks one.
@@ -115,6 +163,7 @@ const THINK_MS = [300, 1000] as const
 /** A bot for one seeded student. Nothing happens until `start`. */
 export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDeps): Bot {
   const { clock, random } = deps
+  const sampler = deps.sampler ?? createSampler()
   const tally: BotTally = {
     segments: 0,
     replayed: 0,
@@ -140,6 +189,10 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   /** The dismissal of the session the bot joined (ms). */
   let endsAt: number | null = null
   let socket: WebSocket | null = null
+  /** Whether the connection was opened, the school said `closing` on it, and the bot itself is dropping it. */
+  let opened = false
+  let closingSeen = false
+  let dropping = false
   let reconnectTimer: NodeJS.Timeout | undefined
   let chatTimer: NodeJS.Timeout | undefined
   let nextId = 0
@@ -185,6 +238,13 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     return true
   }
 
+  /** Sends a conversation line with a tag of letters appended, noting when it went out. */
+  function sendLine(type: 'chat.start' | 'chat.reply', body: object, line: string): void {
+    const tag = sampler.nextTag()
+    const sentAt = clock.now().getTime()
+    if (send(type, { ...body, text: `${line}（${tag}）` })) sampler.sent.set(tag, sentAt)
+  }
+
   function end(reason: string): void {
     if (tally.ended !== null) return
     tally.ended = reason
@@ -199,7 +259,11 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     retryIn = RETRY_MS
     const ws = new WebSocket(opts.url, { headers: { authorization: `Bearer ${student.key}` } })
     socket = ws
+    opened = false
+    closingSeen = false
+    dropping = false
     ws.on('open', () => {
+      opened = true
       // `lastSeq` counts the events of the session the welcome named: the school replays after it only in that session.
       const resume = sessionId !== null && lastSeq > 0 ? { sessionId, lastSeq } : {}
       send('hello', { protocol: 'v1', plugin: SIM_PLUGIN, maxRounds: opts.maxRounds, ...resume })
@@ -218,6 +282,10 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     ws.on('close', () => {
       if (socket !== ws) return
       socket = null
+      if (opened && !closingSeen && !dropping && tally.ended === null) {
+        sampler.samples.unexpectedDisconnects++
+        say('连接被意外断开')
+      }
       resetConnection()
       if (tally.ended === null) reconnectTimer = setTimeout(connect, retryIn)
     })
@@ -235,6 +303,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   function drop(): void {
     tally.drops++
     retryIn = between(AWAY_MS)
+    dropping = true
     say(`断线，${(retryIn / 1000).toFixed(1)} 秒后重连`)
     socket?.terminate()
   }
@@ -244,7 +313,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     if (talk.timer !== null) return
     talk.timer = setTimeout(() => {
       talk.timer = null
-      send('chat.reply', { conversationId, text: talk.last ? LAST_LINE : pick(REPLY_LINES) })
+      sendLine('chat.reply', { conversationId }, talk.last ? LAST_LINE : pick(REPLY_LINES))
     }, between(THINK_MS))
   }
 
@@ -263,12 +332,13 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     if (endsAt === null || clock.now().getTime() >= endsAt || random() >= CHAT_CHANCE) return
     if (online.size === 0) return
     starting = true
-    send('chat.start', { to: pick([...online]), text: pick(START_LINES) })
+    sendLine('chat.start', { to: pick([...online]) }, pick(START_LINES))
   }
 
   /** Asks the teacher a question about the segment after a moment, within the lesson's allowance. */
   function askSoon(segment: number): void {
-    if (questionsInSession + questionsPending >= questionLimit || endsAt === null || clock.now().getTime() >= endsAt) return
+    if (questionsInSession + questionsPending >= questionLimit || endsAt === null || clock.now().getTime() >= endsAt)
+      return
     // Pending ones count against the allowance so the bot cannot send more than it allows; only a sent one uses it up.
     questionsPending++
     const timer = setTimeout(() => {
@@ -300,6 +370,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     }
     const { code } = msg.error
     tally.refusals.set(code, (tally.refusals.get(code) ?? 0) + 1)
+    sampler.samples.errors[code] = (sampler.samples.errors[code] ?? 0) + 1
     if (code === 'initiation_cap') initiationsLeft = 0
     if (code === 'question_cap') questionLimit = 0
     say(`ack ${type} 被拒 ${code}`)
@@ -316,6 +387,9 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     lastSeq = Math.max(lastSeq, seq)
     if (replayed) tally.replayed++
     if (event.kind === 'segment') tally.segments++
+    // Only what arrived live says how fast the school pushes: a replay is as late as the bot was away.
+    if (event.kind === 'segment' && !replayed)
+      sampler.samples.segmentMs.push(clock.now().getTime() - Date.parse(msg.at))
     if (event.kind === 'qa') tally.answersSeen++
     const detail = event.kind === 'segment' ? ` 第 ${event.index} 段` : ''
     say(`class.event #${seq} ${event.kind}${detail}${replayed ? '（补发）' : ''}`)
@@ -324,6 +398,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   }
 
   function onClosing(msg: Of<'closing'>): void {
+    closingSeen = true
     say(`closing ${msg.reason}：${msg.message}`)
     if (msg.reason === 'session_over') {
       // After the dismissal that is the lesson over. Before it (the doors not open yet, the service stopping), the close
@@ -391,6 +466,12 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
         const talk = talks.get(msg.conversationId) ?? { timer: null, last: false }
         talks.set(msg.conversationId, talk)
         talk.last ||= msg.lastLine
+        const tag = TAG_PATTERN.exec(msg.text)?.[1]
+        const sentAt = tag === undefined ? undefined : sampler.sent.get(tag)
+        if (tag !== undefined && sentAt !== undefined) {
+          sampler.sent.delete(tag)
+          sampler.samples.chatMs.push(clock.now().getTime() - sentAt)
+        }
         say(`chat.incoming 第 ${msg.round} 轮${msg.lastLine ? '（该说最后一句）' : ''}，来自学号 ${msg.from.studentId}`)
         return replySoon(msg.conversationId, talk)
       }
@@ -430,6 +511,9 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     start() {
       connect()
       thinkOfChatting()
+    },
+    receive(message) {
+      onMessage(JSON.stringify(message))
     },
     stop() {
       tally.ended ??= '中途停止'
@@ -512,11 +596,44 @@ export function readKeysFile(path: string): SeededStudent[] {
   return parsed
 }
 
+function statText(what: string, stat: Report['segment']): string {
+  if (stat.count === 0) return `${what}：没有样本`
+  return `${what}：${stat.count} 个样本，p50 ${stat.p50} 毫秒，p90 ${stat.p90} 毫秒，p99 ${stat.p99} 毫秒，最大 ${stat.max} 毫秒`
+}
+
+/** The report of a run: as JSON (the numbers, the pass line, and whether it passed), as console lines, and the verdict. */
+export function buildReport(samples: Samples, expect: { segmentMs?: number; chatMs?: number }) {
+  const report = summarize(samples)
+  const { pass, failures } = verdict(report, expect)
+  const errors = Object.entries(report.errors)
+  const lines = [
+    '—— 压测报告 ——',
+    statText('课文延迟', report.segment),
+    statText('搭话延迟', report.chat),
+    `意外断开：${report.unexpectedDisconnects} 次`,
+    `被拒：${errors.length === 0 ? '0 次' : errors.map(([code, n]) => `${code} ${n}`).join('、')}`,
+    ...failures.map((f) => `没过：${f}`),
+    `结论：${pass ? '及格' : '不及格'}`,
+  ]
+  return { json: { ...report, expect, pass, failures }, lines, pass }
+}
+
 const USAGE =
-  '用法：npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class [--chat-every 60] [--drop-rate 0.05] [--max-rounds 3] [--ask 0.3]'
+  '用法：npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class [--chat-every 60] [--drop-rate 0.05] [--max-rounds 3] [--ask 0.3] [--ramp <秒>] [--report <文件.json>] [--expect-segment-ms 5000] [--expect-chat-ms 1000]'
 
 /** The command line, or null when it is not as `USAGE` says. */
-export function parseSimArgs(argv: string[]): (SimOptions & { keys: string }) | null {
+export interface SimArgs extends SimOptions {
+  keys: string
+  /** The seconds over which the bots' first connections are spread at random; 0 connects them all at once. */
+  ramp: number
+  /** Where to write the report as JSON. */
+  report?: string
+  /** The pass line (milliseconds, for the p99 of each). */
+  expectSegmentMs?: number
+  expectChatMs?: number
+}
+
+export function parseSimArgs(argv: string[]): SimArgs | null {
   let values: Record<string, string | undefined>
   try {
     values = parseArgs({
@@ -528,6 +645,10 @@ export function parseSimArgs(argv: string[]): (SimOptions & { keys: string }) | 
         'drop-rate': { type: 'string', default: '0.05' },
         'max-rounds': { type: 'string', default: '3' },
         ask: { type: 'string', default: '0' },
+        ramp: { type: 'string', default: '0' },
+        report: { type: 'string' },
+        'expect-segment-ms': { type: 'string' },
+        'expect-chat-ms': { type: 'string' },
       },
       strict: true,
       allowPositionals: false,
@@ -540,11 +661,22 @@ export function parseSimArgs(argv: string[]): (SimOptions & { keys: string }) | 
   const dropRate = Number(values['drop-rate'])
   const maxRounds = Number(values['max-rounds'])
   const ask = Number(values.ask)
+  const ramp = Number(values.ramp)
+  const report = values.report
+  const limit = (text: string | undefined): number | undefined | null => {
+    if (text === undefined) return undefined
+    const n = Number(text)
+    return text.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null
+  }
+  const expectSegmentMs = limit(values['expect-segment-ms'])
+  const expectChatMs = limit(values['expect-chat-ms'])
+  if (!(ramp >= 0) || !Number.isFinite(ramp) || report === '') return null
+  if (expectSegmentMs === null || expectChatMs === null) return null
   if (keys === undefined || keys === '' || url === undefined || !/^wss?:\/\//.test(url)) return null
   if (!(chatEvery > 0) || !(dropRate >= 0 && dropRate <= 1) || !(ask >= 0 && ask <= 1)) return null
   // The protocol's bounds for hello's maxRounds.
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 50) return null
-  return { keys, url, chatEvery, dropRate, maxRounds, ask }
+  return { keys, url, chatEvery, dropRate, maxRounds, ask, ramp, report, expectSegmentMs, expectChatMs }
 }
 
 /**
@@ -569,13 +701,34 @@ async function main(argv: string[]): Promise<number> {
   const print = (line: string) => console.log(`${clock.now().toTimeString().slice(0, 8)} ${line}`)
   return new Promise((resolve) => {
     let done = false
+    const sampler = createSampler()
+    const startTimers: NodeJS.Timeout[] = []
     const finish = (code: number) => {
       if (done) return
       done = true
+      for (const timer of startTimers) clearTimeout(timer)
       for (const bot of bots) bot.stop()
       console.log(totalsText(bots))
+      const expect = { segmentMs: args.expectSegmentMs, chatMs: args.expectChatMs }
+      const result = buildReport(sampler.samples, expect)
+      console.log(result.lines.join('\n'))
+      if (args.report !== undefined) {
+        try {
+          writeFileSync(args.report, `${JSON.stringify(result.json, null, 2)}\n`)
+          console.log(`报告写在 ${args.report}`)
+        } catch (err) {
+          console.error(`写不了报告 ${args.report}：${String(err)}`)
+          code ||= 1
+        }
+      }
       if (code === 0 && !bots.some((b) => b.tally.welcomed)) {
         console.error('模拟失败：没有一个机器人进得了教室')
+        resolve(1)
+        return
+      }
+      // With a pass line given, missing it is a failed run.
+      if (code === 0 && !result.pass && (expect.segmentMs !== undefined || expect.chatMs !== undefined)) {
+        console.error('压测不及格')
         resolve(1)
         return
       }
@@ -586,6 +739,7 @@ async function main(argv: string[]): Promise<number> {
         clock,
         random: Math.random,
         print,
+        sampler,
         onEnded: () => {
           if (bots.every((b) => b.tally.ended !== null)) finish(0)
         },
@@ -593,7 +747,11 @@ async function main(argv: string[]): Promise<number> {
     )
     process.once('SIGINT', () => finish(130))
     console.log(`${bots.length} 个模拟机器人连向 ${args.url}，等到下课`)
-    for (const bot of bots) bot.start()
+    // Spread over the ramp at random, so the school sees them arrive as they would, not all in the same moment.
+    for (const bot of bots) {
+      if (args.ramp > 0) startTimers.push(setTimeout(() => bot.start(), Math.random() * args.ramp * 1000))
+      else bot.start()
+    }
   })
 }
 

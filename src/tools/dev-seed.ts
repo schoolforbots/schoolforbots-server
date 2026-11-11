@@ -15,7 +15,9 @@ import { isEntryPoint } from './entry-point.js'
 // `npm run dev:seed -- --division junior --slot evening --students 20 --out .sim/keys.json`: for local development
 // only. Opens a new class and puts N active students in it straight away, past registration, the nightly class
 // assignment and the probation, then writes their student numbers and keys to the output file (see sim-bots.ts, which
-// reads it). It refuses any database but one on this machine.
+// reads it). With `--classes K` it opens K such classes at once (for load tests). It refuses any database but one on
+// this machine, plus the hosts named in DEV_SEED_ALLOWED_HOSTS (a load test against a staging database), and refuses
+// everything under NODE_ENV=production.
 
 /** A seeding that was refused. The message says why, in Chinese, for the person running the command. */
 export class DevSeedError extends Error {
@@ -54,14 +56,30 @@ export function isLocalDatabaseUrl(databaseUrl: string): boolean {
   return hosts !== null && hosts.every((host) => LOCAL_HOSTS.includes(host))
 }
 
-/** The hosts of the URL that are not local, for the refusal: only the hosts, as the URL carries the password. */
-function foreignHosts(databaseUrl: string): string {
+/**
+ * Why the tool may not seed this database, in Chinese, or null when it may: not at all under NODE_ENV=production; and
+ * only when every host the URL names is local or listed in `env.DEV_SEED_ALLOWED_HOSTS` (comma separated, exact host
+ * names). The message names only the hosts, as the URL carries the password.
+ */
+export function databaseRefusal(databaseUrl: string, env: Record<string, string | undefined>): string | null {
+  if (env.NODE_ENV === 'production') return 'NODE_ENV 是 production，造数据的工具在生产环境一律拒绝运行'
+  const allowed = [
+    ...LOCAL_HOSTS,
+    ...(env.DEV_SEED_ALLOWED_HOSTS ?? '')
+      .split(',')
+      .map((host) => host.trim().toLowerCase())
+      .filter((host) => host !== ''),
+  ]
   const hosts = databaseHosts(databaseUrl)
-  if (hosts === null) return '（不是合法的连接串）'
-  return hosts
-    .filter((host) => !LOCAL_HOSTS.includes(host))
-    .map((host) => (host === '' ? '（没有主机）' : host))
-    .join('、')
+  if (hosts !== null && hosts.every((host) => allowed.includes(host))) return null
+  const foreign =
+    hosts === null
+      ? '（不是合法的连接串）'
+      : hosts
+          .filter((host) => !allowed.includes(host))
+          .map((host) => (host === '' ? '（没有主机）' : host))
+          .join('、')
+  return `只能往本机的数据库里造数据：DATABASE_URL 里的主机都必须是 localhost 或 127.0.0.1（或列在 DEV_SEED_ALLOWED_HOSTS 里），现在有 ${foreign}`
 }
 
 export interface SeedOptions {
@@ -69,6 +87,8 @@ export interface SeedOptions {
   slot: Slot
   /** How many students to put in the class: from 1 to `config.classSize.max`. */
   students: number
+  /** How many classes `seedClasses` opens, each with `students` students; defaults to 1. */
+  classes?: number
   /** The source of every timestamp written. */
   clock: Clock
   /**
@@ -101,14 +121,57 @@ export interface SeedResult {
  * probation (`lessonsAttended` is the config's `probationLessons`), so they may start conversations at once.
  */
 export async function seedClass(db: Kysely<Database>, config: SchoolConfig, opts: SeedOptions): Promise<SeedResult> {
-  const { division, slot, students: count } = opts
+  checkStudents(config, opts.students)
+  return db.transaction().execute(async (trx) => {
+    const result = await insertClassWithStudents(trx, config, opts)
+    if (opts.keysFile !== undefined) writeKeysFile(opts.keysFile, result.students)
+    return result
+  })
+}
+
+/**
+ * Opens `opts.classes` classes (default 1), each as `seedClass` does, in one transaction: when one of them cannot be
+ * made, none is. Every student's key goes to the one `keysFile`, class after class, before the seeding commits.
+ */
+export async function seedClasses(
+  db: Kysely<Database>,
+  config: SchoolConfig,
+  opts: SeedOptions,
+): Promise<SeedResult[]> {
+  const classes = opts.classes ?? 1
+  if (!Number.isInteger(classes) || classes < 1) {
+    throw new DevSeedError(`--classes 必须是正整数，现在是 ${classes}`)
+  }
+  checkStudents(config, opts.students)
+  return db.transaction().execute(async (trx) => {
+    const results: SeedResult[] = []
+    for (let n = 0; n < classes; n++) results.push(await insertClassWithStudents(trx, config, opts))
+    if (opts.keysFile !== undefined)
+      writeKeysFile(
+        opts.keysFile,
+        results.flatMap((r) => r.students),
+      )
+    return results
+  })
+}
+
+function checkStudents(config: SchoolConfig, count: number): void {
   const max = config.classSize.max
   if (!Number.isInteger(count) || count < 1 || count > max) {
-    throw new DevSeedError(`--students 必须是 1 到 ${max} 之间的整数（学校配置里一个班最多 ${max} 人），现在是 ${count}`)
+    throw new DevSeedError(
+      `--students 必须是 1 到 ${max} 之间的整数（学校配置里一个班最多 ${max} 人），现在是 ${count}`,
+    )
   }
+}
 
+async function insertClassWithStudents(
+  trx: Kysely<Database>,
+  config: SchoolConfig,
+  opts: SeedOptions,
+): Promise<SeedResult> {
+  const { division, slot, students: count } = opts
   const now = opts.clock.now()
-  return db.transaction().execute(async (trx) => {
+  {
     // The nightly job opens classes under the slot locks too, so the two never give a class the same number.
     await lock(trx, slotLockKey(slot))
     const { highest } = await trx
@@ -125,7 +188,13 @@ export async function seedClass(db: Kysely<Database>, config: SchoolConfig, opts
     const persona = teacherPersonaFor(config, Number(classes))
     const { id: classId } = await trx
       .insertInto('classes')
-      .values({ division, slot, classNo, teacherPersonaId: persona.id, createdAt: now })
+      .values({
+        division,
+        slot,
+        classNo,
+        teacherPersonaId: persona.id,
+        createdAt: now,
+      })
       .returning('id')
       .executeTakeFirstOrThrow()
 
@@ -160,12 +229,20 @@ export async function seedClass(db: Kysely<Database>, config: SchoolConfig, opts
         })
         .returning('id')
         .executeTakeFirstOrThrow()
-      seeded.push({ studentId: id, key, displayName: displayName(ownerName, aiName) })
+      seeded.push({
+        studentId: id,
+        key,
+        displayName: displayName(ownerName, aiName),
+      })
     }
 
-    if (opts.keysFile !== undefined) writeKeysFile(opts.keysFile, seeded)
-    return { classId, className: className(division, slot, classNo, config), teacher: persona.name, students: seeded }
-  })
+    return {
+      classId,
+      className: className(division, slot, classNo, config),
+      teacher: persona.name,
+      students: seeded,
+    }
+  }
 }
 
 /** Writes the students as a JSON list of `{ studentId, key, displayName }`, making its directory if need be. */
@@ -173,12 +250,14 @@ export function writeKeysFile(path: string, students: SeededStudent[]): void {
   mkdirSync(dirname(path), { recursive: true })
   // The keys let anyone into class as these students: the file is for its owner alone. The mode given to the write
   // only applies to a new file, so one that was already there is tightened after.
-  writeFileSync(path, `${JSON.stringify(students, null, 2)}\n`, { mode: 0o600 })
+  writeFileSync(path, `${JSON.stringify(students, null, 2)}\n`, {
+    mode: 0o600,
+  })
   chmodSync(path, 0o600)
 }
 
 const USAGE =
-  '用法：npm run dev:seed -- --division <primary|junior|senior> --slot <morning|afternoon|evening> --students <人数> --out <输出文件.json>'
+  '用法：npm run dev:seed -- --division <primary|junior|senior> --slot <morning|afternoon|evening> --students <每班人数> [--classes <班数，默认 1>] --out <输出文件.json>'
 
 const DIVISIONS: readonly Division[] = ['primary', 'junior', 'senior']
 const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
@@ -187,6 +266,7 @@ interface SeedArgs {
   division: Division
   slot: Slot
   students: number
+  classes: number
   out: string
 }
 
@@ -200,6 +280,7 @@ function parseSeedArgs(argv: string[]): SeedArgs | null {
         division: { type: 'string' },
         slot: { type: 'string' },
         students: { type: 'string' },
+        classes: { type: 'string', default: '1' },
         out: { type: 'string' },
       },
       strict: true,
@@ -208,10 +289,17 @@ function parseSeedArgs(argv: string[]): SeedArgs | null {
   } catch {
     return null
   }
-  const { division, slot, students, out } = values
+  const { division, slot, students, classes, out } = values
   if (!DIVISIONS.includes(division as Division) || !SLOTS.includes(slot as Slot)) return null
   if (students === undefined || !/^[0-9]+$/.test(students) || out === undefined || out === '') return null
-  return { division: division as Division, slot: slot as Slot, students: Number(students), out }
+  if (classes === undefined || !/^[0-9]+$/.test(classes)) return null
+  return {
+    division: division as Division,
+    slot: slot as Slot,
+    students: Number(students),
+    classes: Number(classes),
+    out,
+  }
 }
 
 /** Returns the process exit code: 0 when the class was seeded, 1 when it was refused or something failed. */
@@ -225,21 +313,24 @@ async function main(argv: string[]): Promise<number> {
   try {
     // What the class service reads: the database and the school config, and no mail settings.
     const env = loadClassEnv(process.env)
-    if (!isLocalDatabaseUrl(env.databaseUrl)) {
-      // Only the host: the URL carries the password.
-      throw new DevSeedError(
-        `只能往本机的数据库里造数据：DATABASE_URL 里的主机都必须是 localhost 或 127.0.0.1，现在有 ${foreignHosts(env.databaseUrl)}`,
-      )
-    }
+    const refusal = databaseRefusal(env.databaseUrl, process.env)
+    if (refusal !== null) throw new DevSeedError(refusal)
     const config = loadSchoolConfig(env.configPath)
     const db = createDb(env.databaseUrl, env.databaseTimeouts)
     try {
-      const result = await seedClass(db, config, { ...args, clock: systemClock, keysFile: args.out })
-      const first = result.students[0]?.studentId
-      const last = result.students.at(-1)?.studentId
-      console.log(
-        `已建好 ${result.className}（班级编号 ${result.classId}，${result.teacher}任教），${result.students.length} 个学生，学号 ${first} 到 ${last}`,
-      )
+      const results = await seedClasses(db, config, {
+        ...args,
+        clock: systemClock,
+        keysFile: args.out,
+      })
+      for (const result of results) {
+        const first = result.students[0]?.studentId
+        const last = result.students.at(-1)?.studentId
+        console.log(
+          `已建好 ${result.className}（班级编号 ${result.classId}，${result.teacher}任教），${result.students.length} 个学生，学号 ${first} 到 ${last}`,
+        )
+      }
+      console.log(`共 ${results.length} 个班，${results.reduce((n, r) => n + r.students.length, 0)} 个学生`)
       console.log(`学号和钥匙写在 ${args.out}`)
     } finally {
       await db.destroy()
