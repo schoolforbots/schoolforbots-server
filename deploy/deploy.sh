@@ -26,6 +26,8 @@ if [ $# -eq 2 ]; then
 fi
 
 cd "$(dirname "$0")"
+# shellcheck source=env-tag.sh
+. ./env-tag.sh
 [ -f .env ] || { echo "deploy: there is no .env next to this script (see env.example)" >&2; exit 1; }
 
 files=()
@@ -69,16 +71,6 @@ compose up -d --no-deps --force-recreate --wait --wait-timeout "$wait_timeout" c
 echo "deploy: step 6/6: bringing up the other services"
 compose up -d --wait --wait-timeout "$wait_timeout"
 
-# Remembered, so that a later `docker compose up` does not go back to the old tag. The copy is private from the start
-# and takes the mode of the original; a failure here stops the script.
-if grep -q '^IMAGE_TAG=' .env; then
-  (
-    umask 077
-    sed "s|^IMAGE_TAG=.*|IMAGE_TAG=${tag}|" .env > .env.new
-    chmod --reference=.env .env.new 2>/dev/null || chmod "$(stat -c %a .env 2>/dev/null || stat -f %Lp .env)" .env.new
-    mv .env.new .env
-  ) || { rm -f .env.new; echo "deploy: could not write IMAGE_TAG to .env" >&2; exit 1; }
-else
-  echo "IMAGE_TAG=${tag}" >> .env
-fi
+# Remembered, so that a later `docker compose up` does not go back to the old tag. A failure here stops the script.
+write_image_tag .env "$tag" || { echo "deploy: could not write IMAGE_TAG to .env" >&2; exit 1; }
 echo "deploy: done, running ${tag}"
