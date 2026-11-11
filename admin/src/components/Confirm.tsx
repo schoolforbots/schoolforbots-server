@@ -23,6 +23,7 @@ export function Confirm({
   confirm,
   busy,
   cancel,
+  canConfirm = true,
   onConfirm,
   onCancel,
 }: {
@@ -34,6 +35,8 @@ export function Confirm({
   busy: string
   /** The button that backs out. */
   cancel: string
+  /** False while what the dialog asks for is not filled in: the button that does it is disabled. */
+  canConfirm?: boolean
   /** Does it; fails with the server's ApiError. The caller closes the dialog once it is done. */
   onConfirm: () => Promise<void>
   /** Backing out: the caller closes the dialog and gives the focus back to what opened it. */
@@ -70,7 +73,7 @@ export function Confirm({
           <Button ref={back} onClick={onCancel} disabled={sending} aria-describedby={consequencesId}>
             {cancel}
           </Button>
-          <Button type="primary" onClick={go} disabled={sending}>
+          <Button type="primary" onClick={go} disabled={sending || !canConfirm}>
             {sending ? busy : confirm}
           </Button>
         </>

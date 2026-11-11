@@ -1,6 +1,16 @@
-import { Button } from 'antd'
+import { Button, Input } from 'antd'
 import { useId, useRef, useState } from 'react'
-import { setSwitch, SWITCHES_PATH, useLoad, type SwitchName, type SwitchState } from '../api.js'
+import {
+  MAINTENANCE_PATH,
+  setMaintenance,
+  setSwitch,
+  SWITCHES_PATH,
+  useLoad,
+  type Loaded,
+  type MaintenanceState,
+  type SwitchName,
+  type SwitchState,
+} from '../api.js'
 import { Confirm } from '../components/Confirm.js'
 import { Empty, Failed, Loading } from '../components/States.js'
 import { useFocusOnMount } from '../focus.js'
@@ -92,7 +102,122 @@ function SwitchRow({ state, onChanged }: { state: SwitchState; onChanged: (state
   )
 }
 
+const MAX_MESSAGE = 200
+
+/**
+ * Maintenance: while it is on the class service lets nobody in and disconnects the plugins that are, and the school
+ * calendar tells them why (the message) and when to come back. Switching on asks for the message first.
+ */
+function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState | null }> }) {
+  const zone = useSchoolZone()
+  const titleId = useId()
+  const messageId = useId()
+  const hoursId = useId()
+  const [asking, setAsking] = useState(false)
+  const [message, setMessage] = useState('')
+  const [hours, setHours] = useState('')
+  const [done, setDone] = useState<{ text: string; n: number }>()
+  const opener = useRef<HTMLButtonElement>(null)
+
+  const current = read.data?.maintenance ?? null
+  const turningOn = current === null
+  const verb = turningOn ? '开始维护' : '结束维护'
+  const hoursNumber = hours.trim() === '' ? null : Number(hours)
+  const hoursOk = hoursNumber === null || (Number.isFinite(hoursNumber) && hoursNumber > 0)
+  const messageOk = message.trim().length >= 1 && [...message.trim()].length <= MAX_MESSAGE
+
+  function open() {
+    setMessage(current?.message ?? '')
+    setHours('')
+    setAsking(true)
+  }
+
+  return (
+    <section className="switch" aria-labelledby={titleId}>
+      <div className="switch-head">
+        <h2 id={titleId} className="switch-name">
+          维护中
+        </h2>
+        <p className="switch-state">{read.data === undefined ? '' : turningOn ? '现在没在维护' : '现在维护中'}</p>
+        {read.data !== undefined && (
+          <Button ref={opener} onClick={open}>
+            {verb}
+          </Button>
+        )}
+      </div>
+      {read.error !== undefined && <p className="action-error" role="alert">没能读取维护状态。{read.error.message}</p>}
+      <ul className="switch-effects">
+        <li className={turningOn ? undefined : 'switch-now'}>
+          维护中：上课服务不让任何人进，在线的插件都会被断开；校历接口把说明和预计恢复时间告诉插件。
+        </li>
+        <li className={turningOn ? 'switch-now' : undefined}>没在维护：一切照常。</li>
+      </ul>
+      {current !== null && (
+        <>
+          <p className="switch-when">说明：{current.message}</p>
+          <p className="switch-when">开始时间：{moment(current.since, zone)}</p>
+          <p className="switch-when">
+            预计恢复：{current.expectedBackAt === null ? '没有写' : moment(current.expectedBackAt, zone)}
+          </p>
+        </>
+      )}
+      {done !== undefined && <Switched key={done.n} text={done.text} />}
+      {asking && (
+        <Confirm
+          title={`${verb}？`}
+          confirm={verb}
+          busy={`正在${verb}`}
+          cancel={turningOn ? '先不维护' : '先不结束'}
+          canConfirm={!turningOn || (messageOk && hoursOk)}
+          onCancel={() => {
+            setAsking(false)
+            opener.current?.focus()
+          }}
+          onConfirm={async () => {
+            const body = turningOn
+              ? {
+                  on: true,
+                  message: message.trim(),
+                  expectedBackAt: hoursNumber === null ? null : new Date(Date.now() + hoursNumber * 3_600_000).toISOString(),
+                }
+              : { on: false }
+            read.set(await setMaintenance(body))
+            setAsking(false)
+            setDone((last) => ({ text: `已${verb}。`, n: (last?.n ?? 0) + 1 }))
+          }}
+        >
+          {turningOn ? (
+            <>
+              <p>开始维护以后，在线的插件都会被断开，新的连接也不让进，直到结束维护。</p>
+              <label className="field-label" htmlFor={messageId}>
+                说明（插件会看到，最多 {MAX_MESSAGE} 字）
+              </label>
+              <Input.TextArea
+                id={messageId}
+                value={message}
+                maxLength={MAX_MESSAGE}
+                showCount
+                autoSize={{ minRows: 2, maxRows: 5 }}
+                onChange={(event) => setMessage(event.target.value)}
+              />
+              <label className="field-label" htmlFor={hoursId}>
+                预计几小时后恢复（可以不填）
+              </label>
+              <Input id={hoursId} type="number" min={0} step={0.5} value={hours} onChange={(event) => setHours(event.target.value)} />
+              {!hoursOk && <p className="action-error">预计恢复的小时数要大于 0。</p>}
+              <p>维护的日子不算进自动退学的天数。</p>
+            </>
+          ) : (
+            <p>结束以后，插件可以重新连上，课照常上。</p>
+          )}
+        </Confirm>
+      )}
+    </section>
+  )
+}
+
 export function Switches() {
+  const maintenance = useLoad<{ maintenance: MaintenanceState | null }>(MAINTENANCE_PATH)
   const read = useLoad<{ switches: SwitchState[] }>(SWITCHES_PATH)
 
   if (read.data === undefined) {
@@ -116,6 +241,7 @@ export function Switches() {
   }
   return (
     <div className="panel switches">
+      <MaintenanceRow read={maintenance} />
       {switches.map((state) => (
         <SwitchRow
           key={state.name}

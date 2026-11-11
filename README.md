@@ -190,6 +190,12 @@ To work on the pages, `npm run admin:dev` serves them at `http://localhost:5173/
 
 The admin has five tabs: 学校数据 (yesterday's numbers next to the same day a week before, the reminders, the model's spend against the budget, and charts of the last 7, 30 or 90 days), 审课 (the lessons of the days ahead, see below), 每周复盘 (the weekly review, made every Monday after the midnight job), 查学生 (a student's details, messages and records; suspend, withdraw or lift a penalty by hand) and 开关 (the switches).
 
+### Maintenance
+
+The 开关 tab also has a 维护中 section: a switch with a message for the plugins. Turning it on asks for a message (1 to 200 characters, shown to plugins) and, optionally, how many hours until the school is expected back; it warns that the plugins online will be disconnected. While maintenance is on, the class service takes in no connections, and `GET /v1/school-calendar` carries `maintenance: { message, since, expectedBackAt }` (it is `null` otherwise), which plugins, and an outside monitor, can read. Turning it off, or changing the message, goes through the same page; the registration service picks the change up right away, and the class service within `switchRefreshSeconds`. Every period is recorded in the `maintenance_periods` table.
+
+A day on which maintenance was on at some time between a class slot's doors opening and its close does not count toward `inactivityDropDays`, like a day on a break: students are not dropped for days they could not come.
+
 ### Runtime switches
 
 Three switches change what the teacher does without a restart. Their values live in the database: `switchDefaults` in the config only applies to a switch until it is first changed in the 开关 tab. Both services read them every `switchRefreshSeconds` (5 seconds in the example config), so a change takes effect within seconds, in the lessons going on too. Each change is recorded and marked on the charts of the data page.

@@ -10,6 +10,7 @@ import { loadEnv, loadSchoolConfig } from '../shared/config.js'
 import { createDb, migrateToLatest } from '../shared/db.js'
 import { loadSchoolRules } from '../shared/school-rules.js'
 import { createShutdown } from '../shared/shutdown.js'
+import { startMaintenanceWatch } from '../shared/maintenance.js'
 import { startSwitches } from '../shared/switches.js'
 import { runWeeklyReview } from '../weekly/review.js'
 import { buildRegistrationApp } from './app.js'
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
 
   // Read from the database, so a change made in the admin reaches this service within a few seconds.
   const switches = await startSwitches({ db, config, clock: systemClock, log })
+  const maintenance = await startMaintenanceWatch({ db, config, log })
 
   const app = buildRegistrationApp({
     db,
@@ -76,10 +78,11 @@ async function main(): Promise<void> {
     moderator,
     mailer,
     clock: systemClock,
+    maintenance,
     schoolRules,
     trustProxy: env.trustProxy,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
-    admin: { db, config, clock: systemClock, env, llm, prompts, moderator, switches, mailer },
+    admin: { db, config, clock: systemClock, env, llm, prompts, moderator, switches, maintenance, mailer },
   })
   logger = app.log
   const lessons: GeneratorDeps = { db, config, clock: systemClock, moderator, llm, prompts, log: app.log }
@@ -150,6 +153,7 @@ async function main(): Promise<void> {
     dailyJob.stop()
     lessonGeneration.stop()
     switches.stop()
+    maintenance.stop()
     moderator.stop()
     await app.close() // waits for requests and key-reset mails still in flight
     await db.destroy()

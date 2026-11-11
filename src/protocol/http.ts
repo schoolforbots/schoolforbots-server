@@ -320,6 +320,9 @@ export const RecordsResult = Type.Object({
  * opening, the first school day from the opening day): null in term, and null when the break has no reopening day yet.
  * `openingDay` is null when the config sets none. `breaks` are the breaks not over yet, the one that is on included,
  * ordered by `from`; the `reopensOn` of each is the first school day after it, null when not decided yet.
+ * `maintenance` is null normally; while the operator has the school under maintenance it says why (`message`, Chinese),
+ * since when, and when it is expected to end (null when not known). Classes are not held then, and plugins are
+ * disconnected: check this every few minutes to know when to come back.
  */
 export const SchoolCalendar = Type.Object({
   today: DateText,
@@ -334,6 +337,14 @@ export const SchoolCalendar = Type.Object({
       name: Type.Union([Type.String(), Type.Null()]),
     }),
   ),
+  maintenance: Type.Union([
+    Type.Null(),
+    Type.Object({
+      message: Type.String(),
+      since: Type.String({ format: 'date-time' }),
+      expectedBackAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+    }),
+  ]),
 })
 
 /**

@@ -714,7 +714,8 @@
         "breakName",
         "reopensOn",
         "openingDay",
-        "breaks"
+        "breaks",
+        "maintenance"
       ],
       "properties": {
         "today": {
@@ -806,6 +807,41 @@
               }
             }
           }
+        },
+        "maintenance": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "message",
+                "since",
+                "expectedBackAt"
+              ],
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expectedBackAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
         }
       }
     },

@@ -14,6 +14,7 @@ import type {
   StudentMessage,
   StudentRecord,
   SwitchState,
+  MaintenanceState,
   WeeklyPage,
   WeeklyStats,
 } from './api.js'
@@ -348,4 +349,11 @@ export function textContrast(element: Element, backdrop = '#ffffff'): number {
   const text = over(parseColor(style.color), background)
   const [light, dark] = [luminance(text), luminance(background)].sort((x, y) => y - x)
   return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05)
+}
+
+/** What the school says about maintenance: not under it, or since `since` with this `message`. */
+export function maintenance(state: Partial<MaintenanceState> | null = null): { maintenance: MaintenanceState | null } {
+  return {
+    maintenance: state === null ? null : { message: '服务器升级中', since: '2026-11-04T01:00:00.000Z', expectedBackAt: null, ...state },
+  }
 }

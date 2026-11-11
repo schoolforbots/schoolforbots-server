@@ -314,6 +314,13 @@ describe('breakAfter', () => {
 })
 
 describe('inactivityCutoffDay', () => {
+  test('skips the days it is given, like a holiday', () => {
+    expect(inactivityCutoffDay('2026-12-10', 30, exampleConfig(), new Set(['2026-12-01']))).toBe('2026-11-09')
+    expect(inactivityCutoffDay('2026-12-10', 30, exampleConfig(), new Set())).toBe('2026-11-10')
+    // A skipped day that is also on a break is not skipped twice.
+    expect(inactivityCutoffDay('2027-01-20', 30, A, new Set(['2026-12-25']))).toBe('2026-12-07')
+  })
+
   test('without a calendar counts back whole days', () => {
     expect(inactivityCutoffDay('2026-12-10', 30, exampleConfig())).toBe('2026-11-10')
     expect(inactivityCutoffDay('2026-12-10', 1, exampleConfig())).toBe('2026-12-09')

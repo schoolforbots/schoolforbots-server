@@ -5,6 +5,7 @@ import type { LlmPurpose } from '../llm/client.js'
 import { inactivityCutoffDay, isLessonDay } from '../shared/calendar.js'
 import { LLM_PURPOSES, type Division, type SchoolConfig } from '../shared/config.js'
 import { addDaysToDate, atLocalTime, isDateText, isoWeekday, localDate } from '../shared/local-time.js'
+import { allMaintenanceDays } from '../shared/maintenance.js'
 import type { Database } from '../shared/schema.js'
 
 // The numbers of the weekly review, all counted by code, over one week from Monday to Sunday in the school's time
@@ -349,8 +350,10 @@ async function studentStats(db: Kysely<Database>, config: SchoolConfig, w: Week)
 
   // The nightly job of a day drops the students last seen before its cutoff (see the daily job): those the week's
   // jobs dropped were last seen before the cutoff of Sunday's job, and not before that of the job the day before.
+  // Maintenance days are not counted, as in the job; the set covers every period on record (see the daily job).
+  const skipped = await allMaintenanceDays(db, w.end, config)
   const cutoff = (day: string): Date | null => {
-    const cut = inactivityCutoffDay(day, config.inactivityDropDays, config)
+    const cut = inactivityCutoffDay(day, config.inactivityDropDays, config, skipped)
     return cut === null ? null : atLocalTime(cut, '00:00', config.timezone)
   }
   const upper = cutoff(w.end)

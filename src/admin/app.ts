@@ -16,9 +16,11 @@ import type { Mailer } from '../registration/mailer.js'
 import type { Clock } from '../shared/clock.js'
 import type { Env, SchoolConfig } from '../shared/config.js'
 import type { Database } from '../shared/schema.js'
+import type { MaintenanceWatch } from '../shared/maintenance.js'
 import type { Switches } from '../shared/switches.js'
 import { hashSessionToken, newSessionToken, verifyPassword, verifyTotp } from './auth.js'
 import { lessonRoutes } from './lessons.js'
+import { maintenanceRoutes } from './maintenance.js'
 import { statsRoutes } from './stats.js'
 import { studentRoutes } from './students.js'
 import { switchRoutes } from './switches.js'
@@ -35,6 +37,7 @@ export interface AdminDeps {
   prompts: Record<PromptName, PromptTemplate>
   moderator: Moderator
   switches: Switches
+  maintenance: MaintenanceWatch
   mailer: Mailer
   /** Where the built front end is; defaults to `admin/dist` in the repository. */
   distDir?: string
@@ -46,7 +49,7 @@ export interface AdminDeps {
  */
 export type AdminApiRoutes = (deps: AdminDeps) => FastifyPluginAsync
 
-const API_ROUTES: AdminApiRoutes[] = [switchRoutes, statsRoutes, lessonRoutes, weeklyRoutes, studentRoutes]
+const API_ROUTES: AdminApiRoutes[] = [switchRoutes, maintenanceRoutes, statsRoutes, lessonRoutes, weeklyRoutes, studentRoutes]
 
 export const SESSION_COOKIE = 'sfb_admin'
 const SESSION_HOURS = 12

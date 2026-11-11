@@ -210,6 +210,35 @@ describe('the local day', () => {
 })
 
 describe('dropping inactive students', () => {
+  test('a day under maintenance does not count: one more day is needed before dropping', async () => {
+    const classId = await insertClass(db, { classNo: 1 })
+    // Last came at noon on 3 October. Tonight (3 November 00:00) the cutoff is 4 October, so he would be dropped.
+    const student = await insertStudent(db, {
+      status: 'active',
+      classId,
+      assignedAt: new Date('2026-09-01T00:00:00+08:00'),
+      lastAttendedAt: new Date('2026-10-03T12:00:00+08:00'),
+    })
+    // The evening class of 10 October was under maintenance, and has long been over.
+    await db
+      .insertInto('maintenancePeriods')
+      .values({
+        message: '升级',
+        expectedBackAt: null,
+        startedAt: new Date('2026-10-10T19:00:00+08:00'),
+        endedAt: new Date('2026-10-10T22:00:00+08:00'),
+      })
+      .execute()
+
+    expect(await job()).toMatchObject({ dropped: 0 })
+    expect(await statusOf(student.id)).toMatchObject({ status: 'active', classId })
+
+    // Without the maintenance day, the same student is dropped.
+    await db.deleteFrom('maintenancePeriods').execute()
+    expect(await job()).toMatchObject({ dropped: 1 })
+    expect(await statusOf(student.id)).toMatchObject({ status: 'dropped' })
+  })
+
   test('inactive for 31 days is dropped, 29 days is kept', async () => {
     const now = clock.now()
     const classId = await insertClass(db, { classNo: 1 })

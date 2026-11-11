@@ -12,6 +12,7 @@ import * as m0007 from './migrations/0007_llm.js'
 import * as m0008 from './migrations/0008_admin_discipline.js'
 import * as m0009 from './migrations/0009_llm_cached_tokens.js'
 import * as m0010 from './migrations/0010_call_on_checks.js'
+import * as m0011 from './migrations/0011_maintenance.js'
 import type { Database } from './schema.js'
 
 export type { Database, StudentStatus } from './schema.js'
@@ -64,6 +65,7 @@ const provider: MigrationProvider = {
       '0008_admin_discipline': m0008,
       '0009_llm_cached_tokens': m0009,
       '0010_call_on_checks': m0010,
+      '0011_maintenance': m0011,
     }
   },
 }

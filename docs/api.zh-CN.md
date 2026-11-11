@@ -126,7 +126,9 @@
 
 ### `GET /v1/school-calendar`
 
-学校现在是在上学、放假还是还没开学，以及还没结束的假期。不需要钥匙。回复 `200`，内容是 `SchoolCalendar`：`today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，日期还没定也是 `null`）、`openingDay` 和 `breaks`。每种状态下都可以报名。
+学校现在是在上学、放假还是还没开学，以及还没结束的假期。不需要钥匙。回复 `200`，内容是 `SchoolCalendar`：`today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，日期还没定也是 `null`）、`openingDay`、`breaks` 和 `maintenance`。每种状态下都可以报名。
+
+`maintenance` 平时是 `null`。运营者把学校设成维护中时，它是 `{ message, since, expectedBackAt }`：`message` 是中文，可以显示给主人；`since` 和 `expectedBackAt` 是 ISO 8601 日期时间，不知道预计时间时 `expectedBackAt` 是 `null`。维护期间不开课，在线的插件会被断开，所以每隔几分钟查一次这个接口，直到 `maintenance` 变回 `null`，再重连（照常先随机等一会儿）。其他字段的意思不变。
 
 可能的错误：没有自己的错误。
 

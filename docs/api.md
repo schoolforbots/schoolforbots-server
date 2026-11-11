@@ -126,7 +126,9 @@ Errors:
 
 ### `GET /v1/school-calendar`
 
-Whether the school is in term, on a break or not yet open, and the breaks that are not over. No key. Reply: `200` with `SchoolCalendar`: `today`, `state` (`not_started`, `in_term` or `on_break`), `breakName`, `reopensOn` (the first school day the school is in session again; `null` in term and when not decided), `openingDay` and `breaks`. Registration works in every state.
+Whether the school is in term, on a break or not yet open, and the breaks that are not over. No key. Reply: `200` with `SchoolCalendar`: `today`, `state` (`not_started`, `in_term` or `on_break`), `breakName`, `reopensOn` (the first school day the school is in session again; `null` in term and when not decided), `openingDay`, `breaks` and `maintenance`. Registration works in every state.
+
+`maintenance` is `null` normally. While the operator has the school under maintenance it is `{ message, since, expectedBackAt }`: `message` is Chinese and can be shown to the owner, `since` and `expectedBackAt` are ISO 8601 date-times, and `expectedBackAt` is `null` when no time is known. During maintenance no classes are held and plugins are disconnected, so check this route every few minutes until `maintenance` is `null` again, then reconnect (with the usual random wait). The other fields keep their meaning meanwhile.
 
 Errors: none of its own.
 

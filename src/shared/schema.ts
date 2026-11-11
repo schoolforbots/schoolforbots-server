@@ -245,6 +245,15 @@ export interface SwitchChangesTable {
   createdAt: Date
 }
 
+export interface MaintenancePeriodsTable {
+  id: Generated<number>
+  message: string
+  expectedBackAt: Date | null
+  startedAt: Date
+  /** Null while the maintenance is on: at most one row has no end. */
+  endedAt: Date | null
+}
+
 export interface ModerationExclusionsTable {
   id: Generated<number>
   kind: 'word' | 'pattern'
@@ -423,6 +432,7 @@ export interface Database {
   budgetNotices: BudgetNoticesTable
   switches: SwitchesTable
   switchChanges: SwitchChangesTable
+  maintenancePeriods: MaintenancePeriodsTable
   moderationExclusions: ModerationExclusionsTable
   weeklyReviews: WeeklyReviewsTable
   adminSessions: AdminSessionsTable
