@@ -258,5 +258,53 @@ describe('the switches page', () => {
       expect(maint.getByText('预计恢复：2026 年 11 月 4 日 16:00')).toBeInTheDocument()
       expect(maint.getByText('现在维护中')).toBeInTheDocument()
     })
+
+    it('editing only the message keeps the expected return time', async () => {
+      const BACK = '2026-11-04T08:00:00.000Z'
+      const server = fakeServer({
+        [READ]: ok(switches()),
+        [MAINT]: ok(maintenance({ message: '数据库迁移', expectedBackAt: BACK })),
+        [PUT]: ok(maintenance({ message: '改一下', expectedBackAt: BACK })),
+      })
+      const user = userEvent.setup()
+      show(<Switches />)
+
+      const maint = within(await screen.findByRole('region', { name: '维护中' }))
+      await user.click(await maint.findByRole('button', { name: '修改说明' }))
+      const dialog = within(await screen.findByRole('dialog', { name: '修改说明？' }))
+      expect(dialog.getByText(/这一栏不填，就保持不变/)).toBeInTheDocument()
+      const box = dialog.getByLabelText(/^说明/)
+      await user.clear(box)
+      await user.type(box, '改一下')
+      await user.click(dialog.getByRole('button', { name: '修改说明' }))
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(server.calls.filter((call) => call.method === 'PUT').map((call) => call.body)).toEqual([
+        { on: true, message: '改一下', expectedBackAt: BACK },
+      ])
+      expect(maint.getByText('预计恢复：2026 年 11 月 4 日 16:00')).toBeInTheDocument()
+    })
+
+    it('the edit can clear the expected return time', async () => {
+      const server = fakeServer({
+        [READ]: ok(switches()),
+        [MAINT]: ok(maintenance({ message: '数据库迁移', expectedBackAt: '2026-11-04T08:00:00.000Z' })),
+        [PUT]: ok(maintenance({ message: '数据库迁移', expectedBackAt: null })),
+      })
+      const user = userEvent.setup()
+      show(<Switches />)
+
+      const maint = within(await screen.findByRole('region', { name: '维护中' }))
+      await user.click(await maint.findByRole('button', { name: '修改说明' }))
+      const dialog = within(await screen.findByRole('dialog', { name: '修改说明？' }))
+      await user.click(dialog.getByRole('checkbox', { name: '不写预计时间（清掉现在的）' }))
+      await user.click(dialog.getByRole('button', { name: '修改说明' }))
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(server.calls.filter((call) => call.method === 'PUT').map((call) => call.body)).toEqual([
+        { on: true, message: '数据库迁移', expectedBackAt: null },
+      ])
+      expect(maint.getByText('预计恢复：没有写')).toBeInTheDocument()
+    })
   })
 })

@@ -1,4 +1,4 @@
-import { Button, Input } from 'antd'
+import { Button, Checkbox, Input } from 'antd'
 import { useId, useRef, useState } from 'react'
 import {
   MAINTENANCE_PATH,
@@ -122,6 +122,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
   const current = read.data?.maintenance ?? null
   const turningOn = current === null
   const [editing, setEditing] = useState(false)
+  const [clearBack, setClearBack] = useState(false)
   const asksMessage = turningOn || editing
   const verb = turningOn ? '开始维护' : editing ? '修改说明' : '结束维护'
   const hoursNumber = hours.trim() === '' ? null : Number(hours)
@@ -132,6 +133,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
     setEditing(edit)
     setMessage(current?.message ?? '')
     setHours('')
+    setClearBack(false)
     setAsking(true)
   }
 
@@ -176,7 +178,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
           confirm={verb}
           busy={`正在${verb}`}
           cancel={turningOn ? '先不维护' : editing ? '先不改' : '先不结束'}
-          canConfirm={!asksMessage || (messageOk && hoursOk)}
+          canConfirm={!asksMessage || (messageOk && (hoursOk || clearBack))}
           onCancel={() => {
             setAsking(false)
             opener.current?.focus()
@@ -186,7 +188,12 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
               ? {
                   on: true,
                   message: message.trim(),
-                  expectedBackAt: hoursNumber === null ? null : new Date(Date.now() + hoursNumber * 3_600_000).toISOString(),
+                  expectedBackAt:
+                    hoursNumber !== null
+                      ? new Date(Date.now() + hoursNumber * 3_600_000).toISOString()
+                      : editing && !clearBack
+                        ? (current?.expectedBackAt ?? null)
+                        : null,
                 }
               : { on: false }
             read.set(await setMaintenance(body))
@@ -212,6 +219,16 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
                 预计几小时后恢复（可以不填）
               </label>
               <Input id={hoursId} type="number" min={0} step={0.5} value={hours} onChange={(event) => setHours(event.target.value)} />
+              {editing && current?.expectedBackAt != null && (
+                <>
+                  <p>
+                    现在的预计恢复时间是 {moment(current.expectedBackAt, zone)}。这一栏不填，就保持不变；填了，改成从现在起的这么多小时后。
+                  </p>
+                  <Checkbox checked={clearBack} onChange={(event) => setClearBack(event.target.checked)}>
+                    不写预计时间（清掉现在的）
+                  </Checkbox>
+                </>
+              )}
               {!hoursOk && <p className="action-error">预计恢复的小时数要大于 0。</p>}
               {turningOn && <p>维护的日子不算进自动退学的天数。</p>}
             </>
