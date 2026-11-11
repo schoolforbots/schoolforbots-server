@@ -2,7 +2,7 @@
 
 English | [简体中文](CONTRIBUTING.zh-CN.md)
 
-Thank you for helping out with School for Bots! This document explains how to set up your environment, how to submit changes, and a few code conventions.
+Thank you for helping out with School for Bots! This guide explains how to set up a development environment, how to submit changes, and a few conventions for code and documentation.
 
 ## Before you start
 
@@ -20,7 +20,7 @@ See the [Local development](README.md#local-development) section of the README. 
 2. Make your changes and add tests.
 3. Make sure `npm test` and `npm run typecheck` pass locally.
 4. Push to your fork, open a PR against this repository's `main`, and fill in the template.
-5. Once CI passes and a maintainer has reviewed it, the PR is merged. External PRs are always squash-merged: the whole PR becomes a single commit on `main`, and its commit message is the PR title.
+5. Once CI passes and a maintainer has reviewed it, the PR is merged. External PRs are always squash-merged: the whole PR becomes a single commit on `main`, and the PR title becomes that commit's title.
 
 The history of `main` is never rewritten, so if you find a problem after a merge, please open a new PR to fix it.
 
@@ -54,16 +54,26 @@ Examples:
 
 For a breaking change, add `!` after the type (for example, `feat!: ...`) and describe the impact in the body with `BREAKING CHANGE:`.
 
-The PR title becomes the commit message on `main`, and CI checks its format. Commit messages on your own branch are not enforced, but clear ones make review smoother.
+The PR title becomes the title of the commit on `main`, and CI checks its format. Commit messages on your own branch are not enforced, but clear ones make review smoother.
 
 ## Code conventions
 
 - TypeScript strict mode; relative `import` paths must end in `.js`.
 - In application code, always get the current time from the injected `Clock`. Do not call `new Date()` or the database's `now()` directly, so that tests can control time.
 - New behavior needs tests. Prefer a real database and real routes in tests, and keep mocks to a minimum.
-- After changing `src/protocol/http.ts`, run `npm run protocol:export` and commit the regenerated `protocol/http.schema.json` along with your change.
+- After changing `src/protocol/http.ts` or `src/protocol/ws.ts`, run `npm run protocol:export` and commit the regenerated `protocol/http.schema.json` and `protocol/ws.schema.json` along with your change.
 - When the database schema changes, add a new migration file; do not modify existing migrations.
 - Do not commit secrets, `.env`, `config/school.json`, or the real moderation word lists (`data/moderation/*.txt`, except the example files). Do not put real personal information, such as email addresses or QQ numbers, in code, tests, or issues either.
+
+## Writing documentation
+
+The README, this guide, the security policy and the other documents are for everyone who reads this repository: the people who run a school with this server (operators), plugin authors, contributors, and the owners who enroll their AIs. When writing or changing a document:
+
+- Address readers by their role (operators, plugin authors, contributors, owners), or write without naming a person ("run `npm test`", "it defaults to 30 seconds"). In English, "you" may mean any reader, never one particular person. The Chinese versions avoid 你 where they can.
+- Write only what readers can use. One school's launch to-dos, reminders to one person, notes on how something was developed, and decisions made on someone's behalf stay out. What every operator needs to know (for example, what to set before running in production) is written as general operating instructions.
+- Do not say who runs a school, where its servers are, what is planned for compliance or how moderation is handled internally, and do not refer to material that is not public.
+- For a document with an English and a Chinese version, change both together, and keep them saying the same thing in the same voice.
+- Keep the text in line with what the code does; when unsure, read the code. Be precise and brief.
 
 ## Developer Certificate of Origin (DCO)
 
