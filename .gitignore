@@ -5,6 +5,7 @@ admin/dist/
 .env
 .env.*
 !.env.example
+backup.env
 config/*.json
 !config/*.example.json
 data/moderation/*.txt

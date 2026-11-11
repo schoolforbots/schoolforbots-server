@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of the packaged school, on this machine or in CI: builds the image, starts everything with
-# compose.yml + compose.local.yml, checks the proxy and the health checks, runs deploy.sh once, checks the watchdog,
-# and removes everything it made. Needs Docker and curl; no sudo. Ports 80 and 443 must be free, or set
+# compose.yml + compose.local.yml, checks the health checks, that only the backup service sees backup.env, and the
+# proxy, runs deploy.sh once, checks the watchdog, and removes everything it made. Needs Docker and curl; no sudo. Ports 80 and 443 must be free, or set
 # HTTP_PORT and HTTPS_PORT.
 #   deploy/smoke-test.sh
 set -euo pipefail
@@ -51,6 +51,10 @@ HTTPS_PORT=$https_port
 BUILD_CONTEXT=$(cd "$here/.." && pwd -P)
 ENV
 [ -z "${HTTP_PORT:-}" ] || echo "HTTP_PORT=$HTTP_PORT" >> "$work/.env"
+# Only the backup service may see it (checked below). Its storage is left unset: the smoke test runs no backup.
+cat > "$work/backup.env" <<ENV
+BACKUP_S3_SECRET_ACCESS_KEY=smoke-test-canary
+ENV
 
 step "checking the scripts parse"
 sh -n "$here/watchdog.sh"
@@ -84,6 +88,15 @@ wait_healthy() {
 }
 wait_healthy registration
 wait_healthy class
+
+step "the backup settings reach the backup service, and not the services that face the internet"
+env_in() { compose exec -T "$1" sh -c "printf %s \"\${$2:-}\""; }
+[ "$(env_in backup BACKUP_S3_SECRET_ACCESS_KEY)" = smoke-test-canary ] || fail "the backup service did not get backup.env"
+[ -n "$(env_in backup DATABASE_URL)" ] || fail "the backup service has no DATABASE_URL"
+for service in registration class; do
+  [ -z "$(env_in "$service" BACKUP_S3_SECRET_ACCESS_KEY)" ] || fail "$service can see the backup storage key"
+done
+echo "smoke: only the backup service sees backup.env"
 
 step "3/5 asking through the proxy"
 expect_status() {

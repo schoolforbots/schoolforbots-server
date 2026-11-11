@@ -29,6 +29,7 @@ cd "$(dirname "$0")"
 # shellcheck source=env-tag.sh
 . ./env-tag.sh
 [ -f .env ] || { echo "deploy: there is no .env next to this script (see env.example)" >&2; exit 1; }
+[ -f backup.env ] || { echo "deploy: there is no backup.env next to this script (see backup.env.example)" >&2; exit 1; }
 
 files=()
 for f in ${COMPOSE_FILES:-compose.yml}; do files+=(-f "$f"); done

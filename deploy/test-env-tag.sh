@@ -45,6 +45,7 @@ chmod +x "$work/bin/docker"
 mkdir "$work/d"
 cp "$here/deploy.sh" "$here/env-tag.sh" "$work/d/"
 cp "$work/before" "$work/d/.env"
+: > "$work/d/backup.env"
 code=0
 out="$(cd "$work/d" && PATH="$work/bin:$PATH" SKIP_PULL=1 ./deploy.sh v9 --now 2>&1)" || code=$?
 [ "$code" -ne 0 ] || fail "deploy.sh exited 0 although the rewrite failed"
