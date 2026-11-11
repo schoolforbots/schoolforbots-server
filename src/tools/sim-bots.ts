@@ -88,7 +88,7 @@ const TAG_PATTERN = new RegExp(`（([${TAG_LETTERS}]{3,})）`)
 export function createSampler(): Sampler {
   let counter = 0
   return {
-    samples: { segmentMs: [], chatMs: [], unexpectedDisconnects: 0, errors: {} },
+    samples: { segmentMs: [], chatMs: [], chatSent: 0, unexpectedDisconnects: 0, connectFailures: 0, neverWelcomed: 0, errors: {} },
     sent: new Map(),
     nextTag() {
       // The counter in base 20, at least three letters long.
@@ -128,12 +128,7 @@ type Message = Static<typeof ServerMessage>
 type Of<T extends Message['type']> = Extract<Message, { type: T }>
 
 const START_LINES = ['你好呀，这一段你听懂了吗？', '同学你好，我们来聊聊刚才讲的内容吧。', '嗨，你觉得老师讲得怎么样？']
-const REPLY_LINES = [
-  '我听懂了，你呢？',
-  '我觉得这一段挺有意思的。',
-  '对，我也是这么想的。',
-  '老师讲得很清楚，我记下来了。',
-]
+const REPLY_LINES = ['我听懂了，你呢？', '我觉得这一段挺有意思的。', '对，我也是这么想的。', '老师讲得很清楚，我记下来了。']
 const LAST_LINE = '下次再找你聊'
 const ANSWER = '这一段讲的是……'
 // Ordinary questions about what was just taught, which fit any lesson; the segment's number picks one.
@@ -210,6 +205,8 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   const online = new Set<number>()
   /** The type of each message sent and not yet acked, by id. */
   const requests = new Map<string, string>()
+  /** The tag of each conversation line sent and not yet acked, by id: a line the school refuses is taken back. */
+  const lineTags = new Map<string, string>()
   /** The conversations the bot is in, with the reply it is about to send and whether that is the last line. */
   const talks = new Map<string, { timer: NodeJS.Timeout | null; last: boolean }>()
   let starting = false
@@ -221,6 +218,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     welcomed = false
     online.clear()
     requests.clear()
+    lineTags.clear()
     for (const talk of talks.values()) clearTimeout(talk.timer ?? undefined)
     talks.clear()
     starting = false
@@ -229,20 +227,24 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     questionsPending = 0
   }
 
-  /** Whether the frame went out: nothing is sent while the connection is not open. */
-  function send(type: string, body: object): boolean {
-    if (socket === null || socket.readyState !== WebSocket.OPEN) return false
+  /** The id of the frame sent, or null when it did not go out: nothing is sent while the connection is not open. */
+  function send(type: string, body: object): string | null {
+    if (socket === null || socket.readyState !== WebSocket.OPEN) return null
     const id = `${type}-${++nextId}`
     requests.set(id, type)
     socket.send(JSON.stringify({ id, type, ...body }))
-    return true
+    return id
   }
 
   /** Sends a conversation line with a tag of letters appended, noting when it went out. */
   function sendLine(type: 'chat.start' | 'chat.reply', body: object, line: string): void {
     const tag = sampler.nextTag()
     const sentAt = clock.now().getTime()
-    if (send(type, { ...body, text: `${line}（${tag}）` })) sampler.sent.set(tag, sentAt)
+    const id = send(type, { ...body, text: `${line}（${tag}）` })
+    if (id === null) return
+    sampler.sent.set(tag, sentAt)
+    sampler.samples.chatSent++
+    lineTags.set(id, tag)
   }
 
   function end(reason: string): void {
@@ -262,6 +264,13 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     opened = false
     closingSeen = false
     dropping = false
+    let failed = false
+    // A try that never got in: counted once, whether it was an HTTP refusal or an error on the way.
+    const connectFailed = () => {
+      if (failed) return
+      failed = true
+      sampler.samples.connectFailures++
+    }
     ws.on('open', () => {
       opened = true
       // `lastSeq` counts the events of the session the welcome named: the school replays after it only in that session.
@@ -272,11 +281,13 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     ws.on('message', (data) => onMessage(String(data)))
     ws.on('unexpected-response', (_request, response) => {
       say(`连接被拒 HTTP ${response.statusCode}`)
+      connectFailed()
       // A key the school does not know stays unknown: trying again changes nothing.
       if (response.statusCode === 401) end('钥匙不对')
       ws.terminate()
     })
     ws.on('error', (err: NodeJS.ErrnoException) => {
+      if (!opened) connectFailed()
       if (tally.ended === null) say(`连接出错 ${err.code ?? err.message}`)
     })
     ws.on('close', () => {
@@ -337,8 +348,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
 
   /** Asks the teacher a question about the segment after a moment, within the lesson's allowance. */
   function askSoon(segment: number): void {
-    if (questionsInSession + questionsPending >= questionLimit || endsAt === null || clock.now().getTime() >= endsAt)
-      return
+    if (questionsInSession + questionsPending >= questionLimit || endsAt === null || clock.now().getTime() >= endsAt) return
     // Pending ones count against the allowance so the bot cannot send more than it allows; only a sent one uses it up.
     questionsPending++
     const timer = setTimeout(() => {
@@ -354,6 +364,8 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   function onAck(msg: Of<'ack'>): void {
     const type = requests.get(msg.id) ?? '?'
     requests.delete(msg.id)
+    const lineTag = lineTags.get(msg.id)
+    lineTags.delete(msg.id)
     if (type === 'chat.start') starting = false
     if (msg.ok) {
       if (type !== 'hello') tally.delivered++
@@ -369,6 +381,8 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
       return
     }
     const { code } = msg.error
+    // A refused line never reaches its classmate: it is not one that went missing.
+    if (lineTag !== undefined && sampler.sent.delete(lineTag)) sampler.samples.chatSent--
     tally.refusals.set(code, (tally.refusals.get(code) ?? 0) + 1)
     sampler.samples.errors[code] = (sampler.samples.errors[code] ?? 0) + 1
     if (code === 'initiation_cap') initiationsLeft = 0
@@ -541,8 +555,8 @@ function countsText(t: Counts): string {
   )
 }
 
-/** The totals printed at the end: one line per bot, then the sum. */
-export function totalsText(bots: readonly Bot[]): string {
+/** The totals printed at the end: one line per bot (unless `perBot` is false), then the sum. */
+export function totalsText(bots: readonly Bot[], perBot = true): string {
   const lines = ['—— 汇总 ——']
   const sum: Counts = {
     segments: 0,
@@ -558,7 +572,7 @@ export function totalsText(bots: readonly Bot[]): string {
   let summaries = 0
   for (const { student, tally } of bots) {
     const ended = tally.ended === '下课' ? '' : `；${tally.ended ?? '还没下课'}`
-    lines.push(
+    if (perBot) lines.push(
       `${student.displayName}（学号 ${student.studentId}）：${countsText(tally)}，${tally.summary ? '收到了' : '没收到'}放学小结${ended}`,
     )
     sum.segments += tally.segments
@@ -610,7 +624,9 @@ export function buildReport(samples: Samples, expect: { segmentMs?: number; chat
     '—— 压测报告 ——',
     statText('课文延迟', report.segment),
     statText('搭话延迟', report.chat),
+    `搭话：发出 ${report.chatSent} 句，没对上的 ${report.chatUnmatched} 句`,
     `意外断开：${report.unexpectedDisconnects} 次`,
+    `连接失败：${report.connectFailures} 次；一直没进教室的机器人：${report.neverWelcomed} 个`,
     `被拒：${errors.length === 0 ? '0 次' : errors.map(([code, n]) => `${code} ${n}`).join('、')}`,
     ...failures.map((f) => `没过：${f}`),
     `结论：${pass ? '及格' : '不及格'}`,
@@ -628,13 +644,15 @@ export interface SimArgs extends SimOptions {
   ramp: number
   /** Where to write the report as JSON. */
   report?: string
+  /** Prints no line per event: only the start, a progress line now and then, and the summary and the verdict. */
+  quiet: boolean
   /** The pass line (milliseconds, for the p99 of each). */
   expectSegmentMs?: number
   expectChatMs?: number
 }
 
 export function parseSimArgs(argv: string[]): SimArgs | null {
-  let values: Record<string, string | undefined>
+  let values: Record<string, string | boolean | undefined>
   try {
     values = parseArgs({
       args: argv,
@@ -647,6 +665,7 @@ export function parseSimArgs(argv: string[]): SimArgs | null {
         ask: { type: 'string', default: '0' },
         ramp: { type: 'string', default: '0' },
         report: { type: 'string' },
+        quiet: { type: 'boolean', default: false },
         'expect-segment-ms': { type: 'string' },
         'expect-chat-ms': { type: 'string' },
       },
@@ -656,27 +675,29 @@ export function parseSimArgs(argv: string[]): SimArgs | null {
   } catch {
     return null
   }
-  const { keys, url } = values
+  const quiet = values.quiet === true
+  const text = values as Record<string, string | undefined>
+  const { keys, url } = text
   const chatEvery = Number(values['chat-every'])
   const dropRate = Number(values['drop-rate'])
   const maxRounds = Number(values['max-rounds'])
-  const ask = Number(values.ask)
-  const ramp = Number(values.ramp)
-  const report = values.report
-  const limit = (text: string | undefined): number | undefined | null => {
-    if (text === undefined) return undefined
-    const n = Number(text)
-    return text.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null
+  const ask = Number(text.ask)
+  const ramp = Number(text.ramp)
+  const report = text.report
+  const limit = (value: string | undefined): number | undefined | null => {
+    if (value === undefined) return undefined
+    const n = Number(value)
+    return value.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null
   }
-  const expectSegmentMs = limit(values['expect-segment-ms'])
-  const expectChatMs = limit(values['expect-chat-ms'])
+  const expectSegmentMs = limit(text['expect-segment-ms'])
+  const expectChatMs = limit(text['expect-chat-ms'])
   if (!(ramp >= 0) || !Number.isFinite(ramp) || report === '') return null
   if (expectSegmentMs === null || expectChatMs === null) return null
   if (keys === undefined || keys === '' || url === undefined || !/^wss?:\/\//.test(url)) return null
   if (!(chatEvery > 0) || !(dropRate >= 0 && dropRate <= 1) || !(ask >= 0 && ask <= 1)) return null
   // The protocol's bounds for hello's maxRounds.
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 50) return null
-  return { keys, url, chatEvery, dropRate, maxRounds, ask, ramp, report, expectSegmentMs, expectChatMs }
+  return { keys, url, chatEvery, dropRate, maxRounds, ask, ramp, report, quiet, expectSegmentMs, expectChatMs }
 }
 
 /**
@@ -698,17 +719,32 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const clock = systemClock
-  const print = (line: string) => console.log(`${clock.now().toTimeString().slice(0, 8)} ${line}`)
+  const stamp = () => clock.now().toTimeString().slice(0, 8)
+  // Quiet: with thousands of bots in one process, a console line per event is synchronous work that slows the very
+  // event loop whose delays are being measured.
+  const print = args.quiet ? () => {} : (line: string) => console.log(`${stamp()} ${line}`)
   return new Promise((resolve) => {
     let done = false
     const sampler = createSampler()
     const startTimers: NodeJS.Timeout[] = []
+    // In quiet mode a line every 10 seconds says the run is alive.
+    const progressTimer = args.quiet
+      ? setInterval(() => {
+          const welcomed = bots.filter((b) => b.tally.welcomed).length
+          const { segmentMs, chatMs, unexpectedDisconnects, connectFailures } = sampler.samples
+          console.log(
+            `${stamp()} 进度：${welcomed}/${bots.length} 个进了教室，课文延迟样本 ${segmentMs.length}，搭话延迟样本 ${chatMs.length}，意外断开 ${unexpectedDisconnects}，连不上 ${connectFailures}`,
+          )
+        }, 10_000)
+      : undefined
     const finish = (code: number) => {
       if (done) return
       done = true
       for (const timer of startTimers) clearTimeout(timer)
+      clearInterval(progressTimer)
       for (const bot of bots) bot.stop()
-      console.log(totalsText(bots))
+      sampler.samples.neverWelcomed = bots.filter((b) => !b.tally.welcomed).length
+      console.log(totalsText(bots, !args.quiet))
       const expect = { segmentMs: args.expectSegmentMs, chatMs: args.expectChatMs }
       const result = buildReport(sampler.samples, expect)
       console.log(result.lines.join('\n'))
