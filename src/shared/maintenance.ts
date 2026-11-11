@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely'
 import type { FastifyBaseLogger } from 'fastify'
 import { lessonSteps } from '../class/timeline.js'
 import type { SchoolConfig, Slot } from './config.js'
+import { lock } from './db.js'
 import { addDaysToDate, atLocalTime, localDate } from './local-time.js'
 import type { Database } from './schema.js'
 
@@ -34,6 +35,8 @@ export async function setMaintenance(
   at: Date,
 ): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    // With no row open `for update` locks nothing, so two switch-ons would both insert: take a lock first.
+    await lock(trx, 'maintenance')
     const open = await trx.selectFrom('maintenancePeriods').select('id').where('endedAt', 'is', null).forUpdate().executeTakeFirst()
     if (value === null) {
       if (open !== undefined) await trx.updateTable('maintenancePeriods').set({ endedAt: at }).where('id', '=', open.id).execute()

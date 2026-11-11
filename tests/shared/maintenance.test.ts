@@ -44,6 +44,15 @@ describe('setMaintenance and readMaintenance', () => {
     expect(await db.selectFrom('maintenancePeriods').selectAll().execute()).toHaveLength(1)
   })
 
+  test('two switch-ons at once leave exactly one open row', async () => {
+    await Promise.all([
+      setMaintenance(db, { message: '甲', expectedBackAt: null }, T0),
+      setMaintenance(db, { message: '乙', expectedBackAt: null }, T1),
+    ])
+    const rows = await db.selectFrom('maintenancePeriods').select('endedAt').execute()
+    expect(rows).toEqual([{ endedAt: null }])
+  })
+
   test('switching off ends the row; off again does nothing', async () => {
     await setMaintenance(db, { message: '升级中', expectedBackAt: null }, T0)
     await setMaintenance(db, null, T1)
