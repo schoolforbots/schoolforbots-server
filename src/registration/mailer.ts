@@ -44,6 +44,8 @@ export function withMailFailures(mailer: Mailer, onFailure: () => void): Mailer 
 
 /** The part of a nodemailer transport that the mailer uses. */
 export interface MailTransport {
+  /** Tries the connection to the mail server; rejects when it cannot be used. */
+  verify?(): Promise<unknown>
   sendMail(message: { from: string; to: string; subject: string; text: string }): Promise<unknown>
 }
 
@@ -63,8 +65,14 @@ export function createTransportMailer(transport: MailTransport, from: string, tt
  * Sends through SMTP. `ttlMinutes` is the validity quoted in the mail text and
  * must equal `verificationCode.ttlMinutes` of the school config, so it has no default.
  */
-export function createSmtpMailer(smtpUrl: string, from: string, ttlMinutes: number): Mailer {
-  return createTransportMailer(createTransport(smtpUrl), from, ttlMinutes)
+export function createSmtpMailer(smtpUrl: string, from: string, ttlMinutes: number): Mailer & { verify(): Promise<void> } {
+  const transport = createTransport(smtpUrl)
+  return {
+    ...createTransportMailer(transport, from, ttlMinutes),
+    async verify() {
+      await transport.verify()
+    },
+  }
 }
 
 /** For local development only, chosen with MAIL_TRANSPORT=console: prints the mail to stdout instead of sending it. */

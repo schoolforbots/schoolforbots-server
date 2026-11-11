@@ -11,6 +11,7 @@ import type { Database } from '../shared/db.js'
 import { databaseAlive, registerHealthz } from '../shared/healthz.js'
 import type { SchoolRules } from '../shared/school-rules.js'
 import { ApiError, registerErrorHandler } from './errors.js'
+import { registerMailHealthz, type MailHealth } from './mail-health.js'
 import { keyResetRoutes } from './key-resets.js'
 import type { Mailer } from './mailer.js'
 import { meRoutes } from './me.js'
@@ -32,6 +33,8 @@ export interface RegistrationDeps {
   trustProxy: boolean
   /** Fastify logger options; unset means no logging. Unexpected errors are logged at error level. */
   logger?: FastifyServerOptions['logger']
+  /** Whether mail is going out, for `GET /healthz/mail`. Unset: always ok. */
+  mailHealth?: Pick<MailHealth, 'ok'>
   /** Called for every 500 the service answers, to count it for the alert mails. */
   onInternalError?: () => void
   /** The admin pages. They are served only when `admin.env.admin` is set; without it every path under them is a 404. */
@@ -78,6 +81,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
     allowList: (request) => isAdminApiRequest(request),
   })
   registerHealthz(app, () => databaseAlive(deps.db))
+  registerMailHealthz(app, () => deps.mailHealth?.ok() ?? true)
   app.register(registrationRoutes(deps))
   app.register(meRoutes(deps))
   app.register(recordsRoutes(deps))
