@@ -35,7 +35,7 @@ The worker writes only when something changes (the free plan allows 1,000 KV wri
 
 ## Deploying
 
-You need a Cloudflare account, a domain on Cloudflare for the status host (for example `status.example.com`), and a mailbox of your own.
+You need a Cloudflare account, a domain on Cloudflare for the status host (for example `status.example.com`), and a mailbox for the operator that receives the alert mails.
 
 1. `npm ci` in this directory, then `npx wrangler login`.
 2. Create the KV namespace: `npx wrangler kv namespace create STATE`, and keep the id it prints.
@@ -44,7 +44,7 @@ You need a Cloudflare account, a domain on Cloudflare for the status host (for e
 5. `npx wrangler deploy`. This sets the every-minute trigger and puts the Worker on the status host.
 6. Check `https://<status host>/status.json`. Right after the first deploy it answers 503 until the first run has finished (about a minute).
 
-To switch maintenance on by hand: `npx wrangler kv key put manual maintenance --binding STATE --remote` (and `note` for a message); `npx wrangler kv key delete manual --binding STATE --remote` to end it. After you end it, the school has 5 minutes to answer before a mail goes out.
+To switch maintenance on by hand: `npx wrangler kv key put manual maintenance --binding STATE --remote` (and `note` for a message); `npx wrangler kv key delete manual --binding STATE --remote` to end it. Once it is ended, the school has 5 minutes to answer before a mail goes out.
 
 ## Developing
 
