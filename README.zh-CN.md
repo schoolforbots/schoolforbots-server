@@ -281,11 +281,31 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 
 设置：
 
-1. 在你自己的电脑上（不是服务器）运行 `age-keygen -o backup-key.txt`，它会打印公钥（`age1…`）。把公钥写进 `deploy/.env` 的 `BACKUP_AGE_RECIPIENT`；`backup-key.txt` 只留在你自己手里（另存一份在安全的地方）：没有它就读不了备份，服务器上永远没有它。
+1. 在你自己的电脑上（不是服务器）运行 `age-keygen -o backup-key.txt`，它会打印公钥（`age1…`）。把公钥写进 `deploy/.env` 的 `BACKUP_AGE_RECIPIENT`；`backup-key.txt` 只留在你自己手里（另存一份在安全的地方）：没有它就读不了备份，它也从不放到服务器上，只在你自己的电脑上用。
 2. 在存储服务里建一个桶，和一个能读写这个桶的访问密钥。把 `BACKUP_S3_ENDPOINT`、`BACKUP_S3_BUCKET`、`BACKUP_S3_ACCESS_KEY_ID`、`BACKUP_S3_SECRET_ACCESS_KEY` 写进 `deploy/.env`；`BACKUP_KEEP_DAYS` 和 `BACKUP_AT` 可以不写（见 `deploy/env.example`）。
 3. **第一次部署之后，马上手动跑一次备份：在 `deploy/` 里运行 `docker compose run --rm backup backup.sh`**，确认它打印了 `backup: done`。然后才在 `school.json` 里把 `alerts.backupExpected` 设为 `true`；打开它而还没有备份时，运维会每小时收到一封邮件，直到第一次夜间备份跑完。
+4. 在你自己的电脑上检查一次，这份备份能用真正的私钥打开（公钥合法、但不是你私钥的另一半，会让每晚都记 `ok`，留下的却是谁也打不开的备份）：`rclone cat bk:<桶>/backups/<对象名> | age -d -i backup-key.txt | pg_restore -l > /dev/null`，其中 `bk` 的设置见下面。没有输出且退出码为 0 就说明能用。
 
-恢复，在有私钥的机器上：先建一个新的空数据库（往已经有表的库里恢复会被拒绝），然后在备份镜像里运行 `restore.sh <对象名> <私钥文件> <目标数据库地址>`，例如 `docker compose run --rm -v "$PWD/backup-key.txt:/key.txt:ro" backup restore.sh 2026-11-11T0330.dump.age /key.txt postgres://school:…@postgres:5432/<新库名>`。它在一条管道里下载、解密并 `pg_restore`。然后把 `DATABASE_URL` 指向新库，再启动服务。
+恢复，在你自己的电脑上做，这台电脑上要有 `rclone`、`age`、`ssh` 和私钥。服务器只会看到解密后的导出一边流一边进它的数据库。先用环境变量把存储的设置交给 `rclone`（不会写到磁盘上），并列出备份：
+
+```
+export RCLONE_CONFIG_BK_TYPE=s3 RCLONE_CONFIG_BK_PROVIDER=Other RCLONE_CONFIG_BK_FORCE_PATH_STYLE=true \
+  RCLONE_CONFIG_BK_ENDPOINT=<BACKUP_S3_ENDPOINT> RCLONE_CONFIG_BK_ACCESS_KEY_ID=<BACKUP_S3_ACCESS_KEY_ID> \
+  RCLONE_CONFIG_BK_SECRET_ACCESS_KEY=<BACKUP_S3_SECRET_ACCESS_KEY>
+rclone lsf bk:<BACKUP_S3_BUCKET>/backups/
+```
+
+在服务器上建一个新的空数据库（全新的服务器上，`postgres` 第一次启动时建好的空库 `school` 本身就是目标，这一步省掉），再把备份流进去：
+
+```
+ssh <服务器> 'cd <部署目录> && docker compose exec -T postgres createdb -U school school_restored'
+rclone cat bk:<BACKUP_S3_BUCKET>/backups/<对象名> | age -d -i backup-key.txt \
+  | ssh <服务器> 'cd <部署目录> && docker compose exec -T postgres pg_restore --single-transaction --no-owner -U school -d school_restored'
+```
+
+`--single-transaction` 的意思是：恢复中途断掉，目标库仍是空的。然后把 `deploy/.env` 里的 `DATABASE_URL` 指向新库（`…/school_restored`），再运行 `deploy/deploy.sh`。`deploy/backup/restore.sh <对象名> <私钥文件> <目标数据库地址>` 在备份镜像里做同样的下载、解密和恢复；它用于演练，以及允许放私钥的机器，所以不要在服务器上拿真私钥用它。
+
+备份运行时如果数据库本身是挂的，就写不进那一行（这次运行记在同一个数据库里），这时只有"`backupMaxAgeHours` 内没有成功的备份"这条告警会告诉你。
 
 `deploy/backup/drill.sh` 在有 Docker 的机器上证明以上都管用（CI 的 `backup-drill` 任务在每个拉取请求和每次合并时都会跑它）：它起一个本地的 S3 服务和一个填了一个班的数据库，用临时的密钥对备份，恢复到一个新库，用它起两个服务并比对学生数；检查公钥写错、桶不存在、数据库连不上这三种失败各记一行 `ok = false`；再检查只删早于 `BACKUP_KEEP_DAYS` 天的备份。它从本机填数据，所以要先 `npm ci`。
 
