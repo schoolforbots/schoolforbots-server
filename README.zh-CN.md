@@ -267,7 +267,7 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 | `watchdog` | 每 30 秒把带 `school.watchdog=true`、正在运行、健康检查说不健康的容器逐个重启。手动停掉的容器不会被拉起来。 |
 | `backup` | 在服务器上用 `deploy/backup/Dockerfile` 构建（`postgres:17-alpine` 加装 `age` 和 `rclone`）。每天夜里把数据库加密备份出去（见下面的"备份"）。 |
 
-镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每个拉取请求都会构建它、跑 `deploy/smoke-test.sh` 并跑恢复演练（`deploy/backup/drill.sh`），每次合进 `main` 就推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。部署请用 `sha-…` 标签，这样知道跑的是哪一版；`main` 每次合并都会移动。要退回上一版，用同样的方法部署之前的 `sha-…` 标签（见下面）。GitHub 新建的包不是公开的：第一次推送之后，要在 GitHub 上这个包的设置里（“Change visibility”）把它设为公开；在此之前不登录就拉不下这个镜像。
+镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每次合进 `main` 都会构建它、跑 `deploy/smoke-test.sh` 和恢复演练（`deploy/backup/drill.sh`），再推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。拉取请求改到了进镜像的东西或 `deploy/` 里的文件时，也会跑这两项检查。部署请用 `sha-…` 标签，这样知道跑的是哪一版；`main` 每次合并都会移动。要退回上一版，用同样的方法部署之前的 `sha-…` 标签（见下面）。GitHub 新建的包不是公开的：第一次推送之后，要在 GitHub 上这个包的设置里（“Change visibility”）把它设为公开；在此之前不登录就拉不下这个镜像。
 
 把 `deploy/env.example` 复制成 `deploy/.env`，把 `deploy/backup.env.example` 复制成 `deploy/backup.env`，都填好。`env.example` 列的是 compose 自己要的变量，和正式运行的学校要设的服务变量；其余的变量见根目录的 `.env.example` 和上面的“环境变量”。`backup.env` 放备份的设置（见下面的“备份”），只有 `backup` 服务读它，所以能删备份的存储密钥到不了面向互联网的那些服务。真实的 `school.json`、`prompts/` 和 `moderation/` 放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。这两个环境变量文件和这个文件夹都不提交。
 
@@ -328,7 +328,7 @@ rclone cat bk:<BACKUP_S3_BUCKET>/backups/<对象名> | age -d -i backup-key.txt 
 
 备份运行时如果数据库本身是挂的，就写不进那一行（这次运行记在同一个数据库里），这时只有"`backupMaxAgeHours` 内没有成功的备份"这条告警会通知运营者。
 
-`deploy/backup/drill.sh` 在有 Docker 的机器上证明以上都管用（CI 的 `backup-drill` 任务在每个拉取请求和每次合并时都会跑它）：它起一个本地的 S3 服务和一个填了一个班的数据库，用临时的密钥对备份，恢复到一个新库，用它起两个服务并比对学生数；检查公钥写错、桶不存在、数据库连不上这三种失败各记一行 `ok = false`；再检查只删早于 `BACKUP_KEEP_DAYS` 天的备份。它从本机填数据，所以要先 `npm ci`。
+`deploy/backup/drill.sh` 在有 Docker 的机器上证明以上都管用（CI 的 `backup-drill` 任务在每次合并时都会跑它，拉取请求改到了进镜像的东西或 `deploy/` 里的文件时也会跑）：它起一个本地的 S3 服务和一个填了一个班的数据库，用临时的密钥对备份，恢复到一个新库，用它起两个服务并比对学生数；检查公钥写错、桶不存在、数据库连不上这三种失败各记一行 `ok = false`；再检查只删早于 `BACKUP_KEEP_DAYS` 天的备份。它从本机填数据，所以要先 `npm ci`。
 
 ### 外面的哨兵
 

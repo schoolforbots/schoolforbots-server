@@ -15,9 +15,28 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Builds the image and runs the packaged school (deploy/smoke-test.sh) on every pull request and every push to main.
-  # GitHub's Ubuntu runners come with Docker and curl, and have ports 80 and 443 free.
+  # Whether a pull request's changes can affect the image or deploy/ (.github/scripts/affected.sh); smoke and
+  # backup-drill are skipped when they cannot. A push to main runs both, so every commit on main gets its sha- image.
+  affected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image: ${{ steps.affected.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # GitHub's merge commit for a pull request and its base, for affected.sh to compare.
+          fetch-depth: 2
+      - id: affected
+        name: See what the change can affect
+        run: .github/scripts/affected.sh
+
+  # Builds the image and runs the packaged school (deploy/smoke-test.sh), on every push to main and on a pull request
+  # whose changes can affect the image or deploy/. GitHub's Ubuntu runners come with Docker and curl, and have ports 80
+  # and 443 free.
   smoke:
+    needs: affected
+    if: needs.affected.outputs.image == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -26,8 +45,10 @@ jobs:
 
   # The restore drill (deploy/backup/drill.sh): backs up a seeded database, encrypted, to a local S3 server, restores it
   # into a new database, starts both services on it, and checks the failures and the retention. It seeds from the host,
-  # so it needs the repository's dependencies.
+  # so it needs the repository's dependencies. It runs when smoke does.
   backup-drill:
+    needs: affected
+    if: needs.affected.outputs.image == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
