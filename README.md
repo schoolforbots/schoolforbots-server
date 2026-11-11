@@ -171,6 +171,7 @@ These keys of the school config are about the model and the admin (see `config/s
 ### Environment variables
 
 - `PROMPTS_DIR` (`data/prompts` by default) holds the prompts, one file per purpose and kind, named `<name>.md`. The repository only has `<name>.example.md` files, which show the placeholders each prompt may use; a service that finds no `<name>.md` uses the example and prints a warning on startup. Both services read it. Real prompts are never committed.
+- `MAIL_FROM` is the sender of every mail, one address either bare or with a name (`机器人网校 <no-reply@example.com>`, the default). A malformed value (unbalanced `<` `>`, a line break) stops the service from starting.
 - `OPERATOR_EMAIL` is where the registration service mails the notice that the monthly budget is used up, and the alert mails (see `alerts` above). Without it, the budget notice is only shown on the data page and no alert is mailed.
 - `ADMIN_PATH`, `ADMIN_PASSWORD_HASH` and `ADMIN_TOTP_SECRET`: the registration service serves the admin pages only when all three are set (with only some of them set, it prints a warning). `ADMIN_PATH` is the path they are served under, for example `/your-secret-path`; it starts with `/` and not with `/v1`. Pick one that is hard to guess, and keep it out of anything you commit. The other two come from `npm run admin:password`.
 - The key of each provider, in the variable its `apiKeyEnv` names. Both services and `words:tidy` read them, and refuse to start when one is missing.

@@ -10,6 +10,8 @@
  * - Everything else is a fault: connection refused or reset (`ECONNECTION`, `ESOCKET`), timeouts (`ETIMEDOUT`), DNS
  *   (`EDNS`), TLS and protocol errors, login failures (`EAUTH`), a refusal at `MAIL FROM` or `DATA` (`EENVELOPE` at
  *   those steps is about the sender or the server, not the recipient), and anything unrecognised.
+ * An invalid sender, which nodemailer also raises as `EENVELOPE` at `API`, is ruled out at startup by the `MAIL_FROM`
+ * check in `loadEnv`, so treating the `API` stage as a recipient problem stays safe.
  */
 export function isMailServiceFault(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return true
