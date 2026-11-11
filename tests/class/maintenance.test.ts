@@ -208,8 +208,32 @@ function watchAfterClass(s: Pick<Service, 'hooks'>): [number, boolean][] {
   return calls
 }
 
+/**
+ * The student broke a school rule in two lessons before this one (closed long since), and in this one (`sessionId`):
+ * the third brings a suspension at its close.
+ */
+async function thirdSchoolRuleBreak(s: Service, classId: number, studentId: number, sessionId: number): Promise<void> {
+  for (const date of ['2026-10-29', '2026-10-30', MON]) {
+    let lesson = sessionId
+    if (date !== MON) {
+      lesson = await insertSession(s.db, { classId, date, startsAt: at('20:00', date), endsAt: at('20:30', date) })
+      await s.db.updateTable('classSessions').set({ dismissedAt: at('20:31', date) }).where('id', '=', lesson).execute()
+    }
+    await disciplineRecorder.record(s.db, {
+      studentId,
+      sessionId: lesson,
+      kind: 'school_rule',
+      detail: { category: 'sensitive', quote: `第${date}次` },
+      at: at('20:08', date),
+    })
+  }
+}
+
+const suspensions = (s: Service) =>
+  s.db.selectFrom('disciplineRecords').select('studentId').where('kind', '=', 'suspension').execute()
+
 /** Everything the hub pushes from now on. */
-function watchPushes(s: Service): object[] {
+function watchPushes(s: Pick<Service, 'hub'>): object[] {
   const pushed: object[] = []
   const { broadcast, send } = s.hub
   s.hub.broadcast = (classId, message) => {
@@ -307,21 +331,7 @@ describe('while the school is under maintenance', () => {
     const { classId, students, sessionId, clients } = await inTheSecondSegment(s)
     const a = students[0]!
     const b = students[1]!
-    // a broke a school rule in two lessons before, and in this one: the third brings a suspension at the close.
-    for (const date of ['2026-10-29', '2026-10-30', MON]) {
-      const lesson =
-        date === MON
-          ? sessionId
-          : await insertSession(s.db, { classId, date, startsAt: at('20:00', date), endsAt: at('20:30', date) })
-      const quote = `第${date}次`
-      await disciplineRecorder.record(s.db, {
-        studentId: a.id,
-        sessionId: lesson,
-        kind: 'school_rule',
-        detail: { category: 'sensitive', quote },
-        at: at('20:08', date),
-      })
-    }
+    await thirdSchoolRuleBreak(s, classId, a.id, sessionId)
     const afterClass = watchAfterClass(s)
     const seen = await eventRows(s, sessionId)
 
@@ -333,12 +343,7 @@ describe('while the school is under maintenance', () => {
     // Closed at once, the quiet way: the discipline and the summaries ran once, and nothing was pushed.
     expect(afterClass).toEqual([[sessionId, false]])
     expect((await sessionRows(s)).find((r) => r.id === sessionId)?.dismissedAt).toEqual(at('20:12'))
-    const penalties = await s.db
-      .selectFrom('disciplineRecords')
-      .select('studentId')
-      .where('kind', '=', 'suspension')
-      .execute()
-    expect(penalties).toEqual([{ studentId: a.id }])
+    expect(await suspensions(s)).toEqual([{ studentId: a.id }])
     const summaries = await summaryRows(s, sessionId)
     expect(summaries.map((r) => [r.studentId, r.payload.cutShort, r.createdAt])).toEqual([
       [a.id, true, at('20:12')],
@@ -470,6 +475,84 @@ describe('while the school is under maintenance', () => {
     expect((await sessionRows(s)).find((r) => r.id === sessionId)?.dismissedAt).toEqual(at('20:14'))
     const later = await connect(again.app, students[0]!.key)
     expect(await later.next()).toMatchObject({ type: 'closing', reason: 'session_over' })
+  })
+
+  test('cuts short a lesson it came and went in while the service was down, at the restart', async () => {
+    const s = await start()
+    const { classId, students } = await seedClass(s, 2)
+    await tickAt(s, at('19:50'))
+    const sessionId = s.runtime.currentSession(classId)!.sessionId
+    for (const x of students) await hello(await connect(s.app, x.key))
+    await thirdSchoolRuleBreak(s, classId, students[0]!.id, sessionId)
+    await tickAt(s, at('20:05'))
+    const taught = (await eventRows(s, sessionId)).filter((e) => e.seq > 0)
+
+    // The service goes down after 20:05; maintenance is switched on at 20:10 and off at 20:15 meanwhile.
+    s.clock.set(at('20:10'))
+    await setMaintenance(s.db, ON, s.clock.now())
+    s.clock.set(at('20:15'))
+    await setMaintenance(s.db, null, s.clock.now())
+
+    // It starts again at 20:20, in the lesson's time, with maintenance over.
+    s.clock.set(at('20:20'))
+    const again = await restart(s)
+    const afterClass = watchAfterClass(again)
+    const pushed = watchPushes(again)
+    await again.tick()
+
+    // Cut short as if the service had been up: closed at once, quietly, the discipline and the summaries once.
+    expect(afterClass).toEqual([[sessionId, false]])
+    expect((await sessionRows(s)).find((r) => r.id === sessionId)?.dismissedAt).toEqual(at('20:20'))
+    expect(await suspensions(s)).toEqual([{ studentId: students[0]!.id }])
+    const summaries = await summaryRows(s, sessionId)
+    expect(summaries.map((r) => [r.studentId, r.payload.cutShort])).toEqual(students.map((x) => [x.id, true]))
+    // Nothing missed meanwhile is taught or pushed, then or later.
+    const events = await eventRows(s, sessionId)
+    expect(events.filter((e) => e.seq > 0)).toEqual(taught)
+    expect(events.map((e) => e.step)).toContain('cut-short')
+    for (const time of ['20:25', '20:31', '20:40']) {
+      s.clock.set(at(time))
+      await again.tick()
+    }
+    expect(pushed).toEqual([])
+    expect(afterClass).toHaveLength(1)
+    expect(await summaryRows(s, sessionId)).toEqual(summaries)
+    // The classmate who was not suspended finds the lesson over.
+    const later = await connect(again.app, students[1]!.key)
+    expect(await later.next()).toMatchObject({ type: 'closing', reason: 'session_over' })
+  })
+
+  test.each<[string, [string, string], string]>([
+    ['ended before its doors', ['19:30', '19:40'], '20:20'],
+    ['began after its dismissal', ['20:30:30', '20:40'], '20:45'],
+  ])('does not cut short at a restart a lesson whose maintenance %s', async (_name, [on, off], restartAt) => {
+    const s = await start()
+    const { classId, students } = await seedClass(s, 1)
+    const record = async (time: string, value: typeof ON | null) => {
+      s.clock.set(at(time))
+      await setMaintenance(s.db, value, s.clock.now())
+    }
+    if (on < '19:45') await record(on, ON)
+    if (off < '19:45') await record(off, null)
+    await tickAt(s, at('19:50'))
+    const sessionId = s.runtime.currentSession(classId)!.sessionId
+    await hello(await connect(s.app, students[0]!.key))
+    await tickAt(s, at('20:05'))
+    // The service goes down after 20:05.
+    if (on > '19:45') await record(on, ON)
+    if (off > '19:45') await record(off, null)
+
+    s.clock.set(at(restartAt))
+    const again = await restart(s)
+    const afterClass = watchAfterClass(again)
+    await again.tick()
+    s.clock.set(at('20:50'))
+    await again.tick()
+
+    expect(afterClass).toHaveLength(1)
+    expect((await eventRows(s, sessionId)).map((e) => e.step)).not.toContain('cut-short')
+    expect((await eventRows(s, sessionId)).map((e) => e.step)).toContain('segment-5')
+    expect((await summaryRows(s, sessionId)).map((r) => r.payload.cutShort)).toEqual([false])
   })
 
   test('does not cut short a lesson that ended before it', async () => {

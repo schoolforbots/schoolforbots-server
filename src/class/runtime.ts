@@ -75,7 +75,8 @@ export interface ClassRuntimeDeps {
   /**
    * The maintenance now on, or null (see `MaintenanceWatch`). While it is on, every session between its doors and its
    * dismissal is cut short (see `cutShort`). Unset: never on. Whether a slot opens at all goes by the periods on
-   * record instead (see `openDueSlots`).
+   * record instead (see `openDueSlots`), as does whether a session found open at the start is cut short (see
+   * `missedMaintenance`).
    */
   maintenance?: () => Maintenance | null
   /** A program log line. Only step names and numbers go into it, never what anyone said. */
@@ -122,6 +123,8 @@ interface Tracked {
   done: Set<string>
   /** Cut short by maintenance (see `cutShort`): the session is over, and closes at once. */
   cutShort: boolean
+  /** To be cut short: maintenance came while no runtime was running the session (see `missedMaintenance`). */
+  cutDue: boolean
   lesson?: LessonContent
 }
 
@@ -217,6 +220,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
         steps,
         done,
         cutShort: done.has(CUT_SHORT),
+        cutDue: false,
       })
     }
   }
@@ -685,6 +689,20 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     log({ sessionId, classId, skipped: skipped.length }, 'class session cut short by maintenance')
   }
 
+  /**
+   * Run once, on the sessions found open at the start (a restart): those that maintenance on record overlapped from
+   * their doors until their dismissal (or until now, when that is earlier) are cut short at the next step, as the
+   * runtime would have done had it been running then. Maintenance that began after the dismissal does not count, as
+   * it does not for a runtime that was running (see `runTick`).
+   */
+  async function missedMaintenance(now: Date): Promise<void> {
+    for (const t of tracked.values()) {
+      if (t.cutShort) continue
+      const until = before(now, t.session.endsAt) ? now : t.session.endsAt
+      if (before(t.doorsAt, until) && (await maintenanceBetween(db, t.doorsAt, until))) t.cutDue = true
+    }
+  }
+
   /** Runs the session's steps that are due and have not run, in order; all of them at once in a session cut short. */
   async function advance(t: Tracked, now: Date): Promise<void> {
     const { sessionId, classId } = t.session
@@ -710,6 +728,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     try {
       if (!loaded) {
         await loadSessions()
+        await missedMaintenance(now)
         loaded = true
       }
       await openDueSlots(now)
@@ -724,7 +743,7 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     for (const t of order) {
       try {
         const between = !before(now, t.doorsAt) && before(now, t.session.endsAt)
-        if (underMaintenance && between && !t.cutShort) await cutShort(t, now)
+        if (!t.cutShort && (t.cutDue || (underMaintenance && between))) await cutShort(t, now)
         await advance(t, now)
       } catch (err) {
         failures.push(err)
