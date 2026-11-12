@@ -2,13 +2,13 @@ import type { FastifyBaseLogger } from 'fastify'
 import { sql, type Kysely } from 'kysely'
 import type { Llm } from '../llm/client.js'
 import { extractJson, JsonNotFound } from '../llm/json.js'
-import { LlmContentRefused, LlmTruncated, LlmUnavailable, type LlmResponse } from '../llm/provider.js'
+import { LlmContentRefused, LlmTruncated, LlmUnavailable } from '../llm/provider.js'
 import { isLessonDay, lessonDaysAhead, schoolDaysUntil } from '../shared/calendar.js'
 import type { Division, SchoolConfig } from '../shared/config.js'
 import { lessonLockKey, lock } from '../shared/db.js'
 import { localDate } from '../shared/local-time.js'
 import type { CallOnKind, Database, LessonContent } from '../shared/schema.js'
-import { LessonFormatError, parseLessonContent } from './format.js'
+import { LessonFormatError, LessonTooLong, parseLessonContent } from './format.js'
 import {
   applyReply,
   callOnsCovering,
@@ -17,7 +17,9 @@ import {
   newLessonPrompt,
   rewritePrompt,
   rewriteReason,
+  shortenPrompt,
   topicOf,
+  withShortened,
   type LessonPromptDeps,
   type LessonPromptTarget,
   type PromptKind,
@@ -89,19 +91,43 @@ const GENERATION_LOCK_KEY = 'lesson-generation'
 const LESSON_MAX_OUTPUT_TOKENS = 8000
 
 /**
- * A lesson call, new or rewritten, with the lesson generation timeout; a whole lesson (`whole`) also gets room for
- * its length.
+ * Has the model write a lesson, new or rewritten, and reads its reply with `read`, within the lesson generation
+ * timeout; a whole lesson (`whole`) also gets room for its length. When all that is wrong with the reply is that some
+ * texts are too long (`LessonTooLong`), the model is asked once more, with the time left, to shorten just those (see
+ * `shortenPrompt`), and the reply is read again with them replaced. Nothing is ever cut: a lesson is read out word for
+ * word. Texts still too long then, and any other fault, are thrown. Each call is counted like any other.
  */
-function callForLesson(
+async function lessonFromModel<T>(
   deps: GeneratorDeps,
   prompt: { system: string; user: string },
   whole: boolean,
-): Promise<LlmResponse> {
-  return deps.llm.call('lesson', prompt, {
+  read: (reply: unknown) => T,
+): Promise<T> {
+  // A monotonic timer, like the model client's own: the timeout runs on real time, not on the injected clock.
+  const timeoutMs = deps.config.lessonGeneration.timeoutSeconds * 1000
+  const deadline = performance.now() + timeoutMs
+  const first = await deps.llm.call('lesson', prompt, {
     json: true,
     maxOutputTokens: whole ? LESSON_MAX_OUTPUT_TOKENS : undefined,
-    timeoutMs: deps.config.lessonGeneration.timeoutSeconds * 1000,
+    timeoutMs,
   })
+  const reply = extractJson(first.text)
+  let tooLong: LessonTooLong
+  try {
+    return read(reply)
+  } catch (err) {
+    if (!(err instanceof LessonTooLong)) throw err
+    tooLong = err
+  }
+  const left = Math.floor(deadline - performance.now())
+  if (left <= 0) throw tooLong
+  const second = await deps.llm.call('lesson', shortenPrompt(prompt, reply, tooLong.parts), { json: true, timeoutMs: left })
+  try {
+    return read(withShortened(reply, tooLong.parts, extractJson(second.text)))
+  } catch (err) {
+    if (err instanceof LessonTooLong) throw new LessonFormatError(`${err.message}（已经请大模型改短过一次）`)
+    throw err
+  }
 }
 
 const errorName = (err: unknown): string => (err instanceof Error ? err.constructor.name : typeof err)
@@ -218,8 +244,7 @@ async function generateSlot(
   const { db, config, log } = deps
   try {
     const { prompt, subject, topic } = await newLessonPrompt(deps, date, division)
-    const reply = await callForLesson(deps, prompt, true)
-    const content = parseLessonContent(config, extractJson(reply.text), { subject })
+    const content = await lessonFromModel(deps, prompt, true, (reply) => parseLessonContent(config, reply, { subject }))
     const now = await slotState(db, date, division)
     if (now.topic !== topic || !needsLesson(now)) {
       log?.info({ date, division, outcome: 'dropped' }, 'lesson generation')
@@ -292,16 +317,21 @@ export async function generateMissing(deps: GeneratorDeps): Promise<GenerationRe
   })
 }
 
-/** The rewritten lesson a model's reply makes; a reply that will not do is a `LessonFormatError` saying why. */
-function rewriteOf(
+/**
+ * The rewritten lesson the model makes with `prompt` (see `lessonFromModel`); a reply that will not do is a
+ * `LessonFormatError` saying why.
+ */
+async function rewriteByModel(
   deps: GeneratorDeps,
   kind: Exclude<PromptKind, 'generate'>,
+  prompt: { system: string; user: string },
   current: LessonContent,
-  replyText: string,
   target: RewriteTarget,
-): LessonContent {
+): Promise<LessonContent> {
   try {
-    return applyReply(deps.config, kind, current, extractJson(replyText), target)
+    return await lessonFromModel(deps, prompt, kind === 'rewrite_lesson', (reply) =>
+      applyReply(deps.config, kind, current, reply, target),
+    )
   } catch (err) {
     if (err instanceof JsonNotFound) throw new LessonFormatError('大模型的回复里没有找到 JSON')
     if (err instanceof LessonFormatError) throw new LessonFormatError(`大模型交回的内容格式不对：${err.message}`)
@@ -331,8 +361,7 @@ export async function regenerate(
   if (lesson.version !== target.baseVersion) throw new StaleLessonVersion(lesson.id)
   await assertUnlocked(deps.db, lesson)
   const prompt = await rewritePrompt(deps, kind, lesson, target)
-  const reply = await callForLesson(deps, prompt, kind === 'rewrite_lesson')
-  const content = rewriteOf(deps, kind, contentOf(lesson), reply.text, target)
+  const content = await rewriteByModel(deps, kind, prompt, contentOf(lesson), target)
   const saved = await replaceContent(deps, lesson.id, target.baseVersion, content, {
     change: kind,
     reason: rewriteReason(target.reason),

@@ -6,13 +6,15 @@ import type { Division, SchoolConfig } from '../shared/config.js'
 import { CALL_ON_KINDS, type CallOnKind, type CallOnQuestions, type Database, type LessonContent, type LessonsTable } from '../shared/schema.js'
 import {
   LessonFormatError,
-  lessonText,
   MAX_CALL_ON_QUESTION_CHARS,
   MAX_GIST_CHARS,
   MAX_SEGMENT_TEXT_CHARS,
   MAX_TITLE_CHARS,
   PART_NAMES,
   parseLessonContent,
+  textReader,
+  type OverLongPart,
+  type PartPath,
 } from './format.js'
 import { contentOf, LessonNotFound } from './store.js'
 
@@ -336,7 +338,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * The lesson `current` becomes with `reply`, the JSON object of a reply to a `kind` rewrite prompt: a whole new
  * lesson, or `current` with the segment or call-on question of `target` replaced. Throws a `LessonFormatError` saying
- * what is wrong with the reply. The subject stays the lesson's. (A new lesson's reply is read by `parseLessonContent`.)
+ * what is wrong with the reply, a `LessonTooLong` when only the length of some texts is. The subject stays the
+ * lesson's. (A new lesson's reply is read by `parseLessonContent`.)
  */
 export function applyReply(
   config: SchoolConfig,
@@ -347,15 +350,79 @@ export function applyReply(
 ): LessonContent {
   if (kind === 'rewrite_lesson') return parseLessonContent(config, reply, { subject: current.subject })
   if (!isRecord(reply)) throw new LessonFormatError('回复必须是一个 JSON 对象')
+  const read = textReader()
   if (kind === 'rewrite_segment') {
     const index = segmentIndexOf(current, target.segmentIndex)
     const segment = {
-      text: lessonText(reply.text, PART_NAMES.segmentText(index), MAX_SEGMENT_TEXT_CHARS),
-      gist: lessonText(reply.gist, PART_NAMES.segmentGist(index), MAX_GIST_CHARS),
+      text: read.text(reply.text, ['text'], PART_NAMES.segmentText(index), MAX_SEGMENT_TEXT_CHARS),
+      gist: read.text(reply.gist, ['gist'], PART_NAMES.segmentGist(index), MAX_GIST_CHARS),
     }
+    read.done()
     return { ...current, segments: current.segments.map((s, i) => (i === index ? segment : s)) }
   }
   const { which, questions } = callOnOf(current, target.callOn)
-  const question = lessonText(reply.question, PART_NAMES[which], MAX_CALL_ON_QUESTION_CHARS)
+  const question = read.text(reply.question, ['question'], PART_NAMES[which], MAX_CALL_ON_QUESTION_CHARS)
+  read.done()
   return { ...current, callOnQuestions: { ...questions, [which]: question } }
+}
+
+/** The value at `path` in a reply, or undefined. */
+function valueAt(reply: unknown, path: PartPath): unknown {
+  let value = reply
+  for (const key of path) {
+    if (typeof value !== 'object' || value === null) return undefined
+    value = (value as Record<string | number, unknown>)[key]
+  }
+  return value
+}
+
+/** About how long a shortened text is asked to be: a fifth under its limit, as a model counts characters loosely. */
+const aimFor = (max: number) => Math.floor(max * 0.8)
+
+/**
+ * The prompt that asks the model to shorten the texts of its reply that are too long, and only those: the system
+ * prompt of the call that wrote them, then each text with its length and limit, and the reply format. The texts are
+ * read out word for word, so they are to be written shorter, never cut off.
+ */
+export function shortenPrompt(
+  prompt: { system: string },
+  reply: unknown,
+  parts: readonly OverLongPart[],
+): { system: string; user: string } {
+  const lines = [`你交回的内容里，有 ${parts.length} 处超过了字数上限。字数按字符算，标点符号也算。`]
+  parts.forEach((part, i) => {
+    const text = String(valueAt(reply, part.path) ?? '').trim()
+    lines.push(
+      '',
+      `第 ${i + 1} 处：${part.name}，现在有 ${part.chars} 个字，最多 ${part.max} 个字，请改到 ${aimFor(part.max)} 个字左右。现在的内容：`,
+      text,
+    )
+  })
+  lines.push(
+    '',
+    '请把每一处都改写得短一些，意思、口吻和前后文的衔接不变。这些文字会被一字不改地念出来，所以要写成完整的句子，不能只把后面删掉。其他部分不用交回，也不会改动。',
+    '',
+    REPLY_ONLY,
+    '{"parts": ["第 1 处改短后的文字", …]}',
+    `- parts：正好 ${parts.length} 项，依次是上面每一处改短后的文字。`,
+  )
+  return { system: prompt.system, user: lines.join('\n') }
+}
+
+/**
+ * `reply` with each text of `parts` replaced by its shortened one from `shortened`, the JSON object of a reply to
+ * `shortenPrompt`; `reply` itself is left as it is. Throws a `LessonFormatError` when `shortened` is not in its format.
+ * The result is to be read again like `reply` was: it may still be too long.
+ */
+export function withShortened(reply: unknown, parts: readonly OverLongPart[], shortened: unknown): unknown {
+  const texts = isRecord(shortened) ? shortened.parts : undefined
+  if (!Array.isArray(texts) || texts.length !== parts.length || !texts.every((t) => typeof t === 'string')) {
+    throw new LessonFormatError(`改短的回复必须是 {"parts": [...]}，正好 ${parts.length} 项，每一项都是文字`)
+  }
+  const out = structuredClone(reply)
+  parts.forEach((part, i) => {
+    const parent = valueAt(out, part.path.slice(0, -1)) as Record<string | number, unknown>
+    parent[part.path[part.path.length - 1] ?? ''] = texts[i]
+  })
+  return out
 }
