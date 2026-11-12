@@ -3,7 +3,7 @@ import { sql, type Kysely } from 'kysely'
 import type { Mailer } from '../registration/mailer.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
-import { localMoment } from '../shared/local-time.js'
+import { localDate, localMoment, localTimeOfDay } from '../shared/local-time.js'
 import type { Maintenance } from '../shared/maintenance.js'
 import type { Database } from '../shared/schema.js'
 import type { OpsService } from './events.js'
@@ -30,9 +30,26 @@ const JOB_FAILED_FIRST_LOOK_BACK = 24 * HOUR
 
 const SERVICE_NAMES: Record<OpsService, string> = { registration: '报名服务', class: '上课服务' }
 
+/**
+ * The fixed name of each alert (the backup alert has two). A transport that only sends approved templates (Tencent
+ * Cloud's API) sends it, with the time of the check, in place of the subject's details and the text.
+ */
+export const ALERT_NAMES = {
+  internal_errors: '服务器意外错误',
+  llm_down: '大模型连不上',
+  llm_400: '大模型返回 400 错误',
+  mail_failed: '验证码邮件发送失败',
+  job_failed: '定时任务失败',
+  restarts: '服务反复重启',
+  backup_failed: '备份失败',
+  backup_old: '备份太久没成功',
+  disk: '磁盘快满',
+} as const
+
 interface AlertMail {
   subject: string
   text: string
+  name: (typeof ALERT_NAMES)[keyof typeof ALERT_NAMES]
 }
 
 export interface AlertDeps {
@@ -77,7 +94,11 @@ export async function checkAlerts(deps: AlertDeps): Promise<AlertKind[]> {
     }
     if (!(await claim(db, kind, now, config.alerts.repeatAfterMinutes * MINUTE))) continue
     try {
-      await mailer.sendNotice(operatorEmail, mail.subject, mail.text)
+      await mailer.sendNotice(operatorEmail, mail.subject, mail.text, {
+        template: 'alert',
+        kind: mail.name,
+        time: `${localDate(now, config.timezone)} ${localTimeOfDay(now, config.timezone)}`,
+      })
       sent.push(kind)
     } catch (err) {
       await release(db, kind, now, previous)
@@ -124,11 +145,13 @@ async function detect(kind: AlertKind, deps: AlertDeps, now: Date, previous: Dat
       return eventsAlert(deps, now, 'internal_error', deps.config.alerts.internalErrors, (n, m, since) => ({
         subject: `${SUBJECT_PREFIX}服务器出错太多，${m} 分钟里 ${n} 次`,
         text: `最近 ${m} 分钟里，两个服务一共出了 ${n} 次意外错误，最早一次在 ${since}。细节在服务日志里。`,
+        name: ALERT_NAMES.internal_errors,
       }))
     case 'mail_failed':
       return eventsAlert(deps, now, 'mail_failed', deps.config.alerts.mailFailures, (n, m, since) => ({
         subject: `${SUBJECT_PREFIX}验证码邮件发不出去，${m} 分钟里 ${n} 次`,
         text: `最近 ${m} 分钟里，有 ${n} 封验证码邮件没能发出去，最早一次在 ${since}。请检查邮件服务的设置和额度。`,
+        name: ALERT_NAMES.mail_failed,
       }))
     case 'job_failed':
       return jobFailedAlert(deps, now, previous)
@@ -181,6 +204,7 @@ async function jobFailedAlert(deps: AlertDeps, now: Date, previous: Date | null)
   return {
     subject: `${SUBJECT_PREFIX}定时任务失败了 ${n} 次`,
     text: `从 ${school(deps, from)} 起，每天零点的任务、生成课程或每周复盘一共失败了 ${n} 次，最早一次在 ${school(deps, row.first)}。细节在服务日志里。`,
+    name: ALERT_NAMES.job_failed,
   }
 }
 
@@ -201,6 +225,7 @@ async function llmDownAlert(deps: AlertDeps, now: Date): Promise<AlertMail | nul
   return {
     subject: `${SUBJECT_PREFIX}大模型连不上：最近 ${minutes} 分钟失败 ${failed} 次`,
     text: `最近 ${minutes} 分钟里，大模型的调用失败了 ${failed} 次，一次成功的也没有，最早一次失败在 ${school(deps, row.first)}。`,
+    name: ALERT_NAMES.llm_down,
   }
 }
 
@@ -222,6 +247,7 @@ async function llm400Alert(deps: AlertDeps, now: Date): Promise<AlertMail | null
       `最近一小时里，大模型有 ${n} 次调用被它以 HTTP 400 拒绝，最早一次在 ${school(deps, row.first)}。` +
       '先看学校配置里的 contentRefusalMarkers 还对不对得上厂商拒绝处理内容时的回复：厂商改了措辞，学校就认不出这是拒绝，会把它记成失败的调用。' +
       '对得上的话，多半是请求的格式或参数出了问题。',
+    name: ALERT_NAMES.llm_400,
   }
 }
 
@@ -241,6 +267,7 @@ async function restartsAlert(deps: AlertDeps, now: Date): Promise<AlertMail | nu
   return {
     subject: `${SUBJECT_PREFIX}${over.map((r) => name(r.service)).join('、')}一直在重启，${minutes} 分钟里 ${over.map((r) => r.n).join('、')} 次`,
     text: over.map((r) => `${name(r.service)}在最近 ${minutes} 分钟里启动了 ${r.n} 次，最早一次在 ${school(deps, r.first)}。`).join('\n') + '\n请看服务日志，找出它为什么起不来。',
+    name: ALERT_NAMES.restarts,
   }
 }
 
@@ -261,11 +288,13 @@ async function backupAlert(deps: AlertDeps, now: Date): Promise<AlertMail | null
     return {
       subject: `${SUBJECT_PREFIX}备份失败了`,
       text: `最近一次备份在 ${school(deps, latest.finishedAt)} 失败了。${since}。`,
+      name: ALERT_NAMES.backup_failed,
     }
   }
   return {
     subject: `${SUBJECT_PREFIX}备份已经超过 ${backupMaxAgeHours} 小时没有成功`,
     text: `最近 ${backupMaxAgeHours} 小时里没有一次成功的备份。${since}。`,
+    name: ALERT_NAMES.backup_old,
   }
 }
 
@@ -276,6 +305,7 @@ async function diskAlert(deps: AlertDeps): Promise<AlertMail | null> {
   return {
     subject: `${SUBJECT_PREFIX}磁盘快满了，已用 ${Math.round(used)}%`,
     text: `服务器的磁盘已经用了 ${Math.round(used)}%，达到了设定的 ${limit}%。请清理空间或扩容。`,
+    name: ALERT_NAMES.disk,
   }
 }
 

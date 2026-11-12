@@ -62,6 +62,7 @@ export async function checkBudget(deps: {
         operatorEmail,
         '机器人网校 · 大模型花费超出预算',
         `${month} 的大模型花费已达 ${spent.toFixed(2)} 元，超过本月预算 ${budget} 元。`,
+        { template: 'budget', month, spent: spent.toFixed(2), budget: String(budget) },
       )
     } catch (err) {
       await db.deleteFrom('budgetNotices').where('month', '=', month).execute()

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { isMailServiceFault } from './mail-errors.js'
+import { isMailServiceFault, mailErrorKind } from './mail-errors.js'
 import type { Mailer } from './mailer.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
@@ -40,7 +40,7 @@ export function startMailHealth(deps: {
         connectionOk = true
       } catch (err) {
         connectionOk = false
-        log?.error({ err: err instanceof Error ? err.name : 'unknown' }, 'mail connection check failed')
+        log?.error({ err: err instanceof Error ? err.name : 'unknown', code: mailErrorKind(err) }, 'mail connection check failed')
       }
     }
     void check()
@@ -84,7 +84,7 @@ export function reportSends(mailer: Mailer, health: Pick<MailHealth, 'record'>, 
   }
   return {
     sendCode: (to, purpose, code) => track(() => mailer.sendCode(to, purpose, code)),
-    sendNotice: (to, subject, text) => track(() => mailer.sendNotice(to, subject, text)),
+    sendNotice: (to, subject, text, fields) => track(() => mailer.sendNotice(to, subject, text, fields)),
   }
 }
 

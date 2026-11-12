@@ -48,6 +48,8 @@ describe('budget', () => {
     expect(mailer.notices[0]?.to).toBe('ops@example.com')
     expect(mailer.notices[0]?.text).toContain('11.00')
     expect(mailer.notices[0]?.text).toContain('10')
+    // What a transport that only sends templates (Tencent Cloud's API) fills its budget template with.
+    expect(mailer.notices[0]?.fields).toEqual({ template: 'budget', month: '2026-11', spent: '11.00', budget: '10' })
 
     // December: a fresh month, over the line again.
     clock.set(new Date('2026-12-02T04:00:00Z'))

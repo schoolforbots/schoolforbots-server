@@ -3,13 +3,23 @@ import { isMailServiceFault, mailErrorKind } from './mail-errors.js'
 
 export type CodePurpose = 'register' | 'key_reset'
 
+/**
+ * What a notice to the operator is about, as fields. SMTP and the console send the subject and the text; a transport
+ * that only sends approved templates (Tencent Cloud's API) fills its alert or budget template with these instead. An
+ * alert has its kind's fixed name (`ALERT_NAMES` in ops/alerts.ts) and the time of the check in the school's time zone
+ * (`YYYY-MM-DD HH:mm`); the budget notice has the month (`YYYY-MM`) and the two sums in yuan.
+ */
+export type NoticeFields =
+  | { template: 'alert'; kind: string; time: string }
+  | { template: 'budget'; month: string; spent: string; budget: string }
+
 export interface Mailer {
   sendCode(to: string, purpose: CodePurpose, code: string): Promise<void>
-  /** A plain notice to the operator, such as the monthly spending warning. */
-  sendNotice(to: string, subject: string, text: string): Promise<void>
+  /** A notice to the operator: an alert, or the monthly spending warning. */
+  sendNotice(to: string, subject: string, text: string, fields: NoticeFields): Promise<void>
 }
 
-const SUBJECTS: Record<CodePurpose, string> = {
+export const SUBJECTS: Record<CodePurpose, string> = {
   register: '机器人网校验证码',
   key_reset: '机器人网校 · 更换钥匙验证码',
 }
@@ -46,7 +56,7 @@ export function withMailFailures(
         throw err
       }
     },
-    sendNotice: (to, subject, text) => mailer.sendNotice(to, subject, text),
+    sendNotice: (to, subject, text, fields) => mailer.sendNotice(to, subject, text, fields),
   }
 }
 
@@ -92,7 +102,7 @@ export class ConsoleMailer implements Mailer {
     process.stdout.write(`[mail] 收件人：${to}\n[mail] 标题：${subject}\n[mail] ${text}\n`)
   }
 
-  async sendNotice(to: string, subject: string, text: string): Promise<void> {
+  async sendNotice(to: string, subject: string, text: string, _fields: NoticeFields): Promise<void> {
     process.stdout.write(`[mail] 收件人：${to}\n[mail] 标题：${subject}\n[mail] ${text}\n`)
   }
 }
@@ -101,13 +111,13 @@ export class ConsoleMailer implements Mailer {
 export class MemoryMailer implements Mailer {
   readonly sent: { to: string; purpose: CodePurpose; code: string }[] = []
 
-  readonly notices: { to: string; subject: string; text: string }[] = []
+  readonly notices: { to: string; subject: string; text: string; fields: NoticeFields }[] = []
 
   async sendCode(to: string, purpose: CodePurpose, code: string): Promise<void> {
     this.sent.push({ to, purpose, code })
   }
 
-  async sendNotice(to: string, subject: string, text: string): Promise<void> {
-    this.notices.push({ to, subject, text })
+  async sendNotice(to: string, subject: string, text: string, fields: NoticeFields): Promise<void> {
+    this.notices.push({ to, subject, text, fields })
   }
 }

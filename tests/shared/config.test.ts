@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { loadClassEnv, loadEnv, loadSchoolConfig } from '../../src/shared/config.js'
+import { loadClassEnv, loadEnv, loadSchoolConfig, splitSender } from '../../src/shared/config.js'
 
 let tmpDir: string
 
@@ -190,8 +190,91 @@ test('mail goes out by SMTP unless MAIL_TRANSPORT=console, and SMTP needs SMTP_U
 
 test('an unknown MAIL_TRANSPORT is rejected', () => {
   expect(() => loadEnv({ DATABASE_URL: 'postgres://x', MAIL_TRANSPORT: 'sendmail', SMTP_URL: 'smtp://mail:25' })).toThrow(
-    /MAIL_TRANSPORT/,
+    /MAIL_TRANSPORT.*smtp, tencent or console/,
   )
+})
+
+describe('MAIL_TRANSPORT=tencent', () => {
+  const TENCENT = {
+    DATABASE_URL: 'postgres://x',
+    MAIL_TRANSPORT: 'tencent',
+    MAIL_FROM: '学校 <no-reply@mail.example.com>',
+    TENCENT_SES_SECRET_ID: 'AKIDtest',
+    TENCENT_SES_SECRET_KEY: 'secret',
+    TENCENT_SES_REGION: 'ap-example',
+    TENCENT_SES_CODE_TEMPLATE_ID: '101',
+    TENCENT_SES_ALERT_TEMPLATE_ID: '102',
+    TENCENT_SES_BUDGET_TEMPLATE_ID: '103',
+    OPERATOR_EMAIL: 'ops@example.com',
+  }
+
+  test('reads the key, the region and the three templates; no SMTP_URL is needed', () => {
+    expect(loadEnv(TENCENT).mail).toEqual({
+      transport: 'tencent',
+      tencent: {
+        secretId: 'AKIDtest',
+        secretKey: 'secret',
+        region: 'ap-example',
+        codeTemplateId: 101,
+        alertTemplateId: 102,
+        budgetTemplateId: 103,
+      },
+    })
+  })
+
+  test('every setting but the notice templates is required, and the error names the missing ones', () => {
+    const { TENCENT_SES_SECRET_KEY: _key, TENCENT_SES_REGION: _region, ...partial } = TENCENT
+    expect(() => loadEnv(partial)).toThrow(/Missing TENCENT_SES_SECRET_KEY, TENCENT_SES_REGION/)
+    for (const name of ['TENCENT_SES_SECRET_ID', 'TENCENT_SES_SECRET_KEY', 'TENCENT_SES_REGION', 'TENCENT_SES_CODE_TEMPLATE_ID']) {
+      expect(() => loadEnv({ ...TENCENT, [name]: '' }), name).toThrow(new RegExp(`Missing ${name}`))
+    }
+  })
+
+  test.each(['0', '-1', '1.5', 'abc', '101x'])('a template ID of %s is rejected', (id) => {
+    expect(() => loadEnv({ ...TENCENT, TENCENT_SES_CODE_TEMPLATE_ID: id })).toThrow(/Invalid TENCENT_SES_CODE_TEMPLATE_ID/)
+    expect(() => loadEnv({ ...TENCENT, TENCENT_SES_ALERT_TEMPLATE_ID: id })).toThrow(/Invalid TENCENT_SES_ALERT_TEMPLATE_ID/)
+    expect(() => loadEnv({ ...TENCENT, TENCENT_SES_BUDGET_TEMPLATE_ID: id })).toThrow(/Invalid TENCENT_SES_BUDGET_TEMPLATE_ID/)
+  })
+
+  test.each(['AP-HONGKONG', 'ap hongkong', 'hongkong', 'ap-hongkong\nx', ''])('a region of %j is rejected or missing', (region) => {
+    expect(() => loadEnv({ ...TENCENT, TENCENT_SES_REGION: region })).toThrow(/TENCENT_SES_REGION/)
+  })
+
+  test.each(['ap-guangzhou', 'ap-hongkong', 'ap-singapore', 'ap-shanghai-fsi'])('the region %s is accepted', (region) => {
+    expect(loadEnv({ ...TENCENT, TENCENT_SES_REGION: region }).mail).toMatchObject({ tencent: { region } })
+  })
+
+  test('without OPERATOR_EMAIL the alert and budget templates may be left out; with it, neither may', () => {
+    const { OPERATOR_EMAIL: _ops, TENCENT_SES_ALERT_TEMPLATE_ID: _alert, TENCENT_SES_BUDGET_TEMPLATE_ID: _budget, ...noNotices } = TENCENT
+    expect(loadEnv(noNotices).mail).toMatchObject({ tencent: { alertTemplateId: null, budgetTemplateId: null } })
+    expect(() => loadEnv({ ...noNotices, OPERATOR_EMAIL: 'ops@example.com' })).toThrow(
+      /OPERATOR_EMAIL.*TENCENT_SES_ALERT_TEMPLATE_ID, TENCENT_SES_BUDGET_TEMPLATE_ID/,
+    )
+    const { TENCENT_SES_BUDGET_TEMPLATE_ID: _b, ...noBudget } = TENCENT
+    expect(() => loadEnv(noBudget)).toThrow(/OPERATOR_EMAIL.*TENCENT_SES_BUDGET_TEMPLATE_ID/)
+  })
+
+  test('MAIL_FROM must be set: the example sender is on no verified domain', () => {
+    const { MAIL_FROM: _from, ...noFrom } = TENCENT
+    expect(() => loadEnv(noFrom)).toThrow(/Missing MAIL_FROM/)
+  })
+
+  test('a colon in the name of MAIL_FROM stops the start, as Tencent Cloud refuses it', () => {
+    expect(() => loadEnv({ ...TENCENT, MAIL_FROM: '学校: 通知 <no-reply@mail.example.com>' })).toThrow(/MAIL_FROM.*colon/)
+    // Only Tencent Cloud minds; SMTP keeps taking it.
+    expect(loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25', MAIL_FROM: '学校: 通知 <a@b.c>' }).mailFrom).toBe(
+      '学校: 通知 <a@b.c>',
+    )
+  })
+})
+
+test.each([
+  ['name <a@b.c>', { name: 'name', address: 'a@b.c' }],
+  ['  "quoted name"   <a@b.c>  ', { name: 'quoted name', address: 'a@b.c' }],
+  ['<a@b.c>', { name: null, address: 'a@b.c' }],
+  ['a@b.c', { name: null, address: 'a@b.c' }],
+])('splitSender(%j)', (from, parts) => {
+  expect(splitSender(from)).toEqual(parts)
 })
 
 test('the key-reset failure cap must be a positive integer', () => {
@@ -447,7 +530,7 @@ describe('loadClassEnv', () => {
       llmFake: false,
     })
     // Mail settings that would stop the registration service are none of its business.
-    for (const mail of [{ MAIL_TRANSPORT: 'smtp' }, { MAIL_TRANSPORT: 'sendmail' }, { SMTP_URL: '' }]) {
+    for (const mail of [{ MAIL_TRANSPORT: 'smtp' }, { MAIL_TRANSPORT: 'tencent' }, { MAIL_TRANSPORT: 'sendmail' }, { SMTP_URL: '' }]) {
       expect(loadClassEnv({ DATABASE_URL: 'postgres://x', ...mail }).databaseUrl, JSON.stringify(mail)).toBe('postgres://x')
     }
   })
