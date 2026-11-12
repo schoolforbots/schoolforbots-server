@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   LessonFormatError,
+  LessonTooLong,
   MAX_CALL_ON_QUESTION_CHARS,
   MAX_GIST_CHARS,
   MAX_SEGMENT_TEXT_CHARS,
@@ -116,6 +117,39 @@ describe('parseLessonContent', () => {
 
     test('the spaces around a text do not count', () => {
       expect(parse(lesson({ title: ` ${'字'.repeat(40)} ` })).title).toHaveLength(40)
+    })
+
+    test('every text too long is named, in the order of the lesson, with where it is in the reply', () => {
+      let err: unknown = null
+      try {
+        parse(
+          lesson({
+            title: over(40),
+            segments: segments().map((s, i) => (i === 2 ? { text: over(800), gist: over(60) } : s)),
+            callOnQuestions: { ...callOnQuestions, extension: over(120) },
+          }),
+        )
+      } catch (e) {
+        err = e
+      }
+      expect(err).toBeInstanceOf(LessonTooLong)
+      expect((err as LessonTooLong).parts).toEqual([
+        { path: ['title'], name: '标题（title）', chars: 41, max: 40 },
+        { path: ['segments', 2, 'text'], name: '第 3 段的正文（text）', chars: 801, max: 800 },
+        { path: ['segments', 2, 'gist'], name: '第 3 段的要点（gist）', chars: 61, max: 60 },
+        { path: ['callOnQuestions', 'extension'], name: '引申题（callOnQuestions.extension）', chars: 121, max: 120 },
+      ])
+      expect((err as LessonTooLong).message).toBe(
+        '标题（title）不能超过 40 个字，现在有 41 个字；第 3 段的正文（text）不能超过 800 个字，现在有 801 个字；' +
+          '第 3 段的要点（gist）不能超过 60 个字，现在有 61 个字；引申题（callOnQuestions.extension）不能超过 120 个字，现在有 121 个字',
+      )
+    })
+
+    test('any other fault comes before the lengths', () => {
+      const both = lesson({ title: over(40), segments: segments(4) })
+      expect(() => parse(both)).toThrow(LessonFormatError)
+      expect(() => parse(both)).not.toThrow(LessonTooLong)
+      expect(reason(lesson({ title: over(40), callOnQuestions: { review: '复习' } }))).toMatch(/引申题.*不能为空/)
     })
   })
 

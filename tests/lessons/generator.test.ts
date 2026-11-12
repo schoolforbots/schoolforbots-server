@@ -263,13 +263,21 @@ describe('generateMissing', () => {
       '大模型交回的课程格式不对：引申题（callOnQuestions.extension）不能为空',
     ],
     [
-      'a segment is too long',
-      () => ok(lessonReply('SECRET', { segments: [...segments(4), { text: 'SECRET'.repeat(150), gist: '要点' }] })),
-      '大模型交回的课程格式不对：第 5 段的正文（text）不能超过 800 个字，现在有 900 个字',
+      'a segment is too long and a call-on question is missing',
+      () =>
+        ok(
+          lessonReply('SECRET', {
+            segments: [...segments(4), { text: 'SECRET'.repeat(150), gist: '要点' }],
+            callOnQuestions: { review: 'SECRET？' },
+          }),
+        ),
+      '大模型交回的课程格式不对：引申题（callOnQuestions.extension）不能为空',
     ],
   ])('when %s, the reason says so and quotes nothing of the reply', async (_, reply, reason) => {
-    const { deps, log } = make(school({ horizonDays: 1 }), reply)
+    const { deps, provider, log } = make(school({ horizonDays: 1 }), reply)
     expect(await generateMissing(deps)).toEqual({ generated: 0, failed: 3, waitingManual: 0 })
+    // Only a text too long is worth a second call: one call for each division.
+    expect(provider.calls).toHaveLength(3)
     expect((await failures()).map((f) => f.lastError)).toEqual([reason, reason, reason])
     expect(await lessonRows()).toEqual([])
     expect(JSON.stringify([log.info.mock.calls, log.warn.mock.calls, log.error.mock.calls])).not.toContain('SECRET')
@@ -396,6 +404,143 @@ describe('generateMissing', () => {
     // The run let go of its lock: the next one works.
     await db.deleteFrom('lessons').where('division', '=', 'senior').execute()
     expect(await generateMissing(deps)).toEqual({ generated: 1, failed: 0, waitingManual: 0 })
+  })
+})
+
+describe('a text too long', () => {
+  // 910 characters, over the 800 a segment text may have.
+  const LONG = '这是一句很长的讲稿。'.repeat(91)
+  const withLongSegment = (over: Record<string, unknown> = {}) =>
+    lessonReply('光的折射', { segments: segments().map((s, i) => (i === 3 ? { ...s, text: LONG } : s)), ...over })
+  const isShortening = (req: LlmRequest) => req.user.includes('超过了字数上限')
+  const shortened = (...parts: unknown[]) => ok(JSON.stringify({ parts }))
+
+  test('is shortened by one more call, which changes nothing else and is counted', async () => {
+    const config = school({ horizonDays: 1 })
+    const { deps, provider } = make(config, (req) => (isShortening(req) ? shortened('改短了的第四段。') : ok(withLongSegment())))
+    expect(await generateMissing(deps)).toEqual({ generated: 3, failed: 0, waitingManual: 0 })
+
+    // Each division: the lesson, then the shortening.
+    expect(provider.calls.map((c) => isShortening(c.req))).toEqual([false, true, false, true, false, true])
+    const [first, second] = provider.calls.map((c) => c.req)
+    expect(second?.system).toBe(first?.system)
+    expect(second?.user).toContain('有 1 处超过了字数上限')
+    expect(second?.user).toContain('第 1 处：第 4 段的正文（text），现在有 910 个字，最多 800 个字')
+    expect(second?.user).toContain(LONG)
+    expect(second?.user).toContain('{"parts"')
+    expect(second?.user).toContain('正好 1 项')
+    expect(second?.json).toBe(true)
+    // It has what is left of the lesson generation timeout.
+    expect(second?.timeoutMs).toBeGreaterThan(0)
+    expect(second?.timeoutMs).toBeLessThanOrEqual(config.lessonGeneration.timeoutSeconds * 1000)
+
+    for (const row of await lessonRows()) {
+      expect(row.segments).toEqual(segments().map((s, i) => (i === 3 ? { ...s, text: '改短了的第四段。' } : s)))
+      expect(row).toMatchObject({ title: '光的折射', callOnQuestions: CALL_ONS, version: 1 })
+    }
+    expect(await llmCalls()).toEqual(Array.from({ length: 6 }, () => ({ purpose: 'lesson', outcome: 'ok' })))
+    expect(await failures()).toEqual([])
+  })
+
+  test('all the texts too long go in the one call, in the order of the lesson', async () => {
+    const reply = lessonReply('题'.repeat(MAX_TITLE_CHARS + 1), {
+      segments: segments().map((s, i) => (i === 1 ? { ...s, gist: '要'.repeat(MAX_GIST_CHARS + 8) } : s)),
+      callOnQuestions: { ...CALL_ONS, review: '问'.repeat(MAX_CALL_ON_QUESTION_CHARS + 1) },
+    })
+    const { deps, provider } = make(school({ horizonDays: 1 }), (req) =>
+      isShortening(req) ? shortened('短标题', '短要点', '短问题？') : ok(reply),
+    )
+    expect(await generateMissing(deps)).toEqual({ generated: 3, failed: 0, waitingManual: 0 })
+    expect(provider.calls).toHaveLength(6)
+    const user = provider.calls[1]?.req.user ?? ''
+    expect(user).toContain('有 3 处超过了字数上限')
+    const order = ['第 1 处：标题（title）', '第 2 处：第 2 段的要点（gist），现在有 68 个字', '第 3 处：复习题（callOnQuestions.review）']
+    expect(order.map((part) => user.indexOf(part))).toEqual([...order.map((part) => user.indexOf(part))].sort((a, b) => a - b))
+    for (const part of order) expect(user).toContain(part)
+    expect(user).toContain('正好 3 项')
+
+    expect(await lessonOf(THU, 'junior')).toMatchObject({
+      title: '短标题',
+      segments: segments().map((s, i) => (i === 1 ? { ...s, gist: '短要点' } : s)),
+      callOnQuestions: { ...CALL_ONS, review: '短问题？' },
+    })
+  })
+
+  test.each<[string, () => LlmResponse | Error, string]>([
+    [
+      'is still too long',
+      () => shortened('字'.repeat(MAX_SEGMENT_TEXT_CHARS + 1)),
+      '大模型交回的课程格式不对：第 4 段的正文（text）不能超过 800 个字，现在有 801 个字（已经请大模型改短过一次）',
+    ],
+    [
+      'is not in its format',
+      () => shortened('一段', '两段'),
+      '大模型交回的课程格式不对：改短的回复必须是 {"parts": [...]}，正好 1 项，每一项都是文字',
+    ],
+    ['has no JSON', () => ok('改不短了。'), '大模型的回复里没有找到 JSON'],
+    ['fails', () => new LlmUnavailable('down'), '大模型暂时不可用（超时、网络出错或服务繁忙）'],
+  ])('fails the lesson when the shortened reply %s, with no third call', async (_, second, reason) => {
+    const { deps, provider } = make(school({ horizonDays: 1 }), (req) => (isShortening(req) ? second() : ok(withLongSegment())))
+    expect(await generateMissing(deps)).toEqual({ generated: 0, failed: 3, waitingManual: 0 })
+    expect(provider.calls).toHaveLength(6)
+    expect((await failures()).map((f) => f.lastError)).toEqual([reason, reason, reason])
+    expect(await lessonRows()).toEqual([])
+    // Both calls of each division are counted.
+    expect(await llmCalls()).toHaveLength(6)
+  })
+
+  test('the shortening has only the time the lesson left of the timeout, and is not asked for when none is left', async () => {
+    // The model client and the generator time calls with performance.now(): each lesson call takes `took` of it.
+    let shift = 0
+    let took = 0
+    const now = performance.now.bind(performance)
+    const clockSpy = vi.spyOn(performance, 'now').mockImplementation(() => now() + shift)
+    try {
+      const { deps, provider } = make(school({ horizonDays: 1, timeoutSeconds: 180 }), (req) => {
+        if (isShortening(req)) return shortened('短了。')
+        shift += took
+        return ok(withLongSegment())
+      })
+      took = 100_000
+      expect(await generateMissing(deps)).toEqual({ generated: 3, failed: 0, waitingManual: 0 })
+      const second = provider.calls[1]?.req
+      expect(second?.timeoutMs).toBeGreaterThan(70_000)
+      expect(second?.timeoutMs).toBeLessThanOrEqual(80_000)
+
+      await db.deleteFrom('lessons').execute()
+      provider.calls.length = 0
+      took = 180_000
+      expect(await generateMissing(deps)).toEqual({ generated: 0, failed: 3, waitingManual: 0 })
+      expect(provider.calls.map((c) => isShortening(c.req))).toEqual([false, false, false])
+      const reason = '大模型交回的课程格式不对：第 4 段的正文（text）不能超过 800 个字，现在有 910 个字'
+      expect((await failures()).map((f) => f.lastError)).toEqual([reason, reason, reason])
+    } finally {
+      clockSpy.mockRestore()
+    }
+  })
+
+  test('a rewrite by the model is shortened the same way', async () => {
+    let shortening = shortened('改短了的第二段。')
+    const { deps, provider } = make(school(), (req) =>
+      isShortening(req) ? shortening : ok(JSON.stringify({ text: LONG, gist: '换了例子' })),
+    )
+    const { lessonId } = await saveDraft(deps, { date: THU, division: 'junior' }, content(), { source: 'api', change: 'generate' })
+    expect(await regenerate(deps, 'rewrite_segment', { lessonId, baseVersion: 1, segmentIndex: 1, reason: '例子太难' })).toEqual({
+      version: 2,
+    })
+    expect(provider.calls).toHaveLength(2)
+    expect(provider.calls[1]?.req.user).toContain('第 2 段的正文（text），现在有 910 个字')
+    expect((await lessonOf(THU, 'junior'))?.segments[1]).toEqual({ text: '改短了的第二段。', gist: '换了例子' })
+
+    // Still too long: the reviewer is told, and nothing changes.
+    shortening = shortened('字'.repeat(MAX_SEGMENT_TEXT_CHARS + 1))
+    const err = await rejection(regenerate(deps, 'rewrite_segment', { lessonId, baseVersion: 2, segmentIndex: 1, reason: '再改' }))
+    expect(err).toBeInstanceOf(LessonFormatError)
+    expect((err as Error).message).toBe(
+      '大模型交回的内容格式不对：第 2 段的正文（text）不能超过 800 个字，现在有 801 个字（已经请大模型改短过一次）',
+    )
+    expect(provider.calls).toHaveLength(4)
+    expect((await lessonOf(THU, 'junior'))?.version).toBe(2)
   })
 })
 
