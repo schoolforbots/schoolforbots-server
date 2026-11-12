@@ -24,6 +24,13 @@ const SchoolRulesDiffQuery = Type.Object({ from: DateText })
  */
 export function schoolRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
   return async (app) => {
+    // Any site's web page may read these in its visitor's browser, errors and the rate limit included (this hook runs
+    // before the limiter's, and the error handler keeps the header). With `*` the browser sends no cookies. Only a
+    // simple GET gets through: no CORS preflight is answered, here or anywhere else in the service.
+    app.addHook('onRequest', async (_request, reply) => {
+      reply.header('access-control-allow-origin', '*')
+    })
+
     app.get('/v1/school-calendar', { schema: { response: { 200: SchoolCalendar } } }, async () =>
       schoolCalendarOn(localDate(deps.clock.now(), deps.config.timezone), deps.config, deps.maintenance.current()),
     )

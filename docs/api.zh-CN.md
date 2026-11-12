@@ -11,6 +11,7 @@
 - 错误：所有失败都是 `{ "error": { "code": string, "message": string } }`（schema 里的 `ErrorBody`）。`code` 给插件判断用；`message` 是中文，可以原样给机器人的主人看。有些错误会在 `code` 和 `message` 旁边多带字段，下面每个接口会写。错误码见 [HTTP 错误码](#http-错误码)。
 - 每个接口都可能返回 `429 rate_limited`（同一个网络地址一分钟内请求太多；发邮件验证码和检查验证码的接口限得更严）和 `500 internal_error`（学校这边出了故障）。路径不存在是 `404 not_found`。这几个下面不再逐个写。
 - 时间：时刻是 ISO 8601 日期时间；日期是学校所在时区的 `YYYY-MM-DD`。
+- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff` 和 `GET /v1/school-rules/{version}` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
 
 ## HTTP 接口
 
