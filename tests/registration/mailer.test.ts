@@ -82,12 +82,13 @@ describe('mailers', () => {
     expect(printed).toContain('你的验证码是 123456，15 分钟内有效')
   })
 
-  test('sendNotice goes through the transport and the console mailer prints it', async () => {
+  test('sendNotice sends the subject and text through the transport, and the console mailer prints them', async () => {
+    const fields = { template: 'alert', kind: '磁盘快满了', time: '2026-11-12 21:30' } as const
     const transport = { sendMail: vi.fn().mockResolvedValue(undefined) }
-    await createTransportMailer(transport, 'x@example.com', 10).sendNotice('a@example.com', '标题', '正文')
+    await createTransportMailer(transport, 'x@example.com', 10).sendNotice('a@example.com', '标题', '正文', fields)
     expect(transport.sendMail).toHaveBeenCalledWith({ from: 'x@example.com', to: 'a@example.com', subject: '标题', text: '正文' })
     const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
-    await new ConsoleMailer(15).sendNotice('a@example.com', '标题', '正文')
+    await new ConsoleMailer(15).sendNotice('a@example.com', '标题', '正文', fields)
     expect(write.mock.calls.map((c) => String(c[0])).join('')).toContain('正文')
   })
 

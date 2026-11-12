@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { isMailServiceFault } from '../../src/registration/mail-errors.js'
 import { MemoryMailer, withMailFailures } from '../../src/registration/mailer.js'
 import { reportSends, startMailHealth, type MailHealth } from '../../src/registration/mail-health.js'
+import { TencentSesError } from '../../src/registration/tencent-ses.js'
 import { exampleConfig, buildTestApp } from '../helpers/app.js'
 import { createTestClock } from '../helpers/clock.js'
 
@@ -57,11 +58,11 @@ describe('the sending record', () => {
     vi.spyOn(inner, 'sendCode').mockRejectedValue(new Error('smtp down'))
     vi.spyOn(inner, 'sendNotice').mockRejectedValue(new Error('smtp down'))
     await expect(mailer.sendCode('a@example.com', 'register', '1')).rejects.toThrow('smtp down')
-    await expect(mailer.sendNotice('o@example.com', 's', 't')).rejects.toThrow('smtp down')
+    await expect(mailer.sendNotice('o@example.com', 's', 't', { template: 'alert', kind: 'k', time: 't' })).rejects.toThrow('smtp down')
     await expect(mailer.sendCode('a@example.com', 'register', '1')).rejects.toThrow('smtp down')
     expect(health.ok()).toBe(false)
     vi.mocked(inner.sendNotice).mockResolvedValue(undefined)
-    await mailer.sendNotice('o@example.com', 's', 't')
+    await mailer.sendNotice('o@example.com', 's', 't', { template: 'alert', kind: 'k', time: 't' })
     expect(health.ok()).toBe(true)
   })
 })
@@ -81,6 +82,20 @@ describe('the connection check', () => {
     await vi.advanceTimersByTimeAsync(1)
     expect(verify).toHaveBeenCalledTimes(2)
     expect(health.ok()).toBe(true)
+  })
+
+  test('a failed check is logged with its error code, which never holds an address', async () => {
+    vi.useFakeTimers({ now: start() })
+    const verify = vi.fn(async () => {
+      throw new TencentSesError('GetEmailIdentity', 'AuthFailure.SecretIdNotFound', 'r1')
+    })
+    const error = vi.fn()
+    health = startMailHealth({ clock: { now: () => new Date() }, config, verify, log: { error } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(error).toHaveBeenCalledExactlyOnceWith(
+      { err: 'TencentSesError', code: 'AuthFailure.SecretIdNotFound' },
+      'mail connection check failed',
+    )
   })
 
   test('the interval comes from the config, and stop ends it', async () => {
@@ -145,6 +160,49 @@ describe('isMailServiceFault', () => {
   })
 })
 
+/** An error as Tencent Cloud's email API gives it back. */
+const sesError = (code: string) => new TencentSesError('SendEmail', code, 'r1')
+
+describe('isMailServiceFault with Tencent Cloud', () => {
+  test.each([
+    'FailedOperation.IncorrectEmail',
+    'InvalidParameterValue.ReceiverEmailInvalid',
+    'FailedOperation.FrequencyLimit',
+    'FailedOperation.ReceiverHasUnsubscribed',
+    'FailedOperation.EmailAddrInBlacklist',
+    'FailedOperation.RejectedByRecipients',
+    'FailedOperation.UnsupportMailType',
+  ])('one recipient refused: %s', (code) => {
+    expect(isMailServiceFault(sesError(code))).toBe(false)
+  })
+
+  test.each([
+    'FailedOperation.ExceedSendLimit',
+    'FailedOperation.InsufficientQuota',
+    'FailedOperation.InsufficientBalance',
+    'FailedOperation.InvalidTemplateID',
+    'FailedOperation.NotAuthenticatedSender',
+    'FailedOperation.HighRejectionRate',
+    // A mailbox provider refusing everything from this sender for about 10 minutes: it speaks for the sender's
+    // reputation and stops mail to every address there.
+    'FailedOperation.TemporaryBlocked',
+    'RequestLimitExceeded',
+    'AuthFailure.SecretIdNotFound',
+    'AuthFailure.UnauthorizedOperation',
+    'InternalError',
+    'HTTP 502',
+    'NoResponse',
+    'SenderDomainNotVerified',
+  ])('the mail service: %s', (code) => {
+    expect(isMailServiceFault(sesError(code))).toBe(true)
+  })
+
+  test('a call that could not be made or timed out is the mail service', () => {
+    expect(isMailServiceFault(new TypeError('fetch failed'))).toBe(true)
+    expect(isMailServiceFault(new DOMException('too slow', 'TimeoutError'))).toBe(true)
+  })
+})
+
 describe('refused recipients are not the mail service failing', () => {
   const failing = (err: Error) => {
     const inner = new MemoryMailer()
@@ -164,6 +222,19 @@ describe('refused recipients are not the mail service failing', () => {
     expect(onFailure).not.toHaveBeenCalled()
     expect(lines).toEqual(Array(5).fill({ code: 'EENVELOPE' }))
     expect(JSON.stringify(lines)).not.toContain('fake@example.com')
+  })
+
+  test('the same with Tencent Cloud: the log line has its error code', async () => {
+    const clock = createTestClock(start())
+    health = startMailHealth({ clock, config, verify: null })
+    const onFailure = vi.fn()
+    const lines: unknown[] = []
+    const inner = failing(sesError('FailedOperation.FrequencyLimit'))
+    const mailer = reportSends(withMailFailures(inner, onFailure, { info: (o) => void lines.push(o) }), health, clock)
+    for (let i = 0; i < 5; i++) await expect(mailer.sendCode('fake@example.com', 'register', '1')).rejects.toThrow(TencentSesError)
+    expect(health.ok()).toBe(true)
+    expect(onFailure).not.toHaveBeenCalled()
+    expect(lines).toEqual(Array(5).fill({ code: 'FailedOperation.FrequencyLimit' }))
   })
 
   test('several connection failures in a row: not ok, and mail_failed is reported each time', async () => {

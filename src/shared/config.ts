@@ -433,8 +433,25 @@ export function loadSchoolConfig(path: string): SchoolConfig {
   return config
 }
 
-/** How verification codes leave: by SMTP, or (development only) printed to the service log. */
-export type MailEnv = { transport: 'smtp'; smtpUrl: string } | { transport: 'console' }
+/**
+ * Tencent Cloud's email API: the API key, the region the sending domain was created in, and the IDs of the approved
+ * templates for codes, alerts and the budget notice. The last two are null when no notice is mailed (no
+ * `OPERATOR_EMAIL`).
+ */
+export interface TencentSesSettings {
+  secretId: string
+  secretKey: string
+  region: string
+  codeTemplateId: number
+  alertTemplateId: number | null
+  budgetTemplateId: number | null
+}
+
+/** How verification codes leave: by SMTP, by Tencent Cloud's email API, or (development only) printed to the service log. */
+export type MailEnv =
+  | { transport: 'smtp'; smtpUrl: string }
+  | { transport: 'tencent'; tencent: TencentSesSettings }
+  | { transport: 'console' }
 
 /**
  * How long one statement may run, and wait for a lock, before Postgres cancels it, in milliseconds. A query stuck
@@ -622,6 +639,76 @@ function parseMailFrom(value: string): string {
 }
 
 /**
+ * The name and the address of a `MAIL_FROM` that `parseMailFrom` accepted. The name loses the spaces around it and a
+ * pair of double quotes around it; an empty name is null.
+ */
+export function splitSender(from: string): { name: string | null; address: string } {
+  const named = /^([^<>]*)<([^<>\s@]+@[^<>\s@]+)>$/.exec(from.trim())
+  if (!named) return { name: null, address: from.trim() }
+  let name = named[1]!.trim()
+  if (name.length >= 2 && name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1).trim()
+  return { name: name === '' ? null : name, address: named[2]! }
+}
+
+function parseTemplateId(name: string, raw: string): number {
+  if (!/^[1-9][0-9]*$/.test(raw)) throw new Error(`Invalid ${name}: ${raw} (expected the ID of an approved template, a whole number)`)
+  return Number(raw)
+}
+
+const TENCENT_SES_REQUIRED = [
+  'TENCENT_SES_SECRET_ID',
+  'TENCENT_SES_SECRET_KEY',
+  'TENCENT_SES_REGION',
+  'TENCENT_SES_CODE_TEMPLATE_ID',
+] as const
+
+/**
+ * The settings of MAIL_TRANSPORT=tencent. The alert and budget templates are needed only when notices are mailed, that
+ * is with `OPERATOR_EMAIL` set: a school whose notice templates are not approved can still send codes, with no notices
+ * mailed. `MAIL_FROM` must be set: the example sender is on no domain verified with Tencent Cloud.
+ */
+function parseTencentSes(get: Get, mailFrom: string): TencentSesSettings {
+  const missing = [...TENCENT_SES_REQUIRED, 'MAIL_FROM'].filter((name) => get(name) === undefined)
+  if (missing.length > 0) {
+    throw new Error(`Missing ${missing.join(', ')}: needed to send mail through Tencent Cloud's email API (MAIL_TRANSPORT=tencent)`)
+  }
+  const region = get('TENCENT_SES_REGION')!
+  // Also keeps anything but a region ID out of the request header it goes in.
+  if (!/^[a-z]+(-[a-z0-9]+)+$/.test(region)) {
+    throw new Error(
+      `Invalid TENCENT_SES_REGION: ${JSON.stringify(region)} (expected the ID of the region the sending domain was created in, such as ap-guangzhou)`,
+    )
+  }
+  const optionalTemplateId = (name: string) => {
+    const raw = get(name)
+    return raw === undefined ? null : parseTemplateId(name, raw)
+  }
+  const alertTemplateId = optionalTemplateId('TENCENT_SES_ALERT_TEMPLATE_ID')
+  const budgetTemplateId = optionalTemplateId('TENCENT_SES_BUDGET_TEMPLATE_ID')
+  const missingNotices = [
+    ['TENCENT_SES_ALERT_TEMPLATE_ID', alertTemplateId],
+    ['TENCENT_SES_BUDGET_TEMPLATE_ID', budgetTemplateId],
+  ].filter(([, id]) => id === null)
+  if (missingNotices.length > 0 && get('OPERATOR_EMAIL') !== undefined) {
+    throw new Error(
+      `OPERATOR_EMAIL is set but ${missingNotices.map(([name]) => name).join(', ')} not: the alerts and the budget ` +
+        'notice to the operator are sent with those templates. Set them, or unset OPERATOR_EMAIL to mail no notices.',
+    )
+  }
+  if (splitSender(mailFrom).name?.includes(':')) {
+    throw new Error(`Invalid MAIL_FROM: ${JSON.stringify(mailFrom)} (Tencent Cloud refuses a sender name with a colon in it)`)
+  }
+  return {
+    secretId: get('TENCENT_SES_SECRET_ID')!,
+    secretKey: get('TENCENT_SES_SECRET_KEY')!,
+    region,
+    codeTemplateId: parseTemplateId('TENCENT_SES_CODE_TEMPLATE_ID', get('TENCENT_SES_CODE_TEMPLATE_ID')!),
+    alertTemplateId,
+    budgetTemplateId,
+  }
+}
+
+/**
  * The environment of the registration service and the tools. `warn` takes the notices that do not stop the start
  * (a half-set admin configuration).
  */
@@ -630,6 +717,8 @@ export function loadEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void 
 
   const databaseUrl = requireDatabaseUrl(get)
   const databaseTimeouts = databaseTimeoutsOf(get)
+
+  const mailFrom = parseMailFrom(get('MAIL_FROM') ?? '机器人网校 <no-reply@example.com>')
 
   // Codes are printed instead of mailed only when MAIL_TRANSPORT=console says so: a missing SMTP_URL must not
   // quietly turn a deployment into one that mails nobody and writes the codes to its log.
@@ -642,12 +731,15 @@ export function loadEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void 
     if (smtpUrl === undefined) {
       throw new Error(
         'Missing SMTP_URL: verification codes are mailed by SMTP (MAIL_TRANSPORT=smtp, the default). ' +
-          'Set SMTP_URL, or set MAIL_TRANSPORT=console to print the codes to the log instead (local development only).',
+          "Set SMTP_URL, set MAIL_TRANSPORT=tencent to send through Tencent Cloud's email API instead, " +
+          'or set MAIL_TRANSPORT=console to print the codes to the log (local development only).',
       )
     }
     mail = { transport, smtpUrl }
+  } else if (transport === 'tencent') {
+    mail = { transport, tencent: parseTencentSes(get, mailFrom) }
   } else {
-    throw new Error(`Invalid MAIL_TRANSPORT: ${transport} (expected smtp or console)`)
+    throw new Error(`Invalid MAIL_TRANSPORT: ${transport} (expected smtp, tencent or console)`)
   }
 
   const registrationPort = parsePort('REGISTRATION_PORT', get('REGISTRATION_PORT'), 8080)
@@ -660,7 +752,7 @@ export function loadEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void 
     databaseUrl,
     databaseTimeouts,
     mail,
-    mailFrom: parseMailFrom(get('MAIL_FROM') ?? '机器人网校 <no-reply@example.com>'),
+    mailFrom,
     moderationDataDir: moderationDataDirOf(get),
     configPath: configPathOf(get),
     schoolRulesDir: get('SCHOOL_RULES_DIR') ?? 'school-rules',

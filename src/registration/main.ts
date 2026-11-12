@@ -20,6 +20,7 @@ import { runDailyJob } from './daily-job.js'
 import { reportSends, startMailHealth } from './mail-health.js'
 import { ConsoleMailer, createSmtpMailer, withMailFailures, type Mailer } from './mailer.js'
 import { isWeeklyReviewDay, startDailyJob, startPeriodicJob } from './scheduler.js'
+import { createTencentSesMailer } from './tencent-ses.js'
 
 async function main(): Promise<void> {
   const env = loadEnv(process.env)
@@ -61,6 +62,10 @@ async function main(): Promise<void> {
     const smtp = createSmtpMailer(env.mail.smtpUrl, env.mailFrom, config.verificationCode.ttlMinutes)
     mailer = smtp
     verifyMail = () => smtp.verify()
+  } else if (env.mail.transport === 'tencent') {
+    const tencent = createTencentSesMailer(env.mail.tencent, env.mailFrom, config.verificationCode.ttlMinutes)
+    mailer = tencent
+    verifyMail = () => tencent.verify()
   } else {
     console.warn('[mail] MAIL_TRANSPORT=console：验证码只会打印在服务日志里，不会发邮件（仅限本地开发使用）')
     mailer = new ConsoleMailer(config.verificationCode.ttlMinutes)

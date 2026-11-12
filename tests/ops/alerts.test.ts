@@ -62,7 +62,7 @@ async function backup(ok: boolean, finishedAt: Date) {
 }
 
 /** One scenario per kind: `fire` puts the data just at the threshold, `almost` one short of it. */
-const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; fire: () => Promise<void>; almost: () => Promise<void>; subject: RegExp; disk?: [number, number] }> = {
+const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; fire: () => Promise<void>; almost: () => Promise<void>; subject: RegExp; name: string; disk?: [number, number] }> = {
   internal_errors: {
     fire: async () => {
       await events('internal_error', Array.from({ length: 10 }, () => minutesAgo(1)), 'registration')
@@ -73,6 +73,7 @@ const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; f
       await events('internal_error', [minutesAgo(6)]) // outside the 5 minutes
     },
     subject: /^【机器人网校】.*出错/,
+    name: '服务器意外错误',
   },
   llm_down: {
     fire: () => llmCalls('failed', [minutesAgo(1), minutesAgo(5), minutesAgo(9)]),
@@ -81,6 +82,7 @@ const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; f
       await llmCalls('failed', [minutesAgo(1), minutesAgo(9), minutesAgo(30)])
     },
     subject: /^【机器人网校】大模型连不上：最近 10 分钟失败 3 次$/,
+    name: '大模型连不上',
   },
   llm_400: {
     fire: () => llmCalls('failed', Array.from({ length: 5 }, (_, i) => minutesAgo(10 + i * 10)), 400),
@@ -90,16 +92,19 @@ const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; f
       await llmCalls('failed', [minutesAgo(61)], 400)
     },
     subject: /^【机器人网校】.*400/,
+    name: '大模型返回 400 错误',
   },
   mail_failed: {
     fire: () => events('mail_failed', [minutesAgo(1), minutesAgo(5), minutesAgo(10)]),
     almost: () => events('mail_failed', [minutesAgo(1), minutesAgo(5), minutesAgo(11)]),
     subject: /^【机器人网校】.*邮件/,
+    name: '验证码邮件发送失败',
   },
   job_failed: {
     fire: () => events('job_failed', [hoursAgo(2)]),
     almost: () => events('job_failed', [hoursAgo(25)]),
     subject: /^【机器人网校】.*任务/,
+    name: '定时任务失败',
   },
   restarts: {
     fire: () => starts('class', [minutesAgo(1), minutesAgo(5), minutesAgo(10)]),
@@ -109,6 +114,7 @@ const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; f
       await starts('registration', [minutesAgo(3)])
     },
     subject: /^【机器人网校】上课服务.*重启/,
+    name: '服务反复重启',
   },
   backup: {
     alerts: { backupExpected: true },
@@ -119,11 +125,13 @@ const scenarios: Record<AlertKind, { alerts?: Partial<SchoolConfig['alerts']>; f
       await backup(true, hoursAgo(25))
     },
     subject: /^【机器人网校】备份/,
+    name: '备份太久没成功',
   },
   disk: {
     fire: async () => undefined,
     almost: async () => undefined,
     subject: /^【机器人网校】磁盘/,
+    name: '磁盘快满',
     disk: [80, 79],
   },
 }
@@ -149,6 +157,9 @@ describe.each(Object.entries(scenarios) as [AlertKind, (typeof scenarios)[AlertK
     expect(notice.to).toBe('ops@example.com')
     expect(notice.subject).toMatch(s.subject)
     expect(notice.subject.startsWith('【机器人网校】')).toBe(true)
+    // What a transport that only sends templates (Tencent Cloud's API) fills its alert template with: the kind, by a
+    // fixed name, and the time of the check in the school's time zone (NOW is 12:00 in Shanghai).
+    expect(notice.fields).toEqual({ template: 'alert', kind: s.name, time: '2026-11-10 12:00' })
   })
 
   test('is not mailed again within the hour, and a new check (a restart) does not resend it', async () => {
@@ -272,6 +283,7 @@ describe('backup', () => {
     const t = setup({ alerts: { backupExpected: true } })
     expect(await t.check()).toEqual(['backup'])
     expect(t.mailer.notices[0]?.subject).toContain('失败')
+    expect(t.mailer.notices[0]?.fields).toMatchObject({ kind: '备份失败' })
   })
 
   test('a recent ok run after a failed one is fine', async () => {

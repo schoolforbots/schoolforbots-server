@@ -63,7 +63,7 @@ describe('withMailFailures', () => {
     const inner = new MemoryMailer()
     const onFailure = vi.fn()
     vi.spyOn(inner, 'sendNotice').mockRejectedValueOnce(new Error('smtp down'))
-    await expect(withMailFailures(inner, onFailure).sendNotice('o@example.com', 's', 't')).rejects.toThrow('smtp down')
+    await expect(withMailFailures(inner, onFailure).sendNotice('o@example.com', 's', 't', { template: 'alert', kind: 'k', time: 't' })).rejects.toThrow('smtp down')
     expect(onFailure).not.toHaveBeenCalled()
   })
 })
