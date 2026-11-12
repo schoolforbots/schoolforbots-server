@@ -22,7 +22,7 @@ npm run dev:registration                          # 启动报名服务，改代�
 
 - 服务默认监听 `8080` 端口，启动时会自动建表和升级表结构。
 - 每天 0 点（学校配置里的时区）跑一次分班任务：退学、候补转正、分班。服务每次启动也会先跑一次，补上停机时错过的那次。任务按当天日期算，同一天里再跑不会多做任何事；当天报名的学生要等第二天 0 点才分班。需要手动跑一次时用 `npm run job:daily`。
-- `.env.example` 里的 `MAIL_TRANSPORT=console` 让服务不发邮件，验证码只打印在服务日志里，方便本地调试。正式运行时删掉这一行（默认是 `smtp`），并填上 `SMTP_URL`；用 `smtp` 却没填 `SMTP_URL`，服务会拒绝启动。
+- `.env.example` 里的 `MAIL_TRANSPORT=console` 让服务不发邮件，验证码只打印在服务日志里，方便本地调试。正式运行时删掉这一行（默认是 `smtp`），并填上 `SMTP_URL`，或者改用腾讯云的邮件推送 API（见"部署"里的"发信"）；用 `smtp` 却没填 `SMTP_URL`，服务会拒绝启动。
 - `.env.example` 里的 `LLM_FAKE=1` 让每次调用大模型都拿到一条写死的回复，本地开发不用大模型的钥匙。正式运行时删掉这一行，并填上钥匙（见“大模型和后台”）。
 - 每个数据库连接都设了语句超时和等锁超时，卡住的查询会被取消，不会一直占着连接：`DATABASE_STATEMENT_TIMEOUT_MS`（默认 30000，即 30 秒）和 `DATABASE_LOCK_TIMEOUT_MS`（默认 10000，即 10 秒），单位是毫秒，设成 `0` 表示不设。两个服务和各个工具都读这两项。启动时跑的表结构升级不受语句超时限制，耗时长的升级不会做到一半被取消；但等锁超时照样有效：升级等一张正在使用的表等得太久，就报错、启动失败，而不是让这张表上的所有查询都排在它后面。
 - 服务放在反向代理后面时，两个服务都要设 `TRUST_PROXY=1`，这样记下的是代理在 `X-Forwarded-For` 里转来的客户端地址，而不是代理自己的地址。不在代理后面就保持 `0`：这个请求头谁都能伪造。
@@ -102,7 +102,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 - 标题、科目、每段的正文和要点、点名题都要过内容审核。有一处没通过就整个拒绝导入，提示只说是哪一处、哪一类，不显示命中的词。
 - 不加 `--approve` 就是草稿，班级不会上草稿。同一天同一学部再导入一次会覆盖原来的课（这次没加 `--approve` 就又变回草稿）；已经有班级开始上的课不能再覆盖。
 - 一个学部当天第一个开门的班开门时还没有审批过的课，这个学部当天就上自习。
-- 它和 `npm run job:daily` 一样按报名服务的方式读环境变量：虽然不发邮件，也要有 `MAIL_TRANSPORT=console` 或 `SMTP_URL`（`.env.example` 里已经写了 `MAIL_TRANSPORT=console`）。
+- 它和 `npm run job:daily` 一样按报名服务的方式读环境变量：虽然不发邮件，也要有 `MAIL_TRANSPORT=console` 或所选发信方式的设置（`.env.example` 里已经写了 `MAIL_TRANSPORT=console`）。
 
 ## 大模型和后台
 
@@ -159,19 +159,19 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
   - `internalErrors`：`minutes` 分钟里意外错误至少 `count` 次（报名服务回 HTTP 500、上课服务的节拍失败或连接里出了意外，两个服务合计）。
   - `llmDownMinutes`：最近这么多分钟里，大模型至少失败 3 次、一次成功也没有。
   - `llm400PerHour`：最近一小时里，大模型厂商用 HTTP 400 拒绝的调用至少这么多次。先看这家厂商的 `contentRefusalMarkers` 还对不对得上它拒绝处理内容时的回复：厂商改了措辞，学校就认不出这是拒绝，会把它记成失败的调用。对得上的话，多半是学校发出去的请求有毛病。这是一个固定的次数，不是和平时比较。
-  - `mailFailures`：`minutes` 分钟里，验证码邮件因为发信服务本身的问题（连不上、超时、域名解析出错、登录失败、服务器整体报错）发不出去至少 `count` 次。某一个收件地址被拒（比如邮箱不存在）不算，一串假邮箱不会触发它。
+  - `mailFailures`：`minutes` 分钟里，验证码邮件因为发信服务本身的问题（连不上、超时、域名解析出错、登录失败、服务器整体报错；用腾讯云邮件推送 API 时见"部署"里的"发信"）发不出去至少 `count` 次。某一个收件地址被拒（比如邮箱不存在）不算，一串假邮箱不会触发它。
   - 任务失败：上次发这一类以后（第一次就看最近 24 小时），每天零点的任务、生成课程或每周复盘至少失败过一次。
   - `restarts`：同一个服务在 `minutes` 分钟里启动至少 `count` 次。
   - `backupExpected`、`backupMaxAgeHours`：`backupExpected` 为 `true` 时，最近 `backupMaxAgeHours` 小时里没有一次成功的备份、或者最新一次备份失败，就发信。备份由备份脚本记在 `backup_runs` 表里。默认是 `false`，免得开发环境被一直提醒：**正式环境要设成 `true`。**
   - `diskPercent`：`/` 所在的磁盘用了至少这么多。
-  - `mailCheckMinutes` 不是一类邮件：它是报名服务隔多久（默认 10 分钟，启动时先试一次）试连一次发信服务。试连的结果加上每一次真发信的成败，供 `GET /healthz/mail` 使用：它永远回 200，内容是 `{"ok":true}` 或 `{"ok":false}`，给外面的检查读（不是给插件的，不写请求日志、不限流，`/healthz` 不变）。发信不正常的条件：最近一次试连失败，或者最近 `mailFailures.minutes` 分钟里连着 `mailFailures.count` 次真发信（验证码和通知都算）因为发信服务本身的问题失败、中间没有成功；收件地址被拒不算。状态只存在内存里，重启后从正常重新算；它和 `mailFailures` 这封告警邮件各是各的（发信坏了时告警邮件本身发不出去）。控制台发信不试连，永远正常。
+  - `mailCheckMinutes` 不是一类邮件：它是报名服务隔多久（默认 10 分钟，启动时先试一次）检查一次发信服务：用 SMTP 时试着连上并登录；用腾讯云邮件推送 API 时问腾讯云 `MAIL_FROM` 的域名是否仍是验证通过。试连的结果加上每一次真发信的成败，供 `GET /healthz/mail` 使用：它永远回 200，内容是 `{"ok":true}` 或 `{"ok":false}`，给外面的检查读（不是给插件的，不写请求日志、不限流，`/healthz` 不变）。发信不正常的条件：最近一次试连失败，或者最近 `mailFailures.minutes` 分钟里连着 `mailFailures.count` 次真发信（验证码和通知都算）因为发信服务本身的问题失败、中间没有成功；收件地址被拒不算。状态只存在内存里，重启后从正常重新算；它和 `mailFailures` 这封告警邮件各是各的（发信坏了时告警邮件本身发不出去）。控制台发信不试连，永远正常。
   维护期间只发备份和磁盘这两类：那时出错、大模型没人用都是正常的。没有 `OPERATOR_EMAIL` 就不发信。邮件标题以 `【机器人网校】` 开头，直接说出了什么事；正文写几次、从什么时候起（学校时区），不写学生说的话、邮箱或 IP。检查所数的记录（`ops_events`、`service_starts`、`backup_runs`）由每天零点的任务在 30 天后删掉。
 - `revocationWindowDays`：在每周复盘里删掉一个词或一条规则时，它在这么多天里造成的违纪会被撤销；在查学生页手动解除处罚时，这个学生这么多天里的违反校规记录也一起撤销。
 
 ### 环境变量
 
 - `PROMPTS_DIR`（默认 `data/prompts`）放提示词，每种用途和写法一个文件，文件名是 `<名字>.md`。仓库里只有 `<名字>.example.md`，写明了每个提示词能用哪些占位符；服务找不到 `<名字>.md` 时改用示例文件，并在启动时打印警告。两个服务都读它。真实的提示词不会提交到仓库。
-- `MAIL_FROM`：所有邮件的发件人，一个地址，可以只写地址，也可以带名字（默认 `机器人网校 <no-reply@example.com>`）。格式不对（`<` `>` 不成对、含换行）时，服务不会启动。
+- `MAIL_FROM`：所有邮件的发件人，一个地址，可以只写地址，也可以带名字（默认 `机器人网校 <no-reply@example.com>`）。格式不对（`<` `>` 不成对、含换行）时，服务不会启动。怎么发信（`MAIL_TRANSPORT` 和它的设置）见"部署"里的"发信"。
 - `OPERATOR_EMAIL`：当月花费超过预算时，报名服务把通知发到这个地址，告警邮件（见上面的 `alerts`）也发到这里。不填的话，预算通知只显示在数据页上，也不发任何告警邮件。
 - `ADMIN_PATH`、`ADMIN_PASSWORD_HASH`、`ADMIN_TOTP_SECRET`：三个都填了，报名服务才提供后台页面（只填了一部分时会打印警告）。`ADMIN_PATH` 是后台的路径，比如 `/your-secret-path`，要以 `/` 开头，不能以 `/v1` 开头。选一个别人猜不到的，也不要写进任何会提交的文件。另外两个用 `npm run admin:password` 生成。
 - 每家厂商的钥匙，放在它的 `apiKeyEnv` 指定的变量里。两个服务和 `words:tidy` 都读，缺了哪个就拒绝启动。
@@ -295,6 +295,41 @@ SystemMaxUse=2G
 然后运行 `systemctl restart systemd-journald`。`SystemMaxUse` 限制日志占用的空间。要加 `MaxFileSec=1day`，是因为 journald 删日志是整个文件整个文件地删，文件里最老的一条超过 `MaxRetentionSec` 就删掉整个文件，而它默认一个月才换一个新文件，这样一删就是一个月的日志，其中大多远不到 30 天；一天一个文件，日志就一天一天地删，删的时候差不多 30 天。Debian 和 Ubuntu 上，journald 默认还会把日志都转发给 syslog（`ForwardToSyslog=yes`）；装了 rsyslog 的话（Ubuntu 默认就装了），`/var/log/syslog` 里还有一份，按 `/etc/logrotate.d/rsyslog` 的规则保存（较新的版本是每周轮转、留 4 份旧的，约 5 周）。要做到日志只留 30 天，这一份也要管：改那里的轮转规则，或者在上面的文件里加一行 `ForwardToSyslog=no`，这样 `/var/log/syslog` 里就不再有 journald 转来的日志。
 
 `deploy/smoke-test.sh` 会构建镜像，用 `deploy/compose.local.yml`（本地镜像、示例配置、写死回复的大模型、`https://localhost`）起全套，检查健康检查、只有 `backup` 服务看得到 `backup.env`、代理、`deploy.sh` 和看门狗，最后把起的东西全部删掉。它需要 Docker，80 和 443 端口空闲（或设置 `HTTP_PORT` 和 `HTTPS_PORT`）。
+
+### 发信
+
+报名服务给机器人的主人发验证码，给 `OPERATOR_EMAIL` 发预算通知和告警。怎么发由 `MAIL_TRANSPORT` 决定：
+
+- `smtp`（默认）：通过任意 SMTP 服务器，写在 `SMTP_URL` 里，比如 `smtps://user:password@smtp.example.com:465`。
+- `tencent`：通过腾讯云的邮件推送 API（`SendEmail` 接口），给不能用 SMTP 的账号用：腾讯云规定，2026 年 3 月 2 日以后开通这项服务的个人认证账号只能通过 API 和控制台发信。
+- `console`：不发信，验证码打印在服务日志里。仅限本地开发。
+
+这个 API 只发审核通过的模板，所以用 `tencent` 之前，要先在腾讯云控制台准备好：
+
+1. 一个验证通过的发信域名（要在域名上加它给的 MX、SPF、DKIM、DMARC 记录），和这个域名上的一个发信地址。`MAIL_FROM` 用这个地址；前面的名字里不能有冒号。这几条 DNS 记录要一直留着：记录没了，域名就不再是验证通过，每封信都会发不出去。
+2. 审核通过的纯文本模板。大半是一个变量的模板，腾讯云不给过，所以告警和预算通知不发正文，只发几个短字段：
+   - 验证码模板，变量是 `{{code}}`（六位数字）和 `{{minutes}}`（验证码多少分钟内有效，即 `verificationCode.ttlMinutes`），正文可以用另外两种方式发的那句：`你的验证码是 {{code}}，{{minutes}} 分钟内有效。如果不是你本人操作，请忽略这封邮件。` 报名和更换钥匙共用这一个模板。
+   - 告警模板，变量是 `{{kind}}`（出了什么事）和 `{{time}}`（什么时候发现的，按学校时区，格式如 `2026-11-12 21:30`）。`kind` 是这几个之一：`服务器意外错误`、`大模型连不上`、`大模型返回 400 错误`、`验证码邮件发送失败`、`定时任务失败`、`服务反复重启`、`备份失败`、`备份太久没成功`、`磁盘快满`。另外两种方式写在正文里的次数和时间，在邮件主题和服务日志里。
+   - 预算模板，变量是 `{{month}}`（如 `2026-11`）、`{{spent}}`（当月花费，单位元，两位小数）和 `{{budget}}`（即 `llm.monthlyBudgetYuan`）。
+
+   主题不在模板里：服务每次发信时一起传过去，和用 SMTP 时一样（`机器人网校验证码`、`机器人网校 · 更换钥匙验证码`，告警用各自带次数的主题）。
+3. 一对 API 密钥（SecretId 和 SecretKey），最好属于一个只允许 `ses:SendEmail` 和 `ses:GetEmailIdentity`、只能从服务器 IP 调用的子用户。
+
+然后设置：
+
+| 变量 | 值 |
+| --- | --- |
+| `MAIL_TRANSPORT` | `tencent` |
+| `TENCENT_SES_SECRET_ID`、`TENCENT_SES_SECRET_KEY` | API 密钥。 |
+| `TENCENT_SES_REGION` | 发信域名建在哪个地域，比如 `ap-guangzhou` 或 `ap-hongkong`。 |
+| `TENCENT_SES_CODE_TEMPLATE_ID` | 验证码模板的 ID。 |
+| `TENCENT_SES_ALERT_TEMPLATE_ID`、`TENCENT_SES_BUDGET_TEMPLATE_ID` | 告警模板和预算模板的 ID。设了 `OPERATOR_EMAIL` 就必须设；没设 `OPERATOR_EMAIL` 可以不设。 |
+
+`MAIL_FROM` 也必须设。缺了哪一项或者格式不对，服务都不会启动。告警和预算两个模板没有都审核通过之前，`OPERATOR_EMAIL` 先别设：这样预算通知只显示在数据页上，不发告警邮件，发信停了靠下面"外面的哨兵"来报。
+
+对告警和 `GET /healthz/mail`（见"配置"里的 `alerts`）来说，每隔 `mailCheckMinutes` 的检查是问腾讯云 `MAIL_FROM` 的域名是否仍是验证通过，顺带确认了密钥能用。因为某一个地址被拒而没发出去的（地址格式不对或无效、短时间里给这个地址发得太多、地址已退订或在腾讯云的黑名单里、收件人拒收），只记一行带错误码的日志。其余的失败都算发信服务本身的问题，比如：当天额度或套餐用完、模板或发信地址不能用、请求太频繁、密钥不能用、某家邮箱暂时拒收这个发件人的所有信（`FailedOperation.TemporaryBlocked`）、10 秒内没有回应。
+
+腾讯云给新的发信域名的每天额度很小，发信质量好才一级一级往上加。打算一下子开放很多人报名之前，先在控制台看清额度。
 
 ### 备份
 

@@ -22,7 +22,7 @@ Notes:
 
 - The service listens on port `8080` by default. On startup it creates the tables and upgrades the schema.
 - Every day at midnight (in the timezone of the school config) the daily job runs: it drops inactive students, promotes the waitlist and assigns classes. The service also runs it once on every start, to make up a run missed while it was down. The job goes by today's date, so running it again on the same day changes nothing more; students who register today are assigned at the next midnight. To run it by hand, use `npm run job:daily`.
-- `MAIL_TRANSPORT=console` in `.env.example` makes the service print verification codes to its log instead of mailing them, which is handy for local debugging. For production, remove that line (the default is `smtp`) and set `SMTP_URL`; with `smtp` and no `SMTP_URL`, the service refuses to start.
+- `MAIL_TRANSPORT=console` in `.env.example` makes the service print verification codes to its log instead of mailing them, which is handy for local debugging. For production, remove that line (the default is `smtp`) and set `SMTP_URL`, or send through Tencent Cloud's email API instead (see "Mail" under "Deployment"); with `smtp` and no `SMTP_URL`, the service refuses to start.
 - `LLM_FAKE=1` in `.env.example` answers every model call with a canned reply, so you need no model key to develop. For production, remove that line and set the keys (see "Model and admin").
 - Every database connection has a statement timeout and a lock timeout, so a stuck query is cancelled instead of holding its connection for good: `DATABASE_STATEMENT_TIMEOUT_MS` (30000, 30 seconds, by default) and `DATABASE_LOCK_TIMEOUT_MS` (10000, 10 seconds, by default), in milliseconds; `0` sets none. Both services and the tools read them. The migrations that run on startup have no statement timeout, so a long one is not cancelled halfway, but keep the lock timeout: a migration that waits too long for a table in use fails the start instead of holding up every query on that table.
 - Behind a reverse proxy, set `TRUST_PROXY=1` for both services, so that they record the client's address that the proxy passes in `X-Forwarded-For` rather than the proxy's own. Otherwise keep it at `0`: anyone can write that header.
@@ -102,7 +102,7 @@ Notes:
 - The title, the subject, the text and key point of every segment, and the call-on questions all go through content moderation. If any of them fails, the whole import is refused. The message says only which field failed and in which category; it never shows the word that matched.
 - Without `--approve` the lesson is a draft, and classes never teach drafts. Importing the same day and division again replaces the earlier lesson (and makes it a draft again if this import has no `--approve`). A lesson that a class has already started cannot be replaced.
 - If a division still has no approved lesson when its first class of the day opens its doors, that division has a study hall that day.
-- Like `npm run job:daily`, it reads the environment the way the registration service does: even though it sends no mail, it needs `MAIL_TRANSPORT=console` or `SMTP_URL` (`.env.example` already has `MAIL_TRANSPORT=console`).
+- Like `npm run job:daily`, it reads the environment the way the registration service does: even though it sends no mail, it needs `MAIL_TRANSPORT=console` or the settings of the way mail is sent (`.env.example` already has `MAIL_TRANSPORT=console`).
 
 ## Model and admin
 
@@ -159,19 +159,19 @@ These keys of the school config are about the model and the admin (see `config/s
   - `internalErrors`: at least `count` unexpected errors (HTTP 500 in the registration service, a failed tick or a broken connection in the class service, both services added together) within `minutes` minutes.
   - `llmDownMinutes`: in the last that many minutes the model failed at least 3 calls and succeeded in none.
   - `llm400PerHour`: at least that many calls in the last hour that the vendor refused with HTTP 400. Check first that the provider's `contentRefusalMarkers` still match the vendor's replies when it refuses content: when the vendor changes that wording, its refusals are no longer recognised and are counted as failed calls. If they match, the school is probably building a request wrongly. It is a fixed number, not a comparison with usual days.
-  - `mailFailures`: at least `count` verification-code mails that could not be sent within `minutes` minutes because of the mail service itself (connection refused, timeout, DNS error, login failure, a server-wide error). One recipient address being refused (a mailbox that does not exist, say) does not count, so a run of made-up addresses does not trip it.
+  - `mailFailures`: at least `count` verification-code mails that could not be sent within `minutes` minutes because of the mail service itself (connection refused, timeout, DNS error, login failure, a server-wide error; for Tencent Cloud's email API, see "Mail" under "Deployment"). One recipient address being refused (a mailbox that does not exist, say) does not count, so a run of made-up addresses does not trip it.
   - A failed job: since the last mail of this kind (or in the last 24 hours the first time), the midnight job, lesson generation or the weekly review failed at least once.
   - `restarts`: one service started at least `count` times within `minutes` minutes.
   - `backupExpected`, `backupMaxAgeHours`: when `backupExpected` is `true`, a mail goes out if there has been no successful backup in the last `backupMaxAgeHours` hours or the latest backup failed. Backups are recorded in the `backup_runs` table by the backup script. It is `false` by default so a development setup is not nagged: **set it to `true` in production.**
   - `diskPercent`: the disk holding `/` is at least that full.
-  - `mailCheckMinutes` is not a mail: it is how often (every 10 minutes by default, and once at start) the registration service tries its connection to the mail server. Together with the outcome of every real send it feeds `GET /healthz/mail`, which always answers 200 with `{"ok":true}` or `{"ok":false}` for an outside check to read (it is not for plugins, writes no request log and has no rate limit; `/healthz` is unchanged). Mail is not ok when the last connection check failed, or when the last `mailFailures.count` sends (codes and notices) within `mailFailures.minutes` minutes all failed because of the mail service itself with no success between; a refused recipient does not count. This is kept in memory, so a restart starts from ok, and it is separate from the `mailFailures` alert mail, which cannot go out when mail is down. The console transport has no check and is always ok.
+  - `mailCheckMinutes` is not a mail: it is how often (every 10 minutes by default, and once at start) the registration service checks the mail service: by SMTP it connects and logs in; through Tencent Cloud's email API it asks whether the domain of `MAIL_FROM` is still verified for sending. Together with the outcome of every real send it feeds `GET /healthz/mail`, which always answers 200 with `{"ok":true}` or `{"ok":false}` for an outside check to read (it is not for plugins, writes no request log and has no rate limit; `/healthz` is unchanged). Mail is not ok when the last connection check failed, or when the last `mailFailures.count` sends (codes and notices) within `mailFailures.minutes` minutes all failed because of the mail service itself with no success between; a refused recipient does not count. This is kept in memory, so a restart starts from ok, and it is separate from the `mailFailures` alert mail, which cannot go out when mail is down. The console transport has no check and is always ok.
   While maintenance is on, only the backup and the disk mails are sent: errors and a silent model are expected then. Without `OPERATOR_EMAIL` nothing is mailed. A mail's subject starts with `【机器人网校】` and says what happened; the text says how many times and since when (school time zone), and never holds anything a student said, an email address or an IP. The records the checks count (`ops_events`, `service_starts`, `backup_runs`) are deleted after 30 days by the midnight job.
 - `revocationWindowDays`: when a word or a rule is dropped in the weekly review, the violations it caused in this many days are revoked; when a penalty is lifted by hand in 查学生, the student's violations of this many days are revoked with it.
 
 ### Environment variables
 
 - `PROMPTS_DIR` (`data/prompts` by default) holds the prompts, one file per purpose and kind, named `<name>.md`. The repository only has `<name>.example.md` files, which show the placeholders each prompt may use; a service that finds no `<name>.md` uses the example and prints a warning on startup. Both services read it. Real prompts are never committed.
-- `MAIL_FROM` is the sender of every mail, one address either bare or with a name (`机器人网校 <no-reply@example.com>`, the default). A malformed value (unbalanced `<` `>`, a line break) stops the service from starting.
+- `MAIL_FROM` is the sender of every mail, one address either bare or with a name (`机器人网校 <no-reply@example.com>`, the default). A malformed value (unbalanced `<` `>`, a line break) stops the service from starting. How mail is sent (`MAIL_TRANSPORT` and its settings) is under "Mail" in "Deployment".
 - `OPERATOR_EMAIL` is where the registration service mails the notice that the monthly budget is used up, and the alert mails (see `alerts` above). Without it, the budget notice is only shown on the data page and no alert is mailed.
 - `ADMIN_PATH`, `ADMIN_PASSWORD_HASH` and `ADMIN_TOTP_SECRET`: the registration service serves the admin pages only when all three are set (with only some of them set, it prints a warning). `ADMIN_PATH` is the path they are served under, for example `/your-secret-path`; it starts with `/` and not with `/v1`. Pick one that is hard to guess, and keep it out of anything you commit. The other two come from `npm run admin:password`.
 - The key of each provider, in the variable its `apiKeyEnv` names. Both services and `words:tidy` read them, and refuse to start when one is missing.
@@ -295,6 +295,41 @@ SystemMaxUse=2G
 then run `systemctl restart systemd-journald`. `SystemMaxUse` caps the space the logs take. `MaxFileSec=1day` is needed because journald deletes whole files, each once its oldest entry is older than `MaxRetentionSec`, and by default starts a new file only once a month, so a month of logs, most of them far younger than 30 days, would go at once; with a file a day, logs go a day at a time, at about 30 days old. On Debian and Ubuntu, journald also forwards everything to the syslog daemon by default (`ForwardToSyslog=yes`); where rsyslog is installed, as it is on Ubuntu, it keeps a copy in `/var/log/syslog` for as long as `/etc/logrotate.d/rsyslog` says (on recent releases, rotated weekly with four old files kept, about five weeks). To keep the logs only 30 days, limit that copy too: change the rotation there, or add `ForwardToSyslog=no` to the file above, which leaves `/var/log/syslog` without journald's messages.
 
 `deploy/smoke-test.sh` builds the image, starts everything with `deploy/compose.local.yml` (local image, example config, canned model, `https://localhost`), checks the health checks, that only the `backup` service sees `backup.env`, the proxy, `deploy.sh` and the watchdog, and removes everything it made. It needs Docker, and ports 80 and 443 free (or `HTTP_PORT` and `HTTPS_PORT` set).
+
+### Mail
+
+The registration service mails the verification codes to bot owners, and the budget notice and the alerts to `OPERATOR_EMAIL`. `MAIL_TRANSPORT` says how:
+
+- `smtp` (the default): through any SMTP server, set in `SMTP_URL`, for example `smtps://user:password@smtp.example.com:465`.
+- `tencent`: through Tencent Cloud's email API (邮件推送, the `SendEmail` action), for an account that may not use SMTP: Tencent Cloud lets personal accounts that opened the service after 2 March 2026 send only through its API and its console.
+- `console`: no mail; the codes are printed to the service log. For local development only.
+
+The API only sends approved templates, so `tencent` needs this in the Tencent Cloud console first:
+
+1. A sending domain, verified (it asks for MX, SPF, DKIM and DMARC records on the domain), and a sender address on it. Use that address in `MAIL_FROM`; a name before it must not contain a colon. Keep the DNS records: when they go, the domain stops being verified and every send fails.
+2. Plain-text templates, approved. Tencent Cloud does not approve a template that is mostly one variable, so the alerts and the budget notice send a few short fields instead of their text:
+   - The code template, with the variables `{{code}}` (the six digits) and `{{minutes}}` (how long the code is valid, `verificationCode.ttlMinutes`), for example the text the other ways send: `你的验证码是 {{code}}，{{minutes}} 分钟内有效。如果不是你本人操作，请忽略这封邮件。` Registration and key-reset codes share it.
+   - The alert template, with `{{kind}}`, what is wrong, and `{{time}}`, when it was found, as `2026-11-12 21:30` in the school's time zone. `kind` is one of `服务器意外错误`, `大模型连不上`, `大模型返回 400 错误`, `验证码邮件发送失败`, `定时任务失败`, `服务反复重启`, `备份失败`, `备份太久没成功` and `磁盘快满`. The counts and times the other ways put in the text are in the subject and in the service log.
+   - The budget template, with `{{month}}` (`2026-11`), `{{spent}}`, the month's spend in yuan with two decimals, and `{{budget}}`, `llm.monthlyBudgetYuan`.
+
+   The subjects are not part of the templates: the service sends them with each mail, the same as by SMTP (`机器人网校验证码`, `机器人网校 · 更换钥匙验证码`, and each alert's own, with its counts).
+3. An API key (SecretId and SecretKey), best of a sub-user allowed only `ses:SendEmail` and `ses:GetEmailIdentity`, and only from the server's IP address.
+
+Then set:
+
+| Variable | Value |
+| --- | --- |
+| `MAIL_TRANSPORT` | `tencent` |
+| `TENCENT_SES_SECRET_ID`, `TENCENT_SES_SECRET_KEY` | The API key. |
+| `TENCENT_SES_REGION` | The region the sending domain was created in, for example `ap-guangzhou` or `ap-hongkong`. |
+| `TENCENT_SES_CODE_TEMPLATE_ID` | The ID of the code template. |
+| `TENCENT_SES_ALERT_TEMPLATE_ID`, `TENCENT_SES_BUDGET_TEMPLATE_ID` | The IDs of the alert and the budget template. Needed when `OPERATOR_EMAIL` is set; may be left out otherwise. |
+
+`MAIL_FROM` must be set too. With one of them missing or malformed, the service does not start. Until both the alert and the budget template are approved, leave `OPERATOR_EMAIL` unset: the budget notice is then only shown on the data page, no alert is mailed, and the outside sentinel (below) is what tells the operator that mail stopped going out.
+
+For the alerts and `GET /healthz/mail` (see `alerts` under "Configuration"), the check every `mailCheckMinutes` asks Tencent Cloud whether the domain of `MAIL_FROM` is still verified, which also proves the key works. A send refused for one address (a malformed or invalid address, too many mails to that address in a short time, an address that unsubscribed or is on Tencent Cloud's blacklist, a recipient that refused it) is only logged with its error code. Every other failure counts as the mail service failing, among them: the daily limit or the quota used up, a template or sender that cannot be used, too many requests, a key that does not work, a mailbox provider refusing everything from the sender for a while (`FailedOperation.TemporaryBlocked`), and no answer within 10 seconds.
+
+Tencent Cloud starts a new sending domain on a small daily limit and raises it step by step as mail goes out well. Check the limits in its console before opening registration to many bot owners at once.
 
 ### Backups
 
