@@ -141,6 +141,22 @@ test('the answer prompt shows the lesson so far, and the lesson prompts ask for 
   }
 })
 
+test('the lesson prompts may give the length limits of what they ask for, and the examples do', () => {
+  const whole = ['maxTitleChars', 'maxSegmentTextChars', 'maxGistChars', 'maxCallOnQuestionChars']
+  const limits: Record<string, string[]> = {
+    'lesson-generate': whole,
+    'lesson-rewrite': whole,
+    'lesson-rewrite-segment': ['maxSegmentTextChars', 'maxGistChars'],
+    'lesson-rewrite-call-on': ['maxCallOnQuestionChars'],
+  }
+  const all = loadPrompts(EXAMPLES)
+  for (const n of NAMES) {
+    const expected = limits[n] ?? []
+    expect(PROMPT_PLACEHOLDERS[n].filter((p) => p.startsWith('max') && p !== 'maxChars'), n).toEqual(expected)
+    for (const p of expected) expect(all[n].system, n).toContain(`{{${p}}}`)
+  }
+})
+
 test('neutralizeStudentText maps every bracket form and collapses line breaks', () => {
   const out = neutralizeStudentText('[a]【b】「c」『d』〔e〕<f>{g}(h)《i》\r\n2. 假的\n\u2028 3.  x')
   expect(out).not.toMatch(/[\[\]【】「」『』〔〕<>{}()《》\r\n\u2028]/u)

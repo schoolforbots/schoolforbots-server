@@ -18,17 +18,57 @@ export interface PromptTemplate {
   user: string
 }
 
-const LESSON = ['division', 'subject', 'topic', 'direction', 'pastTitles', 'segmentCount', 'segmentMinutes', 'reviewScope', 'extensionTarget', 'format']
+/** The length limits of the lesson format (`src/lessons/format.ts`), in characters. */
+const SEGMENT_LIMITS = ['maxSegmentTextChars', 'maxGistChars']
+const LESSON_LIMITS = ['maxTitleChars', ...SEGMENT_LIMITS, 'maxCallOnQuestionChars']
+
+const LESSON = [
+  'division',
+  'subject',
+  'topic',
+  'direction',
+  'pastTitles',
+  'segmentCount',
+  'segmentMinutes',
+  'reviewScope',
+  'extensionTarget',
+  ...LESSON_LIMITS,
+  'format',
+]
 
 /**
  * The placeholders each prompt may use. A listed placeholder may be left out of a file, except `format`: code fills it
- * with the exact reply shape its parser accepts, so a prompt that lists it must contain it.
+ * with the exact reply shape its parser accepts, so a prompt that lists it must contain it. The format also states
+ * the length limits, so a lesson prompt that leaves out their placeholders still gives them.
  */
 export const PROMPT_PLACEHOLDERS: Record<PromptName, readonly string[]> = {
   'lesson-generate': LESSON,
   'lesson-rewrite': [...LESSON, 'currentLesson', 'reason'],
-  'lesson-rewrite-segment': ['division', 'subject', 'title', 'currentLesson', 'segmentIndex', 'segmentText', 'reason', 'direction', 'format'],
-  'lesson-rewrite-call-on': ['division', 'subject', 'title', 'currentLesson', 'callOnKind', 'currentQuestion', 'scope', 'reason', 'direction', 'format'],
+  'lesson-rewrite-segment': [
+    'division',
+    'subject',
+    'title',
+    'currentLesson',
+    'segmentIndex',
+    'segmentText',
+    'reason',
+    'direction',
+    ...SEGMENT_LIMITS,
+    'format',
+  ],
+  'lesson-rewrite-call-on': [
+    'division',
+    'subject',
+    'title',
+    'currentLesson',
+    'callOnKind',
+    'currentQuestion',
+    'scope',
+    'reason',
+    'direction',
+    'maxCallOnQuestionChars',
+    'format',
+  ],
   'teacher-answer': ['teacherName', 'teacherPersona', 'lessonSoFar', 'questions', 'maxChars', 'format'],
   'teacher-comment': ['teacherName', 'teacherPersona', 'callOnKind', 'question', 'answer', 'segmentText', 'maxChars'],
   'second-layer': ['source', 'items', 'format'],
