@@ -1,4 +1,4 @@
-import type { FastifyServerOptions } from 'fastify'
+import type { FastifyServerOptions, RouteOptions } from 'fastify'
 import { base32Encode, hashPassword, totpNow } from '../../src/admin/auth.js'
 import type { AdminDeps } from '../../src/admin/app.js'
 import type { Llm } from '../../src/llm/client.js'
@@ -35,6 +35,8 @@ export async function buildAdminTestApp(
     config?: SchoolConfig
     llm?: Llm | null
     now?: Date
+    /** Called for each route as the app loads, admin pages included. */
+    onRoute?: (route: RouteOptions) => void
   } = {},
 ) {
   const { db, destroy: destroyDb } = await createTestDb()
@@ -81,6 +83,8 @@ export async function buildAdminTestApp(
             distDir: opts.distDir,
           },
   })
+  // Routes are registered when the app loads, after buildRegistrationApp has returned, so the hook sees all of them.
+  if (opts.onRoute !== undefined) app.addHook('onRoute', opts.onRoute)
   try {
     await app.ready()
   } catch (err) {
