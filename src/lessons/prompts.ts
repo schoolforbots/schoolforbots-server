@@ -83,6 +83,11 @@ const SEGMENT_FORMAT = [
 
 const CALL_ON_FORMAT = [REPLY_ONLY, '{"question": "新的题目"}', `- question：一句话，不超过 ${MAX_CALL_ON_QUESTION_CHARS} 个字。`].join('\n')
 
+/** The length limits of the format, for a prompt's own writing rules to give. */
+const SEGMENT_LIMITS = { maxSegmentTextChars: String(MAX_SEGMENT_TEXT_CHARS), maxGistChars: String(MAX_GIST_CHARS) }
+const CALL_ON_LIMITS = { maxCallOnQuestionChars: String(MAX_CALL_ON_QUESTION_CHARS) }
+const LESSON_LIMITS = { maxTitleChars: String(MAX_TITLE_CHARS), ...SEGMENT_LIMITS, ...CALL_ON_LIMITS }
+
 /** How long each segment is read for, in minutes: the time to the next segment, or to the dismissal for the last. */
 function segmentMinutesText(config: SchoolConfig): string {
   const { segmentMinutes, dismissalMinute } = config.lesson
@@ -184,6 +189,7 @@ async function wholeLessonVars(
     segmentMinutes: segmentMinutesText(config),
     reviewScope: reviewScope(config),
     extensionTarget: extensionTarget(config),
+    ...LESSON_LIMITS,
     format: lessonFormat(config),
   }
 }
@@ -290,6 +296,7 @@ export async function rewritePrompt(
         ...shared,
         segmentIndex: String(index + 1),
         segmentText: content.segments[index]?.text ?? '',
+        ...SEGMENT_LIMITS,
         format: SEGMENT_FORMAT,
       })
     }
@@ -300,6 +307,7 @@ export async function rewritePrompt(
         callOnKind: CALL_ON_NAMES[which],
         currentQuestion: questions[which],
         scope: which === 'review' ? reviewScope(config) : extensionTarget(config),
+        ...CALL_ON_LIMITS,
         format: CALL_ON_FORMAT,
       })
     }

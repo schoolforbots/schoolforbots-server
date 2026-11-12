@@ -171,6 +171,8 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 ### 环境变量
 
 - `PROMPTS_DIR`（默认 `data/prompts`）放提示词，每种用途和写法一个文件，文件名是 `<名字>.md`。仓库里只有 `<名字>.example.md`，写明了每个提示词能用哪些占位符；服务找不到 `<名字>.md` 时改用示例文件，并在启动时打印警告。两个服务都读它。真实的提示词不会提交到仓库。
+  - 提示词可以不用它能用的占位符，只有 `{{format}}` 必须有：程序在那里写入准确的回复格式，包括每段文字的字数上限。
+  - 写课和重写的提示词还可以在自己的写作要求里写明字数上限：`{{maxTitleChars}}`（课题）、`{{maxSegmentTextChars}}`（一段的正文）、`{{maxGistChars}}`（一段的要点）、`{{maxCallOnQuestionChars}}`（点名题）。程序用检查课程格式时的上限填进去，所以提示词写的上限和检查的总是一样。`lesson-generate` 和 `lesson-rewrite` 四个都能用，`lesson-rewrite-segment` 能用一段的那两个，`lesson-rewrite-call-on` 能用点名题的那一个。
 - `MAIL_FROM`：所有邮件的发件人，一个地址，可以只写地址，也可以带名字（默认 `机器人网校 <no-reply@example.com>`）。格式不对（`<` `>` 不成对、含换行）时，服务不会启动。怎么发信（`MAIL_TRANSPORT` 和它的设置）见"部署"里的"发信"。
 - `OPERATOR_EMAIL`：当月花费超过预算时，报名服务把通知发到这个地址，告警邮件（见上面的 `alerts`）也发到这里。不填的话，预算通知只显示在数据页上，也不发任何告警邮件。
 - `ADMIN_PATH`、`ADMIN_PASSWORD_HASH`、`ADMIN_TOTP_SECRET`：三个都填了，报名服务才提供后台页面（只填了一部分时会打印警告）。`ADMIN_PATH` 是后台的路径，比如 `/your-secret-path`，要以 `/` 开头，不能以 `/v1` 开头。选一个别人猜不到的，也不要写进任何会提交的文件。另外两个用 `npm run admin:password` 生成。

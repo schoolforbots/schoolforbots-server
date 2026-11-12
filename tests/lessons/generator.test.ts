@@ -3,7 +3,13 @@ import type { Kysely, KyselyPlugin } from 'kysely'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { planSession } from '../../src/class/planning.js'
 import { openingLesson } from '../../src/class/teacher.js'
-import { LessonFormatError } from '../../src/lessons/format.js'
+import {
+  LessonFormatError,
+  MAX_CALL_ON_QUESTION_CHARS,
+  MAX_GIST_CHARS,
+  MAX_SEGMENT_TEXT_CHARS,
+  MAX_TITLE_CHARS,
+} from '../../src/lessons/format.js'
 import {
   acceptPasted,
   generateMissing,
@@ -405,7 +411,9 @@ describe('buildLessonPrompt', () => {
     await insertLesson(db, { date: '2026-11-02', division: 'junior', subject: '语文', title: '春晓' })
 
     const p = await buildLessonPrompt(deps, 'generate', { date: THU, division: 'junior' })
-    expect(p.system).toBe(prompts['lesson-generate'].system)
+    expect(p.system).toContain(prompts['lesson-generate'].system.slice(0, 20))
+    expect(p.system).toContain(`不能超过 ${MAX_SEGMENT_TEXT_CHARS} 个字`)
+    expect(p.system).not.toMatch(/\{\{\w+\}\}/)
     expect(p.user).toContain('学部：初中部')
     expect(p.user).toContain('科目：科学')
     expect(p.user).toContain('本节课的主题：没有指定')
@@ -476,7 +484,9 @@ describe('buildLessonPrompt', () => {
       segmentIndex: 2,
       reason: '太难了，换个例子',
     })
-    expect(p.system).toBe(prompts['lesson-rewrite-segment'].system)
+    expect(p.system).toContain(prompts['lesson-rewrite-segment'].system.slice(0, 20))
+    expect(p.system).toContain(`不能超过 ${MAX_SEGMENT_TEXT_CHARS} 个字`)
+    expect(p.system).not.toMatch(/\{\{\w+\}\}/)
     expect(p.user).toContain('重写下面这节课的第 3 段')
     expect(p.user).toContain('课题：光的折射')
     expect(p.user).toContain('修改意见：太难了，换个例子')
@@ -510,12 +520,45 @@ describe('buildLessonPrompt', () => {
     const { deps } = make(school())
     const { lessonId } = await saveDraft(deps, { date: THU, division: 'junior' }, content(), { source: 'api', change: 'generate' })
     const p = await buildLessonPrompt(deps, 'rewrite_lesson', { date: THU, division: 'junior', lessonId, reason: '选题不合适' })
-    expect(p.system).toBe(prompts['lesson-rewrite'].system)
+    expect(p.system).toContain(prompts['lesson-rewrite'].system.slice(0, 20))
+    expect(p.system).toContain(`不能超过 ${MAX_SEGMENT_TEXT_CHARS} 个字`)
+    expect(p.system).not.toMatch(/\{\{\w+\}\}/)
     expect(p.user).toContain('修改意见：选题不合适')
     expect(p.user).toContain('标题：光的折射')
     expect(p.user).toContain(`复习题：${CALL_ONS.review}`)
     expect(p.user).toContain('"callOnQuestions"')
     expect(p.user).not.toMatch(/\{\{\w+\}\}/)
+  })
+
+  test('fills the length-limit placeholders with the limits of the lesson format', async () => {
+    const limits: Record<string, number> = {
+      maxTitleChars: MAX_TITLE_CHARS,
+      maxSegmentTextChars: MAX_SEGMENT_TEXT_CHARS,
+      maxGistChars: MAX_GIST_CHARS,
+      maxCallOnQuestionChars: MAX_CALL_ON_QUESTION_CHARS,
+    }
+    const uses = (names: string[]) => ({ system: names.map((n) => `${n}={{${n}}}`).join(' '), user: '{{format}}' })
+    const said = (names: string[]) => names.map((n) => `${n}=${limits[n]}`).join(' ')
+    const whole = Object.keys(limits)
+    const segment = ['maxSegmentTextChars', 'maxGistChars']
+    const callOn = ['maxCallOnQuestionChars']
+    const { deps: base } = make(school())
+    const deps = {
+      ...base,
+      prompts: {
+        ...prompts,
+        'lesson-generate': uses(whole),
+        'lesson-rewrite': uses(whole),
+        'lesson-rewrite-segment': uses(segment),
+        'lesson-rewrite-call-on': uses(callOn),
+      },
+    }
+    const { lessonId } = await saveDraft(deps, { date: THU, division: 'junior' }, content(), { source: 'api', change: 'generate' })
+    const target = { date: THU, division: 'junior' as const, lessonId, reason: 'r' }
+    expect((await buildLessonPrompt(deps, 'generate', target)).system).toBe(said(whole))
+    expect((await buildLessonPrompt(deps, 'rewrite_lesson', target)).system).toBe(said(whole))
+    expect((await buildLessonPrompt(deps, 'rewrite_segment', { ...target, segmentIndex: 0 })).system).toBe(said(segment))
+    expect((await buildLessonPrompt(deps, 'rewrite_call_on', { ...target, callOn: 'review' })).system).toBe(said(callOn))
   })
 
   test('refuses a day without a lesson, and a rewrite that does not say what or why', async () => {
