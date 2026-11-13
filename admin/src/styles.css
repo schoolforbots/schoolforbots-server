@@ -133,7 +133,7 @@ p {
   padding: 8px 0 0;
 }
 
-/* Yesterday's numbers: the one thing on the page meant to be read first. */
+/* Today's and yesterday's numbers: what the page is meant to be read for first. */
 /* The spend gets more room: it also carries the month and the budget. */
 .tiles {
   display: grid;
@@ -160,6 +160,11 @@ p {
 .tile-change {
   color: #5c5c5c;
   font-size: 12px;
+}
+/* What today is set against, and why no class is held: above the numbers they explain. */
+.day-note {
+  margin: -4px 0 12px;
+  color: #4a4a4a;
 }
 
 .reminders {

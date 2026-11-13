@@ -202,7 +202,7 @@ These keys of the school config are about the model and the admin (see `config/s
 
 To work on the pages, `npm run admin:dev` serves them at `http://localhost:5173/` and passes their API calls on to a running registration service (it reads `ADMIN_PATH` from `.env`); `npm run admin:test` runs their tests.
 
-The admin has five tabs: 学校数据 (yesterday's numbers next to the same day a week before, the reminders, the model's spend against the budget, and charts of the last 7, 30 or 90 days), 审课 (the lessons of the days ahead, see below), 每周复盘 (the weekly review, made every Monday after the midnight job), 查学生 (a student's details, messages and records; suspend, withdraw or lift a penalty by hand) and 开关 (the switches).
+The admin has five tabs: 学校数据 (today's numbers so far, there as soon as a class is over, next to the same day a week before up to the same time; yesterday's next to the same day a week before; the reminders; the model's spend against the budget; and charts of the last 7, 30 or 90 days, up to yesterday), 审课 (the lessons of the days ahead, see below), 每周复盘 (the weekly review, made every Monday after the midnight job), 查学生 (a student's details, messages and records; suspend, withdraw or lift a penalty by hand) and 开关 (the switches).
 
 ### Maintenance
 

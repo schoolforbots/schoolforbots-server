@@ -1,13 +1,35 @@
 import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { dailyStats, dayNumbers, fail, fakeServer, ok, seriesDay, shiftDate, show, YESTERDAY } from '../test-api.js'
+import type { DailyStats } from '../api.js'
+import {
+  dailyStats,
+  dayNumbers,
+  fail,
+  fakeServer,
+  ok,
+  seriesDay,
+  shiftDate,
+  show,
+  YESTERDAY,
+  type Reply,
+} from '../test-api.js'
 import { Data } from './Data.js'
 
 const LAST_WEEK = shiftDate(YESTERDAY, -7)
+const TODAY = shiftDate(YESTERDAY, 1)
+const TODAY_LAST_WEEK = shiftDate(TODAY, -7)
+// The answers count today up to 16:00 at the school unless they say otherwise.
+const TODAY_TITLE = '今天（截至 16:00），11 月 4 日（周三）'
+const YESTERDAY_TITLE = '昨天，11 月 3 日（周二）'
 
-function tile(name: string) {
-  return within(screen.getByRole('group', { name }))
+/** The tiles of one day: the panel titled `day`. */
+function panel(day: string) {
+  return within(screen.getByRole('region', { name: day }))
+}
+
+function tile(name: string, day = YESTERDAY_TITLE) {
+  return within(panel(day).getByRole('group', { name }))
 }
 
 /** A week with something on every curve, ending yesterday. */
@@ -64,7 +86,8 @@ describe('the school data page', () => {
     up = true
     await user.click(screen.getByRole('button', { name: '重新读取' }))
 
-    expect(await screen.findByRole('group', { name: '来上课的学生' })).toHaveTextContent('42')
+    expect(await screen.findByRole('heading', { name: YESTERDAY_TITLE })).toBeInTheDocument()
+    expect(tile('来上课的学生').getByText('42')).toBeInTheDocument()
   })
 
   it('shows the server’s reason when it refuses', async () => {
@@ -104,7 +127,7 @@ describe('the school data page', () => {
     })
     show(<Data onGoReview={vi.fn()} />)
 
-    expect(await screen.findByRole('heading', { name: '昨天，11 月 3 日（周二）' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: YESTERDAY_TITLE })).toBeInTheDocument()
     const expected: [string, string, string][] = [
       ['来上课的学生', '128', '比上周二多 8'],
       ['聊天消息', '5,321', '和上周二一样'],
@@ -119,14 +142,145 @@ describe('the school data page', () => {
       expect(tile(name).getByText(value)).toBeInTheDocument()
       expect(tile(name).getByText(change)).toBeInTheDocument()
     }
-    expect(tile('大模型花费').getByText('本月 ¥45.67，预算 ¥300.00')).toBeInTheDocument()
+    // The month so far goes with today, whose spend is in it.
+    expect(tile('大模型花费', TODAY_TITLE).getByText('本月 ¥45.67，预算 ¥300.00')).toBeInTheDocument()
+    expect(tile('大模型花费').queryByText(/本月/)).not.toBeInTheDocument()
+  })
+
+  it('shows today’s numbers up to now, each set against the same day last week up to the same time', async () => {
+    fakeServer({
+      'GET api/stats/daily?days=7': ok(
+        dailyStats(7, {
+          todaySoFar: dayNumbers(TODAY, {
+            dau: 64,
+            chat: 2100,
+            blocked: 5,
+            violations: 1,
+            suspensions: 0,
+            expulsions: 0,
+            registrations: 4,
+            costYuan: 1.5,
+          }),
+          sameTimeLastWeek: dayNumbers(TODAY_LAST_WEEK, {
+            dau: 60,
+            chat: 2100,
+            blocked: 7,
+            violations: 0,
+            suspensions: 0,
+            expulsions: 1,
+            registrations: 1,
+            costYuan: 1.75,
+          }),
+          yesterday: dayNumbers(YESTERDAY, { dau: 128 }),
+        }),
+      ),
+    })
+    show(<Data onGoReview={vi.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: TODAY_TITLE })).toBeInTheDocument()
+    // What they are set against is said once, above them.
+    expect(panel(TODAY_TITLE).getByText('和上周三零点到 16:00 的数字比。')).toBeInTheDocument()
+    const expected: [string, string, string][] = [
+      ['来上课的学生', '64', '比上周三多 4'],
+      ['聊天消息', '2,100', '和上周三一样'],
+      ['拦下的消息', '5', '比上周三少 2'],
+      ['违反校规', '1', '比上周三多 1'],
+      ['停课', '0', '和上周三一样'],
+      ['开除', '0', '比上周三少 1'],
+      ['新报名', '4', '比上周三多 3'],
+      ['大模型花费', '¥1.50', '比上周三少 ¥0.25'],
+    ]
+    for (const [name, value, change] of expected) {
+      expect(tile(name, TODAY_TITLE).getByText(value)).toBeInTheDocument()
+      expect(tile(name, TODAY_TITLE).getByText(change)).toBeInTheDocument()
+    }
+    // Today comes first, yesterday after it, as they were counted.
+    const titles = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
+    expect(titles.slice(0, 2)).toEqual([TODAY_TITLE, YESTERDAY_TITLE])
+    expect(tile('来上课的学生').getByText('128')).toBeInTheDocument()
+  })
+
+  it('reads the time up to which today is counted on the school’s clock', async () => {
+    // 16:00 in Shanghai is 09:00 in London.
+    fakeServer({ 'GET api/stats/daily?days=7': ok(dailyStats(7, { timeZone: 'Europe/London' })) })
+    show(<Data onGoReview={vi.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: '今天（截至 08:00），11 月 4 日（周三）' })).toBeInTheDocument()
   })
 
   it('says when the same day last week came before the school opened', async () => {
-    fakeServer({ 'GET api/stats/daily?days=7': ok(dailyStats(7, { sameDayLastWeek: null })) })
+    fakeServer({
+      'GET api/stats/daily?days=7': ok(dailyStats(7, { sameDayLastWeek: null, sameTimeLastWeek: null })),
+    })
     show(<Data onGoReview={vi.fn()} />)
 
-    expect(await screen.findAllByText('上周二学校还没开学')).toHaveLength(8)
+    await screen.findByRole('heading', { name: TODAY_TITLE })
+    expect(panel(YESTERDAY_TITLE).getAllByText('上周二学校还没开学')).toHaveLength(8)
+    expect(panel(TODAY_TITLE).getAllByText('上周三学校还没开学')).toHaveLength(8)
+    expect(panel(TODAY_TITLE).queryByText(/的数字比/)).not.toBeInTheDocument()
+  })
+
+  it('says why no class is held today, and still shows the day’s numbers', async () => {
+    const cases: [DailyStats['todayStatus'], string][] = [
+      [{ state: 'not_started', breakName: null, schoolDay: false, maintenance: false }, '学校还没开学，今天不上课。'],
+      [{ state: 'on_break', breakName: '寒假', schoolDay: false, maintenance: true }, '今天放假（寒假），不上课。'],
+      [{ state: 'on_break', breakName: null, schoolDay: false, maintenance: false }, '今天放假，不上课。'],
+      [{ state: 'in_term', breakName: null, schoolDay: false, maintenance: false }, '今天是周三，周末不上课。'],
+      [
+        { state: 'in_term', breakName: null, schoolDay: true, maintenance: true },
+        '现在维护中：上课服务不让任何人进，碰上维护的时段今天不上课。',
+      ],
+    ]
+    for (const [todayStatus, why] of cases) {
+      fakeServer({
+        'GET api/stats/daily?days=7': ok(
+          dailyStats(7, { todayStatus, todaySoFar: dayNumbers(TODAY, { registrations: 12 }) }),
+        ),
+      })
+      const { unmount } = show(<Data onGoReview={vi.fn()} />)
+
+      await screen.findByRole('heading', { name: TODAY_TITLE })
+      expect(panel(TODAY_TITLE).getByText(`和上周三零点到 16:00 的数字比。${why}`)).toBeInTheDocument()
+      expect(tile('新报名', TODAY_TITLE).getByText('12')).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('says nothing above today’s numbers on a school day', async () => {
+    fakeServer({ 'GET api/stats/daily?days=7': ok(dailyStats(7)) })
+    show(<Data onGoReview={vi.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: TODAY_TITLE })).toBeInTheDocument()
+    expect(panel(TODAY_TITLE).getByText('和上周三零点到 16:00 的数字比。')).toBeInTheDocument()
+    expect(panel(TODAY_TITLE).queryByText(/不上课/)).not.toBeInTheDocument()
+  })
+
+  it('reads today’s numbers again up to now', async () => {
+    let answer: Reply = ok(dailyStats(7, { todaySoFar: dayNumbers(TODAY, { chat: 10 }) }))
+    const { calls } = fakeServer({ 'GET api/stats/daily?days=7': () => answer })
+    const user = userEvent.setup()
+    show(<Data onGoReview={vi.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: TODAY_TITLE })).toBeInTheDocument()
+    expect(tile('聊天消息', TODAY_TITLE).getByText('10')).toBeInTheDocument()
+
+    // A class later, at 16:30 (08:30 UTC).
+    answer = ok(dailyStats(7, { todaySoFar: dayNumbers(TODAY, { chat: 250 }), asOf: `${TODAY}T08:30:00.000Z` }))
+    await user.click(screen.getByRole('button', { name: '更新到现在' }))
+    const later = '今天（截至 16:30），11 月 4 日（周三）'
+    expect(await screen.findByRole('heading', { name: later })).toBeInTheDocument()
+    expect(tile('聊天消息', later).getByText('250')).toBeInTheDocument()
+    expect(panel(later).getByText('和上周三零点到 16:30 的数字比。')).toBeInTheDocument()
+
+    // While it reads, the button says so and keeps the focus; a second click asks nothing more.
+    answer = { pending: true }
+    const update = screen.getByRole('button', { name: '更新到现在' })
+    await user.click(update)
+    expect(update).toHaveTextContent('正在更新')
+    expect(update).toHaveFocus()
+    await user.click(update)
+    expect(calls).toHaveLength(3)
+    expect(tile('聊天消息', later).getByText('250')).toBeInTheDocument()
   })
 
   it('reminds of the lessons to review, the failed ones and the spend over budget', async () => {

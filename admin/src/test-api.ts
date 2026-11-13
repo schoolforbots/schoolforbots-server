@@ -123,7 +123,13 @@ export function seriesDay(date: string, numbers: Partial<SeriesDay> = {}): Serie
 
 /** The answer of `api/stats/daily` for `days` days ending yesterday, all zeros unless `stats` says otherwise. */
 export function dailyStats(days: number, stats: Partial<DailyStats> = {}): DailyStats {
+  const today = shiftDate(YESTERDAY, 1)
   return {
+    todaySoFar: dayNumbers(today),
+    sameTimeLastWeek: dayNumbers(shiftDate(today, -7)),
+    // 16:00 at the school (UTC+8), today.
+    asOf: `${today}T08:00:00.000Z`,
+    todayStatus: { state: 'in_term', breakName: null, schoolDay: true, maintenance: false },
     yesterday: dayNumbers(YESTERDAY),
     sameDayLastWeek: dayNumbers(shiftDate(YESTERDAY, -7)),
     month: { costYuan: 0, budgetYuan: 300, overBudget: false },
@@ -131,7 +137,7 @@ export function dailyStats(days: number, stats: Partial<DailyStats> = {}): Daily
     series: Array.from({ length: days }, (_, i) => seriesDay(shiftDate(YESTERDAY, i - days + 1))),
     switchChanges: [],
     timeZone: 'Asia/Shanghai',
-    today: shiftDate(YESTERDAY, 1),
+    today,
     ...stats,
   }
 }
