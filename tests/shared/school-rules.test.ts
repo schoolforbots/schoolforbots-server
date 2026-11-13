@@ -194,5 +194,5 @@ describe('diffSchoolRules', () => {
 })
 
 test('schoolRulesUrl points at the version on GitHub', () => {
-  expect(schoolRulesUrl('2026-11-03')).toBe('https://github.com/schoolforbots/server/blob/main/school-rules/2026-11-03.md')
+  expect(schoolRulesUrl('2026-11-03')).toBe('https://github.com/schoolforbots/schoolforbots-server/blob/main/school-rules/2026-11-03.md')
 })
