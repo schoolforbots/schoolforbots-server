@@ -17,7 +17,7 @@ import type { Hub } from './hub.js'
 import { callsOf, writeComment, type Call } from './questions.js'
 import type { ActiveSession } from './runtime.js'
 import * as teacher from './teacher.js'
-import { lessonSteps } from './timeline.js'
+import { classDelayMs, lessonSteps } from './timeline.js'
 
 // What the teacher says in words of the model: after each segment, the answer to at most one of the students'
 // questions, picked by the model for being on the segment's topic; and a comment on each answer to a call-on. The work
@@ -342,18 +342,20 @@ export function createTeacherAi(deps: TeacherAiDeps): TeacherAi {
       .selectFrom('classSessions as s')
       .innerJoin('classes as c', 'c.id', 's.classId')
       .leftJoin('lessons as l', 'l.id', 's.lessonId')
-      .select(['s.startsAt', 'c.teacherPersonaId', 'l.segments', 'l.callOnQuestions'])
+      .select(['s.startsAt', 's.classId', 'c.teacherPersonaId', 'l.segments', 'l.callOnQuestions'])
       .where('s.id', '=', sessionId)
       .executeTakeFirstOrThrow()
     const after = config.lesson.callOns[call.n - 1]?.afterSegment ?? 0
     const segments = row.segments ?? []
     const relevant = call.kind === 'review' ? segments.slice(0, after) : segments.slice(after, after + 1)
     const steps = lessonSteps(row.startsAt, 'lesson', config.lesson, speed, config.teacherAi.answerLeadSeconds)
+    const close = steps.find((s) => s.step === `call-on-close-${call.n}`)?.at
     return {
       ...teacherOf(row.teacherPersonaId),
       question: row.callOnQuestions?.[call.kind] ?? null,
       segmentText: relevant.length === 0 ? null : relevant.map((s) => s.text).join('\n\n'),
-      deadline: steps.find((s) => s.step === `call-on-close-${call.n}`)?.at ?? null,
+      // The close of the call is the class's step, a little after the timetable like the others (see `classDelayMs`).
+      deadline: close === undefined ? null : new Date(close.getTime() + classDelayMs(row.classId, config.lesson, speed)),
     }
   }
 

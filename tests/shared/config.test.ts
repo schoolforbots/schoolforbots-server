@@ -61,6 +61,7 @@ test('example config loads with spec defaults', () => {
     ],
     maxQuestionsPerLesson: 3,
     weekendStudy: true,
+    staggerMillis: 2000,
   })
   expect(c.chat).toEqual({
     maxInitiationsPerLesson: 3,
@@ -398,6 +399,17 @@ test('two lesson.callOns must not come after the same segment', () => {
   expect(() => loadSchoolConfig(none)).toThrow(/lesson\.callOns/)
 })
 
+test('lesson.staggerMillis may be left out, for 2 seconds, or be anything from 0 to 10 seconds', () => {
+  const none = writeTmpConfig((c) => delete (c.lesson as Record<string, unknown>).staggerMillis)
+  expect(loadSchoolConfig(none).lesson.staggerMillis).toBe(2000)
+  for (const ms of [0, 10_000]) {
+    const tmpPath = writeTmpConfig((c) => {
+      c.lesson = { ...(c.lesson as object), staggerMillis: ms }
+    })
+    expect(loadSchoolConfig(tmpPath).lesson.staggerMillis).toBe(ms)
+  }
+})
+
 test('both lesson cross-field problems are reported together', () => {
   const tmpPath = writeTmpConfig((c) => {
     c.lesson = { ...(c.lesson as object), segmentMinutes: [5, 5, 15], callOns: [one(3)] }
@@ -412,6 +424,9 @@ test('lesson, chat and discipline numbers are checked with their field paths', (
     ['lesson.closingGraceSeconds', (c) => (c.lesson.closingGraceSeconds = 1.5)],
     ['lesson.maxQuestionsPerLesson', (c) => (c.lesson.maxQuestionsPerLesson = -1)],
     ['lesson.weekendStudy', (c) => (c.lesson.weekendStudy = 'yes')],
+    ['lesson.staggerMillis', (c) => (c.lesson.staggerMillis = -1)],
+    ['lesson.staggerMillis', (c) => (c.lesson.staggerMillis = 0.5)],
+    ['lesson.staggerMillis', (c) => (c.lesson.staggerMillis = 10_001)],
     ['chat.maxInitiationsPerLesson', (c) => (c.chat.maxInitiationsPerLesson = -1)],
     ['chat.maxRoundsPerConversation', (c) => (c.chat.maxRoundsPerConversation = 0)],
     ['chat.maxMessageChars', (c) => (c.chat.maxMessageChars = 0)],

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { lessonSteps } from '../../src/class/timeline.js'
+import { classDelayMs, lessonSteps } from '../../src/class/timeline.js'
 import type { SchoolConfig } from '../../src/shared/config.js'
 import { exampleConfig } from '../helpers/app.js'
 
@@ -168,5 +168,42 @@ describe('lessonSteps for a study hall', () => {
       'dismissal 20:00:30.000',
       'close 20:00:31.000',
     ])
+  })
+})
+
+describe('classDelayMs', () => {
+  const WINDOW = { staggerMillis: 2000 }
+  const ids = (from: number, count: number) => Array.from({ length: count }, (_, i) => from + i)
+
+  test('is fixed by the class: the same every time, and within the window', () => {
+    for (const id of ids(1, 1000)) {
+      const delay = classDelayMs(id, WINDOW, 1)
+      expect(Number.isInteger(delay)).toBe(true)
+      expect(delay).toBeGreaterThanOrEqual(0)
+      expect(delay).toBeLessThan(2000)
+      expect(classDelayMs(id, WINDOW, 1)).toBe(delay)
+    }
+  })
+
+  test('spreads 40 classes in a row about evenly: every tenth of the window has 3 to 5 of them', () => {
+    for (const first of [1, 101, 1001, 54_321]) {
+      const tenths = Array.from({ length: 10 }, () => 0)
+      for (const id of ids(first, 40)) tenths[Math.floor(classDelayMs(id, WINDOW, 1) / 200)]! += 1
+      expect(Math.min(...tenths), `ids from ${first}: ${tenths.join(', ')}`).toBeGreaterThanOrEqual(3)
+      expect(Math.max(...tenths), `ids from ${first}: ${tenths.join(', ')}`).toBeLessThanOrEqual(5)
+    }
+  })
+
+  test('gives no two classes in a row the same delay', () => {
+    const delays = ids(1, 40).map((id) => classDelayMs(id, WINDOW, 1))
+    expect(new Set(delays).size).toBe(40)
+  })
+
+  test('is 0 for every class without a window', () => {
+    for (const id of ids(1, 100)) expect(classDelayMs(id, { staggerMillis: 0 }, 1)).toBe(0)
+  })
+
+  test('is divided by the timeline speed, as every other duration is, in whole milliseconds', () => {
+    for (const id of ids(1, 100)) expect(classDelayMs(id, WINDOW, 60)).toBe(Math.floor(classDelayMs(id, WINDOW, 1) / 60))
   })
 })

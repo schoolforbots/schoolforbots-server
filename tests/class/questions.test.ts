@@ -16,11 +16,13 @@ import {
 import type { ActiveSession } from '../../src/class/runtime.js'
 import { CHECK_MARGIN_MS, createTeacherAi, type TeacherAi } from '../../src/class/teacher-ai.js'
 import { callOnQuestion, callOnNoAnswer, callOnThanks, questionReceived } from '../../src/class/teacher.js'
+import { classDelayMs } from '../../src/class/timeline.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from '../../src/class/ws-errors.js'
 import type { Llm } from '../../src/llm/client.js'
 import { LlmContentRefused, LlmUnavailable } from '../../src/llm/provider.js'
 import type { SecondLayer, SecondVerdict } from '../../src/moderation/second-layer.js'
 import { ServerMessage } from '../../src/protocol/ws.js'
+import type { SchoolConfig } from '../../src/shared/config.js'
 import type { Database } from '../../src/shared/schema.js'
 import type { Switches } from '../../src/shared/switches.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
@@ -115,10 +117,10 @@ describe('questions and the call-on', () => {
   }
 
   /** The teacher's work with the model, on the test database, clock and hub. */
-  function teacherAi(p: { llm?: Llm; secondLayer?: SecondLayer; switches?: Switches } = {}): TeacherAi {
+  function teacherAi(p: { llm?: Llm; secondLayer?: SecondLayer; switches?: Switches; config?: SchoolConfig } = {}): TeacherAi {
     return createTeacherAi({
       db,
-      config,
+      config: p.config ?? config,
       clock,
       hub,
       llm: p.llm ?? scripted().llm,
@@ -806,6 +808,31 @@ describe('questions and the call-on', () => {
 
       await callOnCloseStep(d, session, 1)
       expect(sent()).toEqual([classEvent(session, 4, teacherSays(THANKS), at('20:15:00.001'))])
+    })
+
+    test("with the classes staggered, the next segment is the class's own: a comment back before it is said", async () => {
+      const session = await room()
+      const a = await student(session)
+      const lesson = { ...config.lesson, staggerMillis: 2000 }
+      const delay = classDelayMs(session.classId, lesson, 1)
+      expect(delay).toBeGreaterThan(0)
+      const late = deferred<string>()
+      const model = scripted([late.promise])
+      const ai = teacherAi({ llm: model.llm, config: { ...config, lesson } })
+      const d = deps({ teacherAi: ai })
+      clock.set(at('20:14'))
+      await callOnStep(d, session, 1, QUESTION)
+      await answer(d, a, 2, '讲了光的折射')
+      sent()
+      await vi.waitFor(() => expect(model.calls).toHaveLength(1))
+
+      // Past the timetable's time of segment 3, a millisecond before the class's.
+      const due = new Date(at('20:15').getTime() + delay - 1)
+      clock.set(due)
+      late.resolve(COMMENT)
+      await ai.idle()
+      expect(sent()).toEqual([classEvent(session, 4, teacherSays(COMMENT), due)])
+      expect(await commentOf(session)).toBe(COMMENT)
     })
 
     test('after a restart, nobody is called on again and nothing is commented on twice', async () => {

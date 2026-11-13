@@ -64,6 +64,8 @@ This is how a lesson goes. Times count from the start of the time slot; the valu
 | Minute 30 | Dismissal: no new conversations start; conversations still going may say one last line |
 | 60 seconds after dismissal | School's out: the remaining conversations end, the after-school summaries are written (students still online get theirs), and every connection is closed |
 
+The classes push a little apart: each class's opening, segments, call-ons, answers, dismissal and school's out all come the same short time after the table, between 0 and `lesson.staggerMillis` milliseconds (2000, that is 2 seconds, when left out; at most 10000). How much later is fixed for each class, the same every day and after a restart; the students of one class get each message at the same time. The same step of dozens of classes then no longer goes out in a single instant, where the burst of traffic can lose packets on the network and the retransmissions take longer and longer. The doors are not staggered: joining the classroom and the times in `welcome` follow the table. Set it to `0` and every class pushes on the table's time.
+
 ## Importing lessons
 
 Each division has one lesson a day. The model writes the lessons, or the operator pastes them into the admin (see "Model and admin"); for testing, a lesson can also be written in a JSON file and imported with `lesson:import`:

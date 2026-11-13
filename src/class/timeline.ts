@@ -89,3 +89,19 @@ export function lessonSteps(
     .sort((a, b) => a.at.getTime() - b.at.getTime() || a.rank - b.rank)
     .map(({ step, at }) => ({ step, at }))
 }
+
+/** The golden ratio less one. Its multiples, taken modulo 1, spread over [0, 1) about as evenly as any sequence can. */
+const GOLDEN = (Math.sqrt(5) - 1) / 2
+
+/**
+ * How much later than the timetable (`lessonSteps`) the steps of a class come, in whole milliseconds at timeline
+ * `speed`: a share of `lesson.staggerMillis`, which the speed divides like every other duration. The share is the
+ * fractional part of the class's id times the golden ratio: a class keeps it on every day and after a restart, and the
+ * shares of ids that follow one another lie evenly over the window (those of other ids about as evenly as at random).
+ * The many classes with a step at the same moment then push it spread over the window, not all in the same instant.
+ * Always 0 without a window.
+ */
+export function classDelayMs(classId: number, lesson: Pick<SchoolConfig['lesson'], 'staggerMillis'>, speed: number): number {
+  const share = (classId * GOLDEN) % 1
+  return Math.floor((share * lesson.staggerMillis) / speed)
+}

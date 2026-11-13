@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { lockSession } from '../../src/class/events.js'
 import { noopHooks, type LessonHooks } from '../../src/class/hooks.js'
 import { RecordingHub, type RecordedMessage } from '../../src/class/hub.js'
-import { createClassRuntime, type ActiveSession } from '../../src/class/runtime.js'
+import { ClassStepError, createClassRuntime, type ActiveSession } from '../../src/class/runtime.js'
 import {
   dismissal,
   lessonIntro,
@@ -17,11 +17,13 @@ import {
   weekendIntro,
   welcomeNewcomers,
 } from '../../src/class/teacher.js'
+import { classDelayMs } from '../../src/class/timeline.js'
 import { createModerator } from '../../src/moderation/moderator.js'
 import type { ClassEventMessage, ClosingMessage } from '../../src/protocol/ws.js'
 import type { Division, SchoolConfig, Slot } from '../../src/shared/config.js'
 import { lessonLockKey, lock } from '../../src/shared/db.js'
 import { displayName } from '../../src/shared/identity.js'
+import type { Maintenance } from '../../src/shared/maintenance.js'
 import type { Database, StudentStatus } from '../../src/shared/schema.js'
 import { createTestClock } from '../helpers/clock.js'
 import { exampleConfig } from '../helpers/app.js'
@@ -199,6 +201,8 @@ function newRuntime(p: {
   speed?: number
   logs?: [object, string][]
   config?: SchoolConfig
+  maintenance?: () => Maintenance | null
+  ticksPerRetry?: number
 }) {
   return createClassRuntime({
     db,
@@ -208,6 +212,8 @@ function newRuntime(p: {
     moderator,
     speed: p.speed ?? 1,
     hooks: p.hooks ?? noopHooks,
+    ...(p.maintenance === undefined ? {} : { maintenance: p.maintenance }),
+    ...(p.ticksPerRetry === undefined ? {} : { ticksPerRetry: p.ticksPerRetry }),
     log: (obj, msg) => void p.logs?.push([obj, msg]),
   })
 }
@@ -862,6 +868,277 @@ describe('a restart (Review Focus 2)', () => {
     const staleSteps = await db.selectFrom('classEvents').select('step').where('sessionId', '=', stale).execute()
     expect(staleSteps.map((s) => s.step)).toContain('dismissal')
     expect(runtime.currentSession(classId)).toMatchObject({ sessionId: rows[1]!.id })
+  })
+})
+
+describe('classes staggered over lesson.staggerMillis', () => {
+  const STAGGER = 2000
+  const staggered: SchoolConfig = { ...config, lesson: { ...config.lesson, staggerMillis: STAGGER } }
+  const later = (d: Date, ms: number) => new Date(d.getTime() + ms)
+  const opening = `teacher ${openingLesson('老周', '科学', '光的折射')}`
+
+  /** `count` evening classes of two members each, online in `hub`, with each one's delay: the earliest first. */
+  async function seedClasses(hub: RecordingHub, count: number) {
+    const classes: { classId: number; members: Member[]; delay: number }[] = []
+    for (let classNo = 1; classNo <= count; classNo++) {
+      const { classId, members } = await seedClass({ classNo, members: 2 })
+      for (const m of members) hub.join(classId, m.id)
+      classes.push({ classId, members, delay: classDelayMs(classId, staggered.lesson, 1) })
+    }
+    // Classes in a row never share a delay, so each test can tell them apart.
+    expect(new Set(classes.map((c) => c.delay)).size).toBe(count)
+    return classes.sort((a, b) => a.delay - b.delay)
+  }
+
+  /** What the hub was given since it had `from` messages: the class each push went to, and what it said. */
+  function pushedSince(hub: RecordingHub, from: number): [number, string][] {
+    return hub.messages.slice(from).map((m): [number, string] => [m.to === 'class' ? m.classId : -1, show(m)])
+  }
+
+  /** The steps each session wrote, in the order it wrote them, by class. */
+  async function stepsByClass(): Promise<Map<number, { step: string; kind: string; seq: number }[]>> {
+    const rows = await db
+      .selectFrom('classEvents as e')
+      .innerJoin('classSessions as s', 's.id', 'e.sessionId')
+      .select(['s.classId', 'e.step', 'e.kind', 'e.seq', 'e.id'])
+      .orderBy('e.id')
+      .execute()
+    const out = new Map<number, { step: string; kind: string; seq: number }[]>()
+    for (const r of rows) out.set(r.classId, [...(out.get(r.classId) ?? []), { step: r.step, kind: r.kind, seq: r.seq }])
+    return out
+  }
+
+  test('each class gets each step at its own delay after the timetable, all its students in one push', async () => {
+    await insertLesson(db, { date: MON, title: '光的折射', subject: '科学', segments: SEGMENTS })
+    const hub = new RecordingHub()
+    const classes = await seedClasses(hub, 3)
+    for (const c of classes) expect(c.delay).toBeLessThan(STAGGER)
+    const clock = createTestClock(at('19:45'))
+    const runtime = newRuntime({ clock, hub, config: staggered })
+    await runtime.tick()
+
+    for (const [due, said] of [
+      [at('20:00'), opening],
+      [at('20:05'), `segment 1 ${segmentText(1)}`],
+    ] as const) {
+      for (const c of classes) {
+        const from = hub.messages.length
+        // A millisecond before its time the class gets nothing; at its time, the step, pushed to the class as a whole.
+        clock.set(later(due, c.delay - 1))
+        await runtime.tick()
+        expect(pushedSince(hub, from)).toEqual([])
+        clock.set(later(due, c.delay))
+        await runtime.tick()
+        expect(pushedSince(hub, from)).toEqual([[c.classId, said]])
+      }
+    }
+    // Each event is stamped with the moment it went out: its class's own.
+    for (const c of classes) {
+      const events = classEvents(hub).filter((e) => e.classId === c.classId)
+      expect(events.map((e) => e.at)).toEqual([later(at('20:00'), c.delay), later(at('20:05'), c.delay)].map((d) => d.toISOString()))
+    }
+
+    // The close too. The session ends at the timetable's close for whoever would come in, and each class's members are
+    // let go at its own time.
+    clock.set(later(at('20:30'), STAGGER))
+    await runtime.tick()
+    for (const c of classes) {
+      clock.set(later(at('20:31'), c.delay - 1))
+      await runtime.tick()
+      expect(runtime.currentSession(c.classId)).toBeNull()
+      expect(hub.online(c.classId)).toEqual(c.members.map((m) => m.id))
+      const from = hub.messages.length
+      clock.set(later(at('20:31'), c.delay))
+      await runtime.tick()
+      expect(pushedSince(hub, from)).toEqual(c.members.map((m) => [-1, `closing ${m.id} session_over`]))
+      expect(hub.online(c.classId)).toEqual([])
+    }
+    const dismissed = await db.selectFrom('classSessions').select(['classId', 'dismissedAt']).execute()
+    for (const c of classes) {
+      expect(dismissed.find((r) => r.classId === c.classId)?.dismissedAt).toEqual(later(at('20:31'), c.delay))
+    }
+  })
+
+  test('teaches every class the whole lesson, each step once and in order, as without a stagger', async () => {
+    await insertLesson(db, { date: MON, title: '光的折射', subject: '科学', segments: SEGMENTS })
+    const hub = new RecordingHub()
+    const classes = await seedClasses(hub, 3)
+    const classOf = new Map(classes.flatMap((c) => c.members.map((m) => [m.id, c.classId] as const)))
+    const clock = createTestClock(at('19:45'))
+    const runtime = newRuntime({ clock, hub, config: staggered })
+    await runtime.tick()
+
+    // A tick a whole window after each minute, when every class has had what the minute brings.
+    const timelines = new Map<number, [string, string[]][]>(classes.map((c) => [c.classId, []]))
+    for (let minute = at('19:46'); minute.getTime() <= at('20:33').getTime(); minute = later(minute, MINUTE)) {
+      clock.set(later(minute, STAGGER))
+      const from = hub.messages.length
+      await runtime.tick()
+      for (const m of hub.messages.slice(from)) {
+        const classId = m.to === 'class' ? m.classId : classOf.get(m.studentId)!
+        const timeline = timelines.get(classId)!
+        const last = timeline[timeline.length - 1]
+        if (last?.[0] === hhmm(minute)) last[1].push(show(m))
+        else timeline.push([hhmm(minute), [show(m)]])
+      }
+    }
+    for (const c of classes) {
+      expect(timelines.get(c.classId)).toEqual([
+        ['20:00', [opening]],
+        ['20:05', [`segment 1 ${segmentText(1)}`]],
+        ['20:10', [`teacher ${transition(2)}`, `segment 2 ${segmentText(2)}`]],
+        ['20:15', [`teacher ${transition(3)}`, `segment 3 ${segmentText(3)}`]],
+        ['20:20', [`teacher ${transition(4)}`, `segment 4 ${segmentText(4)}`]],
+        ['20:25', [`teacher ${transition(5)}`, `segment 5 ${segmentText(5)}`]],
+        ['20:30', [`teacher ${dismissal()}`, 'dismissal']],
+        ['20:31', c.members.map((m) => `closing ${m.id} session_over`)],
+      ])
+    }
+    // Every class wrote the same steps in the same order, each once.
+    const steps = await stepsByClass()
+    const [first, ...others] = classes.map((c) => steps.get(c.classId)!.map((e) => e.step))
+    expect(new Set(first).size).toBe(first!.length)
+    for (const other of others) expect(other).toEqual(first)
+  })
+
+  test('a restart between two classes pushes nothing again, and the later class still gets the step at its time', async () => {
+    await insertLesson(db, { date: MON, title: '光的折射', subject: '科学', segments: SEGMENTS })
+    const hub = new RecordingHub()
+    const classes = await seedClasses(hub, 2)
+    const early = classes[0]!
+    const late = classes[1]!
+    const clock = createTestClock(at('19:45'))
+    const first = newRuntime({ clock, hub, config: staggered })
+    await first.tick()
+    // Segment 1 has gone out to the early class, not yet to the late one.
+    clock.set(later(at('20:05'), Math.floor((early.delay + late.delay) / 2)))
+    await first.tick()
+    const kinds = (classId: number) => classEvents(hub).filter((e) => e.classId === classId).map((e) => e.event.kind)
+    expect(kinds(early.classId)).toEqual(['teacher', 'segment'])
+    expect(kinds(late.classId)).toEqual(['teacher'])
+
+    // The service restarts here: a new runtime with no memory.
+    const second = newRuntime({ clock, hub, config: staggered })
+    const from = hub.messages.length
+    await second.tick()
+    expect(pushedSince(hub, from)).toEqual([])
+    clock.set(later(at('20:05'), late.delay - 1))
+    await second.tick()
+    expect(pushedSince(hub, from)).toEqual([])
+    clock.set(later(at('20:05'), late.delay))
+    await second.tick()
+    expect(pushedSince(hub, from)).toEqual([[late.classId, `segment 1 ${segmentText(1)}`]])
+
+    // Through to the close, each class writes every step once, both the same ones in the same order.
+    for (let minute = at('20:06'); minute.getTime() <= at('20:33').getTime(); minute = later(minute, MINUTE)) {
+      clock.set(later(minute, STAGGER))
+      await second.tick()
+    }
+    const steps = await stepsByClass()
+    const earlySteps = steps.get(early.classId)!.map((e) => e.step)
+    expect(new Set(earlySteps).size).toBe(earlySteps.length)
+    expect(earlySteps).toContain('dismissal')
+    expect(steps.get(late.classId)!.map((e) => e.step)).toEqual(earlySteps)
+    const sessions = await db.selectFrom('classSessions').select('dismissedAt').execute()
+    expect(sessions.every((s) => s.dismissedAt !== null)).toBe(true)
+  })
+
+  test('maintenance between two classes cuts both short: what each was taught stays, nothing runs twice', async () => {
+    await insertLesson(db, { date: MON, title: '光的折射', subject: '科学', segments: SEGMENTS })
+    const trace: string[] = []
+    const hub = new RecordingHub()
+    const classes = await seedClasses(hub, 2)
+    const early = classes[0]!
+    const late = classes[1]!
+    let maintenance: Maintenance | null = null
+    const clock = createTestClock(at('19:45'))
+    const runtime = newRuntime({ clock, hub, config: staggered, hooks: recordingHooks(trace), maintenance: () => maintenance })
+    await runtime.tick()
+    // Segment 2 has gone out to the early class, not yet to the late one, when maintenance comes on.
+    clock.set(later(at('20:10'), Math.floor((early.delay + late.delay) / 2)))
+    await runtime.tick()
+    maintenance = { message: '升级数据库', since: clock.now(), expectedBackAt: null }
+    const from = hub.messages.length
+    await runtime.tick()
+
+    // Both close at once, quietly: no class event goes out, and everyone is let go.
+    expect(pushedSince(hub, from).every(([classId, said]) => classId === -1 && said.endsWith('session_over'))).toBe(true)
+    expect(trace.filter((e) => e.startsWith('hook afterClass'))).toEqual([
+      expect.stringMatching(/ quiet$/),
+      expect.stringMatching(/ quiet$/),
+    ])
+    const steps = await stepsByClass()
+    const event = (classId: number, step: string) => steps.get(classId)!.find((e) => e.step === step)
+    expect(event(early.classId, 'segment-2#2')).toMatchObject({ kind: 'segment' })
+    expect(event(late.classId, 'segment-2')).toMatchObject({ kind: 'noop' })
+    expect(event(late.classId, 'segment-2')!.seq).toBeLessThan(0)
+    expect(event(late.classId, 'segment-2#2')).toBeUndefined()
+    for (const c of [early, late]) {
+      const names = steps.get(c.classId)!.map((e) => e.step)
+      expect(names).toContain('cut-short')
+      expect(new Set(names).size).toBe(names.length)
+    }
+
+    // The ticks after it, past the timetable's close and every class's delay, run nothing more.
+    const written = (await stepsByClass()).get(late.classId)!.length
+    const pushed = hub.messages.length
+    for (const time of ['20:15', '20:30', '20:31', '20:40']) {
+      clock.set(later(at(time), STAGGER))
+      await runtime.tick()
+    }
+    expect(hub.messages).toHaveLength(pushed)
+    expect((await stepsByClass()).get(late.classId)).toHaveLength(written)
+    expect(trace.filter((e) => e.startsWith('hook afterClass'))).toHaveLength(2)
+  })
+
+  test('without a window every class gets each step at the timetable, as before', async () => {
+    await insertLesson(db, { date: MON, title: '光的折射', subject: '科学', segments: SEGMENTS })
+    const hub = new RecordingHub()
+    const classes: number[] = []
+    for (let classNo = 1; classNo <= 3; classNo++) {
+      const { classId, members } = await seedClass({ classNo, members: 1 })
+      for (const m of members) hub.join(classId, m.id)
+      classes.push(classId)
+    }
+    const unstaggered = { ...config, lesson: { ...config.lesson, staggerMillis: 0 } }
+    const clock = createTestClock(at('19:45'))
+    const runtime = newRuntime({ clock, hub, config: unstaggered })
+    await runtime.tick()
+    clock.set(later(at('20:00'), -1))
+    await runtime.tick()
+    expect(hub.messages).toEqual([])
+    clock.set(at('20:00'))
+    await runtime.tick()
+    expect(pushedSince(hub, 0)).toEqual(classes.map((classId) => [classId, opening]))
+    expect(classEvents(hub).every((e) => e.at === at('20:00').toISOString())).toBe(true)
+  })
+
+  test('a class whose step failed sits out ticksPerRetry - 1 ticks before it is tried again; the others go on', async () => {
+    const { classId: broken } = await seedClass({ classNo: 1, members: 1 })
+    const { classId: other } = await seedClass({ classNo: 2, members: 1 })
+    const tries: number[] = []
+    const hooks: LessonHooks = {
+      ...noopHooks,
+      async callouts(session) {
+        tries.push(session.classId)
+        if (session.classId === broken && tries.filter((c) => c === broken).length === 1) throw new Error('not now')
+        return []
+      },
+    }
+    const clock = createTestClock(at('19:45'))
+    const runtime = newRuntime({ clock, hub: new RecordingHub(), hooks, ticksPerRetry: 3 })
+    await runtime.tick()
+
+    clock.set(at('20:10'))
+    await expect(runtime.tick()).rejects.toBeInstanceOf(ClassStepError)
+    expect(tries).toEqual([broken, other])
+    // Two ticks sat out: the other class's next step still runs at them.
+    clock.set(at('20:15'))
+    await runtime.tick()
+    await runtime.tick()
+    expect(tries).toEqual([broken, other, other])
+    await runtime.tick()
+    expect(tries).toEqual([broken, other, other, broken, broken])
   })
 })
 

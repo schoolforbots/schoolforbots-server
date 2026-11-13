@@ -10,6 +10,9 @@ const withBreak = (): SchoolConfig => ({
 
 // 2026-11-10 is a Tuesday; the school's clock is UTC+8, so 10:00 there is 02:00 UTC.
 const at = (hhmm: string, date = '2026-11-10') => new Date(`${date}T${hhmm}:00+08:00`)
+// The example config spreads the classes' steps, their closes too, over 2 seconds after the timetable.
+const STAGGER_MS = 2000
+const later = (d: Date, ms: number) => new Date(d.getTime() + ms)
 
 describe('classBusy', () => {
   test('is free well before a class opens (20 minutes)', () => {
@@ -18,8 +21,8 @@ describe('classBusy', () => {
   test('is busy 10 minutes before a class opens, and says when it is free', () => {
     const r = classBusy(base, at('09:50'))
     expect(r.busy).toBe(true)
-    // Dismissal at minute 30, plus the closing grace of one minute.
-    if (r.busy) expect(r.freeAt).toEqual(at('10:31'))
+    // Dismissal at minute 30, plus the closing grace of one minute, plus the window of the classes' closes.
+    if (r.busy) expect(r.freeAt).toEqual(later(at('10:31'), STAGGER_MS))
   })
   test('is busy during class', () => {
     expect(classBusy(base, at('10:12')).busy).toBe(true)
@@ -46,7 +49,7 @@ describe('classBusy', () => {
     }
     const r = classBusy(config, at('10:20'))
     expect(r.busy).toBe(true)
-    if (r.busy) expect(r.freeAt).toEqual(at('11:11'))
+    if (r.busy) expect(r.freeAt).toEqual(later(at('11:11'), STAGGER_MS))
   })
 })
 
