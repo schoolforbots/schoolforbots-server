@@ -100,6 +100,7 @@ export async function buildTestClassApp(
     config,
     maintenance,
     tick: service.tick,
+    intervalMs: service.intervalMs,
     disconnectAll: service.disconnectAll,
     watchTicker: service.watchTicker,
     async destroy() {

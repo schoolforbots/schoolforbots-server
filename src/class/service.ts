@@ -85,6 +85,8 @@ export interface ClassService {
   teacherAi: TeacherAi | null
   /** What the service runs on its interval: the lesson runtime's steps, then the conversations overdue by the clock. */
   tick(): Promise<void>
+  /** The interval, in real milliseconds: `tickIntervalMs` for the service's speed and the classes' stagger. */
+  intervalMs: number
   /**
    * The service is stopping: tells every student connected so (`SHUTTING_DOWN`: the school is under maintenance,
    * reconnect later) and disconnects them. From then on nobody comes in (see `ClassDeps.stopping`).
@@ -173,7 +175,10 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     ...createLessonHooks({ db, config, clock, chat, questions, hub, teacherAi: teacherAi ?? undefined, log }),
     ...deps.hooks,
   }
-  const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks, maintenance, log })
+  const intervalMs = tickIntervalMs(speed, config.lesson.staggerMillis)
+  // A failed step is tried again about as often as at the usual pace, not at every one of the faster ticks.
+  const ticksPerRetry = Math.max(1, Math.round(tickIntervalMs(speed) / intervalMs))
+  const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks, maintenance, ticksPerRetry, log })
 
   const app = buildClassApp({
     db,
@@ -204,6 +209,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     questions,
     hooks,
     teacherAi,
+    intervalMs,
     async tick() {
       // The runtime first: the close of a session ends its conversations as a dismissal. A failed tick of the runtime
       // does not hold up the conversations.
@@ -226,13 +232,20 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
   }
 }
 
+/** The ticks the service takes within the window the classes' steps are spread over (`lesson.staggerMillis`). */
+const TICKS_PER_STAGGER = 10
+
 /**
  * How often the service ticks, in real milliseconds: a third of the time a session's close still runs live (see
  * `LIVE_TOLERANCE_MS`, which the speed divides), so a close the service was up for is never run quietly; a second at
- * most, and 20 ms at least.
+ * most, and 20 ms at least. With the classes staggered over `staggerMillis` (which the speed divides too), no more
+ * than a tenth of that window: the steps the classes have at one moment then go out in about ten small groups across
+ * the window, each class's near its own time, not in one or two big groups at the ticks that happen to fall in it.
  */
-export function tickIntervalMs(speed: number): number {
-  return Math.floor(Math.min(1000, Math.max(20, LIVE_TOLERANCE_MS / speed / 3)))
+export function tickIntervalMs(speed: number, staggerMillis = 0): number {
+  const live = LIVE_TOLERANCE_MS / speed / 3
+  const stagger = staggerMillis > 0 ? staggerMillis / speed / TICKS_PER_STAGGER : Infinity
+  return Math.floor(Math.min(1000, Math.max(20, Math.min(live, stagger))))
 }
 
 /**
@@ -241,12 +254,15 @@ export function tickIntervalMs(speed: number): number {
  * the next lesson is tomorrow.
  *
  * A first tick that could not open or load the sessions fails the start, and nothing listens. One in which only the
- * steps of some classes failed does not: those classes are left behind, the others are taught, and every tick tries
- * the failed steps again (see `ClassStepError`). A class whose step keeps failing then keeps only itself from going
- * on, not the whole service from starting. Later failures are logged. Every failure that is logged, this one too, is reported to `onTickFailure`.
+ * steps of some classes failed does not: those classes are left behind, the others are taught, and the failed steps
+ * are tried again at the ticks to come (see `ClassStepError`). A class whose step keeps failing then keeps only itself
+ * from going on, not the whole service from starting. Later failures are logged. Every failure that is logged, this
+ * one too, is reported to `onTickFailure`.
+ *
+ * The ticks come every `service.intervalMs`, or `tickIntervalMs(p.speed)` when the service does not say.
  */
 export async function startClassService(
-  service: Pick<ClassService, 'app' | 'tick'> & Partial<Pick<ClassService, 'watchTicker'>>,
+  service: Pick<ClassService, 'app' | 'tick'> & Partial<Pick<ClassService, 'watchTicker' | 'intervalMs'>>,
   p: { port: number; host?: string; speed: number; onTickFailure?: () => void },
 ): Promise<Ticker> {
   const { app, tick } = service
@@ -266,7 +282,7 @@ export async function startClassService(
     logFailure(err)
   }
   await app.listen({ port: p.port, host: p.host ?? '0.0.0.0' })
-  const intervalMs = tickIntervalMs(p.speed)
+  const intervalMs = service.intervalMs ?? tickIntervalMs(p.speed)
   const ticker = startTicker(tick, intervalMs, logFailure)
   service.watchTicker?.(ticker, intervalMs)
   return ticker

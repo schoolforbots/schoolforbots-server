@@ -13,9 +13,12 @@ import type { LessonHooks } from './hooks.js'
 import type { Hub } from './hub.js'
 import { isSchoolDay, planSession } from './planning.js'
 import * as teacher from './teacher.js'
-import { lessonSteps, type StepName } from './timeline.js'
+import { classDelayMs, lessonSteps, type StepName } from './timeline.js'
 
-/** A class session from the moment its doors open until it closes. */
+/**
+ * A class session from the moment its doors open until it closes. Its times are the timetable's: the steps of the
+ * class, from the opening to the close, come a little later (see `classDelayMs`).
+ */
 export interface ActiveSession {
   sessionId: number
   classId: number
@@ -30,8 +33,9 @@ export interface ActiveSession {
 }
 
 /**
- * A step of one class session failed. The tick runs the other sessions all the same, and tries the step again at the
- * next one; the session's later steps wait for it.
+ * A step of one class session failed. The tick runs the other sessions all the same, and the step is tried again at
+ * the next one, or a few ticks later when the ticks are fast (see `ClassRuntimeDeps.ticksPerRetry`); the session's
+ * later steps wait for it.
  */
 export class ClassStepError extends Error {
   constructor(
@@ -79,6 +83,12 @@ export interface ClassRuntimeDeps {
    * `missedMaintenance`).
    */
   maintenance?: () => Maintenance | null
+  /**
+   * How often a session whose step failed is tried again, in ticks. Unset: 1, at every tick. The service ticks faster
+   * when the classes are staggered (see `tickIntervalMs`), and sets this so a failed step is still tried about as
+   * often as at its usual pace.
+   */
+  ticksPerRetry?: number
   /** A program log line. Only step names and numbers go into it, never what anyone said. */
   log?: (obj: object, msg: string) => void
 }
@@ -117,7 +127,10 @@ interface Tracked {
   lessonId: number | null
   teacher: string
   doorsAt: Date
-  /** The steps after the doors, in order, with the moment each is due. */
+  /**
+   * The steps after the doors, in order, with the moment each is due: the timetable's, later by the class's delay (see
+   * `classDelayMs`). The doors stay on the timetable: they push nothing.
+   */
   steps: { step: StepName; at: Date }[]
   /** The steps already run: by this runtime, or (read back after a restart) by an earlier one. */
   done: Set<string>
@@ -125,6 +138,8 @@ interface Tracked {
   cutShort: boolean
   /** To be cut short: maintenance came while no runtime was running the session (see `missedMaintenance`). */
   cutDue: boolean
+  /** The ticks the session sits out after a failure before it is tried again (see `ClassRuntimeDeps.ticksPerRetry`). */
+  restTicks: number
   lesson?: LessonContent
 }
 
@@ -147,13 +162,15 @@ const before = (a: Date, b: Date) => a.getTime() < b.getTime()
 
 /**
  * Runs the class sessions from the clock: at the doors of a slot of a school day it opens a session for every class
- * that has members, and then runs each step of each session once, in order, when it is due. A step writes its events,
- * commits, and only then pushes them to whoever is online. Steps are recorded in the database, so a runtime started
- * after a restart, or a tick that comes late, runs the steps it missed in order and never one that already ran.
+ * that has members, and then runs each step of each session once, in order, when it is due: each class a little after
+ * the timetable, by a delay of its own (see `classDelayMs`). A step writes its events, commits, and only then pushes
+ * them to whoever is online. Steps are recorded in the database, so a runtime started after a restart, or a tick that
+ * comes late, runs the steps it missed in order and never one that already ran.
  */
 export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
   const { db, config, clock, hub, hooks, speed } = deps
   const log = deps.log ?? (() => {})
+  const ticksPerRetry = deps.ticksPerRetry ?? 1
   const tracked = new Map<number, Tracked>()
   let loaded = false
   let openedDay: string | null = null
@@ -201,6 +218,8 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
       .execute()
     for (const r of rows) {
       const { steps, doorsAt, closeAt } = timesOf(r.startsAt, r.kind)
+      // The same delay for every step, so the class's steps keep their order, and after a restart their times.
+      const delayMs = classDelayMs(r.classId, config.lesson, speed)
       const done = new Set(written.filter((w) => w.sessionId === r.id).map((w) => w.step))
       tracked.set(r.id, {
         session: {
@@ -217,10 +236,11 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
         lessonId: r.lessonId,
         teacher: teacherName(r.teacherPersonaId),
         doorsAt,
-        steps,
+        steps: steps.map(({ step, at }) => ({ step, at: new Date(at.getTime() + delayMs) })),
         done,
         cutShort: done.has(CUT_SHORT),
         cutDue: false,
+        restTicks: 0,
       })
     }
   }
@@ -741,11 +761,16 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
         a.session.startsAt.getTime() - b.session.startsAt.getTime() || a.session.sessionId - b.session.sessionId,
     )
     for (const t of order) {
+      if (t.restTicks > 0) {
+        t.restTicks -= 1
+        continue
+      }
       try {
         const between = !before(now, t.doorsAt) && before(now, t.session.endsAt)
         if (!t.cutShort && (t.cutDue || (underMaintenance && between))) await cutShort(t, now)
         await advance(t, now)
       } catch (err) {
+        t.restTicks = ticksPerRetry - 1
         failures.push(err)
       }
     }

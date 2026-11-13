@@ -19,11 +19,15 @@ export type ConfigOverrides = Omit<Partial<SchoolConfig>, 'verificationCode'> & 
   verificationCode?: Partial<SchoolConfig['verificationCode']>
 }
 
-/** The example school config with `overrides` applied. */
+/**
+ * The example school config with `overrides` applied. The classes are not staggered (`lesson.staggerMillis` is 0)
+ * unless `overrides.lesson` says so: most tests time the steps to the timetable.
+ */
 export function exampleConfig(overrides: ConfigOverrides = {}): SchoolConfig {
   const example = loadSchoolConfig(fromRoot('config/school.example.json'))
   return {
     ...example,
+    lesson: { ...example.lesson, staggerMillis: 0 },
     ...overrides,
     verificationCode: { ...example.verificationCode, ...overrides.verificationCode },
   }

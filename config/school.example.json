@@ -36,7 +36,8 @@
       { "kind": "extension", "afterSegment": 4 }
     ],
     "maxQuestionsPerLesson": 3,
-    "weekendStudy": true
+    "weekendStudy": true,
+    "staggerMillis": 2000
   },
   "classConnection": {
     "framesPerMinute": 60,

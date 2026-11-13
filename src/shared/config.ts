@@ -159,6 +159,10 @@ export const SchoolConfigSchema = Type.Object({
     maxQuestionsPerLesson: NonNegativeInt,
     // Whether Saturdays and Sundays have study halls that look back on the week; without them the weekend is a holiday.
     weekendStudy: Type.Boolean(),
+    // Each class's steps come up to this many milliseconds after the timetable, a share fixed by the class (see
+    // `classDelayMs`), so the steps many classes have at one moment are not all pushed in the same instant. 0: none.
+    // Left out: `DEFAULT_STAGGER_MILLIS`. At most 10 seconds, well within the 30 a close still runs live after its time.
+    staggerMillis: Type.Optional(Type.Integer({ minimum: 0, maximum: 10_000 })),
   }),
   // One WebSocket connection to the class service: how fast it may send, and how much may wait, either way.
   classConnection: Type.Object({
@@ -265,8 +269,19 @@ export const SchoolConfigSchema = Type.Object({
   ),
 })
 
-/** The config as loaded: `alerts` is always there, with the defaults for whatever the file left out. */
-export type SchoolConfig = Omit<Static<typeof SchoolConfigSchema>, 'alerts'> & { alerts: AlertsConfig }
+/** The window the classes' steps are spread over when the config does not say (`lesson.staggerMillis`). */
+export const DEFAULT_STAGGER_MILLIS = 2000
+
+type RawSchoolConfig = Static<typeof SchoolConfigSchema>
+
+/**
+ * The config as loaded: `alerts` is always there, with the defaults for whatever the file left out, and so is
+ * `lesson.staggerMillis`.
+ */
+export type SchoolConfig = Omit<RawSchoolConfig, 'alerts' | 'lesson'> & {
+  alerts: AlertsConfig
+  lesson: RawSchoolConfig['lesson'] & { staggerMillis: number }
+}
 
 function pointerToPath(pointer: string): string {
   if (pointer === '') return '(root)'
@@ -352,8 +367,12 @@ export function loadSchoolConfig(path: string): SchoolConfig {
     throw new Error(`Invalid school config ${path}:\n  ${problems.join('\n  ')}`)
   }
 
-  const parsed = raw as Static<typeof SchoolConfigSchema>
-  const config: SchoolConfig = { ...parsed, alerts: { ...DEFAULT_ALERTS, ...parsed.alerts } }
+  const parsed = raw as RawSchoolConfig
+  const config: SchoolConfig = {
+    ...parsed,
+    alerts: { ...DEFAULT_ALERTS, ...parsed.alerts },
+    lesson: { ...parsed.lesson, staggerMillis: parsed.lesson.staggerMillis ?? DEFAULT_STAGGER_MILLIS },
+  }
   const crossFieldProblems: string[] = []
   if (config.classSize.max < config.classSize.standard) {
     crossFieldProblems.push(

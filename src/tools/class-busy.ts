@@ -11,11 +11,15 @@ export const EXIT_BUSY = 3
 
 export type Busy = { busy: false } | { busy: true; freeAt: Date }
 
-/** The windows (start of the doors, end of the closing grace) of every session on the days around `now`. */
+/**
+ * The windows of every session on the days around `now`: from the doors to the end of the closing grace, and of the
+ * window the classes' closes are spread over after it (`lesson.staggerMillis`).
+ */
 function windows(config: SchoolConfig, now: Date): { from: Date; until: Date }[] {
   const today = localDate(now, config.timezone)
   const lead = Math.max(MIN_LEAD_MINUTES, config.lesson.doorsOpenMinutesBefore) * 60_000
-  const tail = config.lesson.dismissalMinute * 60_000 + config.lesson.closingGraceSeconds * 1000
+  const tail =
+    config.lesson.dismissalMinute * 60_000 + config.lesson.closingGraceSeconds * 1000 + config.lesson.staggerMillis
   const out: { from: Date; until: Date }[] = []
   for (const day of [addDaysToDate(today, -1), today, addDaysToDate(today, 1)]) {
     if (!isSchoolDay(day, config)) continue

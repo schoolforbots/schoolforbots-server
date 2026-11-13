@@ -7,6 +7,7 @@ import { ClassStepError, onlyClassStepsFailed } from '../../src/class/runtime.js
 import { startClassService, tickIntervalMs } from '../../src/class/service.js'
 import { startTicker, type Ticker } from '../../src/class/ticker.js'
 import { assertMigrationsUpToDate } from '../../src/shared/db.js'
+import { exampleConfig } from '../helpers/app.js'
 import { buildTestClassApp } from '../helpers/class-app.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertStudent } from '../helpers/factories.js'
@@ -178,6 +179,18 @@ describe('the tick interval', () => {
     [600, 20],
   ])('at timeline speed %i is %i ms', (speed, ms) => {
     expect(tickIntervalMs(speed)).toBe(ms)
+    expect(tickIntervalMs(speed, 0)).toBe(ms)
+  })
+
+  // With the classes staggered, a tenth of the window (which the speed divides) when that is shorter.
+  test.each([
+    [1, 2000, 200],
+    [1, 5000, 500],
+    [1, 10_000, 1000],
+    [1, 100, 20],
+    [60, 2000, 20],
+  ])('at timeline speed %i with a stagger of %i ms is %i ms', (speed, staggerMillis, ms) => {
+    expect(tickIntervalMs(speed, staggerMillis)).toBe(ms)
   })
 })
 
@@ -240,6 +253,16 @@ describe('starting the class service', () => {
       { timeout: tickIntervalMs(1) * 10, interval: 50 },
     )
     expect(res.body).toBe('{"ok":true}')
+  })
+
+  test("ticks at the service's interval, which follows the classes' stagger", async () => {
+    service = await buildTestClassApp({ config: { lesson: { ...exampleConfig().lesson, staggerMillis: 2000 } } })
+    expect(service.intervalMs).toBe(tickIntervalMs(1, 2000))
+    let ticks = 0
+    const tick = async () => void ticks++
+    ticker = await startClassService({ app: service.app, tick, intervalMs: 50 }, { port: 0, host: '127.0.0.1', speed: 1 })
+    // At the usual second there would be only the first tick, the one before listening, by then.
+    await vi.waitFor(() => expect(ticks).toBeGreaterThanOrEqual(4), { timeout: 900, interval: 10 })
   })
 
   test('a first tick that cannot open the sessions fails the start, and nothing listens', async () => {
