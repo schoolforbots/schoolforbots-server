@@ -23,8 +23,8 @@ interface Doc {
 }
 
 const DOCS: Doc[] = [
-  { file: 'docs/api.md', tables: { http: 'HTTP error codes', classroom: 'Classroom error codes', closing: 'Closing reasons' } },
-  { file: 'docs/api.zh-CN.md', tables: { http: 'HTTP 错误码', classroom: '上课时的错误码', closing: '断开原因' } },
+  { file: 'docs/api.md', tables: { http: 'HTTP 错误码', classroom: '上课时的错误码', closing: '断开原因' } },
+  { file: 'docs/api.en.md', tables: { http: 'HTTP error codes', classroom: 'Classroom error codes', closing: 'Closing reasons' } },
 ]
 
 const text = (doc: Doc) => readFileSync(fromRoot(doc.file), 'utf8')

@@ -1,109 +1,109 @@
-# Contributing
+# 参与贡献
 
-English | [简体中文](CONTRIBUTING.zh-CN.md)
+简体中文 | [English](CONTRIBUTING.en.md)
 
-Thank you for helping out with School for Bots! This guide explains how to set up a development environment, how to submit changes, and a few conventions for code and documentation.
+感谢参与机器人网校！这份指南说明怎么搭开发环境、怎么提交改动，以及写代码和写文档的几条约定。
 
-## Before you start
+## 开始之前
 
-- Small changes (typos, docs, obvious bugs) can go straight to a PR.
-- For a new feature or a larger change, please open an issue first. Explain the problem you want to solve, and start work once we have agreed on an approach, so your effort isn't wasted.
-- Do not open a public issue for a security problem (for example, getting around content moderation, leaking private information, or impersonating someone else's bot). Report it privately as described in [SECURITY.md](SECURITY.md).
+- 小改动（错字、文档、明显的 bug）可以直接提 PR。
+- 新功能或较大的改动，请先开一个 issue，说清楚想解决什么问题，讨论好再动手，免得白做。
+- 安全问题（比如绕过内容审核、泄露隐私、冒充别人的机器人）不要开公开 issue，请按 [SECURITY.md](SECURITY.md) 私下报告。
 
-## Setting up a development environment
+## 搭建开发环境
 
-See the [Local development](README.md#local-development) section of the README. You need Node.js 24 and Docker (the tests use Docker to start a temporary database).
+见 README 的[本地开发](README.md#本地开发)一节。需要 Node.js 24 和 Docker（测试会用 Docker 临时起一个数据库）。
 
-On Windows, clone and work inside WSL 2, on its own file system rather than under `/mnt/c`: the shell scripts in `deploy/` and `.github/scripts/` are written for Linux, and the tests reach Docker from there (with Docker Desktop's WSL integration turned on). `.gitattributes` checks every text file out with LF line endings; keep them that way.
+在 Windows 上，请在 WSL 2 里 clone 和开发，仓库放在 WSL 自己的文件系统里，不要放在 `/mnt/c` 下：`deploy/` 和 `.github/scripts/` 里的 shell 脚本是照 Linux 写的，测试也要从那里用 Docker（在 Docker Desktop 里打开 WSL 集成）。`.gitattributes` 让所有文本文件检出时都用 LF 换行，请保持这样。
 
-## How to submit a change
+## 提交改动的流程
 
-1. Fork this repository and create a new branch from `main`.
-2. Make your changes and add tests.
-3. Make sure `npm test` and `npm run typecheck` pass locally.
-4. Push to your fork, open a PR against this repository's `main`, and fill in the template.
-5. Once CI passes and a maintainer has reviewed it, the PR is merged. External PRs are always squash-merged: the whole PR becomes a single commit on `main`, and the PR title becomes that commit's title.
+1. Fork 本仓库，从 `main` 拉一个新分支。
+2. 改代码，补测试。
+3. 在本地跑通 `npm test` 和 `npm run typecheck`。
+4. 推到自己的 fork，向本仓库的 `main` 提 PR，按模板填写。
+5. CI 通过、维护者审过之后合并。外部 PR 一律用 squash 合并：整个 PR 在 `main` 上只留一个提交，这个提交的标题就是 PR 标题。
 
-CI skips the checks a PR's changes cannot affect: a PR that only changes the README, for example, does not run the tests, the smoke test or the restore drill. Which changed paths run which checks is in `.github/scripts/affected.sh`. A change to the workflows, or to a path not listed there, runs all of them, and so does every merge into `main`. The sign-off and PR title checks always run.
+CI 会跳过 PR 的改动影响不到的检查：比如只改 README 的 PR，不跑测试、冒烟测试和恢复演练。改了哪些路径跑哪些检查，写在 `.github/scripts/affected.sh` 里。改了工作流，或者改到那里没列出的路径，所有检查都照跑；每次合进 `main` 也都照跑。签名和 PR 标题这两项检查每次都跑。
 
-The history of `main` is never rewritten, so if you find a problem after a merge, please open a new PR to fix it.
+`main` 的历史不会被改写，所以合并后发现问题，请提一个新的 PR 来修。
 
-## Commit messages and PR titles
+## 提交信息和 PR 标题
 
-Use the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format:
+使用[约定式提交（Conventional Commits）](https://www.conventionalcommits.org/zh-hans/v1.0.0/)格式：
 
 ```
-<type>(<optional scope>): <short description>
+<类型>(<可选范围>): <简短说明>
 ```
 
-Common types:
+常用类型：
 
-| Type | Use for |
+| 类型 | 用途 |
 |---|---|
-| `feat` | A new feature |
-| `fix` | A bug fix |
-| `docs` | Documentation only |
-| `test` | Tests only |
-| `refactor` | Refactoring that does not change behavior |
-| `perf` | A performance improvement |
-| `chore` | Miscellaneous work, such as dependencies and configuration |
-| `ci` | CI configuration |
-| `build` | Build-related changes |
-| `revert` | Reverting an earlier commit |
+| `feat` | 新功能 |
+| `fix` | 修 bug |
+| `docs` | 只改文档 |
+| `test` | 只改测试 |
+| `refactor` | 不改行为的重构 |
+| `perf` | 性能优化 |
+| `chore` | 杂项，比如依赖、配置 |
+| `ci` | CI 配置 |
+| `build` | 构建相关 |
+| `revert` | 撤销之前的提交 |
 
-Examples:
+例子：
 
-- `feat(registration): queue students again when they re-enroll`
-- `fix: return 410 when the verification code has expired`
+- `feat(registration): 重新入学时重新排队`
+- `fix: 验证码过期后返回 410`
 
-For a breaking change, add `!` after the type (for example, `feat!: ...`) and describe the impact in the body with `BREAKING CHANGE:`.
+不兼容的改动，在类型后面加 `!`（例如 `feat!: ...`），并在正文里用 `BREAKING CHANGE:` 说明影响。
 
-The PR title becomes the title of the commit on `main`, and CI checks its format. Commit messages on your own branch are not enforced, but clear ones make review smoother.
+PR 标题会成为 `main` 上那个提交的标题，CI 会检查它的格式。自己分支里的提交信息不做强制要求，但写清楚会让审查更顺利。
 
-## Code conventions
+## 代码约定
 
-- TypeScript strict mode; relative `import` paths must end in `.js`.
-- In application code, always get the current time from the injected `Clock`. Do not call `new Date()` or the database's `now()` directly, so that tests can control time.
-- New behavior needs tests. Prefer a real database and real routes in tests, and keep mocks to a minimum.
-- After changing `src/protocol/http.ts` or `src/protocol/ws.ts`, run `npm run protocol:export` and commit the regenerated `protocol/http.schema.json` and `protocol/ws.schema.json` along with your change.
-- When the database schema changes, add a new migration file; do not modify existing migrations. Migrations only add things (see "Database migrations" below).
-- Do not commit secrets, `.env`, `config/school.json`, or the real moderation word lists (`data/moderation/*.txt`, except the example files). Do not put real personal information, such as email addresses or QQ numbers, in code, tests, or issues either.
+- TypeScript 严格模式；相对路径的 `import` 要带 `.js` 后缀。
+- 业务代码里取当前时间一律用注入的 `Clock`，不要直接用 `new Date()` 或数据库的 `now()`，这样测试才能控制时间。
+- 新行为要有测试。测试尽量用真实的数据库和真实的路由，少用 mock。
+- 改了 `src/protocol/http.ts` 或 `src/protocol/ws.ts` 之后，运行 `npm run protocol:export`，把重新生成的 `protocol/http.schema.json` 和 `protocol/ws.schema.json` 一起提交。
+- 数据库结构有变化时，新增一个迁移文件，不要修改已有的迁移。迁移只能加东西（见下面的“数据库迁移”）。
+- 不要提交密钥、`.env`、`config/school.json`、真实词库（`data/moderation/*.txt`，示例文件除外）；代码、测试和 issue 里也不要出现真实的邮箱、QQ 号等个人信息。
 
-## Writing documentation
+## 怎么写文档
 
-The README, this guide, the security policy and the other documents are for everyone who reads this repository: the people who run a school with this server (operators), plugin authors, contributors, and bot owners, the people who enroll their AIs. When writing or changing a document:
+README、贡献指南、安全政策这些文档写给所有读这个仓库的人：用这套服务端办学校的人（运营者）、插件作者、贡献代码的人，以及替 AI 报名的人（机器人的主人）。新写或修改文档时照下面几条来：
 
-- Address readers by their role (operators, plugin authors, contributors, bot owners), or write without naming a person ("run `npm test`", "it defaults to 30 seconds"). In English, "you" may mean any reader, never one particular person. The Chinese versions avoid 你 where they can. Call the people who enroll an AI "bot owners" (机器人的主人), not just "owners".
-- Write only what readers can use. One school's launch to-dos, reminders to one person, notes on how something was developed, and decisions made on someone's behalf stay out. What every operator needs to know (for example, what to set before running in production) is written as general operating instructions.
-- Do not say who runs a school, where its servers are, what is planned for compliance or how moderation is handled internally, and do not refer to material that is not public.
-- For a document with an English and a Chinese version, change both together, and keep them saying the same thing in the same voice.
-- Keep the text in line with what the code does; when unsure, read the code. Be precise and brief.
+- 按读者的角色称呼：运营者、插件作者、贡献者、机器人的主人；或者用不带人称的说法，比如"运行 `npm test`""默认是 30 秒"。中文版尽量不用"你"。英文版可以用 "you" 泛指读者，但不能指某一个人。替 AI 报名的人写成"机器人的主人"（英文 bot owner），不单写"主人"。
+- 只写读者用得上的内容。某所学校上线前的待办、写给某个人的提醒、开发过程的记录、替谁做的决定，都不写。每个运营者都要知道的事（比如正式运行前要配好什么），写成通用的运营说明。
+- 不写运营者是谁、服务器在哪里、合规方面的打算和审核的内部做法，也不提不公开的资料。
+- 有中英两版的文档，两版一起改，内容和口吻保持一致。中文版用主文件名（比如 `README.md`），英文版在文件名后加 `.en`（比如 `README.en.md`）。两版说法不一致时，以中文版为准。
+- 写的要和代码的实际行为一致，拿不准时先看代码。措辞准确、简洁。
 
-## Database migrations
+## 数据库迁移
 
-A migration only adds: a table, a column that may be null or has a default, an index. In one release do not rename a column or table, drop a column or table, change a column's type, or add a `NOT NULL` constraint to a column that already exists.
+迁移只能加东西：加表、加可以为空或带默认值的列、加索引。同一次发布里，不能给列或表改名，不能删列、删表，不能改列的类型，也不能给已有的列加上 `NOT NULL` 的限制。
 
-The reason is that during a deploy the old and the new version of the services run against the same database for a while, up to as long as one lesson. The old version must keep working on what the new migration left behind.
+原因是部署时新旧两版服务会同时连着同一个数据库跑一阵子，最长一节课的时间。旧版必须在新迁移留下的结构上照常工作。
 
-To rename or drop something, take two releases. In the first, add the new column or table, make the code write to both the old and the new, and stop reading the old one. In a later release, once no old version is running, drop the old one.
+真要改名或删除，分两次发布：第一次加新的列或表，代码两边都写，并且不再读旧的；下一次发布，等没有旧版在跑了，再删旧的。
 
-A test (`tests/shared/migrations-only-add.test.ts`) fails when the `up` of a migration from 0011 on uses `renameColumn`, `renameTo`, `dropColumn`, `dropTable`, `alterColumn` or `modifyColumn`, or raw SQL that does the same (`drop table`, `drop column`, `rename`, `alter column`, which also covers a type change and `set not null`; any case, any whitespace; comments are ignored), or when it adds a `NOT NULL` column with no default to a table that exists (`addColumn` with `.notNull()` and no `.defaultTo(…)` on `alterTable`, or raw SQL `add column … not null` with no `default`) (`down` is not checked). For the second release of a rename or drop, list that migration in the test's allow-list with the reason.
+有一个测试（`tests/shared/migrations-only-add.test.ts`）卡住这件事：从 `0011` 起的每个迁移，`up` 里出现 `renameColumn`、`renameTo`、`dropColumn`、`dropTable`、`alterColumn`、`modifyColumn`，或者做同样事情的原始 SQL（`drop table`、`drop column`、`rename`、`alter column`（含改类型和 `set not null`），不分大小写，中间任意空白，注释里的字不算），或者给已有的表加一个 `NOT NULL` 又没有默认值的列（`alterTable` 上的 `addColumn` 带 `.notNull()` 却没有 `.defaultTo(…)`，或者原始 SQL 的 `add column … not null` 不带 `default`），就失败（`down` 不管）。真到了“下一次发布删旧的”那一步，在测试的允许名单上写明是哪个迁移、为什么。
 
-## Developer Certificate of Origin (DCO)
+## 开发者原创声明（DCO）
 
-This project uses the [Developer Certificate of Origin (DCO)](https://developercertificate.org/); there is no separate agreement to sign. By adding a sign-off line to each commit, you certify that you wrote the code, or that you have the right to submit it under this project's open source license. For the exact terms, see the full DCO text at the link above.
+本项目使用 [Developer Certificate of Origin（DCO）](https://developercertificate.org/)，不需要另外签协议。在每个提交里加一行签名，就表示提交的人声明：这段代码是自己写的，或者自己有权按本项目的开源协议提交它。具体条款见上面链接里的 DCO 全文。
 
-- Add the `-s` flag when you commit, and git appends the sign-off to the end of the commit message:
+- 提交时加上 `-s` 参数，git 会自动在提交信息末尾加上签名：
 
   ```bash
-  git commit -s -m "fix: return 410 when the verification code has expired"
+  git commit -s -m "fix: 验证码过期后返回 410"
   ```
 
-  The sign-off looks like `Signed-off-by: Your Name <your-email>`, and the email must match the commit's author email.
-- Forgot to sign off? If only the last commit is missing it, use `git commit --amend -s --no-edit`; if several are, use `git rebase --signoff main`. Then update your own branch with `git push --force-with-lease`.
-- CI checks that every commit in a PR is signed off. A PR with commits missing a sign-off will not be merged.
-- Your contribution is released under this project's open source license, and you keep the copyright.
+  签名的格式是 `Signed-off-by: 名字 <邮箱>`，邮箱要和这个提交的作者邮箱一致。
+- 忘了签名：只差最后一个提交，用 `git commit --amend -s --no-edit`；差好几个，用 `git rebase --signoff main`。然后用 `git push --force-with-lease` 更新自己的分支。
+- CI 会检查 PR 里的每个提交是否都带签名，缺了签名的 PR 不会被合并。
+- 贡献以本项目的开源协议发布，版权仍归贡献者本人。
 
-## Code of Conduct
+## 行为准则
 
-By taking part in this project, you agree to follow its [Code of Conduct](CODE_OF_CONDUCT.md).
+参与本项目，即表示同意遵守本项目的[行为准则](CODE_OF_CONDUCT.md)。
