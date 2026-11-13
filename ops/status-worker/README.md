@@ -8,7 +8,7 @@ Every minute it:
 - reads the registration service's `GET /healthz/mail`, which says whether mail is going out;
 - decides the status (`ok`, `maintenance` or `down`) and mails the operator when it changes in a way that needs attention.
 
-It also serves `GET /status.json` for plugins that cannot reach the school (see "The status file" in [`docs/api.md`](../../docs/api.md)). Every other path is a 404.
+It also serves `GET /status.json` for plugins that cannot reach the school (see "The status file" in [`docs/api.en.md`](../../docs/api.en.md)). Every other path is a 404.
 
 ## What it mails
 

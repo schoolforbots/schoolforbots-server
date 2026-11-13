@@ -30,6 +30,6 @@ jobs:
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "Commit with git commit -s. To sign off existing commits: git rebase --signoff $BASE, then git push --force-with-lease. See CONTRIBUTING.md for details."
+            echo "Commit with git commit -s. To sign off existing commits: git rebase --signoff $BASE, then git push --force-with-lease. See CONTRIBUTING.md (English: CONTRIBUTING.en.md) for details."
             exit 1
           fi
