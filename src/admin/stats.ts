@@ -6,15 +6,18 @@ import { monthSpend, schoolMonth } from '../llm/budget.js'
 import type { LlmPurpose } from '../llm/client.js'
 import type { ModerationCategory } from '../moderation/moderator.js'
 import { LLM_PURPOSES, type Division, type SchoolConfig, type Slot } from '../shared/config.js'
-import { addDaysToDate, atLocalTime, localDate, startOfLocalDay } from '../shared/local-time.js'
+import { calendarStatus, isSchoolDay, type SchoolState } from '../shared/calendar.js'
+import { addDaysToDate, atLocalTime, localDate, localTimeOfDay, startOfLocalDay } from '../shared/local-time.js'
+import { readMaintenance } from '../shared/maintenance.js'
 import type { Database } from '../shared/schema.js'
 import { switchChanges, type SwitchName } from '../shared/switches.js'
 import type { AdminDeps } from './app.js'
 import { reviewQueue } from './lessons.js'
 
-// The school-data page: yesterday's numbers next to the same day a week before, the reminders, and the daily curves.
-// Every number is of a calendar day in the school's time zone, counted in the database: one grouped query per table
-// over the whole span, whatever its length.
+// The school-data page: today's numbers so far and yesterday's, each next to the same day a week before, the reminders,
+// and the daily curves. Every number is of a calendar day in the school's time zone, counted in the database when the
+// page asks: one grouped query per table over the whole span, whatever its length. Today's run from its midnight up to
+// now, and are set against the same day a week before up to the same time of day, not against all of it.
 //
 // - Students in class (DAU): the different students in `attendance` of the sessions held that day, also by slot.
 // - Chat messages: every row of `messages`, of every kind. Blocked: not delivered and stopped by a check; the second
@@ -54,6 +57,24 @@ export interface SeriesDay {
 }
 
 export interface DailyStats {
+  /** Today from its midnight up to `asOf`. */
+  todaySoFar: DayNumbers
+  /**
+   * The same day a week before, from its midnight up to the time of day of `asOf`: half a day is not set against a
+   * whole one. Null when that day comes before the school's opening day.
+   */
+  sameTimeLastWeek: DayNumbers | null
+  /** The instant the numbers were counted at (ISO). */
+  asOf: string
+  /** Whether classes are held today: by the calendar, and whether the school is under maintenance right now. */
+  todayStatus: {
+    state: SchoolState
+    /** The name of today's break, when it has one. */
+    breakName: string | null
+    /** False on a break, before the opening day, and on a weekend without study halls. */
+    schoolDay: boolean
+    maintenance: boolean
+  }
   yesterday: DayNumbers
   /** Null when that day comes before the school's opening day; every other day has its numbers, zeros included. */
   sameDayLastWeek: DayNumbers | null
@@ -67,7 +88,7 @@ export interface DailyStats {
     /** Lessons of the queue that could not be made, from the day after the first failure (it is retried before). */
     generationFailed: { date: string; division: Division; attempts: number; lastError: string }[]
   }
-  /** The `days` days up to yesterday, oldest first. */
+  /** The `days` days up to yesterday, oldest first. Today is not among them: a day not over would read as a drop. */
   series: SeriesDay[]
   /** The switches changed over the days of `series`. */
   switchChanges: { name: SwitchName; on: boolean; at: string }[]
@@ -111,14 +132,24 @@ const round = (n: number, places: number): number => {
   return Math.round(n * factor) / factor
 }
 
-/** Every day from `from` to `to` (both included), each with its numbers, zeros where nothing happened. */
-async function tallies(db: Kysely<Database>, timeZone: string, from: string, to: string): Promise<Map<string, Tally>> {
+/**
+ * Every day from `from` to `to` (both included), each with its numbers, zeros where nothing happened. With `until`
+ * (an instant of the day `to`), only what happened before it is counted: a student in class from the moment first
+ * seen there.
+ */
+async function tallies(
+  db: Kysely<Database>,
+  timeZone: string,
+  from: string,
+  to: string,
+  until?: Date,
+): Promise<Map<string, Tally>> {
   const days = new Map<string, Tally>()
   for (let day = from; day <= to; day = addDaysToDate(day, 1)) days.set(day, emptyTally())
   const dayOf = (date: string): Tally | undefined => days.get(date)
 
   const fromAt = atLocalTime(from, '00:00', timeZone)
-  const toAt = atLocalTime(addDaysToDate(to, 1), '00:00', timeZone)
+  const toAt = until ?? atLocalTime(addDaysToDate(to, 1), '00:00', timeZone)
   // The school-time day of an instant. Queries group by it as their first column (`group by 1`): the time zone is a
   // parameter, and the same expression written twice would be two parameters Postgres cannot tell are equal.
   const localDay = (column: 'createdAt' | 'verifiedAt') =>
@@ -131,6 +162,7 @@ async function tallies(db: Kysely<Database>, timeZone: string, from: string, to:
     .select(['s.date', 's.slot', sql<string>`count(distinct a.student_id)`.as('students')])
     .where('s.date', '>=', from)
     .where('s.date', '<=', to)
+    .$if(until !== undefined, (q) => q.where('a.firstSeenAt', '<', toAt))
     .groupBy(['s.date', 's.slot'])
     .execute()
   for (const r of bySlot) {
@@ -143,6 +175,7 @@ async function tallies(db: Kysely<Database>, timeZone: string, from: string, to:
     .select(['s.date', sql<string>`count(distinct a.student_id)`.as('students')])
     .where('s.date', '>=', from)
     .where('s.date', '<=', to)
+    .$if(until !== undefined, (q) => q.where('a.firstSeenAt', '<', toAt))
     .groupBy('s.date')
     .execute()
   for (const r of byDay) {
@@ -219,6 +252,21 @@ async function tallies(db: Kysely<Database>, timeZone: string, from: string, to:
   return days
 }
 
+/** One day's numbers from its midnight up to `until`. */
+async function dayUntil(db: Kysely<Database>, timeZone: string, date: string, until: Date): Promise<DayNumbers> {
+  const days = await tallies(db, timeZone, date, date, until)
+  return dayNumbers(date, days.get(date) ?? emptyTally())
+}
+
+/**
+ * The instant on `date` when the school's clock reads what it reads at `moment`, seconds included. Offsets are whole
+ * minutes, so the seconds past the minute are the same on every clock.
+ */
+function sameTimeOn(date: string, moment: Date, timeZone: string): Date {
+  const minute = atLocalTime(date, localTimeOfDay(moment, timeZone), timeZone)
+  return new Date(minute.getTime() + (moment.getTime() % 60_000))
+}
+
 function dayNumbers(date: string, tally: Tally): DayNumbers {
   // The second layer's own count is for the curves; the day's tile has it in `blocked`.
   const { costByPurpose, blockedBySecondLayer, ...counts } = tally
@@ -245,7 +293,7 @@ function doorsOf(date: string, slots: readonly Slot[], config: SchoolConfig): Da
   return new Date(start.getTime() - config.lesson.doorsOpenMinutesBefore * 60_000)
 }
 
-/** The school-data page for the last `days` days up to yesterday. */
+/** The school-data page: today so far, yesterday, and the curves of the last `days` days up to yesterday. */
 export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'>, days: number): Promise<DailyStats> {
   const { db, config, clock } = deps
   const tz = config.timezone
@@ -253,11 +301,19 @@ export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'
   const today = localDate(now, tz)
   const yesterday = addDaysToDate(today, -1)
   const lastWeek = addDaysToDate(yesterday, -7)
+  const todayLastWeek = addDaysToDate(today, -7)
   const first = addDaysToDate(yesterday, -(days - 1))
   const all = await tallies(db, tz, lastWeek < first ? lastWeek : first, yesterday)
   const tallyOf = (date: string): Tally => all.get(date) ?? emptyTally()
 
   const openingDay = config.calendar?.openingDay
+  const beforeOpening = (date: string) => openingDay !== undefined && date < openingDay
+  const todaySoFar = await dayUntil(db, tz, today, now)
+  const sameTimeLastWeek = beforeOpening(todayLastWeek)
+    ? null
+    : await dayUntil(db, tz, todayLastWeek, sameTimeOn(todayLastWeek, now, tz))
+  const calendar = calendarStatus(today, config)
+  const maintenance = (await readMaintenance(db)) !== null
   const spend = await monthSpend(db, schoolMonth(now, tz), tz)
   const budget = config.llm.monthlyBudgetYuan
 
@@ -292,8 +348,17 @@ export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'
   const changes = await switchChanges(db, atLocalTime(first, '00:00', tz), atLocalTime(today, '00:00', tz))
 
   return {
+    todaySoFar,
+    sameTimeLastWeek,
+    asOf: now.toISOString(),
+    todayStatus: {
+      state: calendar.state,
+      breakName: calendar.breakName,
+      schoolDay: isSchoolDay(today, config),
+      maintenance,
+    },
     yesterday: dayNumbers(yesterday, tallyOf(yesterday)),
-    sameDayLastWeek: openingDay !== undefined && lastWeek < openingDay ? null : dayNumbers(lastWeek, tallyOf(lastWeek)),
+    sameDayLastWeek: beforeOpening(lastWeek) ? null : dayNumbers(lastWeek, tallyOf(lastWeek)),
     month: { costYuan: round(spend, 2), budgetYuan: budget, overBudget: spend > budget },
     reminders: { unreviewed, generationFailed },
     series,

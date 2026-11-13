@@ -44,7 +44,18 @@ export interface SeriesDay {
   costByPurpose: Record<LlmPurpose, number>
 }
 
+/** Whether the school has not opened yet, is in term, or is on a break, on a given day. */
+export type SchoolState = 'not_started' | 'in_term' | 'on_break'
+
 export interface DailyStats {
+  /** Today from its midnight up to `asOf`. */
+  todaySoFar: DayNumbers
+  /** The same day last week up to the same time of day; null when that day came before the school opened. */
+  sameTimeLastWeek: DayNumbers | null
+  /** When the numbers were counted. */
+  asOf: string
+  /** Whether classes are held today: by the calendar, and whether the school is under maintenance right now. */
+  todayStatus: { state: SchoolState; breakName: string | null; schoolDay: boolean; maintenance: boolean }
   yesterday: DayNumbers
   /** Null when that day came before the school opened. */
   sameDayLastWeek: DayNumbers | null
@@ -54,7 +65,7 @@ export interface DailyStats {
     unreviewed: { date: string; division: Division; deadline: string }[]
     generationFailed: { date: string; division: Division; attempts: number; lastError: string }[]
   }
-  /** The days up to yesterday, oldest first. */
+  /** The days up to yesterday, oldest first: today is not drawn until it is over. */
   series: SeriesDay[]
   switchChanges: { name: SwitchName; on: boolean; at: string }[]
   /** The school's time zone: the clock the deadlines and the switch changes are read on. */

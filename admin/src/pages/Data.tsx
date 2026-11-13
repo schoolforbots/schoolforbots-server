@@ -27,9 +27,9 @@ import {
   yuan,
 } from '../labels.js'
 
-// The school data page: yesterday's numbers next to the same day a week before, what needs doing, and the daily
-// curves of the last 7, 30 or 90 days. Every number on it comes from `api/stats/daily`, and every time is read on the
-// school's clock, in the time zone the answer names.
+// The school data page: today's numbers so far and yesterday's, each next to the same day a week before, what needs
+// doing, and the daily curves of the last 7, 30 or 90 days up to yesterday. Every number on it comes from
+// `api/stats/daily`, and every time is read on the school's clock, in the time zone the answer names.
 
 /** The categorical colours of the charts, in this order; the green and red of the pages never draw a line. */
 const LINE_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6']
@@ -59,33 +59,80 @@ function change(now: number, before: number | undefined, weekday: string, format
   return `比上${weekday}${diff > 0 ? '多' : '少'} ${format(Math.abs(diff))}`
 }
 
+/** A day's numbers in a row of tiles, each with its change; the month's spend goes with the day that has `month`. */
+function Tiles(props: { labelId: string; day: DayNumbers; before: DayNumbers | null; month?: DailyStats['month'] }) {
+  const { labelId, day, before, month } = props
+  const weekday = weekdayOf(day.date)
+  return (
+    <div className="tiles">
+      {TILES.map((tile) => (
+        <div key={tile.key} className="tile" role="group" aria-labelledby={`${labelId}-${tile.key}`}>
+          <p id={`${labelId}-${tile.key}`} className="tile-label">
+            {tile.label}
+          </p>
+          <p className="tile-value">{tile.format(day[tile.key])}</p>
+          <p className="tile-change">{change(day[tile.key], before?.[tile.key], weekday, tile.format)}</p>
+          {tile.key === 'costYuan' && month !== undefined && (
+            <p className="tile-change">
+              本月 {yuan(month.costYuan)}，预算 {yuan(month.budgetYuan)}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Why no class is held today, when none is; undefined on a school day. */
+function noClass(status: DailyStats['todayStatus'], weekday: string): string | undefined {
+  if (status.state === 'not_started') return '学校还没开学，今天不上课。'
+  if (status.state === 'on_break') return `今天放假${status.breakName === null ? '' : `（${status.breakName}）`}，不上课。`
+  if (!status.schoolDay) return `今天是${weekday}，周末不上课。`
+  if (status.maintenance) return '现在维护中：上课服务不让任何人进，碰上维护的时段今天不上课。'
+  return undefined
+}
+
+/**
+ * Today up to the time the numbers were counted, next to the same day last week up to the same time: a class that is
+ * over is in them. They go on growing, so they can be read again up to now.
+ */
+function Today({ stats, reading, onUpdate }: { stats: DailyStats; reading: boolean; onUpdate: () => void }) {
+  const titleId = useId()
+  const { todaySoFar, sameTimeLastWeek, month } = stats
+  const weekday = weekdayOf(todaySoFar.date)
+  const time = clockTime(stats.asOf, stats.timeZone)
+  // Said once above the tiles, which keep the short words of yesterday's.
+  const against = sameTimeLastWeek === null ? undefined : `和上${weekday}零点到 ${time} 的数字比。`
+  const why = noClass(stats.todayStatus, weekday)
+  return (
+    <section className="panel" aria-labelledby={titleId}>
+      <div className="panel-head">
+        <h2 id={titleId} className="panel-title">
+          今天（截至 {time}），{dayName(todaySoFar.date)}
+        </h2>
+        {/* It stays enabled while it reads (a disabled button would lose the focus); a second click waits. */}
+        <Button onClick={() => !reading && onUpdate()}>{reading ? '正在更新' : '更新到现在'}</Button>
+      </div>
+      {(against !== undefined || why !== undefined) && (
+        <p className="day-note">
+          {against}
+          {why}
+        </p>
+      )}
+      <Tiles labelId={titleId} day={todaySoFar} before={sameTimeLastWeek} month={month} />
+    </section>
+  )
+}
+
 function Yesterday({ stats }: { stats: DailyStats }) {
   const titleId = useId()
-  const { yesterday, sameDayLastWeek, month } = stats
-  const weekday = weekdayOf(yesterday.date)
+  const { yesterday, sameDayLastWeek } = stats
   return (
     <section className="panel" aria-labelledby={titleId}>
       <h2 id={titleId} className="panel-title">
         昨天，{dayName(yesterday.date)}
       </h2>
-      <div className="tiles">
-        {TILES.map((tile) => (
-          <div key={tile.key} className="tile" role="group" aria-labelledby={`${titleId}-${tile.key}`}>
-            <p id={`${titleId}-${tile.key}`} className="tile-label">
-              {tile.label}
-            </p>
-            <p className="tile-value">{tile.format(yesterday[tile.key])}</p>
-            <p className="tile-change">
-              {change(yesterday[tile.key], sameDayLastWeek?.[tile.key], weekday, tile.format)}
-            </p>
-            {tile.key === 'costYuan' && (
-              <p className="tile-change">
-                本月 {yuan(month.costYuan)}，预算 {yuan(month.budgetYuan)}
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
+      <Tiles labelId={titleId} day={yesterday} before={sameDayLastWeek} />
     </section>
   )
 }
@@ -252,6 +299,7 @@ export function Data({ onGoReview }: { onGoReview: () => void }) {
   const shown = data.series.length
   return (
     <div className="page">
+      <Today stats={data} reading={stats.loading} onUpdate={stats.reload} />
       <Yesterday stats={data} />
       <Reminders stats={data} onGoReview={onGoReview} />
       <section className="range" aria-labelledby={rangeId}>

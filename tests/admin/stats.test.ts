@@ -3,17 +3,19 @@ import { afterEach, expect, test } from 'vitest'
 import { approve, saveDraft, type LessonStoreDeps } from '../../src/lessons/store.js'
 import type { Division, SchoolConfig, Slot } from '../../src/shared/config.js'
 import type { DisciplineKind, LessonContent, MessageKind, MessageModeration } from '../../src/shared/schema.js'
+import { setMaintenance } from '../../src/shared/maintenance.js'
 import { setSwitch } from '../../src/shared/switches.js'
 import { buildAdminTestApp } from '../helpers/admin.js'
 import { exampleConfig } from '../helpers/app.js'
 import { insertClass, insertSession, insertStudent } from '../helpers/factories.js'
 
 // Today is Wednesday 2026-11-04, noon school time (UTC+8). Yesterday is Tuesday 11-03; the same day last week is
-// Tuesday 10-27; the 7 days of the curves run from Wednesday 10-28 to yesterday.
+// Tuesday 10-27; today's is Wednesday 10-28. The 7 days of the curves run from Wednesday 10-28 to yesterday.
 const NOW = new Date('2026-11-04T12:00:00+08:00')
 const TODAY = '2026-11-04'
 const YESTERDAY = '2026-11-03'
 const LAST_WEEK = '2026-10-27'
+const TODAY_LAST_WEEK = '2026-10-28'
 const THURSDAY = '2026-11-05'
 const FRIDAY = '2026-11-06'
 
@@ -45,10 +47,10 @@ async function session(date: string, slot: Slot, division: Division = 'junior') 
   return { sessionId, classId }
 }
 
-async function attend(sessionId: number, studentIds: number[]): Promise<void> {
+async function attend(sessionId: number, studentIds: number[], firstSeenAt = new Date()): Promise<void> {
   await t.db
     .insertInto('attendance')
-    .values(studentIds.map((studentId) => ({ sessionId, studentId, firstSeenAt: new Date() })))
+    .values(studentIds.map((studentId) => ({ sessionId, studentId, firstSeenAt })))
     .execute()
 }
 
@@ -255,6 +257,144 @@ test('yesterday, the same day last week and 7 days of curves, counted from a see
   ])
 })
 
+/** Something of every kind a day's numbers count, at `time` (school time) on `date`, by `student`. */
+async function everything(date: string, time: string, student: number): Promise<void> {
+  const when = at(date, time)
+  const { sessionId, classId } = await session(date, 'morning')
+  await attend(sessionId, [student], when)
+  const where = { sessionId, classId, senderId: student }
+  await message(where, when)
+  await message(where, when, { moderation: 'privacy', delivered: false })
+  await record(student, 'school_rule', when)
+  await record(student, 'suspension', when)
+  await record(student, 'expulsion', when)
+  await registration(when, when)
+  await call('answer', '0.100000', when)
+}
+
+/** A day's numbers with `n` of everything `everything` adds, `students` students in the morning. */
+const numbersOf = (date: string, n: number, students = n) => ({
+  date,
+  dau: students,
+  dauBySlot: { ...zeroSlots, morning: students },
+  chat: 2 * n,
+  blocked: n,
+  blockedByCategory: { ...zeroCategories, privacy: n },
+  violations: n,
+  suspensions: n,
+  expulsions: n,
+  registrations: n,
+  costYuan: round2(0.1 * n),
+})
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+test('today counts up to now, set against the same day last week up to the same time; the curves stop at yesterday', async () => {
+  await start()
+  const s = await Promise.all(Array.from({ length: 4 }, () => insertStudent(t.db)))
+  const [s1, s2, s3, s4] = s.map((x) => x.id) as [number, number, number, number]
+
+  // Today: from its first second on, and later in the day. The last second of yesterday is yesterday's.
+  await everything(TODAY, '00:00:00', s1)
+  await everything(TODAY, '11:59:59', s2)
+  await everything(TODAY, '15:00:00', s3)
+  await everything(YESTERDAY, '23:59:59', s4)
+  // The same day last week: up to noon, at noon, and in the evening.
+  await everything(TODAY_LAST_WEEK, '00:00:00', s1)
+  await everything(TODAY_LAST_WEEK, '09:00:00', s2)
+  await everything(TODAY_LAST_WEEK, '11:59:59', s3)
+  await everything(TODAY_LAST_WEEK, '12:00:00', s4)
+  await everything(TODAY_LAST_WEEK, '20:00:00', s1)
+
+  const noon = (await daily(7)).json()
+  expect(noon.asOf).toBe(NOW.toISOString())
+  expect(noon.todaySoFar).toEqual(numbersOf(TODAY, 2))
+  expect(noon.sameTimeLastWeek).toEqual(numbersOf(TODAY_LAST_WEEK, 3))
+  // Yesterday's tile is all of yesterday, the same day last week all of it too.
+  expect(noon.yesterday).toEqual(numbersOf(YESTERDAY, 1))
+  // The curves end with yesterday: today is drawn once it is over. The same day last week has the whole day.
+  const series = noon.series as { date: string; chat: number }[]
+  expect(series.at(-1)?.date).toBe(YESTERDAY)
+  expect(series.map((d) => d.date)).not.toContain(TODAY)
+  expect(series.find((d) => d.date === TODAY_LAST_WEEK)?.chat).toBe(10)
+
+  // After the afternoon class the day has grown, and last week's cut has moved with the clock.
+  t.clock.set(at(TODAY, '16:30:00'))
+  const afternoon = (await daily(7)).json()
+  expect(afternoon.asOf).toBe(at(TODAY, '16:30:00').toISOString())
+  expect(afternoon.todaySoFar).toEqual(numbersOf(TODAY, 3))
+  expect(afternoon.sameTimeLastWeek).toEqual(numbersOf(TODAY_LAST_WEEK, 4))
+
+  // In the last second of the day, all of last week's day is in, and still none of today's curve.
+  t.clock.set(at(TODAY, '23:59:59'))
+  const late = (await daily(7)).json()
+  // s1 came twice that day: four students.
+  expect(late.sameTimeLastWeek).toEqual(numbersOf(TODAY_LAST_WEEK, 5, 4))
+  expect((late.series as { date: string }[]).at(-1)?.date).toBe(YESTERDAY)
+})
+
+test('the same time last week is cut at the same time on the school’s clock, across a daylight saving change', async () => {
+  // 04:00 UTC on 11-04 is 20:00 on Tuesday 11-03 in Los Angeles (PST, UTC-8). A week before, Tuesday 10-27, the
+  // clocks were still on PDT (UTC-7): the cut is 20:00 PDT, not 21:00 PDT (seven times 24 hours before).
+  await start({ ...exampleConfig(), timezone: 'America/Los_Angeles' })
+  const student = (await insertStudent(t.db)).id
+  const { sessionId, classId } = await session('2026-11-03', 'evening')
+  const where = { sessionId, classId, senderId: student }
+
+  // Today in Los Angeles: from its midnight (08:00 UTC), not the second before.
+  await message(where, new Date('2026-11-03T07:59:59Z'))
+  await message(where, new Date('2026-11-03T08:00:00Z'))
+  await message(where, new Date('2026-11-04T03:59:59Z'))
+  // The same Tuesday last week: from its midnight (07:00 UTC) up to 20:00 PDT (03:00 UTC on the 28th).
+  await message(where, new Date('2026-10-27T06:59:59Z'))
+  await message(where, new Date('2026-10-27T07:00:00Z'))
+  await message(where, new Date('2026-10-28T02:59:59Z'))
+  await message(where, new Date('2026-10-28T03:00:00Z'))
+  await message(where, new Date('2026-10-28T03:30:00Z'))
+
+  const body = (await daily(7)).json()
+  expect(body.today).toBe('2026-11-03')
+  expect(body.todaySoFar).toMatchObject({ date: '2026-11-03', chat: 2 })
+  expect(body.sameTimeLastWeek).toMatchObject({ date: '2026-10-27', chat: 2 })
+  expect(body.series.at(-1).date).toBe('2026-11-02')
+})
+
+test('whether classes are held today: in term, before the opening day, on a break, at the weekend, in maintenance', async () => {
+  const example = exampleConfig()
+  const calendar = (c: Partial<NonNullable<SchoolConfig['calendar']>>) => ({ ...example, calendar: { breaks: [], ...c } })
+  const status = async () => (await daily(7)).json().todayStatus
+
+  await start()
+  expect(await status()).toEqual({ state: 'in_term', breakName: null, schoolDay: true, maintenance: false })
+  await setMaintenance(t.db, { message: '换服务器', expectedBackAt: null }, at(TODAY, '11:00:00'))
+  expect(await status()).toEqual({ state: 'in_term', breakName: null, schoolDay: true, maintenance: true })
+  await setMaintenance(t.db, null, at(TODAY, '11:30:00'))
+  expect(await status()).toMatchObject({ maintenance: false })
+  await t.destroy()
+
+  await start(calendar({ openingDay: THURSDAY }))
+  expect(await status()).toEqual({ state: 'not_started', breakName: null, schoolDay: false, maintenance: false })
+  await t.destroy()
+
+  await start(calendar({ breaks: [{ from: YESTERDAY, reopensOn: FRIDAY, name: '秋假' }] }))
+  expect(await status()).toEqual({ state: 'on_break', breakName: '秋假', schoolDay: false, maintenance: false })
+  await t.destroy()
+
+  // Saturday 11-07, with no study halls at the weekend (signed in again: the session of Wednesday has run out).
+  await start({ ...example, lesson: { ...example.lesson, weekendStudy: false } })
+  t.clock.set(at('2026-11-07', '12:00:00'))
+  cookie = await t.session()
+  expect(await status()).toEqual({ state: 'in_term', breakName: null, schoolDay: false, maintenance: false })
+})
+
+test('the same time last week counts from the opening day itself', async () => {
+  const example = exampleConfig()
+  await start({ ...example, calendar: { openingDay: TODAY_LAST_WEEK, breaks: [] } })
+  const body = (await daily(7)).json()
+  // Tuesday 10-27 came before the opening; Wednesday 10-28 was the opening day.
+  expect(body.sameDayLastWeek).toBeNull()
+  expect(body.sameTimeLastWeek).toEqual(numbersOf(TODAY_LAST_WEEK, 0))
+})
+
 test('the curves cover 7, 30 or 90 days, oldest first, and any other number of days is a 400', async () => {
   await start()
   for (const days of [7, 30, 90]) {
@@ -289,6 +429,8 @@ test('with nothing recorded every number is zero; the same day last week is null
     costYuan: 0,
   })
   expect(body.sameDayLastWeek).toBeNull()
+  expect(body.todaySoFar).toEqual({ ...body.yesterday, date: TODAY })
+  expect(body.sameTimeLastWeek).toBeNull()
   expect(body.month).toEqual({ costYuan: 0, budgetYuan: 300, overBudget: false })
   expect(body.switchChanges).toEqual([])
 })
