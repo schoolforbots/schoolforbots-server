@@ -86,7 +86,7 @@ export function loadSchoolRules(dir: string): SchoolRules {
 
 /** Where a version can be read on GitHub. */
 export function schoolRulesUrl(version: string): string {
-  return `https://github.com/schoolforbots/server/blob/main/school-rules/${version}.md`
+  return `https://github.com/schoolforbots/schoolforbots-server/blob/main/school-rules/${version}.md`
 }
 
 /**
