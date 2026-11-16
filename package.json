@@ -27,7 +27,7 @@
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
     "@fastify/rate-limit": "^11.2.2",
-    "@fastify/static": "^10.1.10",
+    "@fastify/static": "^10.1.11",
     "@fastify/type-provider-typebox": "^6.3.0",
     "@fastify/websocket": "^11.3.7",
     "croner": "^11.0.0",
