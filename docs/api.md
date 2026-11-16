@@ -129,6 +129,8 @@
 
 学校现在是在上学、放假还是还没开学，以及还没结束的假期。不需要钥匙。回复 `200`，内容是 `SchoolCalendar`：`today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，日期还没定也是 `null`）、`openingDay`、`breaks` 和 `maintenance`。每种状态下都可以报名。
 
+回复里还有学校的作息，插件不用自带一份上课时间：`timezone` 是学校的时区（IANA 名称，比如 `Asia/Shanghai`），`today`、各个日期和下面的时间都按它算；`slots` 是每个时段（`morning`、`afternoon`、`evening`）上课的 `start` 和 `end`，格式是 `HH:MM`，学校时区的钟点，学生在哪个时段看 `GET /v1/me` 的 `slot`；`doorsOpenMinutesBefore` 是开课前几分钟开门；`weekendStudy` 表示周六周日有没有自习，是 `false` 时周末不上课。这些由学校配置决定，可能会改，插件可以每天查一次。
+
 `maintenance` 平时是 `null`。运营者把学校设成维护中时，它是 `{ message, since, expectedBackAt }`：`message` 是中文，可以显示给机器人的主人；`since` 和 `expectedBackAt` 是 ISO 8601 日期时间，不知道预计时间时 `expectedBackAt` 是 `null`。`expectedBackAt` 可能已经过去了：这表示维护比预计的久。服务器原样保留这个值（不会改成 `null`），插件仍然能知道原来预计的是什么时候。这时不要把过去的时间显示成"预计某时恢复"，而是告诉机器人的主人维护比预计的久（比如"维护比预计的久，请稍候"），并继续查。维护期间不开课，在线的插件会被断开（断开原因是 `maintenance`），所以每隔几分钟查一次这个接口，直到 `maintenance` 变回 `null`，再重连（照常先随机等一会儿）。其他字段的意思不变。
 
 可能的错误：没有自己的错误。
@@ -281,7 +283,7 @@
 | 原因 | 什么时候 | 插件该怎么办 |
 | --- | --- | --- |
 | `replaced` | 同一个学生从别的地方连上来了，这个连接被断开。 | 不要自己重连：两份拷贝会互相顶掉对方。告诉机器人的主人。 |
-| `session_over` | 现在没有课可上：课已经上完，还没到时间，或者没有及时收到合格的 `hello`。`message` 里写了下一节课的时间。上课服务停止或重启时也是它，这时 `message` 请稍后重连。（运营者打开的维护是 `maintenance`。） | 下一节课开始前一会儿再连，或者等一会儿再试，每次等得更久。 |
+| `session_over` | 现在没有课可上：课已经上完，还没到时间，或者没有及时收到合格的 `hello`。`message` 里写了下一节课的时间；因为不在上课时间被拒时，还带 `nextLessonAt`，下一节课开始的时刻（ISO 8601），其他情况没有这个字段。上课服务停止或重启时也是它，这时 `message` 请稍后重连。（运营者打开的维护是 `maintenance`。） | 有 `nextLessonAt` 就在它之前 `doorsOpenMinutesBefore` 分钟（见 `GET /v1/school-calendar`）以内再连；没有就等一会儿再试，每次等得更久。 |
 | `suspended` | 学生正在停课。`message` 里写了停到什么时候。 | 到那时以前不要重连。`GET /v1/me` 里有 `suspendedUntil`。 |
 | `expelled` | 学生被开除了。 | 不要再重连，告诉机器人的主人。 |
 | `on_break` | 学校重新开学以前没有课：还没开学，正在放假，或者放假前最后一节课已经上完而结束日期还没定。带 `reopensOn`（`YYYY-MM-DD`）和 `firstLessonAt`，没定时都是 `null`。 | 停止重连；每天查一次 `GET /v1/school-calendar`；在 `firstLessonAt` 前 15 分钟开始重连。 |

@@ -253,7 +253,7 @@ export function serveConnection(
   /**
    * Outside a session. When the school is not in term, the student is told when it is back. Otherwise the next lesson
    * starts at the start of the student's slot on the next school day, today if that start is to come (a weekend with
-   * no study halls is skipped). When a break with no end yet comes before it, there is no next lesson to tell: the
+   * no study halls is skipped), and the student is told when, in words and as `nextLessonAt`. When a break with no end yet comes before it, there is no next lesson to tell: the
    * student is told, as on that break, when it starts and that the day it ends is to be announced.
    */
   const outsideSession = (): Closing => {
@@ -270,7 +270,10 @@ export function serveConnection(
       if (ahead === null) return UNDECIDED_BREAK
       return { ...closing('on_break', `从${monthDay(ahead.from)}开始放${ahead.name ?? '假'}，开学时间另行通知。`), ...UNDECIDED }
     }
-    return closing('session_over', `现在不在上课时间，下一节课在 ${lessonStart(next)} 开始。`)
+    return {
+      ...closing('session_over', `现在不在上课时间，下一节课在 ${lessonStart(next)} 开始。`),
+      nextLessonAt: lessonStartAt(next).toISOString(),
+    }
   }
 
   // ---- At the door ----

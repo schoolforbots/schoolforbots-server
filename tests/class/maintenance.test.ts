@@ -404,6 +404,7 @@ describe('while the school is under maintenance', () => {
       type: 'closing',
       reason: 'session_over',
       message: '现在不在上课时间，下一节课在 11月3日 20:00 开始。',
+      nextLessonAt: at('20:00', '2026-11-03').toISOString(),
     })
 
     // The next day is held as usual.

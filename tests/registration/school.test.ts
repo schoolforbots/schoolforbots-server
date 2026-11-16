@@ -34,6 +34,18 @@ async function getCalendar() {
 const WINTER_BREAK = { from: '2026-12-21', reopensOn: '2027-01-04', name: '寒假' }
 const OPENING: Calendar = { openingDay: '2026-12-05', breaks: [WINTER_BREAK] }
 
+/** The lesson times of the example school, as the calendar gives them. */
+const EXAMPLE_TIMES = {
+  timezone: 'Asia/Shanghai',
+  slots: {
+    morning: { start: '10:00', end: '10:30' },
+    afternoon: { start: '15:00', end: '15:30' },
+    evening: { start: '20:00', end: '20:30' },
+  },
+  doorsOpenMinutesBefore: 15,
+  weekendStudy: true,
+}
+
 describe('GET /v1/school-calendar', () => {
   test('needs no key, and a school with no calendar is always in term', async () => {
     await schoolWith(undefined)
@@ -46,6 +58,7 @@ describe('GET /v1/school-calendar', () => {
       openingDay: null,
       breaks: [],
       maintenance: null,
+      ...EXAMPLE_TIMES,
     })
   })
 
@@ -60,6 +73,7 @@ describe('GET /v1/school-calendar', () => {
       openingDay: '2026-12-05',
       breaks: [{ from: '2026-12-21', reopensOn: '2027-01-04', name: '寒假' }],
       maintenance: null,
+      ...EXAMPLE_TIMES,
     })
   })
 
@@ -99,7 +113,36 @@ describe('GET /v1/school-calendar', () => {
       openingDay: null,
       breaks: [{ from: '2026-12-21', reopensOn: null, name: null }],
       maintenance: null,
+      ...EXAMPLE_TIMES,
     })
+  })
+
+  test('gives the timezone, the time of each slot, when the doors open and whether there is weekend study, as configured', async () => {
+    const example = exampleConfig()
+    t = await buildTestApp({
+      config: {
+        timezone: 'Europe/Berlin',
+        slots: {
+          ...example.slots,
+          morning: { label: '早班', start: '09:15', end: '09:45' },
+          evening: { ...example.slots.evening, start: '21:00', end: '21:30' },
+        },
+        lesson: { ...example.lesson, doorsOpenMinutesBefore: 5, weekendStudy: false },
+      },
+    })
+
+    expect(await getCalendar()).toMatchObject({
+      timezone: 'Europe/Berlin',
+      slots: {
+        morning: { start: '09:15', end: '09:45' },
+        afternoon: { start: '15:00', end: '15:30' },
+        evening: { start: '21:00', end: '21:30' },
+      },
+      doorsOpenMinutesBefore: 5,
+      weekendStudy: false,
+    })
+    // The labels are the school's own words, not part of the calendar.
+    expect((await getCalendar()).slots.morning).not.toHaveProperty('label')
   })
 
   test('the breaks listed are those not over yet, by start day, whatever order the config has them in', async () => {

@@ -257,6 +257,10 @@ export const SummaryMessage = Type.Object({
  * back, `YYYY-MM-DD` in the school's timezone, and `firstLessonAt` the moment the student's first lesson that day
  * starts (the start of the student's slot); both are null when the day is not decided yet, and present only with this
  * reason.
+ * `session_over`: when the student came outside the time of a lesson (the doors not open yet, or the lesson over),
+ * `nextLessonAt` is the moment the student's next lesson starts (the start of the student's slot on the next school
+ * day). It is absent when the closing has no next lesson to tell (no valid hello in time, the service stopping, a
+ * student with no class), and comes with this reason and with no other.
  * `maintenance`: the school's operator has it under maintenance; no class is held until it is over (see
  * `SchoolCalendar.maintenance`). `message` is what the operator wrote, and `expectedBackAt` the moment the school is
  * expected back, null when no time is known. `expectedBackAt` comes with this reason and with no other.
@@ -275,9 +279,15 @@ export const ClosingMessage = Type.Object(
     message: Type.String(),
     reopensOn: Type.Optional(Type.Union([Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }), Type.Null()])),
     firstLessonAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+    nextLessonAt: Type.Optional(DateTime),
     expectedBackAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
   },
-  { dependentSchemas: { expectedBackAt: { properties: { reason: { const: 'maintenance' } } } } },
+  {
+    dependentSchemas: {
+      nextLessonAt: { properties: { reason: { const: 'session_over' } } },
+      expectedBackAt: { properties: { reason: { const: 'maintenance' } } },
+    },
+  },
 )
 
 export const ServerMessage = Type.Union([
