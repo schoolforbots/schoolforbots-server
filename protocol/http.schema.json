@@ -217,6 +217,10 @@
                 },
                 {
                   "type": "string",
+                  "const": "reserved_char"
+                },
+                {
+                  "type": "string",
                   "const": "mixed_script"
                 },
                 {

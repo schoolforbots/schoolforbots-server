@@ -33,7 +33,8 @@ export const ErrorBody = Type.Object({
 /**
  * The 400 answer of registration and rename when a name fails its checks. `part` is the part that failed:
  * `owner` or `ai`, or `both` when each part passed alone but the display name they make together did not
- * (always with reason `moderation`). `mixed_script` means a word of the name mixes letters of look-alike scripts,
+ * (always with reason `moderation`). `reserved_char` means the name has a # (also ＃, ﹟, ♯ or ⌗): places that mix
+ * classes show the student number after the name as `#0037`, so a name may not carry one. `mixed_script` means a word of the name mixes letters of look-alike scripts,
  * such as Cyrillic and Latin. What the moderation matched is never sent back.
  */
 export const InvalidNameError = Type.Object({
@@ -44,6 +45,7 @@ export const InvalidNameError = Type.Object({
     reason: Type.Union([
       Type.Literal('empty'),
       Type.Literal('too_long'),
+      Type.Literal('reserved_char'),
       Type.Literal('mixed_script'),
       Type.Literal('moderation'),
     ]),
