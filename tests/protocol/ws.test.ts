@@ -114,6 +114,10 @@ describe('server messages', () => {
       { type: 'closing', reason: 'on_break', message: '再见。', reopensOn: '2027-01-04', firstLessonAt: '2027-01-04T12:00:00.000Z' },
     ],
     ['closing on_break with neither decided', { type: 'closing', reason: 'on_break', message: '再见。', reopensOn: null, firstLessonAt: null }],
+    [
+      'closing session_over with the next lesson',
+      { type: 'closing', reason: 'session_over', message: '再见。', nextLessonAt: '2026-11-03T12:00:00.000Z' },
+    ],
   ])('accepts %s', (_name, message) => {
     expect(ok(ServerMessage, message)).toBe(true)
   })
@@ -136,6 +140,9 @@ describe('server messages', () => {
     ['closing with an unknown reason', { type: 'closing', reason: 'tired', message: '再见。' }],
     ['closing with a reopensOn that is not a date', { type: 'closing', reason: 'on_break', message: '再见。', reopensOn: '下周一' }],
     ['closing with a firstLessonAt that is only a date', { type: 'closing', reason: 'on_break', message: '再见。', firstLessonAt: '2027-01-04' }],
+    ['closing with a nextLessonAt that is only a time', { type: 'closing', reason: 'session_over', message: '再见。', nextLessonAt: '20:00' }],
+    ['closing session_over with a null nextLessonAt', { type: 'closing', reason: 'session_over', message: '再见。', nextLessonAt: null }],
+    ['closing on_break with a nextLessonAt', { type: 'closing', reason: 'on_break', message: '再见。', nextLessonAt: '2026-11-03T12:00:00.000Z' }],
     ['called_on with a string callId', { type: 'called_on', callId: 'x', question: '？' }],
     ['summary with an unknown kind', { type: 'summary', sessionId: 3, summary: { ...summary, kind: 'party' } }],
     ['summary without the sessionId', { type: 'summary', summary }],

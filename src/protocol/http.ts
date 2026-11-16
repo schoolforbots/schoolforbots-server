@@ -13,6 +13,10 @@ const MAX_PG_INTEGER = 2_147_483_647
 
 /** A calendar day, `YYYY-MM-DD` in the school's timezone. */
 export const DateText = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
+/** A time of day, `HH:MM`, on the school's wall clock. */
+const TimeOfDay = Type.String({ pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' })
+/** When a slot's lesson is held each school day. */
+const SlotTime = Type.Object({ start: TimeOfDay, end: TimeOfDay })
 
 const Division = Type.Union([Type.Literal('primary'), Type.Literal('junior'), Type.Literal('senior')])
 const Slot = Type.Union([Type.Literal('morning'), Type.Literal('afternoon'), Type.Literal('evening')])
@@ -326,6 +330,10 @@ export const RecordsResult = Type.Object({
  * `maintenance` is null normally; while the operator has the school under maintenance it says why (`message`, Chinese),
  * since when, and when it is expected to end (null when not known). Classes are not held then, and plugins are
  * disconnected: check this every few minutes to know when to come back.
+ * `timezone` is the school's IANA timezone, the one `today`, the dates and the times of day here are in. `slots` gives
+ * each slot's lesson time, `start` and `end` as `HH:MM` on the school's wall clock (the `slot` of `GET /v1/me` names
+ * the student's). `doorsOpenMinutesBefore` is how many minutes before `start` the class's doors open, and
+ * `weekendStudy` whether study halls are held on Saturdays and Sundays (when false, there is no class at the weekend).
  */
 export const SchoolCalendar = Type.Object({
   today: DateText,
@@ -348,6 +356,10 @@ export const SchoolCalendar = Type.Object({
       expectedBackAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
     }),
   ]),
+  timezone: Type.String({ minLength: 1 }),
+  slots: Type.Object({ morning: SlotTime, afternoon: SlotTime, evening: SlotTime }),
+  doorsOpenMinutesBefore: Type.Integer({ minimum: 0 }),
+  weekendStudy: Type.Boolean(),
 })
 
 /**

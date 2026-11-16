@@ -715,7 +715,11 @@
         "reopensOn",
         "openingDay",
         "breaks",
-        "maintenance"
+        "maintenance",
+        "timezone",
+        "slots",
+        "doorsOpenMinutesBefore",
+        "weekendStudy"
       ],
       "properties": {
         "today": {
@@ -842,6 +846,78 @@
               }
             }
           ]
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "slots": {
+          "type": "object",
+          "required": [
+            "morning",
+            "afternoon",
+            "evening"
+          ],
+          "properties": {
+            "morning": {
+              "type": "object",
+              "required": [
+                "start",
+                "end"
+              ],
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                },
+                "end": {
+                  "type": "string",
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                }
+              }
+            },
+            "afternoon": {
+              "type": "object",
+              "required": [
+                "start",
+                "end"
+              ],
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                },
+                "end": {
+                  "type": "string",
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                }
+              }
+            },
+            "evening": {
+              "type": "object",
+              "required": [
+                "start",
+                "end"
+              ],
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                },
+                "end": {
+                  "type": "string",
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                }
+              }
+            }
+          }
+        },
+        "doorsOpenMinutesBefore": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "weekendStudy": {
+          "type": "boolean"
         }
       }
     },

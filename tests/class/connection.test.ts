@@ -294,6 +294,7 @@ describe('a student who may not come in', () => {
       type: 'closing',
       reason: 'session_over',
       message: '现在不在上课时间，下一节课在 11月2日 20:00 开始。',
+      nextLessonAt: at('20:00', '2026-11-02').toISOString(),
     })
     expect(await client.closed()).toBe(1000)
   })
@@ -309,6 +310,7 @@ describe('a student who may not come in', () => {
       type: 'closing',
       reason: 'session_over',
       message: '现在不在上课时间，下一节课在 11月3日 20:00 开始。',
+      nextLessonAt: at('20:00', '2026-11-03').toISOString(),
     })
     expect(await client.closed()).toBe(1000)
   })
@@ -328,6 +330,7 @@ describe('a student who may not come in', () => {
         type: 'closing',
         reason: 'session_over',
         message: '现在不在上课时间，下一节课在 11月9日 20:00 开始。',
+        nextLessonAt: at('20:00', '2026-11-09').toISOString(),
       })
       expect(await client.closed()).toBe(1000)
     }
@@ -477,6 +480,7 @@ describe('a student who may not come in', () => {
       expect(told.reason).toBe('session_over')
       expect(told).not.toHaveProperty('reopensOn')
       expect(told).not.toHaveProperty('firstLessonAt')
+      expect(told).toHaveProperty('nextLessonAt')
     })
 
     test('after the last lesson before a break, the student is told when the next lesson is, as session_over', async () => {
@@ -487,6 +491,7 @@ describe('a student who may not come in', () => {
         type: 'closing',
         reason: 'session_over',
         message: '现在不在上课时间，下一节课在 1月4日 20:00 开始。',
+        nextLessonAt: at('20:00', '2027-01-04').toISOString(),
       })
     })
   })
@@ -515,6 +520,7 @@ describe('a student who may not come in', () => {
       type: 'closing',
       reason: 'session_over',
       message: '现在不在上课时间，下一节课在 11月3日 20:00 开始。',
+      nextLessonAt: at('20:00', '2026-11-03').toISOString(),
     })
     expect(await client.closed()).toBe(1000)
     expect(client.received.map((m) => m.type)).toEqual(['closing'])
@@ -535,6 +541,7 @@ describe('a student who may not come in', () => {
       type: 'closing',
       reason: 'session_over',
       message: '现在不在上课时间，下一节课在 11月3日 20:00 开始。',
+      nextLessonAt: at('20:00', '2026-11-03').toISOString(),
     })
     expect(await client.closed()).toBe(1000)
     expect(await attendanceRows(s)).toEqual([])

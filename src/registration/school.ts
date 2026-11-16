@@ -97,5 +97,18 @@ function schoolCalendarOn(
             since: maintenance.since.toISOString(),
             expectedBackAt: maintenance.expectedBackAt?.toISOString() ?? null,
           },
+    timezone: config.timezone,
+    slots: {
+      morning: slotTime(config.slots.morning),
+      afternoon: slotTime(config.slots.afternoon),
+      evening: slotTime(config.slots.evening),
+    },
+    doorsOpenMinutesBefore: config.lesson.doorsOpenMinutesBefore,
+    weekendStudy: config.lesson.weekendStudy,
   }
+}
+
+/** A slot's lesson time, without its label. */
+function slotTime({ start, end }: { start: string; end: string }): { start: string; end: string } {
+  return { start, end }
 }
