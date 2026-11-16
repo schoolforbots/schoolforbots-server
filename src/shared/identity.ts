@@ -47,6 +47,12 @@ function mixesScripts(name: string): boolean {
   return false
 }
 
+// Places that mix classes show a name followed by the student number, as in 阿杰家的小鱼 #0037, so a name may not
+// carry a # of its own: 小鱼 #0037 would pass for student 37. The check runs after normalizeNamePart, whose NFKC
+// already turns the full-width ＃ and the small ﹟ into #; the music sharp ♯ and the number sign ⌗ survive NFKC and
+// are listed by hand.
+const RESERVED = /[#♯⌗]/u
+
 export function displayName(ownerName: string, aiName: string): string {
   return `${ownerName}家的${aiName}`
 }
@@ -62,7 +68,7 @@ export function nameKey(name: string): string {
 
 export type NameCheck =
   | { ok: true; ownerName: string; aiName: string }
-  | { ok: false; part: 'owner' | 'ai'; reason: 'empty' | 'too_long' | 'mixed_script' | 'moderation' }
+  | { ok: false; part: 'owner' | 'ai'; reason: 'empty' | 'too_long' | 'reserved_char' | 'mixed_script' | 'moderation' }
   // Each part passed alone, but the display name they make together did not.
   | { ok: false; part: 'both'; reason: 'moderation' }
 
@@ -71,13 +77,14 @@ type PartFailure = Extract<NameCheck, { ok: false }>['reason']
 function checkPart(name: string, maxChars: number, moderator: Moderator): PartFailure | null {
   if (name === '') return 'empty'
   if ([...name].length > maxChars) return 'too_long' // code points, so an emoji counts as one
+  if (RESERVED.test(name)) return 'reserved_char'
   if (mixesScripts(name)) return 'mixed_script'
   if (moderator.check(name).verdict === 'blocked') return 'moderation'
   return null
 }
 
 /**
- * Normalizes both name parts and checks them, owner first (empty, too long, mixed scripts, then moderation), then
+ * Normalizes both name parts and checks them, owner first (empty, too long, a reserved #, mixed scripts, then moderation), then
  * moderates the display name they make together:
  * everyone sees and hears the joined name, and two harmless parts can join into a QQ number or an injection
  * phrase (QQ + 12345678 is QQ家的12345678). The returned names are the normalized ones.

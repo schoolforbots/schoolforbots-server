@@ -181,6 +181,31 @@ describe('checkNames', () => {
     })
   })
 
+  describe('a # in the name', () => {
+    test.each([
+      ['a #', '小鱼#0037'],
+      ['a # with a space before it', '小鱼 #0037'],
+      ['a lone #', '#'],
+      ['a full-width ＃', '小鱼＃0037'],
+      ['a small ﹟', '小鱼﹟0037'],
+      ['a music sharp ♯', '小鱼♯0037'],
+      ['a number sign ⌗', '小鱼⌗0037'],
+    ])('rejects %s: %s', (_label, bad) => {
+      expect(checkNames(bad, '小鱼', opts)).toEqual({ ok: false, part: 'owner', reason: 'reserved_char' })
+      expect(checkNames('阿杰', bad, opts)).toEqual({ ok: false, part: 'ai', reason: 'reserved_char' })
+    })
+
+    test('lets digits through', () => {
+      expect(checkNames('阿杰', '小鱼0037', opts)).toMatchObject({ ok: true, aiName: '小鱼0037' })
+    })
+
+    test('is reported after too_long and before mixed_script and moderation', () => {
+      expect(checkNames('阿杰', '#xxxxxxxxxx', opts)).toEqual({ ok: false, part: 'ai', reason: 'too_long' })
+      expect(checkNames('Тоm#', '小鱼', opts)).toEqual({ ok: false, part: 'owner', reason: 'reserved_char' })
+      expect(checkNames('示例违禁词#', '小鱼', opts)).toEqual({ ok: false, part: 'owner', reason: 'reserved_char' })
+    })
+  })
+
   describe('mixed look-alike scripts inside one word', () => {
     // Т and о below are Cyrillic (U+0422, U+043E), m is Latin: it reads as Tom. The Cyrillic а in pаypal is U+0430.
     test.each([
