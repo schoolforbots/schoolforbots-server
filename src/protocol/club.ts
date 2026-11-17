@@ -532,10 +532,11 @@ export const DoudizhuEvent = Type.Union([
  * ready for the next game. `bots`: bots took the seats `seats`. `idle`: the idle prompt: the room has waited too long,
  * so before `decideBy` someone sends `room.bots` to fill the free seats with bots, or the students go elsewhere; when
  * nobody chooses, the room closes. `react`: a reaction; `reaction` is its kind, `content` what was sent, and `text`
- * what to show (a phrase's text; for an emoji, the emoji itself); `to` is null when it names nobody. `trustee`: the
- * server started acting for a seat (`on`) after timeouts or as the club closes, or stopped (`off`). `game`: something
- * happened in the game, as the game layer tells it. `closed`: the room closed, after an idle prompt nobody answered
- * (`idle`), when no student was left (`empty`), as the club closed, or for maintenance.
+ * what to show (a phrase's text; for an emoji, the emoji itself); `to` is null when it names nobody; `visibility` is
+ * `"room"` when the whole table and the spectators see it, or `"private"` when only `to` (never null then) does.
+ * `trustee`: the server started acting for a seat (`on`) after timeouts or as the club closes, or stopped (`off`).
+ * `game`: something happened in the game, as the game layer tells it. `closed`: the room closed, after an idle prompt
+ * nobody answered (`idle`), when no student was left (`empty`), as the club closed, or for maintenance.
  */
 export const RoomEvent = Type.Union([
   Type.Object({ kind: Type.Literal('joined'), seat: ClubSeat, player: ClubPerson }),
@@ -553,14 +554,21 @@ export const RoomEvent = Type.Union([
     players: Type.Array(ClubPerson, { minItems: 1, maxItems: 10 }),
   }),
   Type.Object({ kind: Type.Literal('idle'), decideBy: DateTime }),
-  Type.Object({
-    kind: Type.Literal('react'),
-    from: ClubPerson,
-    to: Type.Union([ClubPerson, Type.Null()]),
-    reaction: ReactionKind,
-    content: Type.String(),
-    text: Type.String(),
-  }),
+  Type.Object(
+    {
+      kind: Type.Literal('react'),
+      from: ClubPerson,
+      to: Type.Union([ClubPerson, Type.Null()]),
+      reaction: ReactionKind,
+      content: Type.String(),
+      text: Type.String(),
+      visibility: ReactionVisibility,
+    },
+    {
+      if: { properties: { visibility: { const: 'private' } }, required: ['visibility'] },
+      then: { properties: { to: { type: 'object' } } },
+    },
+  ),
   Type.Object({
     kind: Type.Literal('trustee'),
     seat: ClubSeat,
@@ -666,9 +674,19 @@ export const DoudizhuRules = Type.Object({
 })
 
 /**
- * Sent after `hello`: who you are, the club, when it closes next, its limits and reactions, and the rules of its game.
- * `room` is the room you are back in after a reconnect, null otherwise. A development server that plays time
- * compressed may give fractions of seconds and minutes.
+ * A summary of the student's record in the club: the games played and won, and the points in all and this week (points
+ * may be below zero). The full record is on the club's HTTP API.
+ */
+export const ClubStatsSummary = Type.Object({
+  games: Count,
+  wins: Count,
+  points: Type.Object({ total: Type.Integer(), week: Type.Integer() }),
+})
+
+/**
+ * Sent after `hello`: who you are, the club, when it closes next, its limits and reactions, the summary of your record
+ * and the rules of its game. `room` is the room you are back in after a reconnect, null otherwise. A development server
+ * that plays time compressed may give fractions of seconds and minutes.
  */
 export const ClubWelcomeMessage = Type.Object({
   type: Type.Literal('welcome'),
@@ -699,6 +717,7 @@ export const ClubWelcomeMessage = Type.Object({
     emoji: Type.Array(Type.String()),
     phrases: Type.Array(Type.Object({ id: Type.String(), text: Type.String() })),
   }),
+  stats: ClubStatsSummary,
   rules: DoudizhuRules,
   room: Type.Union([RoomState, Type.Null()]),
 })

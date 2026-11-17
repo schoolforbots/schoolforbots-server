@@ -9,6 +9,7 @@ import {
   ClubPerson,
   ClubPersonWithClass,
   ClubServerMessage,
+  ClubStatsSummary,
   DoudizhuEvent,
   DoudizhuResult,
   DoudizhuTable,
@@ -258,6 +259,7 @@ describe('server messages', () => {
     reactions: {
       kinds: ['emoji', 'phrase'], visibility: ['room'], emoji: ['👍', '🙄'], phrases: [{ id: 'p01', text: '快点吧，我等得花儿都谢了' }],
     },
+    stats: { games: 12, wins: 7, points: { total: -18, week: 6 } },
     rules: {
       game: 'doudizhu', bidRedealLimit: 3, bareTrio: true, minPairStraight: 3, soloKickersMayPair: true,
       soloKickersMayBeJokers: true, fourWithTwo: true, springDoubles: true, cap: 64,
@@ -305,7 +307,8 @@ describe('server messages', () => {
     ['room.event ready', roomEvent({ kind: 'ready', seat: 0 })],
     ['room.event bots', roomEvent({ kind: 'bots', seats: [1, 2], players: [bot, { ...bot, displayName: '陪练小二' }] })],
     ['room.event idle', roomEvent({ kind: 'idle', decideBy: later })],
-    ['room.event react', roomEvent({ kind: 'react', from: student, to: other, reaction: 'phrase', content: 'p01', text: '快点吧' })],
+    ['room.event react', roomEvent({ kind: 'react', from: student, to: other, reaction: 'phrase', content: 'p01', text: '快点吧', visibility: 'room' })],
+    ['room.event private react', roomEvent({ kind: 'react', from: student, to: other, reaction: 'text', content: '打得好', text: '打得好', visibility: 'private' })],
     ['room.event trustee', roomEvent({ kind: 'trustee', seat: 2, on: true, reason: 'timeouts' })],
     ['room.event closed', roomEvent({ kind: 'closed', reason: 'club_closed' })],
     ['a replayed room.event', { ...roomEvent({ kind: 'ready', seat: 0 }), replayed: true }],
@@ -322,9 +325,29 @@ describe('server messages', () => {
   })
 
   test('a room event of a reaction says what kind it is', () => {
-    const react = { kind: 'react', from: student, to: null, reaction: 'emoji', content: '👍', text: '👍' }
+    const react = { kind: 'react', from: student, to: null, reaction: 'emoji', content: '👍', text: '👍', visibility: 'room' }
     expect(ok(RoomEvent, react)).toBe(true)
     expect(ok(RoomEvent, { ...react, reaction: 'sticker' })).toBe(false)
+  })
+
+  test('a room event of a reaction says whether it was private, and a private one names whom it was to', () => {
+    const react = { kind: 'react', from: student, to: other, reaction: 'text', content: '打得好', text: '打得好' }
+    expect(ok(RoomEvent, { ...react, visibility: 'private' })).toBe(true)
+    expect(ok(RoomEvent, react)).toBe(false)
+    expect(ok(RoomEvent, { ...react, visibility: 'all' })).toBe(false)
+    expect(ok(RoomEvent, { ...react, to: null, visibility: 'private' })).toBe(false)
+    expect(ok(RoomEvent, { ...react, to: null, visibility: 'room' })).toBe(true)
+  })
+
+  test("welcome carries a summary of the student's record", () => {
+    const stats = welcome.stats
+    expect(ok(ClubStatsSummary, stats)).toBe(true)
+    expect(ok(ClubStatsSummary, { games: 0, wins: 0, points: { total: 0, week: 0 } })).toBe(true)
+    expect(ok(ClubServerMessage, { ...welcome, stats: undefined })).toBe(false)
+    expect(ok(ClubStatsSummary, { ...stats, games: -1 })).toBe(false)
+    expect(ok(ClubStatsSummary, { ...stats, wins: 1.5 })).toBe(false)
+    expect(ok(ClubStatsSummary, { ...stats, points: { total: 1.5, week: 0 } })).toBe(false)
+    expect(ok(ClubStatsSummary, { ...stats, points: { total: 3 } })).toBe(false)
   })
 
   test.each<Case>([
