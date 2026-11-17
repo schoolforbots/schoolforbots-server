@@ -2078,32 +2078,50 @@
         "seats": {
           "type": "array",
           "items": {
-            "type": "object",
-            "required": [
-              "studentId",
-              "displayName",
-              "bot"
-            ],
-            "properties": {
-              "studentId": {
-                "anyOf": [
-                  {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName",
+                  "bot"
+                ],
+                "properties": {
+                  "studentId": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 2147483647
                   },
-                  {
-                    "type": "null"
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "bot": {
+                    "type": "boolean",
+                    "const": false
                   }
-                ]
+                }
               },
-              "displayName": {
-                "type": "string"
-              },
-              "bot": {
-                "type": "boolean"
+              {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName",
+                  "bot"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "null"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "bot": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                }
               }
-            }
+            ]
           },
           "minItems": 3,
           "maxItems": 3
@@ -2254,227 +2272,313 @@
         "actions": {
           "type": "array",
           "items": {
-            "type": "object",
-            "required": [
-              "turn",
-              "seat",
-              "action",
-              "auto"
-            ],
-            "properties": {
-              "turn": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 2147483647
-              },
-              "seat": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 2
-              },
-              "action": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "const": "bid"
-                  },
-                  {
-                    "type": "string",
-                    "const": "play"
-                  },
-                  {
-                    "type": "string",
-                    "const": "pass"
-                  }
-                ]
-              },
-              "bid": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 3
-              },
-              "move": {
+            "anyOf": [
+              {
                 "type": "object",
                 "required": [
-                  "type",
-                  "name",
-                  "cards"
+                  "turn",
+                  "seat",
+                  "action",
+                  "bid",
+                  "auto"
                 ],
                 "properties": {
-                  "type": {
+                  "turn": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "seat": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "action": {
+                    "type": "string",
+                    "const": "bid"
+                  },
+                  "bid": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "move": {
+                    "not": {}
+                  },
+                  "auto": {
                     "anyOf": [
                       {
-                        "type": "string",
-                        "const": "single"
+                        "type": "null"
                       },
                       {
                         "type": "string",
-                        "const": "pair"
+                        "const": "timeout"
                       },
                       {
                         "type": "string",
-                        "const": "trio"
+                        "const": "trustee"
                       },
                       {
                         "type": "string",
-                        "const": "trio_solo"
+                        "const": "bot"
                       },
                       {
                         "type": "string",
-                        "const": "trio_pair"
-                      },
-                      {
-                        "type": "string",
-                        "const": "straight"
-                      },
-                      {
-                        "type": "string",
-                        "const": "pair_straight"
-                      },
-                      {
-                        "type": "string",
-                        "const": "trio_straight"
-                      },
-                      {
-                        "type": "string",
-                        "const": "plane_solo"
-                      },
-                      {
-                        "type": "string",
-                        "const": "plane_pair"
-                      },
-                      {
-                        "type": "string",
-                        "const": "four_two_solo"
-                      },
-                      {
-                        "type": "string",
-                        "const": "four_two_pair"
-                      },
-                      {
-                        "type": "string",
-                        "const": "bomb"
-                      },
-                      {
-                        "type": "string",
-                        "const": "rocket"
+                        "const": "closing"
                       }
                     ]
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "cards": {
-                    "type": "array",
-                    "items": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "const": "3"
-                        },
-                        {
-                          "type": "string",
-                          "const": "4"
-                        },
-                        {
-                          "type": "string",
-                          "const": "5"
-                        },
-                        {
-                          "type": "string",
-                          "const": "6"
-                        },
-                        {
-                          "type": "string",
-                          "const": "7"
-                        },
-                        {
-                          "type": "string",
-                          "const": "8"
-                        },
-                        {
-                          "type": "string",
-                          "const": "9"
-                        },
-                        {
-                          "type": "string",
-                          "const": "10"
-                        },
-                        {
-                          "type": "string",
-                          "const": "J"
-                        },
-                        {
-                          "type": "string",
-                          "const": "Q"
-                        },
-                        {
-                          "type": "string",
-                          "const": "K"
-                        },
-                        {
-                          "type": "string",
-                          "const": "A"
-                        },
-                        {
-                          "type": "string",
-                          "const": "2"
-                        },
-                        {
-                          "type": "string",
-                          "const": "小王"
-                        },
-                        {
-                          "type": "string",
-                          "const": "大王"
-                        }
-                      ]
-                    },
-                    "minItems": 1,
-                    "maxItems": 20
                   }
                 }
               },
-              "auto": {
-                "anyOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "type": "string",
-                    "const": "timeout"
-                  },
-                  {
-                    "type": "string",
-                    "const": "trustee"
-                  },
-                  {
-                    "type": "string",
-                    "const": "bot"
-                  },
-                  {
-                    "type": "string",
-                    "const": "closing"
-                  }
-                ]
-              }
-            },
-            "dependentSchemas": {
-              "bid": {
+              {
+                "type": "object",
+                "required": [
+                  "turn",
+                  "seat",
+                  "action",
+                  "move",
+                  "auto"
+                ],
                 "properties": {
+                  "turn": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "seat": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
                   "action": {
-                    "const": "bid"
-                  }
-                }
-              },
-              "move": {
-                "properties": {
-                  "action": {
+                    "type": "string",
                     "const": "play"
+                  },
+                  "move": {
+                    "type": "object",
+                    "required": [
+                      "type",
+                      "name",
+                      "cards"
+                    ],
+                    "properties": {
+                      "type": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "single"
+                          },
+                          {
+                            "type": "string",
+                            "const": "pair"
+                          },
+                          {
+                            "type": "string",
+                            "const": "trio"
+                          },
+                          {
+                            "type": "string",
+                            "const": "trio_solo"
+                          },
+                          {
+                            "type": "string",
+                            "const": "trio_pair"
+                          },
+                          {
+                            "type": "string",
+                            "const": "straight"
+                          },
+                          {
+                            "type": "string",
+                            "const": "pair_straight"
+                          },
+                          {
+                            "type": "string",
+                            "const": "trio_straight"
+                          },
+                          {
+                            "type": "string",
+                            "const": "plane_solo"
+                          },
+                          {
+                            "type": "string",
+                            "const": "plane_pair"
+                          },
+                          {
+                            "type": "string",
+                            "const": "four_two_solo"
+                          },
+                          {
+                            "type": "string",
+                            "const": "four_two_pair"
+                          },
+                          {
+                            "type": "string",
+                            "const": "bomb"
+                          },
+                          {
+                            "type": "string",
+                            "const": "rocket"
+                          }
+                        ]
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "cards": {
+                        "type": "array",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "3"
+                            },
+                            {
+                              "type": "string",
+                              "const": "4"
+                            },
+                            {
+                              "type": "string",
+                              "const": "5"
+                            },
+                            {
+                              "type": "string",
+                              "const": "6"
+                            },
+                            {
+                              "type": "string",
+                              "const": "7"
+                            },
+                            {
+                              "type": "string",
+                              "const": "8"
+                            },
+                            {
+                              "type": "string",
+                              "const": "9"
+                            },
+                            {
+                              "type": "string",
+                              "const": "10"
+                            },
+                            {
+                              "type": "string",
+                              "const": "J"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Q"
+                            },
+                            {
+                              "type": "string",
+                              "const": "K"
+                            },
+                            {
+                              "type": "string",
+                              "const": "A"
+                            },
+                            {
+                              "type": "string",
+                              "const": "2"
+                            },
+                            {
+                              "type": "string",
+                              "const": "小王"
+                            },
+                            {
+                              "type": "string",
+                              "const": "大王"
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 20
+                      }
+                    }
+                  },
+                  "bid": {
+                    "not": {}
+                  },
+                  "auto": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string",
+                        "const": "timeout"
+                      },
+                      {
+                        "type": "string",
+                        "const": "trustee"
+                      },
+                      {
+                        "type": "string",
+                        "const": "bot"
+                      },
+                      {
+                        "type": "string",
+                        "const": "closing"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "turn",
+                  "seat",
+                  "action",
+                  "auto"
+                ],
+                "properties": {
+                  "turn": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "seat": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "action": {
+                    "type": "string",
+                    "const": "pass"
+                  },
+                  "bid": {
+                    "not": {}
+                  },
+                  "move": {
+                    "not": {}
+                  },
+                  "auto": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string",
+                        "const": "timeout"
+                      },
+                      {
+                        "type": "string",
+                        "const": "trustee"
+                      },
+                      {
+                        "type": "string",
+                        "const": "bot"
+                      },
+                      {
+                        "type": "string",
+                        "const": "closing"
+                      }
+                    ]
                   }
                 }
               }
-            }
+            ]
           }
         },
         "reacts": {

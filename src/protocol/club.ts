@@ -1,4 +1,5 @@
 import { type Static, Type } from 'typebox'
+import { CLUB_WS_ERROR_MESSAGES, type ClubWsErrorCode } from '../club/ws-errors.js'
 
 // The club WebSocket protocol, `GET /v1/club` upgraded with `Authorization: Bearer <key>`. It has two layers: the club
 // layer (connecting, the lobby, rooms, invitations, readiness, idle prompts, bots, trusteeship, reactions, watching),
@@ -16,25 +17,28 @@ export const ClubId = Type.Literal('doudizhu')
 
 /**
  * Someone at a club table: a student or a bot. Tell people apart by `studentId` alone; `displayName` is only for
- * showing. A student's `displayName` is put together by the server, e.g. `"阿杰家的小鱼 #0037"` (the student number
- * zero-padded to at least 4 digits). A bot has `studentId: null`, `bot: true` and a name like `"陪练小一"` with no `#`.
+ * showing. A student has their student number as `studentId` and `bot: false`; their `displayName` is put together by
+ * the server, e.g. `"阿杰家的小鱼 #0037"` (the student number zero-padded to at least 4 digits). A bot has
+ * `studentId: null`, `bot: true` and a name like `"陪练小一"` with no `#`.
  */
-export const ClubPerson = Type.Object({
-  studentId: Type.Union([PositiveInteger, Type.Null()]),
-  displayName: Type.String(),
-  bot: Type.Boolean(),
-})
+export const ClubPerson = Type.Union([
+  Type.Object({ studentId: PositiveInteger, displayName: Type.String(), bot: Type.Literal(false) }),
+  Type.Object({ studentId: Type.Null(), displayName: Type.String(), bot: Type.Literal(true) }),
+])
 
 /**
  * A `ClubPerson` with the student's class, e.g. `"初中部·晚班·3 班"`; `null` for a bot. Used only in the lobby and on the
  * leaderboards.
  */
-export const ClubPersonWithClass = Type.Object({
-  studentId: Type.Union([PositiveInteger, Type.Null()]),
-  displayName: Type.String(),
-  bot: Type.Boolean(),
-  className: Type.Union([Type.String(), Type.Null()]),
-})
+export const ClubPersonWithClass = Type.Union([
+  Type.Object({
+    studentId: PositiveInteger,
+    displayName: Type.String(),
+    bot: Type.Literal(false),
+    className: Type.String(),
+  }),
+  Type.Object({ studentId: Type.Null(), displayName: Type.String(), bot: Type.Literal(true), className: Type.Null() }),
+])
 
 /** A room: a short random string, e.g. `"r7k2q"`, so rooms cannot be guessed in order. Rooms are not kept. */
 export const RoomId = Type.String({ pattern: '^r[0-9a-z]{4,15}$' })
@@ -176,8 +180,8 @@ export const LobbyListMessage = Type.Object({
 /**
  * Opens a room and seats you in it as the host. A `public` room is listed in the lobby; an `invite` one is entered only
  * by invitation. `bots: true` fills the free seats with bots at once and the game starts, so `invite` with it is
- * refused with `invalid_message`. `invite` invites up to two club members by student number. The `ack` has
- * `result: { roomId }`.
+ * refused with `invalid_message`. `invite` invites up to two club members by student number. The `ack` has a
+ * `RoomResult`, `result: { room }`, the new room's `RoomState`.
  */
 export const RoomCreateMessage = Type.Object({
   id: Id,
@@ -187,7 +191,10 @@ export const RoomCreateMessage = Type.Object({
   invite: Type.Optional(Type.Array(StudentId, { maxItems: 2, uniqueItems: true })),
 })
 
-/** Enters a public room, or a room you were invited to. */
+/**
+ * Enters a public room, or a room you were invited to. The `ack` has a `RoomResult`, `result: { room }`, the room's
+ * `RoomState`; its room events follow.
+ */
 export const RoomJoinMessage = Type.Object({
   id: Id,
   type: Type.Literal('room.join'),
@@ -196,7 +203,8 @@ export const RoomJoinMessage = Type.Object({
 
 /**
  * Quick join: the server seats you in the public room with a free seat that is closest to full, or opens a public room
- * with you as its host when there is none. The `ack` has `result: { roomId, created }`, `created` true for a new room.
+ * with you as its host when there is none. The `ack` has a `QuickJoinResult`, `result: { room, created }`: the room's
+ * `RoomState`, and `created` true for a new room.
  */
 export const RoomQuickMessage = Type.Object({
   id: Id,
@@ -213,7 +221,10 @@ export const RoomInviteMessage = Type.Object({
   to: StudentId,
 })
 
-/** Accepts the invitation `inviteId` (from an `invite` message) and enters its room. */
+/**
+ * Accepts the invitation `inviteId` (from an `invite` message) and enters its room. The `ack` has a `RoomResult`,
+ * `result: { room }`, the room's `RoomState`.
+ */
 export const RoomAcceptMessage = Type.Object({
   id: Id,
   type: Type.Literal('room.accept'),
@@ -273,7 +284,10 @@ export const ReactMessage = Type.Object(
   },
 )
 
-/** Watches a room's game. The `ack` has `result: { room }`, the room's `RoomState`; its room events follow. */
+/**
+ * Watches a room's game. The `ack` has a `RoomResult`, `result: { room }`, the room's `RoomState`; its room events
+ * follow, all but the private reactions, which go only to their sender and the one they name.
+ */
 export const WatchMessage = Type.Object({
   id: Id,
   type: Type.Literal('watch'),
@@ -288,9 +302,10 @@ export const UnwatchMessage = Type.Object({
 
 // The doudizhu game layer. Every game action carries `game` and the `turn` copied from the `your_turn` it answers. An
 // action whose `turn` is not the current one is refused with `stale_turn`, so an action that comes late (after the
-// trustee acted on a timeout, say) never counts. A bid or play taken has the `ack` `result: { turn }`.
+// trustee acted on a timeout, say) never counts. A bid, play or pass taken has a `TurnResult` in its `ack`,
+// `result: { turn }`.
 
-/** A bid: 1 to 3 points, or 0 for no bid. */
+/** A bid: 1 to 3 points, or 0 for no bid. The `ack` has a `TurnResult`, `result: { turn }`. */
 export const DoudizhuBidMessage = Type.Object({
   id: Id,
   type: Type.Literal('bid'),
@@ -303,7 +318,7 @@ export const DoudizhuBidMessage = Type.Object({
  * A play, given one of two ways and never both: `moveId`, the id of a move in the list of the `your_turn`; or `cards`,
  * the cards themselves, with `as` to say which move type they are played as when they could be more than one
  * (`555666777888` is a `trio_straight` without `as`, a `plane_solo` with `as: "plane_solo"`). No other fields are
- * allowed, so a play with both is refused.
+ * allowed, so a play with both is refused. The `ack` has a `TurnResult`, `result: { turn }`.
  */
 export const DoudizhuPlayMessage = Type.Union([
   Type.Object(
@@ -329,7 +344,7 @@ export const DoudizhuPlayMessage = Type.Union([
   ),
 ])
 
-/** Passes: plays nothing this trick. */
+/** Passes: plays nothing this trick. The `ack` has a `TurnResult`, `result: { turn }`. */
 export const DoudizhuPassMessage = Type.Object({
   id: Id,
   type: Type.Literal('pass'),
@@ -388,63 +403,66 @@ const Auto = Type.Union([
   Type.Literal('closing'),
 ])
 
-/** One step of a doudizhu game as the table saw it. `bid` comes only with a bid, `move` only with a play. */
-export const TableAction = Type.Object(
-  {
-    turn: Turn,
-    seat: Seat,
-    action: Type.Union([Type.Literal('bid'), Type.Literal('play'), Type.Literal('pass')]),
-    bid: Type.Optional(BidValue),
-    move: Type.Optional(Move),
-    auto: Auto,
-  },
-  {
-    dependentSchemas: {
-      bid: { properties: { action: { const: 'bid' } } },
-      move: { properties: { action: { const: 'play' } } },
-    },
-  },
-)
+/** A field a branch of a union may not carry. */
+const Absent = Type.Optional(Type.Never())
+
+/**
+ * One step of a doudizhu game as the table saw it, told apart by `action`: a `bid` carries the `bid`, a `play` the
+ * `move`, and a `pass` neither.
+ */
+export const TableAction = Type.Union([
+  Type.Object({ turn: Turn, seat: Seat, action: Type.Literal('bid'), bid: BidValue, move: Absent, auto: Auto }),
+  Type.Object({ turn: Turn, seat: Seat, action: Type.Literal('play'), move: Move, bid: Absent, auto: Auto }),
+  Type.Object({ turn: Turn, seat: Seat, action: Type.Literal('pass'), bid: Absent, move: Absent, auto: Auto }),
+])
 
 /**
  * The public state of a doudizhu game: what everyone may see, the spectators too. It holds no hand: only how many cards
- * each seat has left (`cardsLeft`, by seat), the bottom cards once the landlord has taken them (null before), and the
- * moves played. `firstBidder` is who bid first, `landlord` and `base` (the winning bid) are null until the landlord is
- * decided. `multiplier` is the multiplier so far, before the cap. `trick` is the trick being played: `leader` led it,
- * and `last` is the move to beat (null when nobody has played in it yet); `trick` is null outside play. `history` is
- * every step from the first bid on, by `turn`. `trustee` says, by seat, who is in trusteeship. `toAct` is the seat to
- * act and `deadline` its deadline, both null when nobody is to act.
+ * each seat has left (`cardsLeft`, by seat), the bottom cards once the landlord has taken them (null before, so always
+ * null while `landlord` is), and the moves played. `firstBidder` is who bid first, `landlord` and `base` (the winning
+ * bid) are null until the landlord is decided. `multiplier` is the multiplier so far, before the cap. `trick` is the
+ * trick being played: `leader` led it, and `last` is the move to beat (null when nobody has played in it yet); `trick`
+ * is null outside play. `history` is every step of the current deal from its first bid on, by `turn`. `trustee` says,
+ * by seat, who is in trusteeship. `toAct` is the seat to act and `deadline` its deadline, both null when nobody is to
+ * act. After a `redeal` the same `gameId` goes on with a fresh deal: `firstBidder` is the next seat in rotation, and
+ * `bids` and `history` start over, empty.
  */
-export const DoudizhuTable = Type.Object({
-  game: Type.Literal('doudizhu'),
-  gameId: GameId,
-  phase: Type.Union([Type.Literal('bidding'), Type.Literal('playing'), Type.Literal('over')]),
-  firstBidder: Seat,
-  bids: Type.Array(Type.Object({ seat: Seat, bid: BidValue }), { maxItems: 3 }),
-  landlord: Type.Union([Seat, Type.Null()]),
-  base: Type.Union([Base, Type.Null()]),
-  bottom: Type.Union([Cards, Type.Null()]),
-  cardsLeft: Type.Array(CardCount, { minItems: 3, maxItems: 3 }),
-  multiplier: PositiveInteger,
-  trick: Type.Union([
-    Type.Object({
-      leader: Seat,
-      last: Type.Union([Type.Object({ seat: Seat, move: Move }), Type.Null()]),
-    }),
-    Type.Null(),
-  ]),
-  history: Type.Array(TableAction),
-  trustee: Type.Array(Type.Boolean(), { minItems: 3, maxItems: 3 }),
-  toAct: Type.Union([Seat, Type.Null()]),
-  deadline: Type.Union([DateTime, Type.Null()]),
-})
+export const DoudizhuTable = Type.Object(
+  {
+    game: Type.Literal('doudizhu'),
+    gameId: GameId,
+    phase: Type.Union([Type.Literal('bidding'), Type.Literal('playing'), Type.Literal('over')]),
+    firstBidder: Seat,
+    bids: Type.Array(Type.Object({ seat: Seat, bid: BidValue }), { maxItems: 3 }),
+    landlord: Type.Union([Seat, Type.Null()]),
+    base: Type.Union([Base, Type.Null()]),
+    bottom: Type.Union([Cards, Type.Null()]),
+    cardsLeft: Type.Array(CardCount, { minItems: 3, maxItems: 3 }),
+    multiplier: PositiveInteger,
+    trick: Type.Union([
+      Type.Object({
+        leader: Seat,
+        last: Type.Union([Type.Object({ seat: Seat, move: Move }), Type.Null()]),
+      }),
+      Type.Null(),
+    ]),
+    history: Type.Array(TableAction),
+    trustee: Type.Array(Type.Boolean(), { minItems: 3, maxItems: 3 }),
+    toAct: Type.Union([Seat, Type.Null()]),
+    deadline: Type.Union([DateTime, Type.Null()]),
+  },
+  {
+    if: { properties: { landlord: { type: 'null' } }, required: ['landlord'] },
+    then: { properties: { bottom: { type: 'null' } } },
+  },
+)
 
 /**
  * A room as it is now. `host` is the student number of the host. `seats` lists every seat of the room, a free one with
  * `player: null`; `online` is whether the player is connected (bots always are), `trustee` whether the server is acting
  * for them. `spectators` is how many are watching, `gamesPlayed` how many games the room has played. `closesAt` is when
- * the club closes next, and `lastSeq` the `seq` of the room's last event. `game` is the game being played or just over,
- * null before the first; each game's state is told apart by its `game` field.
+ * the club closes next, and `lastSeq` the `seq` of the room's last event, 0 when it has had none yet. `game` is the
+ * game being played or just over, null before the first; each game's state is told apart by its `game` field.
  */
 export const RoomState = Type.Object({
   roomId: RoomId,
@@ -464,7 +482,7 @@ export const RoomState = Type.Object({
   spectators: Count,
   gamesPlayed: Count,
   closesAt: DateTime,
-  lastSeq: Seq,
+  lastSeq: Type.Integer({ minimum: 0, maximum: MAX_PG_INTEGER }),
   game: Type.Union([DoudizhuTable, Type.Null()]),
 })
 
@@ -496,8 +514,10 @@ export const DoudizhuResult = Type.Object({
 
 /**
  * What happened in a doudizhu game, told apart by `kind`. `dealt`: a game was dealt; `seats` is who sits where, by
- * seat, and each player gets their cards in a `hand` message. `redeal`: nobody bid, so the cards were dealt again
- * (`count` is the how-manyth redeal); after the last redeal allowed, `over` with `no_landlord` follows instead.
+ * seat, and each player gets their cards in a `hand` message. `redeal`: nobody bid, so the cards are dealt again
+ * (`count` is the how-manyth redeal). The same `gameId` goes on: a fresh `dealt` follows with the next first bidder in
+ * rotation, each player gets their new cards in a new `hand` message, and the table's `bids` and `history` start over.
+ * After the last redeal allowed, `over` with `no_landlord` comes instead of a `redeal`.
  * `landlord`: the landlord is decided and takes the bottom cards, shown to all. `play`: `cardsLeft` is how many cards
  * the seat has left after it, `multiplier` the multiplier after it. `over`: the game is over; it is the summary of the
  * game.
@@ -533,7 +553,9 @@ export const DoudizhuEvent = Type.Union([
  * so before `decideBy` someone sends `room.bots` to fill the free seats with bots, or the students go elsewhere; when
  * nobody chooses, the room closes. `react`: a reaction; `reaction` is its kind, `content` what was sent, and `text`
  * what to show (a phrase's text; for an emoji, the emoji itself); `to` is null when it names nobody; `visibility` is
- * `"room"` when the whole table and the spectators see it, or `"private"` when only `to` (never null then) does.
+ * `"room"` when the whole table and the spectators see it, or `"private"` when only `to` (never null then) does. A
+ * private reaction is still a room event with its own `seq`, but it is sent only to its sender and to `to`, never to
+ * the others at the table or the spectators, so they see a gap in `seq` where it was (see `RoomEventMessage`).
  * `trustee`: the server started acting for a seat (`on`) after timeouts or as the club closes, or stopped (`off`).
  * `game`: something happened in the game, as the game layer tells it. `closed`: the room closed, after an idle prompt
  * nobody answered (`idle`), when no student was left (`empty`), as the club closed, or for maintenance.
@@ -623,20 +645,51 @@ export const IllegalMoveError = Type.Object(
       missing: { properties: { problem: { const: 'not_in_hand' } } },
       toBeat: { properties: { problem: { const: 'cannot_beat' } } },
     },
+    allOf: [
+      {
+        if: { properties: { problem: { const: 'not_in_hand' } }, required: ['problem'] },
+        then: { required: ['missing'] },
+      },
+      {
+        if: { properties: { problem: { const: 'cannot_beat' } }, required: ['problem'] },
+        then: { required: ['toBeat'] },
+      },
+    ],
   },
+)
+
+/** The `result` of the `ack` of `room.create`, `room.join`, `room.accept` and `watch`: the room's `RoomState`. */
+export const RoomResult = Type.Object({ room: RoomState })
+
+/**
+ * The `result` of the `ack` of `room.quick`: the room's `RoomState`, and `created`, true when a new room was opened for
+ * you.
+ */
+export const QuickJoinResult = Type.Object({ room: RoomState, created: Type.Boolean() })
+
+/** The `result` of the `ack` of a game action taken (`bid`, `play` or `pass`): the turn it was. */
+export const TurnResult = Type.Object({ turn: Turn })
+
+/** Every club error code but `illegal_move`, which comes as an `IllegalMoveError`. */
+const PlainErrorCode = Type.Union(
+  (Object.keys(CLUB_WS_ERROR_MESSAGES) as ClubWsErrorCode[])
+    .filter((code): code is Exclude<ClubWsErrorCode, 'illegal_move'> => code !== 'illegal_move')
+    .map((code) => Type.Literal(code)),
 )
 
 /**
  * The answer to the client message with the same `id`. A failure carries a machine-readable `error.code` and a Chinese
  * `error.message` the plugin can show the owner (the codes are listed with the protocol); an `illegal_move` is an
- * `IllegalMoveError`. A bid or play taken has `result: { turn }`, the turn it was.
+ * `IllegalMoveError`, and any other code is a plain error with no `problem` or `retry`. A success carries a `result`
+ * for some messages: a `RoomResult` for `room.create`, `room.join`, `room.accept` and `watch`, a `QuickJoinResult` for
+ * `room.quick`, and a `TurnResult` for `bid`, `play` and `pass`; the others have none.
  */
 export const ClubAckMessage = Type.Union([
   Type.Object({
     type: Type.Literal('ack'),
     id: Id,
     ok: Type.Literal(true),
-    result: Type.Optional(Type.Object({}, { additionalProperties: true })),
+    result: Type.Optional(Type.Union([RoomResult, QuickJoinResult, TurnResult])),
   }),
   Type.Object({
     type: Type.Literal('ack'),
@@ -645,7 +698,7 @@ export const ClubAckMessage = Type.Union([
     error: Type.Union([
       IllegalMoveError,
       Type.Object(
-        { code: Type.String({ not: { const: 'illegal_move' } }), message: Type.String() },
+        { code: PlainErrorCode, message: Type.String(), problem: Absent, retry: Absent },
         { additionalProperties: true },
       ),
     ]),
@@ -653,7 +706,8 @@ export const ClubAckMessage = Type.Union([
 ])
 
 /**
- * The doudizhu rules in force, for the plugin to tell its model: `bidRedealLimit`, how many deals in a row nobody may
+ * The doudizhu rules in force, for the plugin to tell its model: `bidSeconds` and `playSeconds`, the time for a bid and
+ * for a play or pass before the time bank is spent; `bidRedealLimit`, how many deals in a row nobody may
  * bid on before the game ends with no landlord; `bareTrio`, whether a trio and a trio straight may be played with no
  * kickers; `minPairStraight`, the fewest pairs of a pair straight; `soloKickersMayPair`, whether the single kickers of
  * a plane or a four-with-two may be a pair; `soloKickersMayBeJokers`, whether they may be both jokers; `fourWithTwo`,
@@ -663,6 +717,8 @@ export const ClubAckMessage = Type.Union([
  */
 export const DoudizhuRules = Type.Object({
   game: Type.Literal('doudizhu'),
+  bidSeconds: Seconds,
+  playSeconds: Seconds,
   bidRedealLimit: PositiveInteger,
   bareTrio: Type.Boolean(),
   minPairStraight: Type.Integer({ minimum: 2, maximum: 10 }),
@@ -685,8 +741,9 @@ export const ClubStatsSummary = Type.Object({
 
 /**
  * Sent after `hello`: who you are, the club, when it closes next, its limits and reactions, the summary of your record
- * and the rules of its game. `room` is the room you are back in after a reconnect, null otherwise. A development server
- * that plays time compressed may give fractions of seconds and minutes.
+ * and the rules of its game. `limits` are the club layer's, the same for every game; the time for each step of a game
+ * is the game's own, in `rules`. `room` is the room you are back in after a reconnect, null otherwise. A development
+ * server that plays time compressed may give fractions of seconds and minutes.
  */
 export const ClubWelcomeMessage = Type.Object({
   type: Type.Literal('welcome'),
@@ -696,8 +753,6 @@ export const ClubWelcomeMessage = Type.Object({
   limits: Type.Object({
     /** The most frames you may send in any minute, every one counted; a frame past it is `rate_limited`. */
     framesPerMinute: Type.Integer({ minimum: 1 }),
-    bidSeconds: Seconds,
-    playSeconds: Seconds,
     /** Extra time for a whole game, spent when a step runs past its own time; the trustee acts when it is gone. */
     timeBankSeconds: Seconds,
     inviteSeconds: Seconds,
@@ -763,7 +818,9 @@ export const InviteEndedMessage = Type.Object({
 
 /**
  * One thing that happened in a room you sit in or watch. `seq` counts from 1 within the room; `replayed` marks events
- * sent again after a reconnect.
+ * sent again after a reconnect. A private reaction is a room event sent only to its sender and the one it names, never
+ * to the others at the table or the spectators, so the `seq` you see may skip: a gap is not lost events, and a client
+ * must not treat it as such.
  */
 export const RoomEventMessage = Type.Object({
   type: Type.Literal('room.event'),
@@ -803,32 +860,41 @@ const Neighbour = Type.Object({ seat: Seat, player: ClubPerson, role: Role, card
  * just before you) and `right` the seat after you (it acts just after you). `unseen` is the card counter: all the
  * cards less your hand, the cards played and, once shown, the bottom cards. When bidding (`phase: "bid"`), `bids` lists
  * the bids you may make and `moves` is null; when playing, `moves` lists the moves you may play, each with an `id` for
- * `play`, and `bids` is null. `canPass` is whether you may pass. `movesTrimmed` is true when the list was shortened
- * (only one choice of kickers for each move): you may still play other kickers with `cards`.
+ * `play`, and `bids` is null. `canPass` is whether you may pass; never when bidding, where a bid of 0 is no bid.
+ * `movesTrimmed` is true when the list was shortened (only one choice of kickers for each move): you may still play
+ * other kickers with `cards`. `phase` here is the step asked of you, `"bid"` or `"play"`; it is not `table.phase`,
+ * the phase of the game, which is `"bidding"`, `"playing"` or `"over"`.
  */
-export const YourTurnMessage = Type.Object({
-  type: Type.Literal('your_turn'),
-  roomId: RoomId,
-  game: Type.Literal('doudizhu'),
-  gameId: GameId,
-  turn: Turn,
-  phase: Type.Union([Type.Literal('bid'), Type.Literal('play')]),
-  deadline: DateTime,
-  timeBankSeconds: Seconds,
-  closesAt: DateTime,
-  me: Type.Object({ seat: Seat, role: Role, hand: Cards }),
-  left: Neighbour,
-  right: Neighbour,
-  table: DoudizhuTable,
-  unseen: Type.Array(Rank, { maxItems: 54 }),
-  bids: Type.Union([Type.Array(BidValue, { minItems: 1, maxItems: 4, uniqueItems: true }), Type.Null()]),
-  moves: Type.Union([
-    Type.Array(Type.Object({ id: PositiveInteger, type: MoveType, name: Type.String(), cards: Cards })),
-    Type.Null(),
-  ]),
-  canPass: Type.Boolean(),
-  movesTrimmed: Type.Boolean(),
-})
+export const YourTurnMessage = Type.Object(
+  {
+    type: Type.Literal('your_turn'),
+    roomId: RoomId,
+    game: Type.Literal('doudizhu'),
+    gameId: GameId,
+    turn: Turn,
+    phase: Type.Union([Type.Literal('bid'), Type.Literal('play')]),
+    deadline: DateTime,
+    timeBankSeconds: Seconds,
+    closesAt: DateTime,
+    me: Type.Object({ seat: Seat, role: Role, hand: Cards }),
+    left: Neighbour,
+    right: Neighbour,
+    table: DoudizhuTable,
+    unseen: Type.Array(Rank, { maxItems: 54 }),
+    bids: Type.Union([Type.Array(BidValue, { minItems: 1, maxItems: 4, uniqueItems: true }), Type.Null()]),
+    moves: Type.Union([
+      Type.Array(Type.Object({ id: PositiveInteger, type: MoveType, name: Type.String(), cards: Cards })),
+      Type.Null(),
+    ]),
+    canPass: Type.Boolean(),
+    movesTrimmed: Type.Boolean(),
+  },
+  {
+    if: { properties: { phase: { const: 'bid' } }, required: ['phase'] },
+    then: { properties: { bids: { type: 'array' }, moves: { type: 'null' }, canPass: { const: false } } },
+    else: { properties: { bids: { type: 'null' }, moves: { type: 'array' } } },
+  },
+)
 
 /**
  * Sent right before the server closes the connection; `message` is Chinese text the plugin can show the owner.

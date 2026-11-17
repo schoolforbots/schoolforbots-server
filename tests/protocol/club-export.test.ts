@@ -13,7 +13,7 @@ const PUBLISHED = [
   'DoudizhuPlayMessage', 'DoudizhuPassMessage', 'ClubClientMessage',
   // what the server sends
   'RoomState', 'RoomEvent', 'DoudizhuTable', 'TableAction', 'DoudizhuEvent', 'DoudizhuResult', 'IllegalMoveError',
-  'DoudizhuRules', 'ClubStatsSummary',
+  'DoudizhuRules', 'ClubStatsSummary', 'RoomResult', 'QuickJoinResult', 'TurnResult',
   'ClubAckMessage', 'ClubWelcomeMessage', 'LobbyMessage', 'InviteMessage', 'InviteEndedMessage', 'RoomEventMessage',
   'RoomLeftMessage', 'HandMessage', 'YourTurnMessage', 'ClubClosingMessage', 'ClubServerMessage',
 ]
