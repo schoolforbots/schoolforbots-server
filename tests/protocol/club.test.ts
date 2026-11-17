@@ -5,24 +5,30 @@ import { CLUB_WS_ERROR_MESSAGES } from '../../src/club/ws-errors.js'
 import {
   Cards,
   ClubClientMessage,
+  ClubAckMessage,
   ClubClosingMessage,
   ClubPerson,
   ClubPersonWithClass,
   ClubServerMessage,
   ClubStatsSummary,
+  ClubWelcomeMessage,
   DoudizhuEvent,
   DoudizhuResult,
+  DoudizhuRules,
   DoudizhuTable,
   IllegalMoveError,
   MOVE_TYPE_NAMES,
   Move,
   MoveType,
+  QuickJoinResult,
   Rank,
   RoomEvent,
   RoomId,
+  RoomResult,
   RoomState,
   Seat,
   TableAction,
+  TurnResult,
 } from '../../src/protocol/club.js'
 
 const ok = (schema: TSchema, value: unknown): boolean => Value.Check(schema, value)
@@ -75,10 +81,22 @@ describe('shared types', () => {
     expect(ok(ClubPerson, person)).toBe(false)
   })
 
+  test.each<Case>([
+    ['a student marked as a bot', { ...student, bot: true }],
+    ['a bot with a studentId', { ...bot, studentId: 5 }],
+    ['a student with no studentId', { ...student, studentId: null }],
+  ])('ClubPerson rejects %s', (_name, person) => {
+    expect(ok(ClubPerson, person)).toBe(false)
+  })
+
   test('ClubPersonWithClass takes a class name, or null for a bot', () => {
     expect(ok(ClubPersonWithClass, { ...student, className: '初中部·晚班·3 班' })).toBe(true)
     expect(ok(ClubPersonWithClass, { ...bot, className: null })).toBe(true)
     expect(ok(ClubPersonWithClass, student)).toBe(false)
+    expect(ok(ClubPersonWithClass, { ...student, bot: true, className: '初中部·晚班·3 班' })).toBe(false)
+    expect(ok(ClubPersonWithClass, { ...bot, studentId: 5, className: null })).toBe(false)
+    expect(ok(ClubPersonWithClass, { ...student, className: null })).toBe(false)
+    expect(ok(ClubPersonWithClass, { ...bot, className: '初中部·晚班·3 班' })).toBe(false)
   })
 
   test('RoomId is a short lowercase string starting with r', () => {
@@ -253,7 +271,7 @@ describe('server messages', () => {
     club: { id: 'doudizhu', name: '斗地主社团' },
     closesAt: later,
     limits: {
-      framesPerMinute: 60, bidSeconds: 60, playSeconds: 60, timeBankSeconds: 120, inviteSeconds: 180,
+      framesPerMinute: 60, timeBankSeconds: 120, inviteSeconds: 180,
       idleMinutes: 10, idleDecideSeconds: 180, maxSpectators: 20, reactMinIntervalSeconds: 5, reactsPerGame: 20,
     },
     reactions: {
@@ -261,8 +279,8 @@ describe('server messages', () => {
     },
     stats: { games: 12, wins: 7, points: { total: -18, week: 6 } },
     rules: {
-      game: 'doudizhu', bidRedealLimit: 3, bareTrio: true, minPairStraight: 3, soloKickersMayPair: true,
-      soloKickersMayBeJokers: true, fourWithTwo: true, springDoubles: true, cap: 64,
+      game: 'doudizhu', bidSeconds: 60, playSeconds: 60, bidRedealLimit: 3, bareTrio: true, minPairStraight: 3,
+      soloKickersMayPair: true, soloKickersMayBeJokers: true, fourWithTwo: true, springDoubles: true, cap: 64,
     },
     room: null,
   }
@@ -287,6 +305,9 @@ describe('server messages', () => {
   test.each<Case>([
     ['ack ok', { type: 'ack', id: 'c1', ok: true }],
     ['ack ok with a turn', { type: 'ack', id: 'c1', ok: true, result: { turn: 8 } }],
+    ['ack ok with a room', { type: 'ack', id: 'c1', ok: true, result: { room } }],
+    ['ack ok with a room just opened', { type: 'ack', id: 'c1', ok: true, result: { room: { ...room, lastSeq: 0 }, created: true } }],
+    ['ack ok with a room joined', { type: 'ack', id: 'c1', ok: true, result: { room, created: false } }],
     ['ack failed', { type: 'ack', id: 'c1', ok: false, error: { code: 'room_full', message: '这个房间已经坐满了。' } }],
     ['welcome', welcome],
     ['welcome back in a room', { ...welcome, room: { ...room, game: table } }],
@@ -353,6 +374,16 @@ describe('server messages', () => {
   test.each<Case>([
     ['an unknown type', { type: 'shout' }],
     ['ack ok false without error', { type: 'ack', id: 'c1', ok: false }],
+    ['ack ok with an unknown result', { type: 'ack', id: 'c1', ok: true, result: { foo: 1 } }],
+    ['ack ok with an empty result', { type: 'ack', id: 'c1', ok: true, result: {} }],
+    ['ack ok with a malformed room', { type: 'ack', id: 'c1', ok: true, result: { room: { roomId: 'r7k2q' } } }],
+    ['ack ok with turn 0', { type: 'ack', id: 'c1', ok: true, result: { turn: 0 } }],
+    ['your_turn to bid with moves', { ...bidTurn, moves: playTurn.moves }],
+    ['your_turn to bid with no bids', { ...bidTurn, bids: null }],
+    ['your_turn to bid that may pass', { ...bidTurn, canPass: true }],
+    ['your_turn to play with bids', { ...playTurn, bids: [0, 1] }],
+    ['your_turn to play with no moves', { ...playTurn, moves: null }],
+    ['a bidding table with the bottom shown', { ...bidTurn, table: { ...biddingTable, bottom: ['3', 'K', '大王'] } }],
     ['your_turn with seat 3', { ...playTurn, me: { ...playTurn.me, seat: 3 } }],
     ['your_turn with turn 0', { ...playTurn, turn: 0 }],
     ['your_turn in another phase', { ...playTurn, phase: 'double' }],
@@ -384,6 +415,55 @@ describe('server messages', () => {
     expect(ok(TableAction, { turn: 3, seat: 2, action: 'pass', auto: 'idle' })).toBe(false)
   })
 
+  test.each<Case>([
+    ['a bid', { turn: 1, seat: 1, action: 'bid', bid: 0, auto: null }],
+    ['a play', { turn: 3, seat: 2, action: 'play', move: single3, auto: 'bot' }],
+    ['a pass', { turn: 4, seat: 0, action: 'pass', auto: 'trustee' }],
+  ])('TableAction accepts %s', (_name, action) => {
+    expect(ok(TableAction, action)).toBe(true)
+  })
+
+  test.each<Case>([
+    ['a bid with no bid', { turn: 1, seat: 1, action: 'bid', auto: null }],
+    ['a bid with a move', { turn: 1, seat: 1, action: 'bid', bid: 1, move: single3, auto: null }],
+    ['a play with no move', { turn: 3, seat: 2, action: 'play', auto: null }],
+    ['a play with a bid', { turn: 3, seat: 2, action: 'play', move: single3, bid: 1, auto: null }],
+    ['a pass with a bid', { turn: 4, seat: 0, action: 'pass', bid: 0, auto: null }],
+    ['an action with no auto', { turn: 4, seat: 0, action: 'pass' }],
+    ['an action with no turn', { seat: 0, action: 'pass', auto: null }],
+    ['another action', { turn: 4, seat: 0, action: 'double', auto: null }],
+  ])('TableAction rejects %s', (_name, action) => {
+    expect(ok(TableAction, action)).toBe(false)
+  })
+
+  test('a table shows the bottom cards only once there is a landlord', () => {
+    expect(ok(DoudizhuTable, { ...biddingTable, bottom: ['3', 'K', '大王'] })).toBe(false)
+    expect(ok(DoudizhuTable, { ...table, bottom: null })).toBe(true)
+  })
+
+  test('an ack result is a room, a quick join or a turn', () => {
+    expect(ok(RoomResult, { room })).toBe(true)
+    expect(ok(QuickJoinResult, { room, created: true })).toBe(true)
+    expect(ok(QuickJoinResult, { room })).toBe(false)
+    expect(ok(TurnResult, { turn: 8 })).toBe(true)
+    expect(ok(TurnResult, { turn: 0 })).toBe(false)
+  })
+
+  test('a room with no events yet has lastSeq 0', () => {
+    expect(ok(RoomState, { ...room, lastSeq: 0 })).toBe(true)
+    expect(ok(RoomState, { ...room, lastSeq: -1 })).toBe(false)
+  })
+
+  test('the time for a bid and a play is in the rules of the game, not in the club limits', () => {
+    const limits = (ClubWelcomeMessage as unknown as { properties: { limits: { properties: object } } }).properties.limits
+    expect(Object.keys(limits.properties)).not.toContain('bidSeconds')
+    expect(Object.keys(limits.properties)).not.toContain('playSeconds')
+    expect(ok(DoudizhuRules, welcome.rules)).toBe(true)
+    expect(ok(DoudizhuRules, { ...welcome.rules, bidSeconds: undefined })).toBe(false)
+    expect(ok(DoudizhuRules, { ...welcome.rules, playSeconds: undefined })).toBe(false)
+    expect(ok(DoudizhuRules, { ...welcome.rules, playSeconds: -1 })).toBe(false)
+  })
+
   test('the doudizhu schemas take the examples on their own', () => {
     expect(ok(DoudizhuTable, table)).toBe(true)
     expect(ok(DoudizhuTable, biddingTable)).toBe(true)
@@ -392,15 +472,27 @@ describe('server messages', () => {
     expect(ok(DoudizhuEvent, { kind: 'redeal', count: 3 })).toBe(true)
   })
 
-  // Walks a schema and returns the path of every array of cards and of every property named `hand`.
+  // Walks a schema, its subschemas of every kind included, and returns the path of every array of cards and of every
+  // property named `hand`.
   const cardPaths = (schema: unknown, path = ''): string[] => {
     if (typeof schema !== 'object' || schema === null) return []
     const s = schema as Record<string, unknown>
     const found: string[] = []
     const items = s.items as Record<string, unknown> | undefined
-    const isRank = (x: unknown) => JSON.stringify(x).includes('"大王"')
-    if (s.type === 'array' && items !== undefined && isRank(items) && !('properties' in items)) found.push(path)
-    for (const branch of (s.anyOf as unknown[] | undefined) ?? []) found.push(...cardPaths(branch, path))
+    // A rank is a union of the card literals, so an array of cards has items with the literal `"大王"` among its branches.
+    const isRank = (x: Record<string, unknown>) =>
+      ((x.anyOf as { const?: unknown }[] | undefined) ?? []).some((branch) => branch.const === '大王')
+    if (s.type === 'array' && items !== undefined && isRank(items)) found.push(path)
+    for (const keyword of ['anyOf', 'allOf', 'oneOf']) {
+      for (const branch of (s[keyword] as unknown[] | undefined) ?? []) found.push(...cardPaths(branch, path))
+    }
+    for (const keyword of ['if', 'then', 'else', 'not']) found.push(...cardPaths(s[keyword], path))
+    for (const branch of Object.values((s.dependentSchemas as Record<string, unknown> | undefined) ?? {})) {
+      found.push(...cardPaths(branch, path))
+    }
+    for (const [i, item] of ((s.prefixItems as unknown[] | undefined) ?? []).entries()) {
+      found.push(...cardPaths(item, `${path}[${i}]`))
+    }
     if (items !== undefined) found.push(...cardPaths(items, `${path}[]`))
     for (const [key, value] of Object.entries((s.properties as Record<string, unknown> | undefined) ?? {})) {
       if (key === 'hand' || key === 'hands') found.push(`${path}.${key}`)
@@ -408,6 +500,18 @@ describe('server messages', () => {
     }
     return found
   }
+
+  test.each<Case>([
+    ['then', { if: { properties: { a: { const: 1 } } }, then: { properties: { secret: Cards } } }],
+    ['else', { if: { properties: { a: { const: 1 } } }, else: { properties: { secret: Cards } } }],
+    ['allOf', { allOf: [{ properties: { secret: Cards } }] }],
+    ['oneOf', { oneOf: [{ properties: { secret: Cards } }] }],
+    ['dependentSchemas', { dependentSchemas: { a: { properties: { secret: Cards } } } }],
+    ['prefixItems', { type: 'array', prefixItems: [{ properties: { secret: Cards } }] }],
+    ['a hand in then', { if: { properties: { a: { const: 1 } } }, then: { properties: { hand: { type: 'string' } } } }],
+  ])('the card walker finds cards hidden under %s', (_name, schema) => {
+    expect(cardPaths(schema).length).toBeGreaterThan(0)
+  })
 
   test('the public table has no cards but the bottom and the moves played, and no hand', () => {
     expect([...new Set(cardPaths(DoudizhuTable))].sort()).toEqual(
@@ -477,8 +581,18 @@ describe('errors and closing', () => {
     code: 'illegal_move', message: '这样出不合规则，这一步没算，请重新出。', problem, reason: '你手里没有 7。', retry, ...extra,
   })
 
+  const toBeat = { seat: 0, move: { type: 'pair', name: '对牌', cards: ['9', '9'] } }
+  const EXTRA: Record<string, object> = { not_in_hand: { missing: ['7'] }, cannot_beat: { toBeat } }
+
   test.each(PROBLEMS)('IllegalMoveError accepts the problem %s', (problem) => {
-    expect(ok(IllegalMoveError, illegal(problem))).toBe(true)
+    expect(ok(IllegalMoveError, illegal(problem, EXTRA[problem]))).toBe(true)
+  })
+
+  test('IllegalMoveError says what to beat for cannot_beat and what is missing for not_in_hand', () => {
+    expect(ok(IllegalMoveError, illegal('cannot_beat'))).toBe(false)
+    expect(ok(IllegalMoveError, illegal('not_in_hand'))).toBe(false)
+    expect(ok(IllegalMoveError, illegal('cannot_beat', { missing: ['7'] }))).toBe(false)
+    expect(ok(IllegalMoveError, illegal('not_in_hand', { toBeat }))).toBe(false)
   })
 
   test.each<Case>([
@@ -513,5 +627,28 @@ describe('errors and closing', () => {
   test('a failed ack with illegal_move must be a whole IllegalMoveError', () => {
     expect(ok(ClubServerMessage, failed({ code: 'illegal_move', message: '这样出不合规则，这一步没算，请重新出。' }))).toBe(false)
     expect(ok(ClubServerMessage, failed((({ retry: _retry, ...rest }) => rest)(illegal('must_play'))))).toBe(false)
+  })
+
+  test.each(CODES.filter((code) => code !== 'illegal_move'))('a failed ack carries the plain error %s', (code) => {
+    expect(ok(ClubServerMessage, failed({ code, message: '出错了。' }))).toBe(true)
+  })
+
+  test.each<Case>([
+    ['an unknown code', { code: 'too_slow', message: '出错了。' }],
+    ['not_member, which comes as a closing', { code: 'not_member', message: '出错了。' }],
+    ['a retry', { code: 'stale_turn', message: '出错了。', retry }],
+    ['a problem', { code: 'not_your_turn', message: '出错了。', problem: 'must_play' }],
+  ])('a failed ack rejects a plain error with %s', (_name, error) => {
+    expect(ok(ClubServerMessage, failed(error))).toBe(false)
+  })
+
+  test('the plain error codes are every club error code but illegal_move', () => {
+    const ack = ClubAckMessage as unknown as {
+      anyOf: { properties: { error?: { anyOf: { properties: { code: { anyOf?: { const: string }[] } } }[] } } }[]
+    }
+    const failedAck = ack.anyOf.find((branch) => branch.properties.error !== undefined)!
+    const plain = failedAck.properties.error!.anyOf.find((branch) => branch.properties.code.anyOf !== undefined)!
+    const codes = plain.properties.code.anyOf!.map((literal) => literal.const)
+    expect([...codes].sort()).toEqual(Object.keys(CLUB_WS_ERROR_MESSAGES).filter((code) => code !== 'illegal_move').sort())
   })
 })
