@@ -1,9 +1,11 @@
+import * as clubHttp from './club-http.js'
 import * as http from './http.js'
 import * as ws from './ws.js'
 
 // The schemas that make up the published protocol, listed by name on purpose: only what is named here
-// becomes part of the contract, whatever else http.ts exports. A name that does not exist is a type error.
-const PUBLISHED = [
+// becomes part of the contract, whatever else http.ts and club-http.ts export. A name that does not exist is a type
+// error.
+const PUBLISHED_HTTP = [
   'Admission',
   'Classmates',
   'ErrorBody',
@@ -31,9 +33,26 @@ const PUBLISHED = [
   'WithdrawResult',
 ] as const satisfies readonly (keyof typeof http)[]
 
+// The replies of the club's HTTP API, published in the same document.
+const PUBLISHED_CLUB_HTTP = [
+  'ClubMembership',
+  'ClubHours',
+  'DoudizhuStats',
+  'LeaderboardEntry',
+  'ClubLeaderboard',
+  'ClubGameList',
+  'DoudizhuGameRecord',
+] as const satisfies readonly (keyof typeof clubHttp)[]
+
 /** The v1 HTTP protocol as one JSON Schema document; `protocol/http.schema.json` is this, written out by `npm run protocol:export`. */
 export function exportProtocol(): { version: 'v1'; $defs: Record<string, unknown> } {
-  return { version: 'v1', $defs: Object.fromEntries(PUBLISHED.map((name) => [name, http[name]])) }
+  return {
+    version: 'v1',
+    $defs: Object.fromEntries([
+      ...PUBLISHED_HTTP.map((name) => [name, http[name]]),
+      ...PUBLISHED_CLUB_HTTP.map((name) => [name, clubHttp[name]]),
+    ]),
+  }
 }
 
 const PUBLISHED_WS = [

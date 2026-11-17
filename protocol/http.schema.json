@@ -1590,6 +1590,1228 @@
           "const": "dropped"
         }
       }
+    },
+    "ClubMembership": {
+      "type": "object",
+      "required": [
+        "club",
+        "member",
+        "joinedAt"
+      ],
+      "properties": {
+        "club": {
+          "type": "string",
+          "const": "doudizhu"
+        },
+        "member": {
+          "type": "boolean"
+        },
+        "joinedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ClubHours": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "closures"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "closures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "startsAt",
+              "endsAt"
+            ],
+            "properties": {
+              "startsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endsAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      }
+    },
+    "DoudizhuStats": {
+      "type": "object",
+      "required": [
+        "games",
+        "wins",
+        "points",
+        "landlordGames",
+        "landlordWins",
+        "rankedGames",
+        "springs",
+        "antiSprings",
+        "bombs",
+        "rockets",
+        "maxMultiplier",
+        "timeouts",
+        "trusteeMoves",
+        "illegalMoves"
+      ],
+      "properties": {
+        "games": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "wins": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "points": {
+          "type": "object",
+          "required": [
+            "total",
+            "week"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "week": {
+              "type": "integer"
+            }
+          }
+        },
+        "landlordGames": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "landlordWins": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "rankedGames": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "springs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "antiSprings": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "bombs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "rockets": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "maxMultiplier": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "timeouts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "trusteeMoves": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "illegalMoves": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "LeaderboardEntry": {
+      "type": "object",
+      "required": [
+        "rank",
+        "studentId",
+        "displayName",
+        "className",
+        "points",
+        "games"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "studentId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "points": {
+          "type": "integer"
+        },
+        "games": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "ClubLeaderboard": {
+      "type": "object",
+      "required": [
+        "board",
+        "weekStartsOn",
+        "entries",
+        "me",
+        "moreTied"
+      ],
+      "properties": {
+        "board": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "week"
+            },
+            {
+              "type": "string",
+              "const": "all"
+            }
+          ]
+        },
+        "weekStartsOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "rank",
+              "studentId",
+              "displayName",
+              "className",
+              "points",
+              "games"
+            ],
+            "properties": {
+              "rank": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "studentId": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "className": {
+                "type": "string"
+              },
+              "points": {
+                "type": "integer"
+              },
+              "games": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
+            }
+          },
+          "maxItems": 20
+        },
+        "me": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "rank",
+                "studentId",
+                "displayName",
+                "className",
+                "points",
+                "games"
+              ],
+              "properties": {
+                "rank": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "studentId": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "className": {
+                  "type": "string"
+                },
+                "points": {
+                  "type": "integer"
+                },
+                "games": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "moreTied": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "rank",
+                "count"
+              ],
+              "properties": {
+                "rank": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "board": {
+            "const": "all"
+          }
+        },
+        "required": [
+          "board"
+        ]
+      },
+      "then": {
+        "properties": {
+          "weekStartsOn": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "weekStartsOn": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ClubGameList": {
+      "type": "object",
+      "required": [
+        "games",
+        "nextBefore"
+      ],
+      "properties": {
+        "games": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "gameId",
+              "endedAt",
+              "outcome",
+              "role",
+              "score",
+              "multiplier",
+              "ranked"
+            ],
+            "properties": {
+              "gameId": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "endedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "landlord_won"
+                  },
+                  {
+                    "type": "string",
+                    "const": "farmers_won"
+                  },
+                  {
+                    "type": "string",
+                    "const": "no_landlord"
+                  }
+                ]
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "landlord"
+                  },
+                  {
+                    "type": "string",
+                    "const": "farmer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "score": {
+                "type": "integer"
+              },
+              "multiplier": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "ranked": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "nextBefore": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "DoudizhuGameRecord": {
+      "type": "object",
+      "required": [
+        "gameId",
+        "startedAt",
+        "endedAt",
+        "seats",
+        "dealt",
+        "bottom",
+        "actions",
+        "reacts",
+        "result"
+      ],
+      "properties": {
+        "gameId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "seats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "studentId",
+              "displayName",
+              "bot"
+            ],
+            "properties": {
+              "studentId": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "bot": {
+                "type": "boolean"
+              }
+            }
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "dealt": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "3"
+                },
+                {
+                  "type": "string",
+                  "const": "4"
+                },
+                {
+                  "type": "string",
+                  "const": "5"
+                },
+                {
+                  "type": "string",
+                  "const": "6"
+                },
+                {
+                  "type": "string",
+                  "const": "7"
+                },
+                {
+                  "type": "string",
+                  "const": "8"
+                },
+                {
+                  "type": "string",
+                  "const": "9"
+                },
+                {
+                  "type": "string",
+                  "const": "10"
+                },
+                {
+                  "type": "string",
+                  "const": "J"
+                },
+                {
+                  "type": "string",
+                  "const": "Q"
+                },
+                {
+                  "type": "string",
+                  "const": "K"
+                },
+                {
+                  "type": "string",
+                  "const": "A"
+                },
+                {
+                  "type": "string",
+                  "const": "2"
+                },
+                {
+                  "type": "string",
+                  "const": "小王"
+                },
+                {
+                  "type": "string",
+                  "const": "大王"
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "bottom": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "3"
+              },
+              {
+                "type": "string",
+                "const": "4"
+              },
+              {
+                "type": "string",
+                "const": "5"
+              },
+              {
+                "type": "string",
+                "const": "6"
+              },
+              {
+                "type": "string",
+                "const": "7"
+              },
+              {
+                "type": "string",
+                "const": "8"
+              },
+              {
+                "type": "string",
+                "const": "9"
+              },
+              {
+                "type": "string",
+                "const": "10"
+              },
+              {
+                "type": "string",
+                "const": "J"
+              },
+              {
+                "type": "string",
+                "const": "Q"
+              },
+              {
+                "type": "string",
+                "const": "K"
+              },
+              {
+                "type": "string",
+                "const": "A"
+              },
+              {
+                "type": "string",
+                "const": "2"
+              },
+              {
+                "type": "string",
+                "const": "小王"
+              },
+              {
+                "type": "string",
+                "const": "大王"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "turn",
+              "seat",
+              "action",
+              "auto"
+            ],
+            "properties": {
+              "turn": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "seat": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "action": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "bid"
+                  },
+                  {
+                    "type": "string",
+                    "const": "play"
+                  },
+                  {
+                    "type": "string",
+                    "const": "pass"
+                  }
+                ]
+              },
+              "bid": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              },
+              "move": {
+                "type": "object",
+                "required": [
+                  "type",
+                  "name",
+                  "cards"
+                ],
+                "properties": {
+                  "type": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "single"
+                      },
+                      {
+                        "type": "string",
+                        "const": "pair"
+                      },
+                      {
+                        "type": "string",
+                        "const": "trio"
+                      },
+                      {
+                        "type": "string",
+                        "const": "trio_solo"
+                      },
+                      {
+                        "type": "string",
+                        "const": "trio_pair"
+                      },
+                      {
+                        "type": "string",
+                        "const": "straight"
+                      },
+                      {
+                        "type": "string",
+                        "const": "pair_straight"
+                      },
+                      {
+                        "type": "string",
+                        "const": "trio_straight"
+                      },
+                      {
+                        "type": "string",
+                        "const": "plane_solo"
+                      },
+                      {
+                        "type": "string",
+                        "const": "plane_pair"
+                      },
+                      {
+                        "type": "string",
+                        "const": "four_two_solo"
+                      },
+                      {
+                        "type": "string",
+                        "const": "four_two_pair"
+                      },
+                      {
+                        "type": "string",
+                        "const": "bomb"
+                      },
+                      {
+                        "type": "string",
+                        "const": "rocket"
+                      }
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "3"
+                        },
+                        {
+                          "type": "string",
+                          "const": "4"
+                        },
+                        {
+                          "type": "string",
+                          "const": "5"
+                        },
+                        {
+                          "type": "string",
+                          "const": "6"
+                        },
+                        {
+                          "type": "string",
+                          "const": "7"
+                        },
+                        {
+                          "type": "string",
+                          "const": "8"
+                        },
+                        {
+                          "type": "string",
+                          "const": "9"
+                        },
+                        {
+                          "type": "string",
+                          "const": "10"
+                        },
+                        {
+                          "type": "string",
+                          "const": "J"
+                        },
+                        {
+                          "type": "string",
+                          "const": "Q"
+                        },
+                        {
+                          "type": "string",
+                          "const": "K"
+                        },
+                        {
+                          "type": "string",
+                          "const": "A"
+                        },
+                        {
+                          "type": "string",
+                          "const": "2"
+                        },
+                        {
+                          "type": "string",
+                          "const": "小王"
+                        },
+                        {
+                          "type": "string",
+                          "const": "大王"
+                        }
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                }
+              },
+              "auto": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "const": "timeout"
+                  },
+                  {
+                    "type": "string",
+                    "const": "trustee"
+                  },
+                  {
+                    "type": "string",
+                    "const": "bot"
+                  },
+                  {
+                    "type": "string",
+                    "const": "closing"
+                  }
+                ]
+              }
+            },
+            "dependentSchemas": {
+              "bid": {
+                "properties": {
+                  "action": {
+                    "const": "bid"
+                  }
+                }
+              },
+              "move": {
+                "properties": {
+                  "action": {
+                    "const": "play"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "reacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "at",
+              "from",
+              "to",
+              "kind",
+              "content",
+              "text"
+            ],
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "from": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "to": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "emoji"
+                  },
+                  {
+                    "type": "string",
+                    "const": "phrase"
+                  },
+                  {
+                    "type": "string",
+                    "const": "text"
+                  }
+                ]
+              },
+              "content": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "result": {
+          "type": "object",
+          "required": [
+            "gameId",
+            "outcome",
+            "landlord",
+            "base",
+            "doublings",
+            "multiplier",
+            "capped",
+            "scores",
+            "hands",
+            "bottom",
+            "ranked"
+          ],
+          "properties": {
+            "gameId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "landlord_won"
+                },
+                {
+                  "type": "string",
+                  "const": "farmers_won"
+                },
+                {
+                  "type": "string",
+                  "const": "no_landlord"
+                }
+              ]
+            },
+            "landlord": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "base": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "doublings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "seat"
+                ],
+                "properties": {
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "bomb"
+                      },
+                      {
+                        "type": "string",
+                        "const": "rocket"
+                      },
+                      {
+                        "type": "string",
+                        "const": "spring"
+                      },
+                      {
+                        "type": "string",
+                        "const": "anti_spring"
+                      }
+                    ]
+                  },
+                  "seat": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 2
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "multiplier": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "capped": {
+              "type": "boolean"
+            },
+            "scores": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "hands": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "3"
+                    },
+                    {
+                      "type": "string",
+                      "const": "4"
+                    },
+                    {
+                      "type": "string",
+                      "const": "5"
+                    },
+                    {
+                      "type": "string",
+                      "const": "6"
+                    },
+                    {
+                      "type": "string",
+                      "const": "7"
+                    },
+                    {
+                      "type": "string",
+                      "const": "8"
+                    },
+                    {
+                      "type": "string",
+                      "const": "9"
+                    },
+                    {
+                      "type": "string",
+                      "const": "10"
+                    },
+                    {
+                      "type": "string",
+                      "const": "J"
+                    },
+                    {
+                      "type": "string",
+                      "const": "Q"
+                    },
+                    {
+                      "type": "string",
+                      "const": "K"
+                    },
+                    {
+                      "type": "string",
+                      "const": "A"
+                    },
+                    {
+                      "type": "string",
+                      "const": "2"
+                    },
+                    {
+                      "type": "string",
+                      "const": "小王"
+                    },
+                    {
+                      "type": "string",
+                      "const": "大王"
+                    }
+                  ]
+                },
+                "maxItems": 20
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "bottom": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "3"
+                      },
+                      {
+                        "type": "string",
+                        "const": "4"
+                      },
+                      {
+                        "type": "string",
+                        "const": "5"
+                      },
+                      {
+                        "type": "string",
+                        "const": "6"
+                      },
+                      {
+                        "type": "string",
+                        "const": "7"
+                      },
+                      {
+                        "type": "string",
+                        "const": "8"
+                      },
+                      {
+                        "type": "string",
+                        "const": "9"
+                      },
+                      {
+                        "type": "string",
+                        "const": "10"
+                      },
+                      {
+                        "type": "string",
+                        "const": "J"
+                      },
+                      {
+                        "type": "string",
+                        "const": "Q"
+                      },
+                      {
+                        "type": "string",
+                        "const": "K"
+                      },
+                      {
+                        "type": "string",
+                        "const": "A"
+                      },
+                      {
+                        "type": "string",
+                        "const": "2"
+                      },
+                      {
+                        "type": "string",
+                        "const": "小王"
+                      },
+                      {
+                        "type": "string",
+                        "const": "大王"
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 20
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ranked": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
     }
   }
 }
