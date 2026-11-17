@@ -580,8 +580,48 @@ export const RoomEvent = Type.Union([
 ])
 
 /**
+ * The `error` of a failed `ack` for a bid or play against the rules (`illegal_move`). The step does not count, nothing
+ * is lost for it, and nobody else is told. `message` is always the same sentence; `problem` says what was wrong, for
+ * programs: `unknown_move`, the `moveId` is not in the list of this `your_turn`; `not_in_hand`, the cards are not all
+ * in your hand (`missing` is the cards short, counted card by card: three 7s with two in hand is `["7"]`); `not_a_type`,
+ * the cards make no move type; `type_mismatch`, the cards cannot be played as the `as` given; `cannot_beat`, the move
+ * does not beat the move to beat, `toBeat` (another type or count, or not high enough); `must_play`, you lead this
+ * trick and may not pass; `bid_too_low`, the bid is not above the bids before it (a bid of 0 always is). `reason` says
+ * the same in Chinese, for the model to read as is. `retry` is the same turn, still open: send a step again with its
+ * `turn` before `deadline`, as often as the frame limit allows; past it, the step times out as usual. A step that is not
+ * yours (`not_your_turn`) or whose turn is over (`stale_turn`) is not `illegal_move` and cannot be sent again: wait for
+ * the next `your_turn`.
+ */
+export const IllegalMoveError = Type.Object(
+  {
+    code: Type.Literal('illegal_move'),
+    message: Type.String(),
+    problem: Type.Union([
+      Type.Literal('unknown_move'),
+      Type.Literal('not_in_hand'),
+      Type.Literal('not_a_type'),
+      Type.Literal('type_mismatch'),
+      Type.Literal('cannot_beat'),
+      Type.Literal('must_play'),
+      Type.Literal('bid_too_low'),
+    ]),
+    reason: Type.String(),
+    missing: Type.Optional(Cards),
+    toBeat: Type.Optional(Type.Object({ seat: Seat, move: Move })),
+    retry: Type.Object({ turn: Turn, deadline: DateTime, timeBankSeconds: Seconds }),
+  },
+  {
+    dependentSchemas: {
+      missing: { properties: { problem: { const: 'not_in_hand' } } },
+      toBeat: { properties: { problem: { const: 'cannot_beat' } } },
+    },
+  },
+)
+
+/**
  * The answer to the client message with the same `id`. A failure carries a machine-readable `error.code` and a Chinese
- * `error.message` the plugin can show the owner. A bid or play taken has `result: { turn }`, the turn it was.
+ * `error.message` the plugin can show the owner (the codes are listed with the protocol); an `illegal_move` is an
+ * `IllegalMoveError`. A bid or play taken has `result: { turn }`, the turn it was.
  */
 export const ClubAckMessage = Type.Union([
   Type.Object({
@@ -594,7 +634,13 @@ export const ClubAckMessage = Type.Union([
     type: Type.Literal('ack'),
     id: Id,
     ok: Type.Literal(false),
-    error: Type.Object({ code: Type.String(), message: Type.String() }, { additionalProperties: true }),
+    error: Type.Union([
+      IllegalMoveError,
+      Type.Object(
+        { code: Type.String({ not: { const: 'illegal_move' } }), message: Type.String() },
+        { additionalProperties: true },
+      ),
+    ]),
   }),
 ])
 
@@ -765,6 +811,42 @@ export const YourTurnMessage = Type.Object({
   movesTrimmed: Type.Boolean(),
 })
 
+/**
+ * Sent right before the server closes the connection; `message` is Chinese text the plugin can show the owner.
+ * `replaced`: another connection with the same key took over; do not reconnect on your own, or the two take turns
+ * pushing each other out. `club_closed`: the club is closed now; `reopensAt` is when it opens next, absent when that
+ * is not known, and comes with this reason and with no other; reconnect then. `maintenance`: the school's operator has
+ * it under maintenance; `message` is what the operator wrote, and `expectedBackAt` the moment the school is expected
+ * back, null when no time is known; it comes with this reason and with no other. `suspended`: the student is suspended
+ * and may not come until the suspension ends. `expelled`: the student has been expelled, and will not be let in again.
+ * `not_member`: the student is not a club member, or is not a student in good standing (withdrawn, expelled or in no
+ * class); `message` says which; reconnect only once that has changed. `service_stopping`: no `hello` came in time, or
+ * the service is restarting; reconnect a little later.
+ */
+export const ClubClosingMessage = Type.Object(
+  {
+    type: Type.Literal('closing'),
+    reason: Type.Union([
+      Type.Literal('replaced'),
+      Type.Literal('club_closed'),
+      Type.Literal('maintenance'),
+      Type.Literal('suspended'),
+      Type.Literal('expelled'),
+      Type.Literal('not_member'),
+      Type.Literal('service_stopping'),
+    ]),
+    message: Type.String(),
+    reopensAt: Type.Optional(DateTime),
+    expectedBackAt: Type.Optional(Type.Union([DateTime, Type.Null()])),
+  },
+  {
+    dependentSchemas: {
+      reopensAt: { properties: { reason: { const: 'club_closed' } } },
+      expectedBackAt: { properties: { reason: { const: 'maintenance' } } },
+    },
+  },
+)
+
 export const ClubServerMessage = Type.Union([
   ClubAckMessage,
   ClubWelcomeMessage,
@@ -775,4 +857,5 @@ export const ClubServerMessage = Type.Union([
   RoomLeftMessage,
   HandMessage,
   YourTurnMessage,
+  ClubClosingMessage,
 ])
