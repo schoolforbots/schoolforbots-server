@@ -1,15 +1,18 @@
 import type { TSchema } from 'typebox'
 import Value from 'typebox/value'
 import { describe, expect, test } from 'vitest'
+import { CLUB_WS_ERROR_MESSAGES } from '../../src/club/ws-errors.js'
 import {
   Cards,
   ClubClientMessage,
+  ClubClosingMessage,
   ClubPerson,
   ClubPersonWithClass,
   ClubServerMessage,
   DoudizhuEvent,
   DoudizhuResult,
   DoudizhuTable,
+  IllegalMoveError,
   MOVE_TYPE_NAMES,
   Move,
   MoveType,
@@ -398,5 +401,94 @@ describe('server messages', () => {
     const text = JSON.stringify([clubProperties, clubEvents])
     for (const word of ['landlord', 'bid', 'cards', 'hand']) expect(text).not.toContain(word)
     for (const rank of RANKS) expect(text).not.toContain(`"${rank}"`)
+  })
+})
+
+describe('errors and closing', () => {
+  const at = '2026-11-17T12:00:00.000Z'
+  const CODES = [
+    'invalid_message', 'hello_required', 'protocol_unsupported', 'rate_limited', 'club_closed', 'in_room',
+    'not_in_room', 'room_not_found', 'room_full', 'room_private', 'game_in_progress', 'same_owner',
+    'not_member_target', 'invite_not_found', 'invite_cap', 'no_idle_prompt', 'spectators_full', 'not_your_turn',
+    'stale_turn', 'illegal_move', 'not_trustee', 'react_not_allowed', 'react_cap',
+  ]
+  const REASONS = ['replaced', 'club_closed', 'maintenance', 'suspended', 'expelled', 'not_member', 'service_stopping']
+  const PROBLEMS = ['unknown_move', 'not_in_hand', 'not_a_type', 'type_mismatch', 'cannot_beat', 'must_play', 'bid_too_low']
+
+  test('CLUB_WS_ERROR_MESSAGES has a Chinese message for exactly the club error codes', () => {
+    expect(Object.keys(CLUB_WS_ERROR_MESSAGES).sort()).toEqual([...CODES].sort())
+    for (const message of Object.values(CLUB_WS_ERROR_MESSAGES)) {
+      expect(message.length).toBeGreaterThan(0)
+      expect(message).toMatch(/[一-鿿]/)
+    }
+    expect(CLUB_WS_ERROR_MESSAGES.illegal_move).toBe('这样出不合规则，这一步没算，请重新出。')
+  })
+
+  test.each(REASONS)('closing accepts %s', (reason) => {
+    expect(ok(ClubClosingMessage, { type: 'closing', reason, message: '再见。' })).toBe(true)
+  })
+
+  test.each<Case>([
+    ['club_closed with reopensAt', { type: 'closing', reason: 'club_closed', message: '社团关门了。', reopensAt: at }],
+    ['maintenance with expectedBackAt', { type: 'closing', reason: 'maintenance', message: '维护中。', expectedBackAt: at }],
+    ['maintenance with expectedBackAt null', { type: 'closing', reason: 'maintenance', message: '维护中。', expectedBackAt: null }],
+  ])('closing accepts %s', (_name, message) => {
+    expect(ok(ClubClosingMessage, message)).toBe(true)
+    expect(ok(ClubServerMessage, message)).toBe(true)
+  })
+
+  test.each<Case>([
+    ['replaced with reopensAt', { type: 'closing', reason: 'replaced', message: '再见。', reopensAt: at }],
+    ['maintenance with reopensAt', { type: 'closing', reason: 'maintenance', message: '维护中。', reopensAt: at }],
+    ['club_closed with expectedBackAt', { type: 'closing', reason: 'club_closed', message: '社团关门了。', expectedBackAt: at }],
+    ['club_closed with reopensAt null', { type: 'closing', reason: 'club_closed', message: '社团关门了。', reopensAt: null }],
+    ['on_break', { type: 'closing', reason: 'on_break', message: '放假了。' }],
+    ['session_over', { type: 'closing', reason: 'session_over', message: '下课了。' }],
+    ['no message', { type: 'closing', reason: 'replaced' }],
+  ])('closing rejects %s', (_name, message) => {
+    expect(ok(ClubClosingMessage, message)).toBe(false)
+  })
+
+  const retry = { turn: 8, deadline: at, timeBankSeconds: 95.5 }
+  const illegal = (problem: string, extra: object = {}) => ({
+    code: 'illegal_move', message: '这样出不合规则，这一步没算，请重新出。', problem, reason: '你手里没有 7。', retry, ...extra,
+  })
+
+  test.each(PROBLEMS)('IllegalMoveError accepts the problem %s', (problem) => {
+    expect(ok(IllegalMoveError, illegal(problem))).toBe(true)
+  })
+
+  test.each<Case>([
+    ['not_in_hand with missing', illegal('not_in_hand', { missing: ['7'] })],
+    ['cannot_beat with toBeat', illegal('cannot_beat', { toBeat: { seat: 0, move: { type: 'pair', name: '对牌', cards: ['9', '9'] } } })],
+  ])('IllegalMoveError accepts %s', (_name, error) => {
+    expect(ok(IllegalMoveError, error)).toBe(true)
+  })
+
+  test.each<Case>([
+    ['no retry', (({ retry: _retry, ...rest }) => rest)(illegal('must_play'))],
+    ['another problem', illegal('too_slow')],
+    ['no reason', (({ reason: _reason, ...rest }) => rest)(illegal('must_play'))],
+    ['another code', { ...illegal('must_play'), code: 'stale_turn' }],
+    ['a retry with turn 0', illegal('must_play', { retry: { ...retry, turn: 0 } })],
+    ['a retry without a deadline', illegal('must_play', { retry: { turn: 8, timeBankSeconds: 95.5 } })],
+    ['missing that is empty', illegal('not_in_hand', { missing: [] })],
+    ['missing with another problem', illegal('cannot_beat', { missing: ['7'] })],
+    ['toBeat with another problem', illegal('not_in_hand', { toBeat: { seat: 0, move: { type: 'single', name: '单牌', cards: ['9'] } } })],
+  ])('IllegalMoveError rejects %s', (_name, error) => {
+    expect(ok(IllegalMoveError, error)).toBe(false)
+  })
+
+  const failed = (error: unknown) => ({ type: 'ack', id: 'c9', ok: false, error })
+
+  test('a failed ack carries an IllegalMoveError, or a plain error for any other code', () => {
+    expect(ok(ClubServerMessage, failed(illegal('not_in_hand', { missing: ['7'] })))).toBe(true)
+    expect(ok(ClubServerMessage, failed({ code: 'stale_turn', message: '这一步已经过去了，请看最新的局面。' }))).toBe(true)
+    expect(ok(ClubServerMessage, failed({ code: 'room_full', message: '这个房间已经坐满了。', extra: 1 }))).toBe(true)
+  })
+
+  test('a failed ack with illegal_move must be a whole IllegalMoveError', () => {
+    expect(ok(ClubServerMessage, failed({ code: 'illegal_move', message: '这样出不合规则，这一步没算，请重新出。' }))).toBe(false)
+    expect(ok(ClubServerMessage, failed((({ retry: _retry, ...rest }) => rest)(illegal('must_play'))))).toBe(false)
   })
 })
