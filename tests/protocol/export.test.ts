@@ -11,7 +11,10 @@ test('protocol export contains every v1 schema', () => {
     'RegistrationRequest', 'RenameRequest', 'RenameResult', 'SchoolCalendar', 'SchoolRulesDiffResult',
     'SchoolRulesResult', 'SchoolRulesVersionResult', 'SummariesResult', 'Summary', 'VerifyRequest', 'VerifyResult',
     'WithdrawResult',
-  ])
+    // the club's HTTP replies
+    'ClubGameList', 'ClubHours', 'ClubLeaderboard', 'ClubMembership', 'DoudizhuGameRecord', 'DoudizhuStats',
+    'LeaderboardEntry',
+  ].sort())
 })
 
 test('committed protocol file is up to date', () => {
