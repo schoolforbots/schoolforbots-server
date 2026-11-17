@@ -3,6 +3,7 @@ import Value from 'typebox/value'
 import { describe, expect, test } from 'vitest'
 import {
   Cards,
+  ClubClientMessage,
   ClubPerson,
   ClubPersonWithClass,
   MOVE_TYPE_NAMES,
@@ -101,5 +102,88 @@ describe('shared types', () => {
     expect(ok(Move, { type: 'pair', name: '对牌', cards: ['9', '9'] })).toBe(true)
     expect(ok(Move, { type: 'pair', name: '对牌', cards: [] })).toBe(false)
     expect(ok(Move, { type: 'quad', name: '四张', cards: ['9', '9', '9', '9'] })).toBe(false)
+  })
+})
+
+describe('client messages', () => {
+  const hello = { id: 'c1', type: 'hello', protocol: 'v1', plugin: { type: 'openclaw', version: '1.2.3' }, club: 'doudizhu' }
+  const play = { id: 'c9', type: 'play', game: 'doudizhu', turn: 7 }
+  const react = { id: 'c10', type: 'react' }
+
+  test.each<Case>([
+    ['hello', hello],
+    ['hello with roomId', { ...hello, roomId: 'r7k2q' }],
+    ['hello with roomId and lastSeq', { ...hello, roomId: 'r7k2q', lastSeq: 12 }],
+    ['hello with lastSeq 0', { ...hello, roomId: 'r7k2q', lastSeq: 0 }],
+    ['lobby.list', { id: 'c2', type: 'lobby.list' }],
+    ['room.create', { id: 'c3', type: 'room.create', visibility: 'public', bots: false }],
+    ['room.create with bots', { id: 'c3', type: 'room.create', visibility: 'invite', bots: true }],
+    ['room.create inviting two', { id: 'c3', type: 'room.create', visibility: 'invite', bots: false, invite: [12, 37] }],
+    ['room.join', { id: 'c4', type: 'room.join', roomId: 'r7k2q' }],
+    ['room.quick', { id: 'c5', type: 'room.quick' }],
+    ['room.invite', { id: 'c6', type: 'room.invite', to: 12 }],
+    ['room.accept', { id: 'c7', type: 'room.accept', inviteId: 3 }],
+    ['room.decline', { id: 'c7', type: 'room.decline', inviteId: 3 }],
+    ['room.ready', { id: 'c8', type: 'room.ready' }],
+    ['room.leave', { id: 'c8', type: 'room.leave' }],
+    ['room.bots', { id: 'c8', type: 'room.bots' }],
+    ['trustee.off', { id: 'c8', type: 'trustee.off' }],
+    ['react with an emoji', { ...react, kind: 'emoji', content: '👍' }],
+    ['react with an emoji to someone', { ...react, kind: 'emoji', content: '🙄', to: 12 }],
+    ['react with a phrase', { ...react, kind: 'phrase', content: 'p01' }],
+    ['react with a phrase to someone', { ...react, kind: 'phrase', content: 'p01', to: 12, visibility: 'room' }],
+    ['react with private text to someone', { ...react, kind: 'text', content: '打得好', to: 12, visibility: 'private' }],
+    ['react with content at the cap', { ...react, kind: 'text', content: 'x'.repeat(200) }],
+    ['watch', { id: 'c11', type: 'watch', roomId: 'r7k2q' }],
+    ['unwatch', { id: 'c11', type: 'unwatch' }],
+    ['bid', { id: 'c12', type: 'bid', game: 'doudizhu', turn: 1, bid: 3 }],
+    ['bid 0 (no bid)', { id: 'c12', type: 'bid', game: 'doudizhu', turn: 2, bid: 0 }],
+    ['play by moveId', { ...play, moveId: 4 }],
+    ['play by cards', { ...play, cards: ['3', '3', '3', '4'] }],
+    ['play by cards as a move type', { ...play, cards: ['5', '5', '5', '6', '6', '6', '7', '7', '7', '8', '8', '8'], as: 'plane_solo' }],
+    ['pass', { id: 'c13', type: 'pass', game: 'doudizhu', turn: 8 }],
+  ])('accepts %s', (_name, message) => {
+    expect(ok(ClubClientMessage, message)).toBe(true)
+  })
+
+  test.each<Case>([
+    ['an unknown type', { id: 'c1', type: 'shout' }],
+    ['no id', { type: 'room.ready' }],
+    ['an id over 64 characters', { id: 'x'.repeat(65), type: 'room.ready' }],
+    ['hello without club', { id: 'c1', type: 'hello', protocol: 'v1', plugin: { type: 'openclaw', version: '1.2.3' } }],
+    ['hello to another club', { ...hello, club: 'chess' }],
+    ['hello with lastSeq but no roomId', { ...hello, lastSeq: 12 }],
+    ['hello with a negative lastSeq', { ...hello, roomId: 'r7k2q', lastSeq: -1 }],
+    ['hello for another protocol', { ...hello, protocol: 'v2' }],
+    ['hello with a malformed roomId', { ...hello, roomId: 'R7K2Q' }],
+    ['room.create inviting three', { id: 'c3', type: 'room.create', visibility: 'invite', bots: false, invite: [12, 37, 40] }],
+    ['room.create inviting someone twice', { id: 'c3', type: 'room.create', visibility: 'invite', bots: false, invite: [12, 12] }],
+    ['room.create with another visibility', { id: 'c3', type: 'room.create', visibility: 'secret', bots: false }],
+    ['room.create without bots', { id: 'c3', type: 'room.create', visibility: 'public' }],
+    ['room.join with a malformed roomId', { id: 'c4', type: 'room.join', roomId: 'x7k2q' }],
+    ['watch with a malformed roomId', { id: 'c11', type: 'watch', roomId: 'r7k' }],
+    ['room.invite to studentId 0', { id: 'c6', type: 'room.invite', to: 0 }],
+    ['bid 4', { id: 'c12', type: 'bid', game: 'doudizhu', turn: 1, bid: 4 }],
+    ['bid 1.5', { id: 'c12', type: 'bid', game: 'doudizhu', turn: 1, bid: 1.5 }],
+    ['bid without game', { id: 'c12', type: 'bid', turn: 1, bid: 3 }],
+    ['bid without turn', { id: 'c12', type: 'bid', game: 'doudizhu', bid: 3 }],
+    ['play with both moveId and cards', { ...play, moveId: 4, cards: ['3'] }],
+    ['play with neither moveId nor cards', play],
+    ['play by moveId with as', { ...play, moveId: 4, as: 'single' }],
+    ['play with moveId 0', { ...play, moveId: 0 }],
+    ['play with a suited card', { ...play, cards: ['♠3'] }],
+    ['play as an unknown move type', { ...play, cards: ['3', '3', '3', '3'], as: 'quad' }],
+    ['play with turn 0', { ...play, turn: 0, moveId: 4 }],
+    ['play without game', { id: 'c9', type: 'play', turn: 7, moveId: 4 }],
+    ['play in another game', { ...play, game: 'chess', moveId: 4 }],
+    ['pass without game', { id: 'c13', type: 'pass', turn: 8 }],
+    ['pass with turn 0', { id: 'c13', type: 'pass', game: 'doudizhu', turn: 0 }],
+    ['react private without to', { ...react, kind: 'text', content: '打得好', visibility: 'private' }],
+    ['react with content over 200 characters', { ...react, kind: 'text', content: 'x'.repeat(201) }],
+    ['react of another kind', { ...react, kind: 'sticker', content: 'x' }],
+    ['react with another visibility', { ...react, kind: 'emoji', content: '👍', visibility: 'all' }],
+    ['not an object', 'hello'],
+  ])('rejects %s', (_name, message) => {
+    expect(ok(ClubClientMessage, message)).toBe(false)
   })
 })
