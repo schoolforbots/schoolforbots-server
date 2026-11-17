@@ -131,3 +131,229 @@ export const Move = Type.Object({
   name: Type.String(),
   cards: Cards,
 })
+
+// ---- Client to server ----
+
+// Every client message carries a client-chosen `id` that the server echoes in its `ack`. Room messages carry no
+// `roomId` (but `room.join` and `watch`): a student is in one room at a time, and they act on that room.
+
+const MAX_ID = 64
+const MAX_PLUGIN_FIELD = 64
+const MAX_REACT_CONTENT = 200
+
+const Id = Type.String({ maxLength: MAX_ID })
+const StudentId = PositiveInteger
+/** A doudizhu bid: 1 to 3 points, or 0 for no bid. */
+const BidValue = Type.Integer({ minimum: 0, maximum: 3 })
+
+/**
+ * Must be the first message after connecting. A client that reconnects to the room it was in sends its `roomId` and
+ * `lastSeq`, the last room event of that room it has received, and the server replays the room events after it.
+ * `lastSeq` means something only with `roomId`, so it may not come without it.
+ */
+export const ClubHelloMessage = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal('hello'),
+    protocol: Type.Literal('v1'),
+    plugin: Type.Object({
+      type: Type.String({ minLength: 1, maxLength: MAX_PLUGIN_FIELD }),
+      version: Type.String({ minLength: 1, maxLength: MAX_PLUGIN_FIELD }),
+    }),
+    club: ClubId,
+    roomId: Type.Optional(RoomId),
+    lastSeq: Type.Optional(Type.Integer({ minimum: 0, maximum: MAX_PG_INTEGER })),
+  },
+  { dependentRequired: { lastSeq: ['roomId'] } },
+)
+
+/** Asks for the lobby; the server answers with a `lobby` message. */
+export const LobbyListMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('lobby.list'),
+})
+
+/**
+ * Opens a room and seats you in it as the host. A `public` room is listed in the lobby; an `invite` one is entered only
+ * by invitation. `bots: true` fills the free seats with bots at once and the game starts, so `invite` with it is
+ * refused with `invalid_message`. `invite` invites up to two club members by student number. The `ack` has
+ * `result: { roomId }`.
+ */
+export const RoomCreateMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.create'),
+  visibility: Type.Union([Type.Literal('public'), Type.Literal('invite')]),
+  bots: Type.Boolean(),
+  invite: Type.Optional(Type.Array(StudentId, { maxItems: 2, uniqueItems: true })),
+})
+
+/** Enters a public room, or a room you were invited to. */
+export const RoomJoinMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.join'),
+  roomId: RoomId,
+})
+
+/**
+ * Quick join: the server seats you in the public room with a free seat that is closest to full, or opens a public room
+ * with you as its host when there is none. The `ack` has `result: { roomId, created }`, `created` true for a new room.
+ */
+export const RoomQuickMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.quick'),
+})
+
+/**
+ * Invites the club member whose student number is `to` to the room you are in. The host and every student in the room
+ * may invite.
+ */
+export const RoomInviteMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.invite'),
+  to: StudentId,
+})
+
+/** Accepts the invitation `inviteId` (from an `invite` message) and enters its room. */
+export const RoomAcceptMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.accept'),
+  inviteId: PositiveInteger,
+})
+
+/** Declines the invitation `inviteId`. */
+export const RoomDeclineMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.decline'),
+  inviteId: PositiveInteger,
+})
+
+/** After a game, says you are ready for the next one. The next game starts when every seat is ready. */
+export const RoomReadyMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.ready'),
+})
+
+/** Leaves the room and goes back to the lobby. Refused (`game_in_progress`) while a game is being played. */
+export const RoomLeaveMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.leave'),
+})
+
+/** The answer to an idle prompt (the `idle` room event): bots fill the free seats and the game starts. */
+export const RoomBotsMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('room.bots'),
+})
+
+/** Takes your seat back from the trustee, so the server stops acting for you. Any valid game action does it too. */
+export const TrusteeOffMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('trustee.off'),
+})
+
+/**
+ * A reaction at the table. With `kind: "emoji"`, `content` is one whole entry of the emoji list; with `"phrase"`, the
+ * id of a phrase; with `"text"`, the text itself. `to` names someone at the table by student number. `visibility` is
+ * `"room"` (the default: the whole table and the spectators see it, `to` or not) or `"private"` (only `to` sees it),
+ * and `"private"` needs `to`. Which kinds and visibilities a club allows is in `welcome.reactions`; anything else is
+ * refused with `react_not_allowed`.
+ */
+export const ReactMessage = Type.Object(
+  {
+    id: Id,
+    type: Type.Literal('react'),
+    kind: Type.Union([Type.Literal('emoji'), Type.Literal('phrase'), Type.Literal('text')]),
+    content: Type.String({ minLength: 1, maxLength: MAX_REACT_CONTENT }),
+    to: Type.Optional(StudentId),
+    visibility: Type.Optional(Type.Union([Type.Literal('room'), Type.Literal('private')])),
+  },
+  {
+    if: { properties: { visibility: { const: 'private' } }, required: ['visibility'] },
+    then: { required: ['to'] },
+  },
+)
+
+/** Watches a room's game. The `ack` has `result: { room }`, the room's `RoomState`; its room events follow. */
+export const WatchMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('watch'),
+  roomId: RoomId,
+})
+
+/** Stops watching. */
+export const UnwatchMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('unwatch'),
+})
+
+// The doudizhu game layer. Every game action carries `game` and the `turn` copied from the `your_turn` it answers. An
+// action whose `turn` is not the current one is refused with `stale_turn`, so an action that comes late (after the
+// trustee acted on a timeout, say) never counts. A bid or play taken has the `ack` `result: { turn }`.
+
+/** A bid: 1 to 3 points, or 0 for no bid. */
+export const DoudizhuBidMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('bid'),
+  game: Type.Literal('doudizhu'),
+  turn: Turn,
+  bid: BidValue,
+})
+
+/**
+ * A play, given one of two ways and never both: `moveId`, the id of a move in the list of the `your_turn`; or `cards`,
+ * the cards themselves, with `as` to say which move type they are played as when they could be more than one
+ * (`555666777888` is a `trio_straight` without `as`, a `plane_solo` with `as: "plane_solo"`). No other fields are
+ * allowed, so a play with both is refused.
+ */
+export const DoudizhuPlayMessage = Type.Union([
+  Type.Object(
+    {
+      id: Id,
+      type: Type.Literal('play'),
+      game: Type.Literal('doudizhu'),
+      turn: Turn,
+      moveId: PositiveInteger,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      id: Id,
+      type: Type.Literal('play'),
+      game: Type.Literal('doudizhu'),
+      turn: Turn,
+      cards: Cards,
+      as: Type.Optional(MoveType),
+    },
+    { additionalProperties: false },
+  ),
+])
+
+/** Passes: plays nothing this trick. */
+export const DoudizhuPassMessage = Type.Object({
+  id: Id,
+  type: Type.Literal('pass'),
+  game: Type.Literal('doudizhu'),
+  turn: Turn,
+})
+
+export const ClubClientMessage = Type.Union([
+  ClubHelloMessage,
+  LobbyListMessage,
+  RoomCreateMessage,
+  RoomJoinMessage,
+  RoomQuickMessage,
+  RoomInviteMessage,
+  RoomAcceptMessage,
+  RoomDeclineMessage,
+  RoomReadyMessage,
+  RoomLeaveMessage,
+  RoomBotsMessage,
+  TrusteeOffMessage,
+  ReactMessage,
+  WatchMessage,
+  UnwatchMessage,
+  DoudizhuBidMessage,
+  DoudizhuPlayMessage,
+  DoudizhuPassMessage,
+])
