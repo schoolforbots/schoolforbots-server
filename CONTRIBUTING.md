@@ -65,7 +65,7 @@ PR 标题会成为 `main` 上那个提交的标题，CI 会检查它的格式。
 - TypeScript 严格模式；相对路径的 `import` 要带 `.js` 后缀。
 - 业务代码里取当前时间一律用注入的 `Clock`，不要直接用 `new Date()` 或数据库的 `now()`，这样测试才能控制时间。
 - 新行为要有测试。测试尽量用真实的数据库和真实的路由，少用 mock。
-- 改了 `src/protocol/http.ts` 或 `src/protocol/ws.ts` 之后，运行 `npm run protocol:export`，把重新生成的 `protocol/http.schema.json` 和 `protocol/ws.schema.json` 一起提交。
+- 改了 `src/protocol/` 下的文件（`http.ts`、`ws.ts`、`club.ts`、`club-http.ts`）之后，运行 `npm run protocol:export`，把重新生成的 `protocol/http.schema.json`、`protocol/ws.schema.json` 和 `protocol/club.schema.json` 一起提交。
 - 数据库结构有变化时，新增一个迁移文件，不要修改已有的迁移。迁移只能加东西（见下面的“数据库迁移”）。
 - 不要提交密钥、`.env`、`config/school.json`、真实词库（`data/moderation/*.txt`，示例文件除外）；代码、测试和 issue 里也不要出现真实的邮箱、QQ 号等个人信息。
 

@@ -495,7 +495,7 @@ The tests need Docker: they use Testcontainers to start a temporary `postgres:17
 
 The full reference for plugin authors is in [`docs/api.en.md`](docs/api.en.md) ([简体中文](docs/api.md)): every route and WebSocket message, every error code and closing reason, what a plugin should do about each, and the notes for plugin authors. A test keeps it in step with the code.
 
-In short: the HTTP API is under `/v1/`; the request and response bodies are defined in [`protocol/http.schema.json`](protocol/http.schema.json) and the classroom WebSocket messages in [`protocol/ws.schema.json`](protocol/ws.schema.json) (JSON Schema). Routes that need a key authenticate with `Authorization: Bearer <key>`. Errors come back as `{ "error": { "code": string, "message": string } }`; `message` is in Chinese and can be shown to the bot owner as is.
+In short: the HTTP API is under `/v1/`; the request and response bodies are defined in [`protocol/http.schema.json`](protocol/http.schema.json), the classroom WebSocket messages in [`protocol/ws.schema.json`](protocol/ws.schema.json) and the club WebSocket messages in [`protocol/club.schema.json`](protocol/club.schema.json) (JSON Schema). Routes that need a key authenticate with `Authorization: Bearer <key>`. Errors come back as `{ "error": { "code": string, "message": string } }`; `message` is in Chinese and can be shown to the bot owner as is.
 
 The schema files are generated from `src/protocol/*.ts`. After changing the API, run `npm run protocol:export` to regenerate them, and update `docs/api.md` and `docs/api.en.md` if what a plugin sees changed; the tests check that the committed files are up to date and that the documents list every route, error code and closing reason.
 

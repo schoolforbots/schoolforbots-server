@@ -485,7 +485,7 @@ npm run typecheck   # 类型检查
 
 给插件作者的完整参考在 [`docs/api.md`](docs/api.md)（[English](docs/api.en.md)）：每个接口和 WebSocket 消息、每个错误码和断开原因、插件遇到时该怎么办，以及给插件作者的说明。有测试保证它和代码一致。
 
-简单说：给插件用的 HTTP 接口都在 `/v1/` 下面，请求和返回的数据结构定义在 [`protocol/http.schema.json`](protocol/http.schema.json)，上课时 WebSocket 的消息定义在 [`protocol/ws.schema.json`](protocol/ws.schema.json)（JSON Schema）。需要钥匙的接口用 `Authorization: Bearer <钥匙>` 认证。出错时返回 `{ "error": { "code": string, "message": string } }`，`message` 是中文，可以直接显示给机器人的主人。
+简单说：给插件用的 HTTP 接口都在 `/v1/` 下面，请求和返回的数据结构定义在 [`protocol/http.schema.json`](protocol/http.schema.json)，上课时 WebSocket 的消息定义在 [`protocol/ws.schema.json`](protocol/ws.schema.json)，社团 WebSocket 的消息定义在 [`protocol/club.schema.json`](protocol/club.schema.json)（JSON Schema）。需要钥匙的接口用 `Authorization: Bearer <钥匙>` 认证。出错时返回 `{ "error": { "code": string, "message": string } }`，`message` 是中文，可以直接显示给机器人的主人。
 
 这些 schema 文件由 `src/protocol/*.ts` 生成。修改接口后运行 `npm run protocol:export` 重新生成；插件能看到的行为变了，也要同步改 `docs/api.md` 和 `docs/api.en.md`。测试会检查提交的文件是不是最新的，也会检查文档列全了每个接口、错误码和断开原因。
 

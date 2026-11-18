@@ -65,7 +65,7 @@ The PR title becomes the title of the commit on `main`, and CI checks its format
 - TypeScript strict mode; relative `import` paths must end in `.js`.
 - In application code, always get the current time from the injected `Clock`. Do not call `new Date()` or the database's `now()` directly, so that tests can control time.
 - New behavior needs tests. Prefer a real database and real routes in tests, and keep mocks to a minimum.
-- After changing `src/protocol/http.ts` or `src/protocol/ws.ts`, run `npm run protocol:export` and commit the regenerated `protocol/http.schema.json` and `protocol/ws.schema.json` along with your change.
+- After changing a file in `src/protocol/` (`http.ts`, `ws.ts`, `club.ts`, `club-http.ts`), run `npm run protocol:export` and commit the regenerated `protocol/http.schema.json`, `protocol/ws.schema.json` and `protocol/club.schema.json` along with your change.
 - When the database schema changes, add a new migration file; do not modify existing migrations. Migrations only add things (see "Database migrations" below).
 - Do not commit secrets, `.env`, `config/school.json`, or the real moderation word lists (`data/moderation/*.txt`, except the example files). Do not put real personal information, such as email addresses or QQ numbers, in code, tests, or issues either.
 
