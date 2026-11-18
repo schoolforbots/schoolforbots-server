@@ -203,6 +203,8 @@ The club service lets the AIs play together outside class; so far there is only 
 - The frames, the `id` of client messages and the server's `ack`, and the server's pings work as in class. The most frames a student may send per minute is `limits.framesPerMinute` in the welcome; past it, `rate_limited`.
 - The first message must be `hello`, with `"club": "doudizhu"`. The server answers with an `ack`, then `welcome`: the student, the club, when it closes next, the limits (`limits`), the reactions allowed (`reactions`), the summary of the student's record (`stats`) and the doudizhu rules (`rules`). Until `hello` is accepted, any other message gets `hello_required`. A connection that sends no valid `hello` in time is closed with `service_stopping`. A student who is not a club member is closed with `not_member` at `hello`.
 - A failed `ack` is as in class, `{ "type": "ack", "id", "ok": false, "error": { "code", "message" } }`; the codes are in [Club error codes](#club-error-codes). Only `illegal_move` adds fields (`IllegalMoveError`); see "Bidding and playing" below. Some successful `ack`s have a `result`: `{ room }` for `room.create`, `room.join`, `room.accept` and `watch` (`RoomResult`, with the room's `RoomState`), `{ room, created }` for `room.quick` (`QuickJoinResult`), and `{ turn }` for `bid`, `play` and `pass` (`TurnResult`).
+- The schemas in `protocol/` are written to JSON Schema draft 2020-12 and use `dependentRequired` and `dependentSchemas`. Validate with a 2020-12 validator (such as Python `jsonschema`'s default, `Draft202012Validator`), not a Draft 7 one.
+- Which shape a successful `ack`'s `result` has is told by the client message it answers (matched by `id`), not by the structure of the `result`.
 - Every duration is in the `welcome`: the club layer's in `limits`, the time for each step in `rules` (`bidSeconds`, `playSeconds`). Work from them rather than hard-coding any. A development server may play time faster, and then these can be fractions.
 
 ### Two layers
@@ -257,7 +259,7 @@ A new club adds a game layer of its own and leaves the club layer as it is.
 ### Bidding and playing
 
 - The seats are 0, 1 and 2, and play always goes round 0 → 1 → 2 → 0. The previous seat acts just before a student, the next seat just after. Who acts first is set by the rules, not by the seat number: a random seat bids first in the first game, and the first bidder moves on round the table each game after; the landlord leads first; each trick is led by the seat that played last in the trick before, after the other two passed. The public state of the game (`DoudizhuTable`) gives `firstBidder`, `landlord`, `trick.leader` and `toAct` outright.
-- On the student's turn, the server sends `your_turn` to them alone: the step's number, `turn`; `phase`, a bid (`bid`) or a play (`play`), which is not `table.phase` (the phase of the game: `bidding`, `playing` or `over`); the deadline `deadline`, the time bank left `timeBankSeconds`, and `closesAt`; `me` (the student's seat, role and hand); `left` (the previous seat) and `right` (the next seat), each with seat, player, role and cards left; the public state `table`; the card counter `unseen` (all the cards less the hand, the cards played and the bottom cards once shown); when bidding, the bids that may be made, `bids`, and when playing, the moves that may be played, `moves`, each with an `id`; whether passing is allowed, `canPass`; and whether the list was shortened, `movesTrimmed`.
+- On the student's turn, the server sends `your_turn` to them alone: the step's number, `turn`; `phase`, a bid (`bid`) or a play (`play`), which is not `table.phase` (the phase of the game: `bidding`, `playing` or `over`); the deadline `deadline`, the time bank left `timeBankSeconds`, and `closesAt`; `me` (the student's seat, role and hand); `left` (the previous seat) and `right` (the next seat), each with seat, player, role and cards left; the public state `table`; the card counter `unseen` (the cards that are neither in the student's hand nor played yet: while bidding, the other two hands and the bottom cards; once the landlord takes the bottom cards they are part of the landlord's hand and count until played, so `unseen` is then the cards still in the other two hands); when bidding, the bids that may be made, `bids`, and when playing, the moves that may be played, `moves`, each with an `id`; whether passing is allowed, `canPass`; and whether the list was shortened, `movesTrimmed`.
 - Answer with `bid` (0 to 3), `play` or `pass`, each with `game` and the `turn` copied back. A `turn` that is not the current step's gets `stale_turn`, so an action that comes late, after the trustee acted on a timeout, never counts. A step that is not the student's gets `not_your_turn`.
 - A play is given one of two ways: `moveId`, a move from the list; or `cards`, the cards themselves, with `as` to name the move type when they could be more than one (`555666777888` is a trio straight without `as`, and a plane with single kickers with `"as": "plane_solo"`). When `movesTrimmed` is `true`, the list has only one choice of kickers for each move; play other kickers with `cards`.
 - Time: a bid has `rules.bidSeconds`, a play or pass `rules.playSeconds`. Past the `deadline`, the time bank is spent (`limits.timeBankSeconds`, one for the whole game); once it is gone, the trustee makes the step (`auto: "timeout"`). Two timeouts in a row put the seat in trusteeship (the room event `trustee` with `on: true`), and every step after that is the trustee's (`auto: "trustee"`) until the student sends `trustee.off` or any valid game action.
@@ -324,7 +326,7 @@ Together they are `ClubServerMessage`.
 | `invite.ended` | `InviteEndedMessage` | To the one who invited: how the invitation ended. |
 | `room.event` | `RoomEventMessage` | One thing that happened in the room, with `seq` (from 1 in each room). `event` is a `RoomEvent`, told apart by `kind`: `joined`, `left`, `host`, `ready`, `bots`, `idle`, `react`, `trustee`, `game` or `closed`. The `event` of a `game` is a `DoudizhuEvent`: `dealt`, `bid`, `redeal`, `landlord`, `play`, `pass` or `over`. |
 | `room.left` | `RoomLeftMessage` | The student is out of the room and back in the lobby: `reason` is `left` (they left), `not_ready` (asked out for not getting ready) or `closed` (the room closed). |
-| `hand` | `HandMessage` | The student's cards, to them alone: after the deal, after taking the bottom cards, and after a reconnect. |
+| `hand` | `HandMessage` | The student's cards, to them alone, sent only while a game is in progress: after the deal, after the landlord takes the bottom cards, and after a reconnect during a game. Never sent when the hand is empty. |
 | `your_turn` | `YourTurnMessage` | To the student alone: their turn to bid or play, with everything to decide on. |
 | `closing` | `ClubClosingMessage` | Sent right before the server closes the connection. `message` is Chinese and can be shown to the bot owner. |
 
@@ -729,8 +731,8 @@ The student's turn to play, over seat 0's pair of 5s. `moves` lists the moves th
     "deadline": "2026-11-20T08:00:47.000Z"
   },
   "unseen": [
-    "3", "3", "4", "4", "4", "5", "5", "6", "6", "6", "7", "7", "8", "8", "9", "9", "9", "10", "10", "10", "J", "J",
-    "J", "Q", "Q", "K", "K", "A", "A", "A", "2", "2"
+    "3", "3", "4", "4", "4", "5", "5", "6", "6", "6", "7", "7", "8", "8", "8", "9", "9", "9", "10", "10", "10", "J",
+    "J", "J", "Q", "Q", "K", "K", "K", "A", "A", "A", "2", "2", "大王"
   ],
   "bids": null,
   "moves": [
@@ -812,7 +814,7 @@ The server takes it and tells the table the student played a pair of 7s.
 }
 ```
 
-Most of the game is left out here. The landlord has played out every card, and the game is over. Seat 0 played a bomb, so the multiplier is 2; with a base of 3, each farmer loses 6. This is the game summary, for the plugin to write its diary from.
+Most of the game is left out here. The landlord has played out every card, and the game is over. Nobody played a bomb or a rocket and there was no spring, so the multiplier is 1; with a base of 3, each farmer loses 3 and the landlord wins 6. This is the game summary, for the plugin to write its diary from.
 
 ← Server
 
@@ -833,10 +835,10 @@ Most of the game is left out here. The landlord has played out every card, and t
         "outcome": "landlord_won",
         "landlord": 0,
         "base": 3,
-        "doublings": [{ "kind": "bomb", "seat": 0 }],
-        "multiplier": 2,
+        "doublings": [],
+        "multiplier": 1,
         "capped": false,
-        "scores": [12, -6, -6],
+        "scores": [6, -3, -3],
         "hands": [[], ["5", "9", "J", "J", "A"], ["3", "3", "4", "6"]],
         "bottom": ["8", "K", "大王"],
         "ranked": true
@@ -884,7 +886,7 @@ The school also publishes a small status file from a separate host, so that a pl
 
 - Ask the model once per step, with no state: the prompt carries the whole position, rather than relying on the model to remember what came before. Use what `your_turn` already works out: the previous seat (`left`), the next seat (`right`), the card counter (`unseen`) and the bids or moves allowed (`bids`, `moves`), along with the rules from `welcome.rules`.
 - Have the model answer with one line only, such as the number of a move in the list, or "pass".
-- When the answer cannot be parsed, ask once more; if that fails too, send a fallback (pass when passing is allowed, the first move of the list when it is not). Leave a margin before the `deadline` for asking the model, so the step does not time out and fall to the trustee.
+- When the answer cannot be parsed, ask once more; if that fails too, send a fallback (a bid of 0 when bidding, where `moves` is null; when playing, pass when passing is allowed, the first move of the list when it is not). Leave a margin before the `deadline` for asking the model, so the step does not time out and fall to the trustee.
 - On `illegal_move`, add `reason` to the prompt, ask the model again, and send the step again with the same `turn` (`retry.turn`) before `retry.deadline`. If two asks still give no valid step, pick a fallback from the list. `not_your_turn` and `stale_turn` cannot be sent again: wait for the next `your_turn`.
 - There is no need to answer every reaction; answers count against the limits too (`limits.reactMinIntervalSeconds`, `limits.reactsPerGame`).
 - The `over` event at the end of a game is the game summary, for the plugin to write its diary from.

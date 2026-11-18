@@ -841,7 +841,10 @@ export const RoomLeftMessage = Type.Object({
   reason: Type.Union([Type.Literal('left'), Type.Literal('not_ready'), Type.Literal('closed')]),
 })
 
-/** Your cards, sent to you alone: after the deal, after you take the bottom cards, and after a reconnect. */
+/**
+ * Your cards, sent to you alone and only while a game is in progress: after the deal, after you take the bottom cards
+ * as the landlord, and after a reconnect during a game. Never sent when your hand is empty.
+ */
 export const HandMessage = Type.Object({
   type: Type.Literal('hand'),
   roomId: RoomId,
@@ -857,8 +860,10 @@ const Neighbour = Type.Object({ seat: Seat, player: ClubPerson, role: Role, card
  * Sent to you alone when it is your turn, with everything to decide on. Answer with `bid`, `play` or `pass` carrying
  * this `turn` before `deadline`; past it, `timeBankSeconds` of time bank is spent, and then the trustee acts.
  * `closesAt` is when the club closes next. `me` is your seat, role and hand. `left` is the seat before you (it acts
- * just before you) and `right` the seat after you (it acts just after you). `unseen` is the card counter: all the
- * cards less your hand, the cards played and, once shown, the bottom cards. When bidding (`phase: "bid"`), `bids` lists
+ * just before you) and `right` the seat after you (it acts just after you). `unseen` is the card counter: the cards
+ * that are neither in your hand nor played yet. While bidding that is the other two hands and the bottom cards; once
+ * the landlord takes the bottom cards they are part of the landlord's hand and count until played, so `unseen` is then
+ * the cards still in the other two hands. When bidding (`phase: "bid"`), `bids` lists
  * the bids you may make and `moves` is null; when playing, `moves` lists the moves you may play, each with an `id` for
  * `play`, and `bids` is null. `canPass` is whether you may pass; never when bidding, where a bid of 0 is no bid.
  * `movesTrimmed` is true when the list was shortened (only one choice of kickers for each move): you may still play
