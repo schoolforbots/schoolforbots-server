@@ -6,25 +6,45 @@ import { MemoryMailer } from '../../src/registration/mailer.js'
 import { ADMIN_ERROR_CODES, ERROR_MESSAGES } from '../../src/registration/errors.js'
 import { WS_ERROR_MESSAGES } from '../../src/class/ws-errors.js'
 import { ClosingMessage } from '../../src/protocol/ws.js'
+import { CLUB_WS_ERROR_MESSAGES } from '../../src/club/ws-errors.js'
+import { ClubClosingMessage } from '../../src/protocol/club.js'
 import { loadSchoolRules } from '../../src/shared/school-rules.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
 import { exampleConfig, exampleModerator } from '../helpers/app.js'
 
 // The plugin API reference is written twice, by hand, and this test keeps both copies in step with the code: every
-// route, every error code and every closing reason is in both documents, and the documents name nothing else.
+// route, every error code and every closing reason, the classroom's and the club's, is in both documents, and the documents name nothing else.
 
 const fromRoot = (relative: string) => fileURLToPath(new URL(`../../${relative}`, import.meta.url))
 
 interface Doc {
   file: string
-  /** The `##` headings of the three tables. */
-  tables: { http: string; classroom: string; closing: string }
+  /** The `##` headings of the five tables. */
+  tables: { http: string; classroom: string; closing: string; club: string; clubClosing: string }
 }
 
 const DOCS: Doc[] = [
-  { file: 'docs/api.md', tables: { http: 'HTTP 错误码', classroom: '上课时的错误码', closing: '断开原因' } },
-  { file: 'docs/api.en.md', tables: { http: 'HTTP error codes', classroom: 'Classroom error codes', closing: 'Closing reasons' } },
+  {
+    file: 'docs/api.md',
+    tables: {
+      http: 'HTTP 错误码',
+      classroom: '上课时的错误码',
+      closing: '断开原因',
+      club: '社团的错误码',
+      clubClosing: '社团的断开原因',
+    },
+  },
+  {
+    file: 'docs/api.en.md',
+    tables: {
+      http: 'HTTP error codes',
+      classroom: 'Classroom error codes',
+      closing: 'Closing reasons',
+      club: 'Club error codes',
+      clubClosing: 'Club closing reasons',
+    },
+  },
 ]
 
 const text = (doc: Doc) => readFileSync(fromRoot(doc.file), 'utf8')
@@ -90,6 +110,9 @@ const adminCodes: readonly string[] = ADMIN_ERROR_CODES
 /** Every code a plugin can get over HTTP: all of `ErrorCode` but the admin ones, and the 500 that has no `ErrorCode`. */
 const httpCodes = () => [...Object.keys(ERROR_MESSAGES).filter((code) => !adminCodes.includes(code)), 'internal_error']
 const closingReasons = () => (ClosingMessage.properties.reason.anyOf as { const: string }[]).map((literal) => literal.const)
+const clubCodes = () => Object.keys(CLUB_WS_ERROR_MESSAGES)
+const clubClosingReasons = () =>
+  (ClubClosingMessage.properties.reason.anyOf as { const: string }[]).map((literal) => literal.const)
 
 describe('the plugin API reference', () => {
   test('every /v1 route is in both documents, and no other', () => {
@@ -106,6 +129,8 @@ describe('the plugin API reference', () => {
       expect(sorted(tableCodes(doc, doc.tables.http)), doc.file).toEqual(sorted(httpCodes()))
       expect(sorted(tableCodes(doc, doc.tables.classroom)), doc.file).toEqual(sorted(Object.keys(WS_ERROR_MESSAGES)))
       expect(sorted(tableCodes(doc, doc.tables.closing)), doc.file).toEqual(sorted(closingReasons()))
+      expect(sorted(tableCodes(doc, doc.tables.club)), doc.file).toEqual(sorted(clubCodes()))
+      expect(sorted(tableCodes(doc, doc.tables.clubClosing)), doc.file).toEqual(sorted(clubClosingReasons()))
     }
   })
 
@@ -115,6 +140,8 @@ describe('the plugin API reference', () => {
       expect(unknown(tableCodes(doc, doc.tables.http), httpCodes()), doc.file).toEqual([])
       expect(unknown(tableCodes(doc, doc.tables.classroom), Object.keys(WS_ERROR_MESSAGES)), doc.file).toEqual([])
       expect(unknown(tableCodes(doc, doc.tables.closing), closingReasons()), doc.file).toEqual([])
+      expect(unknown(tableCodes(doc, doc.tables.club), clubCodes()), doc.file).toEqual([])
+      expect(unknown(tableCodes(doc, doc.tables.clubClosing), clubClosingReasons()), doc.file).toEqual([])
     }
   })
 
