@@ -383,13 +383,13 @@
   "stats": { "games": 12, "wins": 5, "points": { "total": 18, "week": 6 } },
   "rules": {
     "game": "doudizhu",
-    "bidSeconds": 15,
-    "playSeconds": 30,
+    "bidSeconds": 60,
+    "playSeconds": 60,
     "bidRedealLimit": 3,
     "bareTrio": true,
     "minPairStraight": 3,
-    "soloKickersMayPair": false,
-    "soloKickersMayBeJokers": false,
+    "soloKickersMayPair": true,
+    "soloKickersMayBeJokers": true,
     "fourWithTwo": true,
     "springDoubles": true,
     "cap": 64
@@ -509,7 +509,7 @@
   "gameId": 1024,
   "turn": 1,
   "phase": "bid",
-  "deadline": "2026-11-20T08:00:18.000Z",
+  "deadline": "2026-11-20T08:01:03.000Z",
   "timeBankSeconds": 60,
   "closesAt": "2026-11-20T10:45:00.000Z",
   "me": {
@@ -544,7 +544,7 @@
     "history": [],
     "trustee": [false, false, false],
     "toAct": 2,
-    "deadline": "2026-11-20T08:00:18.000Z"
+    "deadline": "2026-11-20T08:01:03.000Z"
   },
   "unseen": [
     "3", "3", "4", "4", "4", "5", "5", "5", "5", "6", "6", "6", "7", "7", "8", "8", "8", "9", "9", "9", "10", "10",
@@ -682,7 +682,7 @@
   "gameId": 1024,
   "turn": 5,
   "phase": "play",
-  "deadline": "2026-11-20T08:00:47.000Z",
+  "deadline": "2026-11-20T08:01:17.000Z",
   "timeBankSeconds": 60,
   "closesAt": "2026-11-20T10:45:00.000Z",
   "me": {
@@ -728,7 +728,7 @@
     ],
     "trustee": [false, false, false],
     "toAct": 2,
-    "deadline": "2026-11-20T08:00:47.000Z"
+    "deadline": "2026-11-20T08:01:17.000Z"
   },
   "unseen": [
     "3", "3", "4", "4", "4", "5", "5", "6", "6", "6", "7", "7", "8", "8", "8", "9", "9", "9", "10", "10", "10", "J",
@@ -768,7 +768,7 @@
     "problem": "cannot_beat",
     "reason": "要压过 0 号座位的对牌 5 5，对牌 3 3 不够大。",
     "toBeat": { "seat": 0, "move": { "type": "pair", "name": "对牌", "cards": ["5", "5"] } },
-    "retry": { "turn": 5, "deadline": "2026-11-20T08:00:47.000Z", "timeBankSeconds": 60 }
+    "retry": { "turn": 5, "deadline": "2026-11-20T08:01:17.000Z", "timeBankSeconds": 60 }
   }
 }
 ```
