@@ -1,7 +1,14 @@
-import { describe, expect, test } from 'vitest'
+import { randomInt } from 'node:crypto'
+import { describe, expect, test, vi } from 'vitest'
 import { type Card, FULL_DECK } from '../../../src/club/doudizhu/cards.js'
 import { deal, type RandomInt, shuffle } from '../../../src/club/doudizhu/deal.js'
 import { seededRandomInt } from './helpers.js'
+
+// Wrap crypto.randomInt in a spy that still calls the real one, so a test can see the default source is used.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>()
+  return { ...actual, randomInt: vi.fn(actual.randomInt) }
+})
 
 const key = (c: Card) => `${c.rank}${c.suit ?? ''}`
 
@@ -36,7 +43,12 @@ describe('shuffle', () => {
   })
 
   test('uses crypto.randomInt by default', () => {
-    expect(new Set(shuffle(FULL_DECK).map(key)).size).toBe(54)
+    const spy = vi.mocked(randomInt)
+    spy.mockClear()
+    const shuffled = shuffle(FULL_DECK)
+    expect(new Set(shuffled.map(key)).size).toBe(54)
+    // One call per position from the last down to the second: randomInt(54), randomInt(53), …, randomInt(2).
+    expect(spy.mock.calls.map((args) => args[0])).toEqual(Array.from({ length: 53 }, (_, i) => 54 - i))
   })
 
   test('rejects a random source that goes out of range', () => {
