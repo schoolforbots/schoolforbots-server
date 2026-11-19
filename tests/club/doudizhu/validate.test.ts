@@ -151,6 +151,13 @@ describe('checkPlay', () => {
       expect(error.reason).toBe('你手里没有这些牌：还缺 三张 7、一张 8。')
     })
 
+    test('writes five or more of a rank as a number', () => {
+      const error = refused(context('8'), cardsOf('7 7 7 7 7 8 9 9 9 9 9 9'))
+      expect(error.missing).toEqual(['7', '7', '7', '7', '7', '9', '9', '9', '9', '9', '9'])
+      expect(error.reason).toBe('你手里没有这些牌：还缺 5 张 7、6 张 9。')
+      expect(refused(context('8'), cardsOf('7 7 7 7')).reason).toBe('你手里没有这些牌：还缺 四张 7。')
+    })
+
     test('comes before not_a_type and type_mismatch', () => {
       expect(refused(context('3 4'), cardsOf('3 4 9')).problem).toBe('not_in_hand')
       expect(refused(context('3 3 3'), cardsOf('3 3 3 4', 'plane_solo')).problem).toBe('not_in_hand')
@@ -165,6 +172,12 @@ describe('checkPlay', () => {
       })
       expect(refused(context('J Q K A 2'), cardsOf('J Q K A 2')).reason).toBe(
         'J Q K A 2 凑不成任何牌型（2 和王不能进顺子）。',
+      )
+      expect(refused(context('10 J Q K A 2'), cardsOf('10 J Q K A 2')).reason).toBe(
+        '10 J Q K A 2 凑不成任何牌型（2 和王不能进顺子）。',
+      )
+      expect(refused(context('3 4 5 2 小王'), cardsOf('3 4 5 2 小王')).reason).toBe(
+        '3 4 5 2 小王 凑不成任何牌型（2 和王不能进顺子）。',
       )
       expect(refused(context('Q Q K K A A 2 2'), cardsOf('K K A A 2 2')).reason).toBe(
         'K K A A 2 2 凑不成任何牌型（2 不能进双顺）。',
@@ -184,6 +197,10 @@ describe('checkPlay', () => {
       )
       // A 2, but too few ranks for a straight.
       expect(refused(context('3 4 2'), cardsOf('3 4 2')).reason).toBe('3 4 2 凑不成任何牌型。')
+      // A 2, but the other ranks have a gap: no chain even without the 2.
+      expect(refused(context('2 3 5 6 7'), cardsOf('3 5 6 7 2')).reason).toBe('3 5 6 7 2 凑不成任何牌型。')
+      expect(refused(context('3 3 5 5 2 2'), cardsOf('3 3 5 5 2 2')).reason).toBe('3 3 5 5 2 2 凑不成任何牌型。')
+      expect(refused(context('9 J Q K 小王'), cardsOf('9 J Q K 小王')).reason).toBe('9 J Q K 小王 凑不成任何牌型。')
     })
 
     test('comes before type_mismatch', () => {

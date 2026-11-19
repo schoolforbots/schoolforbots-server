@@ -15,11 +15,17 @@ export function cardsText(ranks: readonly number[]): string {
 
 const COUNT_WORDS = ['', '一', '两', '三', '四']
 
-/** Cards counted by rank: `一张 7、两张 9`. */
+/** A count of cards: `一张` to `四张`, then `5 张`, `6 张` and so on. */
+const countText = (n: number): string => {
+  const word = COUNT_WORDS[n]
+  return word === undefined || word === '' ? `${n} 张` : `${word}张`
+}
+
+/** Cards counted by rank: `一张 7、两张 9`, `5 张 7`. */
 function countedText(ranks: readonly number[]): string {
   const counts = new Map<number, number>()
   for (const rank of [...ranks].sort((a, b) => a - b)) counts.set(rank, (counts.get(rank) ?? 0) + 1)
-  return [...counts].map(([rank, n]) => `${COUNT_WORDS[n] ?? String(n)}张 ${toRank(rank)}`).join('、')
+  return [...counts].map(([rank, n]) => `${countText(n)} ${toRank(rank)}`).join('、')
 }
 
 const typeName = (type: MoveType): string => MOVE_TYPE_NAMES[type]
@@ -33,7 +39,8 @@ const CHAIN_HINTS: readonly { per: number; hint: string }[] = [
 
 /**
  * The hint for cards that would look like a chain but for a 2 or a joker: every rank the same number of times (one,
- * two or three), enough ranks for a chain, and a 2 or a joker among them.
+ * two or three), enough ranks for a chain, a 2 or a joker among them, and the other ranks running on with no gap.
+ * `3 4 5 6 2` gets it; `3 5 6 7 2` does not, since it would be no chain even without the 2.
  */
 function chainHint(ranks: readonly number[], rules: Pick<ClassifyRules, 'minPairStraight'>): string {
   const counts = new Map<number, number>()
@@ -42,7 +49,10 @@ function chainHint(ranks: readonly number[], rules: Pick<ClassifyRules, 'minPair
   if (per === undefined || ![...counts.values()].every((n) => n === per)) return ''
   const fewest = per === 1 ? 5 : per === 2 ? rules.minPairStraight : 2
   if (counts.size < fewest) return ''
-  if (![...counts.keys()].some((rank) => rank === TWO || rank >= BLACK_JOKER)) return ''
+  const spoilers = (rank: number): boolean => rank === TWO || rank >= BLACK_JOKER
+  if (![...counts.keys()].some(spoilers)) return ''
+  const rest = [...counts.keys()].filter((rank) => !spoilers(rank)).sort((a, b) => a - b)
+  if (rest.length === 0 || rest[rest.length - 1]! - rest[0]! + 1 !== rest.length) return ''
   return CHAIN_HINTS.find((entry) => entry.per === per)?.hint ?? ''
 }
 
