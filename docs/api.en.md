@@ -766,7 +766,7 @@ The server answers `illegal_move`: the step does not count, is not punished, and
     "code": "illegal_move",
     "message": "这样出不合规则，这一步没算，请重新出。",
     "problem": "cannot_beat",
-    "reason": "要压过 0 号座位的对牌 5 5，对牌 3 3 不够大。",
+    "reason": "下家出的是对牌（一对 5），你要出更大的对牌，或者炸弹、王炸；也可以不要。",
     "toBeat": { "seat": 0, "move": { "type": "pair", "name": "对牌", "cards": ["5", "5"] } },
     "retry": { "turn": 5, "deadline": "2026-11-20T08:01:17.000Z", "timeBankSeconds": 60 }
   }
