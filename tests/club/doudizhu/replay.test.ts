@@ -84,6 +84,23 @@ describe('replay', () => {
     expect(again.state.history).toEqual(last.history)
   })
 
+  test('checks the turn of each step that has one', () => {
+    const { first, last, events } = randomGame(11)
+    const withTurns = events.flatMap((e): RecordedStep[] => {
+      if (e.kind === 'bid') return [{ turn: e.turn, seat: e.seat, action: 'bid', bid: e.bid, auto: e.auto }]
+      if (e.kind === 'play') return [{ turn: e.turn, seat: e.seat, action: 'play', move: e.move, auto: e.auto }]
+      if (e.kind === 'pass') return [{ turn: e.turn, seat: e.seat, action: 'pass', auto: e.auto }]
+      return []
+    })
+    const again = replay(rules, first.firstBidder, last.decks, withTurns)
+    expect(again.events).toEqual(events)
+
+    const off = withTurns.map((step, i) => (i === 2 ? { ...step, turn: step.turn! + 1 } : step))
+    expect(() => replay(rules, first.firstBidder, last.decks, off)).toThrow(
+      'step 3 of the record has turn 4, but the game is at turn 3',
+    )
+  })
+
   test('throws when the record does not fit the decks', () => {
     const { first, last, events } = randomGame(7)
     const otherDecks = last.decks.map((_, i) => shuffle(FULL_DECK, seededRandomInt(500 + i)))
