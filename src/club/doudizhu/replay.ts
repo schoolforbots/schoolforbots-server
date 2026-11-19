@@ -6,21 +6,31 @@ import type { Rules } from './rules.js'
 // Replaying a game from its record: the decks dealt, in order, and every step taken. The steps are the table's
 // history steps (or anything with the same fields), so a game record can be fed back as it was kept.
 
-/** One recorded step: a bid, a play (its move type and cards) or a pass, by a seat. */
+/**
+ * One recorded step: a bid, a play (its move type and cards) or a pass, by a seat. `turn`, when there, is checked
+ * against the game's.
+ */
 export type RecordedStep =
-  | { readonly seat: number; readonly action: 'bid'; readonly bid: number; readonly auto?: Auto }
   | {
+      readonly turn?: number
+      readonly seat: number
+      readonly action: 'bid'
+      readonly bid: number
+      readonly auto?: Auto
+    }
+  | {
+      readonly turn?: number
       readonly seat: number
       readonly action: 'play'
       readonly move: { readonly type: MoveType; readonly cards: readonly RankName[] }
       readonly auto?: Auto
     }
-  | { readonly seat: number; readonly action: 'pass'; readonly auto?: Auto }
+  | { readonly turn?: number; readonly seat: number; readonly action: 'pass'; readonly auto?: Auto }
 
 /**
  * Plays a game again from its record and gives the state it ends in and every event on the way. `decks` are the decks
- * dealt, in order, as `GameState.decks` keeps them. Throws when a step is not the seat's to make or is refused: the
- * record does not belong to these decks.
+ * dealt, in order, as `GameState.decks` keeps them. Throws when a step is not the seat's to make, has another `turn`
+ * than the game's, or is refused: the record does not belong to these decks.
  */
 export function replay(
   rules: Rules,
@@ -32,6 +42,9 @@ export function replay(
   let state = start.state
   const events = [...start.events]
   steps.forEach((step, i) => {
+    if (step.turn !== undefined && step.turn !== state.turn) {
+      throw new Error(`step ${i + 1} of the record has turn ${step.turn}, but the game is at turn ${state.turn}`)
+    }
     const auto = step.auto ?? null
     let result: StepResult
     if (step.action === 'bid') result = bid(state, step.seat, step.bid, auto)
