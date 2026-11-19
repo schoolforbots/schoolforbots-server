@@ -169,6 +169,9 @@ describe('classify', () => {
       // One joker is fine either way.
       expect(readings('5 5 5 6 6 6 7 小王', noJokers)).toEqual(['plane_solo 6'])
       expect(readings('5 5 5 5 7 大王', noJokers)).toEqual(['four_two_solo 5'])
+      // Both jokers among more wings count too.
+      expect(readings('3 3 3 4 4 4 5 5 5 7 小王 大王')).toEqual(['plane_solo 5'])
+      expect(readings('3 3 3 4 4 4 5 5 5 7 小王 大王', noJokers)).toEqual([])
     })
 
     test('4. the solo wings of a plane may be a trio of one rank', () => {
@@ -182,6 +185,8 @@ describe('classify', () => {
       expect(readings('3 3 3 3 4 4 4 4')).toEqual([])
       expect(readings('5 5 5 6 6 6 7 7 8 8')).toEqual(['plane_pair 6'])
       expect(readings('3 3 3 3 4 4 5 5')).toEqual(['four_two_pair 3'])
+      // Pair wings may be 2s: only the body has to run from 3 to A.
+      expect(readings('3 3 3 4 4 4 2 2 A A')).toEqual(['plane_pair 4'])
     })
 
     test('6. 555666777888 is a trio straight and a plane with solo wings, the trio straight first', () => {
