@@ -45,3 +45,26 @@ export function hand(text: string): Card[] {
     return card
   })
 }
+
+/**
+ * A full deck that deals the given hands and bottom: `deckOf(seat0, seat1, seat2, bottom)`, each a space-separated
+ * list of ranks (17, 17, 17 and 3 of them, 54 cards in all). Cards of a rank get the suits in order across all four
+ * lists, so every card of the deck is used once.
+ */
+export function deckOf(seat0: string, seat1: string, seat2: string, bottom: string): Card[] {
+  const used = new Map<number, number>()
+  const cardsOf = (text: string): Card[] =>
+    ranks(text).map((rank) => {
+      const n = used.get(rank) ?? 0
+      const card = FULL_DECK.filter((c) => c.rank === rank)[n]
+      if (card === undefined) throw new RangeError(`the deck has no more cards of rank ${rank}`)
+      used.set(rank, n + 1)
+      return card
+    })
+  const hands = [cardsOf(seat0), cardsOf(seat1), cardsOf(seat2)]
+  const rest = cardsOf(bottom)
+  if (hands.some((h) => h.length !== 17) || rest.length !== 3) throw new RangeError('hands of 17 and a bottom of 3')
+  const deck: Card[] = []
+  for (let i = 0; i < 17; i++) for (const h of hands) deck.push(h[i]!)
+  return [...deck, ...rest]
+}
