@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { Type, type Static } from 'typebox'
 import { Value } from 'typebox/value'
+import { hasReservedMark } from './identity.js'
 import { isDateText } from './local-time.js'
 
 export type Division = 'primary' | 'junior' | 'senior'
@@ -149,9 +150,9 @@ const ClubSchema = Type.Object({
   roomEventBuffer: Type.Optional(PositiveInt),
   // The most rooms the lobby lists.
   lobbyMaxRooms: Type.Optional(PositiveInt),
-  // The names of the bots, given in the order they sit down in a room. Each unique, none with a `#` (the mark of a
-  // student's name).
-  botNames: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 20 }), { minItems: 1 })),
+  // The names of the bots, given in the order they sit down in a room: at least two, the most a table of three may need.
+  // Each unique, none with a `#` or a look-alike of it (the mark of a student's name), none with space around it.
+  botNames: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 20 }), { minItems: 2 })),
   // The club's word lists (see `src/club/word-lists.ts`), relative to the working directory as `SCHOOL_CONFIG` is.
   wordLists: Type.Optional(
     Type.Object({
@@ -214,9 +215,14 @@ function clubOf(raw: Static<typeof ClubSchema> | undefined): ClubConfig {
 /** What is wrong with the club block that the schema cannot say. */
 function clubProblems(club: ClubConfig): string[] {
   const problems: string[] = []
+  // Compared as NFKC, so a full-width copy of a name counts as the same name.
+  const seen = club.botNames.map((name) => name.normalize('NFKC'))
   club.botNames.forEach((name, i) => {
-    if (name.includes('#')) problems.push(`club.botNames.${i}: a bot's name must not contain # (${name})`)
-    if (club.botNames.indexOf(name) !== i) problems.push(`club.botNames.${i}: names must not repeat (${name})`)
+    const path = `club.botNames.${i}`
+    if (name.trim() === '') problems.push(`${path}: a bot's name must not be blank`)
+    else if (name.trim() !== name) problems.push(`${path}: a bot's name must not start or end with a space (${JSON.stringify(name)})`)
+    if (hasReservedMark(name)) problems.push(`${path}: a bot's name must not contain # or a look-alike of it (${name})`)
+    if (seen.indexOf(seen[i]!) !== i) problems.push(`${path}: names must not repeat (${name})`)
   })
   return problems
 }

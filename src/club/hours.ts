@@ -117,14 +117,15 @@ export function clubClosedAt(config: SchoolConfig, now: Date): ClubClosed {
 
 /**
  * When the clubs next close: `now` when they are closed already, else the start of the first closure after it. The
- * search goes as far ahead as lessons are prepared (`lessonGeneration.horizonDays`, the days `lessonDaysAhead` sees).
- * With no closure in that time (a long break, or one with no end) the answer is 7 days from `now`: a moment far enough
- * away for `welcome.closesAt` and `RoomState.closesAt`, which the service will have told again by then.
+ * search goes as far ahead as lessons are prepared (`lessonGeneration.horizonDays`, the days `lessonDaysAhead` sees),
+ * and at least 7 days. With no closure in that time (a long break, or one with no end) the answer is 7 days from
+ * `now`: a moment far enough away for `welcome.closesAt` and `RoomState.closesAt`, which the service will have told
+ * again by then, and never later than a real closure, since the search covers those 7 days.
  */
 export function nextClose(config: SchoolConfig, now: Date): Date {
   if (clubClosedAt(config, now).closed) return now
   const from = now.getTime()
-  const until = from + config.lessonGeneration.horizonDays * DAY_MS
+  const until = from + Math.max(config.lessonGeneration.horizonDays * DAY_MS, NO_CLOSE_AHEAD_MS)
   const starts = spansAround(config, from, until)
     .map((s) => s.from)
     .filter((start) => start > from && start <= until)
