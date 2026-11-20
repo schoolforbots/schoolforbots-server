@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { dropStaleMemberships, isMember, join, joinedAt, leave, membersAmong } from '../../src/club/members.js'
+import { dropStaleMemberships, isMember, join, joinedAt, leave, membersAmong, standingsAmong } from '../../src/club/members.js'
 import type { StudentStatus } from '../../src/shared/schema.js'
 import { createTestDb } from '../helpers/db.js'
-import { insertStudent } from '../helpers/factories.js'
+import { insertClass, insertStudent } from '../helpers/factories.js'
 
 let t: Awaited<ReturnType<typeof createTestDb>>
 beforeEach(async () => {
@@ -83,6 +83,32 @@ describe('membersAmong', () => {
     expect(await membersAmong(t.db, [a, b], 'doudizhu')).toEqual(new Set([a]))
     expect(await membersAmong(t.db, [a, b, c, gone], 'doudizhu')).toEqual(new Set([a, c]))
     expect(await membersAmong(t.db, [], 'doudizhu')).toEqual(new Set())
+  })
+})
+
+describe('standingsAmong', () => {
+  test('gives the standing and the membership of each student asked about, in one query', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    const until = new Date('2026-11-25T12:00:00Z')
+    const member = (await insertStudent(t.db, { status: 'active', classId, createdAt: REGISTERED })).id
+    const notMember = (await insertStudent(t.db, { status: 'active', classId, createdAt: REGISTERED })).id
+    const suspended = (await insertStudent(t.db, { status: 'suspended', classId, suspendedUntil: until, createdAt: REGISTERED })).id
+    const expelled = (await insertStudent(t.db, { status: 'expelled', classId, createdAt: REGISTERED })).id
+    const noClass = (await insertStudent(t.db, { status: 'pending', classId: null, createdAt: REGISTERED })).id
+    for (const id of [member, suspended, expelled, noClass]) await join(t.db, id, 'doudizhu', AT)
+
+    const got = await standingsAmong(t.db, [member, notMember, suspended, expelled, noClass, 999_999], 'doudizhu')
+    expect(got).toEqual(
+      new Map([
+        [member, { status: 'active', suspendedUntil: null, classId, member: true }],
+        [notMember, { status: 'active', suspendedUntil: null, classId, member: false }],
+        [suspended, { status: 'suspended', suspendedUntil: until, classId, member: true }],
+        // An expelled student's row is no membership, as `isMember` says.
+        [expelled, { status: 'expelled', suspendedUntil: null, classId, member: false }],
+        [noClass, { status: 'pending', suspendedUntil: null, classId: null, member: false }],
+      ]),
+    )
+    expect(await standingsAmong(t.db, [], 'doudizhu')).toEqual(new Map())
   })
 })
 

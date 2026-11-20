@@ -11,6 +11,8 @@ admin/dist
 **/backup.env
 config/*.json
 !config/*.example.json
+config/club/*.json
+!config/club/*.example.json
 data/moderation/*.txt
 !data/moderation/*.example.txt
 data/prompts/*.md
