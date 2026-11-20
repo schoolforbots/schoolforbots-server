@@ -203,12 +203,17 @@ describe('leaving', () => {
     ])
   })
 
-  test('nobody leaves during a game, nor gets ready', () => {
+  test('nobody leaves during a game; getting ready then does nothing', () => {
     const h = harness()
     const roomId = fullRoom(h)
     expectError(h.rooms.leave(2, h.now), 'game_in_progress')
-    expectError(h.rooms.ready(2, h.now), 'game_in_progress')
+    const before = h.outbox.deliveries.length
+    expect(checkAck(h.rooms.ready(2, h.now))).toEqual({ ok: true })
+    expect(h.outbox.deliveries).toHaveLength(before)
     expect(h.rooms.roomOf(2)).toBe(roomId)
+    playOut(h, roomId)
+    // It did not count for the next game.
+    expect(h.rooms.state(roomId, h.now)!.seats[1]!.ready).toBe(false)
   })
 
   test('a student in no room', () => {
@@ -596,5 +601,125 @@ describe('the trustee', () => {
     expect(h.rooms.state(roomId, h.now)!.seats.map((s) => s.trustee)).toEqual([false, false, false])
     expect(h.outbox.eventsOf(1).at(-1)!.event).toEqual({ kind: 'trustee', seat: 1, on: false, reason: 'off' })
     expectError(h.rooms.trusteeOff(2, h.now), 'not_trustee')
+  })
+})
+
+describe('a newcomer during an idle prompt', () => {
+  const IDLE = 10 * 60
+  const DECIDE = 180
+
+  function prompted() {
+    const h = harness()
+    const roomId = openRoom(h, A)
+    h.advance(IDLE)
+    const idle = h.outbox.eventsOf(1).find((f) => f.event.kind === 'idle')!
+    h.advance(30)
+    h.outbox.clear()
+    const result = checkAck(h.rooms.quick(B, h.now), 'QuickJoinResult')
+    expect(roomOf(result).roomId).toBe(roomId)
+    return { h, roomId, idle, state: roomOf(result) }
+  }
+
+  test('is told of the prompt after their joined, with the same decideBy, and may answer it', () => {
+    const { h, roomId, idle, state } = prompted()
+    const toB = h.outbox.eventsOf(2)
+    expect(toB.map((f) => f.seq)).toEqual([state.lastSeq + 1])
+    expect(toB[0]!.event).toEqual(idle.event)
+    expect(toB[0]!.seq).toBeGreaterThan(idle.seq)
+    expect(h.outbox.eventsOf(1).map((f) => f.event.kind)).toEqual(['joined', 'idle'])
+    checkAck(h.rooms.bots(2, h.now))
+    expect(h.game.sessions).toHaveLength(1)
+    expect(h.rooms.state(roomId, h.now)!.game).not.toBeNull()
+  })
+
+  test('the idle clock does not start again: unanswered, the room closes at the first decideBy', () => {
+    const { h } = prompted()
+    h.advance(DECIDE - 30 - 1)
+    expect(h.rooms.size).toBe(1)
+    h.advance(1)
+    expect(h.rooms.size).toBe(0)
+    expect(leftMessages(h, 2)).toEqual([expect.objectContaining({ reason: 'closed' })])
+  })
+
+  test('one who fills the room gets the game, not the prompt', () => {
+    const { h, roomId } = prompted()
+    h.outbox.clear()
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    expect(h.outbox.eventsOf(3).map((f) => f.event.kind)).not.toContain('idle')
+    expect(h.game.sessions).toHaveLength(1)
+  })
+})
+
+describe('private events at a full table', () => {
+  test('one naming A and B never reaches C, now or in a replay', () => {
+    const h = harness({ spectators: () => [900] })
+    const roomId = fullRoom(h)
+    h.outbox.clear()
+    const from = { studentId: 1, displayName: '主人1家的小鱼1 #0001', bot: false as const }
+    const to = { studentId: 2, displayName: '主人2家的小鱼2 #0002', bot: false as const }
+    const seq = h.rooms.emit(
+      roomId,
+      { kind: 'react', from, to, reaction: 'phrase', content: 'p1', text: '好牌', visibility: 'private' },
+      h.now,
+      [1, 2],
+    )
+    expect(h.outbox.roomEvents.map((r) => r.audience)).toEqual([{ seated: [1, 2], spectators: [] }])
+    expect(h.outbox.eventsOf(1).map((f) => f.seq)).toEqual([seq])
+    expect(h.outbox.eventsOf(2).map((f) => f.seq)).toEqual([seq])
+    expect(h.outbox.eventsOf(3)).toEqual([])
+    expect(h.outbox.eventsOf(900)).toEqual([])
+    expect(h.rooms.replay(3, roomId, 0)!.map((f) => f.seq)).not.toContain(seq)
+    expect(h.rooms.replay(2, roomId, 0)!.map((f) => f.seq)).toContain(seq)
+  })
+})
+
+describe('the tick', () => {
+  test('a room whose game throws is reported, and the other rooms go on', () => {
+    const errors: [string, unknown][] = []
+    const h = harness({ onError: (roomId, err) => errors.push([roomId, err]) })
+    const broken = fullRoom(h)
+    const waiting = openRoom(h, D)
+    const session = h.game.sessions[0] as FakeSession
+    session.tick = () => {
+      throw new Error('boom')
+    }
+    h.advance(10 * 60)
+    expect(errors).toEqual([[broken, expect.objectContaining({ message: 'boom' })]])
+    // The other room got its idle prompt all the same.
+    expect(h.outbox.eventsOf(4).map((f) => f.event.kind)).toContain('idle')
+    expect(h.rooms.state(waiting, h.now)).not.toBeNull()
+  })
+})
+
+describe('the next close', () => {
+  test('is found once and reused until it comes, then found again', () => {
+    const first = new Date(T0.getTime() + 3600_000)
+    const second = new Date(T0.getTime() + 7200_000)
+    let calls = 0
+    const h = harness({
+      nextClose: (now) => {
+        calls++
+        return now.getTime() < first.getTime() ? first : now.getTime() < second.getTime() ? second : now
+      },
+    })
+    const roomId = openRoom(h, A, [B])
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult') // states and turns, all from the cache
+    expect(h.rooms.state(roomId, h.now)!.closesAt).toBe(first.toISOString())
+    expect(calls).toBe(1)
+    h.now = new Date(first.getTime() - 1)
+    expect(h.rooms.state(roomId, h.now)!.closesAt).toBe(first.toISOString())
+    expect(calls).toBe(1)
+    h.now = first
+    expect(h.rooms.state(roomId, h.now)!.closesAt).toBe(second.toISOString())
+    expect(calls).toBe(2)
+  })
+
+  test('agrees with nextClose of the config across a closure', () => {
+    const h = harness()
+    const roomId = openRoom(h, A)
+    for (let hours = 0; hours < 48; hours += 0.5) {
+      const now = new Date(T0.getTime() + hours * 3600_000)
+      expect(h.rooms.state(roomId, now)!.closesAt).toBe(nextClose(h.config, now).toISOString())
+    }
   })
 })
