@@ -102,9 +102,10 @@ export interface SessionStart {
    */
   readonly players: readonly SeatPlayer[]
   /**
-   * The room's session before this one, null for the room's first game. A game that goes on from game to game (the
-   * first bidder goes round, for doudizhu) reads what it needs from it. The seats may be taken by others since; the
-   * seat numbers stay.
+   * The room's session before this one, null for the room's first game. A game that goes on from game to game reads
+   * what it needs from it. The seats may be taken by others since; the seat numbers stay. For doudizhu the first game
+   * of a room has a random first bidder, and each later game's first bidder is the seat after the first bidder of the
+   * previous game's last deal, redeals included, so a seat that has just bid first does not bid first again.
    */
   readonly previous: GameSession | null
   /**
@@ -126,8 +127,15 @@ export interface GameSession {
   /**
    * A game-layer message from the student in `seat`. The ack is the game's: `TurnResult` when the step is taken;
    * `not_your_turn`, `stale_turn`, `illegal_move` (with its fields in `extra`) or `invalid_message` when not. A step
-   * taken also takes the seat back from the trustee, and the bots after it play at once. After `over`, every message is
-   * refused, with `stale_turn` for doudizhu.
+   * taken also takes the seat back from the trustee, and the bots after it play at once. Checked in this order: a
+   * `turn` that is not the current one (or a game over) is `stale_turn`; the current turn from a seat not to act is
+   * `not_your_turn`; a step of the wrong kind for the phase (a `pass` while bidding, a `bid` while playing) is
+   * `invalid_message`; a step against the rules is `illegal_move`.
+   *
+   * Whether a seat in trusteeship is still sent `your_turn`, and whether the trustee acts at once or waits a little,
+   * is the game's to decide, but "any valid step takes the seat back" must be reachable: say, the seat in trusteeship
+   * still gets its `your_turn`, or the trustee waits a few seconds before it acts, so the student's step can come
+   * first. `trusteeOff` is the other way back.
    */
   handle(seat: number, message: GameClientMessage, now: Date): GameReply
   /**

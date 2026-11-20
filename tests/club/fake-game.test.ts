@@ -146,6 +146,42 @@ describe('whole games', () => {
   })
 })
 
+describe('nobody bids', () => {
+  test('three deals with no bid redeal in order and end with no landlord; the next game bids first after the last deal', () => {
+    const { game, s } = session(students, { decks: [QUICK_DECK], firstBidder: 0 })
+    let output = s.start(T0)
+    const outputs = [output]
+    for (let step = 1; !output.over; step++) {
+      const { seat, turn } = yourTurns(output)[0]!
+      expect(turn.bids).toContain(0)
+      const reply = s.handle(seat, { id: 'z', type: 'bid', game: 'doudizhu', turn: turn.turn, bid: 0 }, later(step))
+      expect(reply.ack).toEqual({ ok: true, result: { turn: turn.turn } })
+      output = reply.output
+      outputs.push(output)
+    }
+
+    const dealts = outputs.flatMap(gameEvents).filter((e) => e.kind === 'dealt')
+    expect(dealts.map((e) => e.firstBidder)).toEqual([0, 1, 2])
+    // After the third bid of a deal: the redeal, the new deal, each hand, and the new first bidder's turn.
+    for (const [i, firstBidder] of [[3, 1], [6, 2]] as const) {
+      expect(
+        outputs[i]!.emits.map((e) =>
+          e.to === 'room' ? (e.event.kind === 'game' ? e.event.event.kind : e.event.kind) : `${e.seat}:${e.message.type}`,
+        ),
+      ).toEqual(['bid', 'redeal', 'dealt', '0:hand', '1:hand', '2:hand', `${firstBidder}:your_turn`])
+    }
+    const over = gameEvents(outputs.at(-1)!).at(-1)!
+    expect(over).toMatchObject({ kind: 'over', result: { outcome: 'no_landlord', landlord: null, scores: [0, 0, 0] } })
+    expect(privates(outputs.at(-1)!)).toEqual([])
+
+    // The last deal's first bidder was seat 2, so the next game bids first from seat 0 (not seat 1, after the first).
+    const next = game.newSession({ roomId: ROOM, players: students, previous: s, closesAt: () => CLOSES, now: later(20) })
+    const started = next.start(later(20))
+    expect(gameEvents(started)[0]).toMatchObject({ kind: 'dealt', gameId: 2, firstBidder: 0 })
+    expect(yourTurns(started).map((t) => t.seat)).toEqual([0])
+  })
+})
+
 describe('refused steps', () => {
   const bidMessage = (turn: number, bid: number): GameClientMessage => ({
     id: 'x', type: 'bid', game: 'doudizhu', turn, bid,
