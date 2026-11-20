@@ -29,6 +29,13 @@ type Visibility = RoomStateFrame['visibility']
 /** Why a room closed (`closed` room event). */
 export type CloseReason = Extract<RoomEventBody, { kind: 'closed' }>['reason']
 
+/**
+ * Why a room is gone, for the listeners: a `CloseReason`, or `failed` for a room closed because its tick kept failing.
+ * The protocol has no reason for that, so such a room sends no `closed` event: its students get `room.left`
+ * (`closed`), and its spectators just stop watching.
+ */
+export type GoneReason = CloseReason | 'failed'
+
 /** Why a seat was left (`left` room event). */
 type LeftReason = Extract<RoomEventBody, { kind: 'left' }>['reason']
 
@@ -48,8 +55,8 @@ export interface RoomListeners {
   seated?(roomId: string, studentId: number, now: Date): void
   /** A game started in the room. */
   gameStarted?(roomId: string, now: Date): void
-  /** The room closed and is gone; its `closed` event has been sent. */
-  closed?(roomId: string, reason: CloseReason, now: Date): void
+  /** The room closed and is gone; its `closed` event has been sent (none when it `failed`, see `GoneReason`). */
+  closed?(roomId: string, reason: GoneReason, now: Date): void
 }
 
 export interface RoomsOptions {
@@ -310,12 +317,33 @@ export class Rooms {
   /** About once a second: the games' timeouts, the grace of disconnected students, idle prompts and their end. */
   tick(now: Date): void {
     for (const room of [...this.rooms.values()]) {
-      // One room going wrong (its game throwing, say) must not stop the others.
+      // One room going wrong (its game throwing, say) must not stop the others. It is closed, so it does not fail
+      // again at every tick.
       try {
         this.tickRoom(room, now)
       } catch (err) {
         this.onError(room.id, err)
+        this.abandon(room, now)
       }
+    }
+  }
+
+  /**
+   * Closes a room whose tick failed: its game is played out if it can be (as when the club closes), then the room is
+   * forgotten with no `closed` event (see `GoneReason`). Whatever fails on the way goes to `onError`.
+   */
+  private abandon(room: Room, now: Date): void {
+    if (this.rooms.get(room.id) !== room) return
+    try {
+      if (this.playing(room)) this.dispatch(room, room.session!.finish(now), now)
+    } catch (err) {
+      this.onError(room.id, err)
+    }
+    if (this.rooms.get(room.id) !== room) return
+    try {
+      this.forget(room, 'failed', now)
+    } catch (err) {
+      this.onError(room.id, err)
     }
   }
 
@@ -564,7 +592,7 @@ export class Rooms {
   }
 
   /** Puts every student out of the room (`room.left`, `closed`) and forgets it; what `close` ends with. */
-  private forget(room: Room, reason: CloseReason, now: Date): void {
+  private forget(room: Room, reason: GoneReason, now: Date): void {
     room.closed = true
     room.prompt = null
     // Forgotten first, so a room that fails below is gone all the same.

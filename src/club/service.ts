@@ -10,7 +10,7 @@ import { buildClubApp, type ClubDeps } from './app.js'
 import { Club, type ClubOptions, type DoorClosing, SERVICE_STOPPING, studentRefusal } from './club.js'
 import { clubDoor } from './connection.js'
 import type { GameModule } from './game.js'
-import { standingsAmong, type StudentStanding } from './members.js'
+import { GONE_STANDING, standingsAmong } from './members.js'
 import type { WordLists } from './reactions.js'
 
 // The club service assembled: the club (club.ts), its WebSocket app (app.ts), and what runs on time.
@@ -86,9 +86,6 @@ export const CLUB_TICK_MS = 1000
 
 /** The least time without a finished tick that makes `/healthz` fail, as in the class service. */
 export const STUCK_TICK_FLOOR_MS = 30_000
-
-/** The standing of a student no longer on the students table: as one who withdrew. */
-const GONE: StudentStanding = { status: 'dropped', suspendedUntil: null, classId: null, member: false }
 
 const errorName = (err: unknown) => (err instanceof Error ? err.name : 'unknown')
 
@@ -188,7 +185,7 @@ export function createClubService(deps: ClubServiceDeps): ClubService {
     if (stopping) return
     const now = clock.now()
     for (const studentId of online) {
-      const refusal = studentRefusal(standings.get(studentId) ?? GONE, game, config, now)
+      const refusal = studentRefusal(standings.get(studentId) ?? GONE_STANDING, game, config, now)
       if (refusal === null) continue
       if (club.disconnect(studentId, refusal)) app.log.info({ studentId, reason: refusal.reason }, 'student sent out of club')
     }
