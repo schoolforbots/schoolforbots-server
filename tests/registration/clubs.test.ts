@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises'
+import { sql } from 'kysely'
 import { Value } from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { ClubMembership } from '../../src/protocol/club-http.js'
@@ -48,6 +50,18 @@ async function activeStudent() {
   return insertStudent(t.db, { status: 'active', classId, createdAt: REGISTERED, assignedAt: REGISTERED })
 }
 
+/** Resolves once `count` queries of the test database are waiting for a lock that another transaction holds. */
+async function waitForBlockedQueries(count: number): Promise<void> {
+  for (let i = 0; i < 250; i++) {
+    const { rows } = await sql<{ blocked: string }>`
+      select count(*) as blocked from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`.execute(t.db)
+    if (Number(rows[0]!.blocked) >= count) return
+    await sleep(20)
+  }
+  throw new Error(`fewer than ${count} queries are waiting for a lock`)
+}
+
 const NOT_MEMBER = { club: 'doudizhu', member: false, joinedAt: null }
 
 describe('joining', () => {
@@ -80,6 +94,43 @@ describe('joining', () => {
     expect(errorOf(await call('POST', key))).toEqual({ status: 409, code: 'not_eligible', message })
     expect(await membershipOf('GET', key)).toEqual(NOT_MEMBER)
     expect(await t.db.selectFrom('clubMembers').selectAll().execute()).toEqual([])
+  })
+
+  test('joins at once by one student take turns: all answer the same membership, and there is one row', async () => {
+    const { id, key } = await activeStudent()
+    // Each reading of the clock is a second later, so a join that did not wait for the one before would write, and
+    // answer, a later moment.
+    const start = t.clock.now().getTime()
+    let readings = 0
+    t.clock.now = () => new Date(start + 1000 * readings++)
+
+    // An open transaction keeps every insert into club_members waiting (reads go on), so the joins are all in flight
+    // at once: a join that did not lock the student first would read no membership while another is about to write it.
+    const joins = 5
+    let release!: () => void
+    const released = new Promise<void>((resolve) => (release = resolve))
+    let holding!: () => void
+    const held = new Promise<void>((resolve) => (holding = resolve))
+    const holder = t.db.transaction().execute(async (trx) => {
+      await sql`lock table club_members in share mode`.execute(trx)
+      holding()
+      await released
+    })
+    await held
+
+    const replies = Promise.all(Array.from({ length: joins }, () => call('POST', key)))
+    await waitForBlockedQueries(joins)
+    release()
+    await holder
+
+    const answers = await replies
+    for (const res of answers) expect(res.statusCode, res.body).toBe(200)
+    const joinedAt = answers[0]!.json<{ joinedAt: string }>().joinedAt
+    for (const res of answers) expect(res.json()).toEqual({ club: 'doudizhu', member: true, joinedAt })
+    expect(readings).toBe(1)
+    expect(await t.db.selectFrom('clubMembers').select(['studentId', 'joinedAt']).execute()).toEqual([
+      { studentId: id, joinedAt: new Date(joinedAt) },
+    ])
   })
 
   test('a member who is suspended stays a member, and joining again answers the membership', async () => {
