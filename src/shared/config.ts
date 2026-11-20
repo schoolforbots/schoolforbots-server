@@ -112,6 +112,115 @@ export const DEFAULT_ALERTS: AlertsConfig = {
   diskPercent: 80,
 }
 
+// The clubs (the club service, `/v1/club`). The whole block, and every field in it, may be left out and then has its
+// default (see `DEFAULT_CLUB`), so a school config written before the clubs still loads.
+const ClubSchema = Type.Object({
+  // Whether the clubs are open at all. False keeps them closed; `GET /v1/school-calendar` says so in `clubs.enabled`.
+  enabled: Type.Optional(Type.Boolean()),
+  // Whether the clubs are open before the opening day (`calendar.openingDay`), while students sign up.
+  openBeforeTerm: Type.Optional(Type.Boolean()),
+  // One WebSocket connection to the club service, as `classConnection` is to the class service.
+  connection: Type.Optional(
+    Type.Object({
+      framesPerMinute: Type.Optional(PositiveInt),
+      maxQueuedFrames: Type.Optional(PositiveInt),
+      maxSendBufferKiB: Type.Optional(PositiveInt),
+    }),
+  ),
+  // How long an invitation waits for an answer.
+  inviteSeconds: Type.Optional(PositiveInt),
+  // Invitations one student may send in a day, in the school's timezone.
+  invitesPerDay: Type.Optional(PositiveInt),
+  // A room that has not started a game this long after it opened, or after its last game, gets an idle prompt.
+  idleMinutes: Type.Optional(PositiveInt),
+  // How long the room has to answer an idle prompt (bots or not) before it is closed.
+  idleDecideSeconds: Type.Optional(PositiveInt),
+  // How long the seat of a student who lost the connection is kept, out of a game, before they are put out.
+  disconnectGraceSeconds: Type.Optional(NonNegativeInt),
+  // The most spectators one room may have.
+  maxSpectators: Type.Optional(NonNegativeInt),
+  // The shortest time between two reactions of one student.
+  reactMinIntervalSeconds: Type.Optional(NonNegativeInt),
+  // Reactions one student may send in a game.
+  reactsPerGame: Type.Optional(NonNegativeInt),
+  // Extra time for a whole game, spent when a step runs past its own time.
+  timeBankSeconds: Type.Optional(NonNegativeInt),
+  // The room events kept for a reconnect to catch up on, per room.
+  roomEventBuffer: Type.Optional(PositiveInt),
+  // The most rooms the lobby lists.
+  lobbyMaxRooms: Type.Optional(PositiveInt),
+  // The names of the bots, given in the order they sit down in a room. Each unique, none with a `#` (the mark of a
+  // student's name).
+  botNames: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 20 }), { minItems: 1 })),
+  // The club's word lists (see `src/club/word-lists.ts`), relative to the working directory as `SCHOOL_CONFIG` is.
+  wordLists: Type.Optional(
+    Type.Object({
+      phrases: Type.Optional(Type.String({ minLength: 1 })),
+      emoji: Type.Optional(Type.String({ minLength: 1 })),
+    }),
+  ),
+})
+
+export interface ClubConfig {
+  enabled: boolean
+  openBeforeTerm: boolean
+  connection: { framesPerMinute: number; maxQueuedFrames: number; maxSendBufferKiB: number }
+  inviteSeconds: number
+  invitesPerDay: number
+  idleMinutes: number
+  idleDecideSeconds: number
+  disconnectGraceSeconds: number
+  maxSpectators: number
+  reactMinIntervalSeconds: number
+  reactsPerGame: number
+  timeBankSeconds: number
+  roomEventBuffer: number
+  lobbyMaxRooms: number
+  botNames: string[]
+  wordLists: { phrases: string; emoji: string }
+}
+
+export const DEFAULT_CLUB: ClubConfig = {
+  enabled: true,
+  openBeforeTerm: true,
+  connection: { framesPerMinute: 60, maxQueuedFrames: 20, maxSendBufferKiB: 1024 },
+  inviteSeconds: 180,
+  invitesPerDay: 30,
+  idleMinutes: 10,
+  idleDecideSeconds: 180,
+  disconnectGraceSeconds: 60,
+  maxSpectators: 20,
+  reactMinIntervalSeconds: 5,
+  reactsPerGame: 20,
+  timeBankSeconds: 120,
+  roomEventBuffer: 1000,
+  lobbyMaxRooms: 50,
+  botNames: ['陪练小一', '陪练小二', '陪练小三', '陪练小四', '陪练小五', '陪练小六'],
+  wordLists: { phrases: 'config/club/doudizhu-phrases.json', emoji: 'config/club/emoji.json' },
+}
+
+/** The club block as written, with the default for whatever it leaves out, the nested blocks field by field too. */
+function clubOf(raw: Static<typeof ClubSchema> | undefined): ClubConfig {
+  const given = raw ?? {}
+  return {
+    ...DEFAULT_CLUB,
+    ...given,
+    connection: { ...DEFAULT_CLUB.connection, ...given.connection },
+    botNames: [...(given.botNames ?? DEFAULT_CLUB.botNames)],
+    wordLists: { ...DEFAULT_CLUB.wordLists, ...given.wordLists },
+  }
+}
+
+/** What is wrong with the club block that the schema cannot say. */
+function clubProblems(club: ClubConfig): string[] {
+  const problems: string[] = []
+  club.botNames.forEach((name, i) => {
+    if (name.includes('#')) problems.push(`club.botNames.${i}: a bot's name must not contain # (${name})`)
+    if (club.botNames.indexOf(name) !== i) problems.push(`club.botNames.${i}: names must not repeat (${name})`)
+  })
+  return problems
+}
+
 export const SchoolConfigSchema = Type.Object({
   timezone: Type.String({ minLength: 1 }),
   classSize: Type.Object({ standard: PositiveInt, max: PositiveInt }),
@@ -190,6 +299,7 @@ export const SchoolConfigSchema = Type.Object({
   }),
   messageRetentionDays: PositiveInt,
   alerts: Type.Optional(AlertsSchema),
+  club: Type.Optional(ClubSchema),
   llm: Type.Object({
     providers: Type.Record(Type.String({ minLength: 1 }), Provider),
     purposes: Type.Object({
@@ -275,11 +385,12 @@ export const DEFAULT_STAGGER_MILLIS = 2000
 type RawSchoolConfig = Static<typeof SchoolConfigSchema>
 
 /**
- * The config as loaded: `alerts` is always there, with the defaults for whatever the file left out, and so is
- * `lesson.staggerMillis`.
+ * The config as loaded: `alerts` and `club` are always there, with the defaults for whatever the file left out, and so
+ * is `lesson.staggerMillis`.
  */
-export type SchoolConfig = Omit<RawSchoolConfig, 'alerts' | 'lesson'> & {
+export type SchoolConfig = Omit<RawSchoolConfig, 'alerts' | 'club' | 'lesson'> & {
   alerts: AlertsConfig
+  club: ClubConfig
   lesson: RawSchoolConfig['lesson'] & { staggerMillis: number }
 }
 
@@ -371,6 +482,7 @@ export function loadSchoolConfig(path: string): SchoolConfig {
   const config: SchoolConfig = {
     ...parsed,
     alerts: { ...DEFAULT_ALERTS, ...parsed.alerts },
+    club: clubOf(parsed.club),
     lesson: { ...parsed.lesson, staggerMillis: parsed.lesson.staggerMillis ?? DEFAULT_STAGGER_MILLIS },
   }
   const crossFieldProblems: string[] = []
@@ -445,6 +557,7 @@ export function loadSchoolConfig(path: string): SchoolConfig {
   }
 
   if (config.calendar !== undefined) crossFieldProblems.push(...calendarProblems(config.calendar))
+  crossFieldProblems.push(...clubProblems(config.club))
 
   if (crossFieldProblems.length > 0) {
     throw new Error(`Invalid school config ${path}:\n  ${crossFieldProblems.join('\n  ')}`)

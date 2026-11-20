@@ -541,6 +541,25 @@ For plugin authors:
 - `GET /v1/school-calendar` needs no key. It returns `today`, `state` (`not_started`, `in_term` or `on_break`), `breakName`, `reopensOn` (the first school day the school is in session again; `null` in term, and `null` when it is not decided), `openingDay` (`null` when the config sets none), `breaks`, the breaks that are not over yet, the one that is on included, ordered by `from`, and `maintenance` (see "Maintenance"). Registration works in every state.
 - `startsOn` in the admission letter (`GET /v1/me/admission`) is the first school day on or after the day the student was assigned to a class. It is `null` for a student who was assigned during a break that has no reopening day yet.
 
+## Clubs
+
+The optional `club` block of the school config sets up the clubs (`/v1/club`). The whole block, and every field in it, may be left out and then has the value in the example config, so an older config without it still starts.
+
+- `enabled`: whether the clubs are open at all. With `false` they stay closed.
+- `openBeforeTerm`: whether the clubs are open before the opening day (`calendar.openingDay`), while students sign up; they are by default. With `false` they stay closed until the opening day.
+- On every school day (study halls at the weekend too) the clubs close for each session: from the moment its doors open (`lesson.doorsOpenMinutesBefore` minutes before it starts) to the end of the closing grace after dismissal (`lesson.closingGraceSeconds`) and of the time the classes' closes are spread over (`lesson.staggerMillis`); sessions that run into each other make one closure. They are open at every other time, at night, on breaks and on weekends without study halls included. They close for maintenance too.
+- `connection`: `framesPerMinute`, `maxQueuedFrames` and `maxSendBufferKiB` of one club connection, meaning what they do in `classConnection`.
+- `inviteSeconds`: how long an invitation waits for an answer. `invitesPerDay`: how many invitations a student may send in a day (in the school's timezone).
+- `idleMinutes`: a room that has not started a game this many minutes after it opened, or after its last game, gets an idle prompt; `idleDecideSeconds` is the time its students have to choose bots, after which the room is closed.
+- `disconnectGraceSeconds`: how long the seat of a student who loses the connection out of a game is kept.
+- `maxSpectators`: the most spectators at one table.
+- `reactMinIntervalSeconds`, `reactsPerGame`: the shortest time between two reactions, and the most reactions in a game.
+- `timeBankSeconds`: the time bank of a game, spent when a step runs past its own time.
+- `roomEventBuffer`: how many of a room's latest events are kept in memory for reconnects to catch up on.
+- `lobbyMaxRooms`: the most rooms the lobby lists.
+- `botNames`: the names of the bots, used in the order they sit down in a room. They must not repeat or contain `#` (only a student's name has a `#` and student number).
+- `wordLists`: the paths of the reactions' phrase list (`phrases`) and emoji allowlist (`emoji`), relative to the working directory as `SCHOOL_CONFIG` is. The repository has only `config/club/*.example.json`; copy each to the name without `.example` for the real lists, which are not committed.
+
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.en.md](CONTRIBUTING.en.md) before you start. Report security problems privately as described in [SECURITY.en.md](SECURITY.en.md), and follow the [Code of Conduct](CODE_OF_CONDUCT.en.md) in discussions.
