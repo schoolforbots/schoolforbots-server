@@ -15,8 +15,8 @@ import type { Phrase } from './word-lists.js'
 // sends at most `reactsPerGame` in one game of a room: the count starts again when a game starts in the room, and
 // what is sent before a room's first game counts as one game too. Both refusals are `react_cap`.
 //
-// What is kept is bounded: one record per student who reacted, dropped when their room starts a game a while after
-// their last reaction or when the room closes.
+// What is kept is bounded: one record per student who reacted, dropped once their interval is over when their room
+// starts a game or closes (or, after it closed, when any room does).
 
 type React = Static<typeof ReactMessage>
 type RoomEventBody = Static<typeof RoomEvent>
@@ -50,7 +50,8 @@ export interface ReactionsOptions {
 /** What is kept of a student's reactions: the last one, and how many they sent in the current game of `roomId`. */
 interface Kept {
   lastAt: number
-  roomId: string
+  /** Null once the room has closed: only `lastAt` counts then. */
+  roomId: string | null
   count: number
 }
 
@@ -123,19 +124,31 @@ export class Reactions {
     return { ok: true }
   }
 
-  /** A game started in the room: every count in it starts again; a record whose interval is over goes. */
+  /** A game started in the room: every count in it starts again. */
   gameStarted(roomId: string, now: Date): void {
+    this.sweep(roomId, now)
+  }
+
+  /**
+   * The room closed: its counts go, but a student who reacted in it less than the interval ago keeps the time of it,
+   * so a new room does not let them react again at once.
+   */
+  roomClosed(roomId: string, now: Date): void {
+    this.sweep(roomId, now)
+    for (const record of this.records.values()) if (record.roomId === roomId) record.roomId = null
+  }
+
+  /**
+   * The counts in the room start again, and a record whose interval is over goes when it is of the room or of no room
+   * (of a room that closed), so what is kept stays bounded.
+   */
+  private sweep(roomId: string, now: Date): void {
     const due = now.getTime() - this.config.club.reactMinIntervalSeconds * 1000
     for (const [studentId, record] of this.records) {
-      if (record.roomId !== roomId) continue
+      if (record.roomId !== roomId && record.roomId !== null) continue
       if (record.lastAt <= due) this.records.delete(studentId)
       else record.count = 0
     }
-  }
-
-  /** The room closed: what was kept of the reactions sent in it goes. */
-  roomClosed(roomId: string): void {
-    for (const [studentId, record] of this.records) if (record.roomId === roomId) this.records.delete(studentId)
   }
 
   /** What a reaction shows (a phrase's text, an emoji or a text itself), or null when its content is not allowed. */
