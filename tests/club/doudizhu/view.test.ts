@@ -202,6 +202,12 @@ describe('turnView', () => {
     const { state } = newGame({ rules, firstBidder: 0, decks: [DECK] })
     expect(() => turnView(state, 1)).toThrow()
   })
+
+  test('throws when the trustee flags are not one per seat', () => {
+    const { state } = newGame({ rules, firstBidder: 0, decks: [DECK] })
+    expect(() => turnView(state, 0, [false, true])).toThrow()
+    expect(() => publicTable(state, [false, false, false, false])).toThrow()
+  })
 })
 
 describe('handOf', () => {

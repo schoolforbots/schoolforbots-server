@@ -26,7 +26,7 @@ export const MOVE_TYPES: readonly MoveType[] = [
   'rocket',
 ]
 
-const TYPE_ORDER: ReadonlyMap<MoveType, number> = new Map(MOVE_TYPES.map((type, i) => [type, i]))
+export const TYPE_ORDER: ReadonlyMap<MoveType, number> = new Map(MOVE_TYPES.map((type, i) => [type, i]))
 
 /** One way of playing a set of cards. */
 export interface Interpretation {
@@ -50,7 +50,7 @@ export interface Interpretation {
 export const MAX_MOVE_LENGTH = 20
 
 /** The highest rank a straight, pair straight, trio straight or plane may reach: the ace. */
-const ACE = 14
+export const ACE = 14
 
 /** The rules `classify` looks at. */
 export type ClassifyRules = Pick<
@@ -58,7 +58,7 @@ export type ClassifyRules = Pick<
   'bareTrio' | 'minPairStraight' | 'soloKickersMayPair' | 'soloKickersMayBeJokers' | 'fourWithTwo'
 >
 
-const repeat = (rank: number, times: number): number[] => new Array<number>(times).fill(rank)
+export const repeat = (rank: number, times: number): number[] => new Array<number>(times).fill(rank)
 
 /** The ranks, low to high, given by a count per rank. */
 function expand(counts: ReadonlyMap<number, number>): number[] {

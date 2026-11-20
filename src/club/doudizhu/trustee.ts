@@ -40,7 +40,8 @@ function lead(hand: readonly Card[], rules: GameState['rules']): Interpretation 
  * reading), else the lowest rank as a single (one card), a pair (two), a trio (three; with `bareTrio` off a trio with the
  * lowest other card, or a single when there is none) or a single (four). Following: a pass when the move to beat is
  * the other farmer's; else the lowest move of the same type and number of cards that beats it (lowest main rank, then
- * lowest kickers), never a bomb or the rocket, or a pass when there is none. Throws when `seat` is not to act.
+ * lowest kickers), never a bomb or the rocket, or a pass when there is none. A set of cards counts only as its
+ * strongest reading of a type, as in the move list. Throws when `seat` is not to act.
  */
 export function trusteeAction(state: GameState, seat: number): TrusteeStep {
   if (state.toAct !== seat) throw new Error(`seat ${seat} is not to act`)
