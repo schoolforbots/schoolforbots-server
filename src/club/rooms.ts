@@ -337,7 +337,21 @@ export class Rooms {
    * trustee, and then every room closes.
    */
   closeAll(reason: 'club_closed' | 'maintenance', now: Date): void {
-    for (const room of [...this.rooms.values()]) this.close(room, reason, now)
+    for (const room of [...this.rooms.values()]) {
+      // One room going wrong (its game throwing as it is played out, say) must not keep the others open, nor itself:
+      // it is forgotten all the same, its students out of it.
+      try {
+        this.close(room, reason, now)
+      } catch (err) {
+        this.onError(room.id, err)
+        if (this.rooms.get(room.id) !== room) continue
+        try {
+          this.forget(room, reason, now)
+        } catch (again) {
+          this.onError(room.id, again)
+        }
+      }
+    }
   }
 
   // ---- For the rest of the club ----
@@ -546,15 +560,21 @@ export class Rooms {
     if (room.closed) return
     if (this.playing(room)) this.dispatch(room, room.session!.finish(now), now)
     this.emitTo(room, { kind: 'closed', reason }, now, null, null)
+    this.forget(room, reason, now)
+  }
+
+  /** Puts every student out of the room (`room.left`, `closed`) and forgets it; what `close` ends with. */
+  private forget(room: Room, reason: CloseReason, now: Date): void {
     room.closed = true
     room.prompt = null
+    // Forgotten first, so a room that fails below is gone all the same.
+    this.rooms.delete(room.id)
     for (const occupant of room.seats) {
       if (occupant?.student == null) continue
       const studentId = occupant.student.person.studentId
-      this.seated.delete(studentId)
+      if (this.seated.get(studentId) === room) this.seated.delete(studentId)
       this.outbox.toStudent(studentId, { type: 'room.left', roomId: room.id, reason: 'closed' })
     }
-    this.rooms.delete(room.id)
     this.listeners.closed?.(room.id, reason, now)
   }
 

@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { examplePath, loadWordLists } from '../../src/club/word-lists.js'
+import { examplePath, isEmoji, loadWordLists } from '../../src/club/word-lists.js'
+import { exampleWordLists } from './helpers/parts.js'
 
 let dir: string | undefined
 afterEach(() => {
@@ -67,12 +68,37 @@ describe('loadWordLists', () => {
     ],
     ['an emoji twice', { 'doudizhu-phrases.json': PHRASES, 'emoji.json': { emoji: ['😀', '😀'] } }, /emoji 重复/],
     ['two emoji in one', { 'doudizhu-phrases.json': PHRASES, 'emoji.json': { emoji: ['😀😀'] } }, /不是一个 emoji/],
+    ['a bare joiner', { 'doudizhu-phrases.json': PHRASES, 'emoji.json': { emoji: ['‍'] } }, /不是一个 emoji/],
+    ['a bare variation selector', { 'doudizhu-phrases.json': PHRASES, 'emoji.json': { emoji: ['️'] } }, /不是一个 emoji/],
+    ['a Han character', { 'doudizhu-phrases.json': PHRASES, 'emoji.json': { emoji: ['汉'] } }, /"汉" 不是一个 emoji/],
+    ['a letter', { 'doudizhu-phrases.json': PHRASES, 'emoji.json': { emoji: ['a'] } }, /"a" 不是一个 emoji/],
   ])('%s stops the start, naming the file', (_name, files, error) => {
     expect(() => loadWordLists(lists(files), () => {})).toThrow(error)
+  })
+
+  test('says which list is missing with a space before a Latin name', () => {
+    const paths = lists({ 'doudizhu-phrases.json': PHRASES })
+    expect(() => loadWordLists(paths, () => {})).toThrow(/社团的 emoji 表缺失/)
+    const warnings: string[] = []
+    const fallback = lists({ 'doudizhu-phrases.json': PHRASES, 'emoji.example.json': EMOJI })
+    loadWordLists(fallback, (m) => void warnings.push(m))
+    expect(warnings[0]).toContain('真实的 emoji 表')
   })
 
   test('the example path is next to the list', () => {
     expect(examplePath('config/club/emoji.json')).toBe('config/club/emoji.example.json')
     expect(examplePath('config/club/emoji')).toBeNull()
+  })
+})
+
+describe('isEmoji', () => {
+  test('every entry of the example list is one', () => {
+    expect(exampleWordLists.emoji.length).toBe(150)
+    expect(exampleWordLists.emoji.filter((e) => !isEmoji(e))).toEqual([])
+  })
+
+  test('pictographs, flags and keycaps are; joiners, selectors, Han characters, letters and digits are not', () => {
+    for (const e of ['😀', '👍🏽', '👨‍👩‍👧', '❤️', '🇨🇳', '#️⃣', '1️⃣']) expect(isEmoji(e), e).toBe(true)
+    for (const e of ['‍', '️', '汉', 'a', '1', '#', '⃣']) expect(isEmoji(e), JSON.stringify(e)).toBe(false)
   })
 })
