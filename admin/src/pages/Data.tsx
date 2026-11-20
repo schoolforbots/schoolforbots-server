@@ -88,7 +88,7 @@ function noClass(status: DailyStats['todayStatus'], weekday: string): string | u
   if (status.state === 'not_started') return '学校还没开学，今天不上课。'
   if (status.state === 'on_break') return `今天放假${status.breakName === null ? '' : `（${status.breakName}）`}，不上课。`
   if (!status.schoolDay) return `今天是${weekday}，周末不上课。`
-  if (status.maintenance) return '现在维护中：上课服务不让任何人进，碰上维护的时段今天不上课。'
+  if (status.maintenance) return '现在维护中：上课服务和社团服务都不让任何人进，碰上维护的时段今天不上课。'
   return undefined
 }
 
