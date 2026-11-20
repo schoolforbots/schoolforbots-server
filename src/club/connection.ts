@@ -11,6 +11,7 @@ import {
 import type { ClubDeps } from './app.js'
 import {
   type ClubAction,
+  type Rejoin,
   clubClosedClosing,
   HELLO_TIMEOUT,
   maintenanceClosing,
@@ -242,12 +243,23 @@ export function serveConnection(
     const late = clubDoor(deps, now)
     if (late !== null) return refuse(late)
 
-    const replaced = club.hub.add(connection)
-    registered = true
-    me = student
-    // The old connection's close finds a newer one in the hub, so the student is not taken for gone.
-    replaced?.close(REPLACED)
-    const back = club.rejoined(studentId, hello, now)
+    // From the moment the connection is in the hub until the welcome and what follows it are out, whatever the club
+    // sends it waits, and goes out after them, in order.
+    held = []
+    let queued: ServerMessage[]
+    let replaced: HubConnection | undefined
+    let back: Rejoin
+    try {
+      replaced = club.hub.add(connection)
+      registered = true
+      me = student
+      // The old connection's close finds a newer one in the hub, so the student is not taken for gone.
+      replaced?.close(REPLACED)
+      back = club.rejoined(studentId, hello, now)
+    } finally {
+      queued = held
+      held = null
+    }
     const welcome: Welcome = {
       type: 'welcome',
       student: student.person,
@@ -278,6 +290,7 @@ export function serveConnection(
     for (const m of back.replay) write(m)
     for (const m of back.resend) write(m)
     for (const m of back.invites) write(m)
+    for (const m of queued) write(m)
     log.info(
       { studentId, roomId: back.roomId, replayed: back.replay.length, replaced: replaced !== undefined },
       'student joined club',
@@ -297,15 +310,32 @@ export function serveConnection(
     return door !== null && door.reason !== 'service_stopping'
   }
 
-  /** The ack for a message, and what handling it sent this connection, to go out after the ack. */
-  async function onAction(student: ClubStudent, msg: ClubAction): Promise<{ ack: AckResult; held: ServerMessage[] }> {
+  /**
+   * The ack for a message, and what handling it sent this connection, to go out after the ack; null when the
+   * connection is over before the message could be handled (then nothing is done, nor answered).
+   */
+  async function onAction(
+    student: ClubStudent,
+    msg: ClubAction,
+  ): Promise<{ ack: AckResult; held: ServerMessage[] } | null> {
     if (closedNow(clock.now())) return { ack: fail('club_closed'), held: [] }
     const ids = club.targetsOf(msg)
-    const found = ids.length === 0 ? new Map<number, string>() : await memberEmails(db, ids, club.game.club)
-    const targets: InviteTargets = (id) => {
-      const email = found.get(id)
-      return email === undefined ? null : { studentId: id, email }
+    if (ids.length > 0) {
+      const found = await memberEmails(db, ids, club.game.club)
+      // Looked at again after the lookup: the connection may be over (closed, replaced, disconnected with everyone
+      // as the doors closed), and then the message is not handled at all, or the club may have closed meanwhile.
+      if (left || socket.readyState !== socket.OPEN) return null
+      if (closedNow(clock.now())) return { ack: fail('club_closed'), held: [] }
+      return handled(student, msg, (id) => {
+        const email = found.get(id)
+        return email === undefined ? null : { studentId: id, email }
+      })
     }
+    return handled(student, msg, () => null)
+  }
+
+  /** Handles the message, holding what the club sends this connection meanwhile (see `onAction`). */
+  function handled(student: ClubStudent, msg: ClubAction, targets: InviteTargets) {
     // Synchronous from here: what the club sends this connection while it handles the message waits for the ack.
     held = []
     try {
@@ -344,7 +374,9 @@ export function serveConnection(
     }
     const student = me
     if (student === null) return reply(msg.id, fail('hello_required'))
-    const { ack, held: after } = await onAction(student, msg)
+    const result = await onAction(student, msg)
+    if (result === null) return
+    const { ack, held: after } = result
     reply(msg.id, ack)
     for (const m of after) write(m)
   }
