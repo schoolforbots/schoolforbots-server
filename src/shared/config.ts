@@ -649,6 +649,14 @@ export type ClassEnv = Pick<
   | 'llmFake'
 >
 
+/**
+ * What the club service reads from the environment: the database, the school config (which names the club's word
+ * lists) and its port. It sends no mail, calls no model and checks no text, so it needs none of their settings.
+ */
+export interface ClubEnv extends Pick<Env, 'databaseUrl' | 'databaseTimeouts' | 'configPath'> {
+  clubPort: number
+}
+
 type Get = (name: string) => string | undefined
 
 function getter(env: NodeJS.ProcessEnv): Get {
@@ -708,6 +716,17 @@ const configPathOf = (get: Get) => get('SCHOOL_CONFIG') ?? 'config/school.json'
 const classPortOf = (get: Get) => parsePort('CLASS_PORT', get('CLASS_PORT'), 8081)
 const trustProxyOf = (get: Get) => get('TRUST_PROXY') === '1'
 const promptsDirOf = (get: Get) => get('PROMPTS_DIR') ?? 'data/prompts'
+
+/** The environment of the club service, read as `loadEnv` reads the same variables. */
+export function loadClubEnv(env: NodeJS.ProcessEnv): ClubEnv {
+  const get = getter(env)
+  return {
+    databaseUrl: requireDatabaseUrl(get),
+    databaseTimeouts: databaseTimeoutsOf(get),
+    configPath: configPathOf(get),
+    clubPort: parsePort('CLUB_PORT', get('CLUB_PORT'), 8082),
+  }
+}
 
 /** The environment of the class service, read as `loadEnv` reads the same variables. */
 export function loadClassEnv(env: NodeJS.ProcessEnv): ClassEnv {

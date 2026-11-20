@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.build.json",
     "dev:registration": "tsx watch --env-file=.env src/registration/main.ts",
     "dev:class": "tsx watch --env-file=.env src/class/main.ts",
+    "dev:club": "tsx watch --env-file=.env src/club/main.ts",
     "job:daily": "tsx --env-file-if-exists=.env src/registration/run-daily-job.ts",
     "lesson:import": "tsx --env-file-if-exists=.env src/tools/import-lesson.ts",
     "words:tidy": "tsx --env-file-if-exists=.env src/tools/tidy-word-list.ts",

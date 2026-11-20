@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
-import { loadClassEnv, loadEnv, loadSchoolConfig, splitSender } from '../../src/shared/config.js'
+import { loadClassEnv, loadClubEnv, loadEnv, loadSchoolConfig, splitSender } from '../../src/shared/config.js'
 
 let tmpDir: string
 
@@ -601,6 +601,51 @@ describe('loadClassEnv', () => {
         /CLASS_TIMELINE_SPEED/,
       )
     }
+  })
+})
+
+describe('loadClubEnv', () => {
+  test('reads only what the club service uses: no mail, model or moderation settings', () => {
+    expect(() => loadClubEnv({})).toThrow(/DATABASE_URL/)
+    expect(loadClubEnv({ DATABASE_URL: 'postgres://x' })).toEqual({
+      databaseUrl: 'postgres://x',
+      databaseTimeouts: { statementMs: 30_000, lockMs: 10_000 },
+      configPath: 'config/school.json',
+      clubPort: 8082,
+    })
+    // What would stop the other services is none of its business.
+    const others = { MAIL_TRANSPORT: 'sendmail', SMTP_URL: '', CLASS_TIMELINE_SPEED: 'fast', LLM_FAKE: '1', NODE_ENV: 'production' }
+    expect(loadClubEnv({ DATABASE_URL: 'postgres://x', ...others }).clubPort).toBe(8082)
+  })
+
+  test('reads overrides, and empty values count as unset', () => {
+    expect(
+      loadClubEnv({
+        DATABASE_URL: 'postgres://x',
+        SCHOOL_CONFIG: '/c.json',
+        CLUB_PORT: '9092',
+        DATABASE_STATEMENT_TIMEOUT_MS: '0',
+        DATABASE_LOCK_TIMEOUT_MS: '2500',
+      }),
+    ).toEqual({
+      databaseUrl: 'postgres://x',
+      databaseTimeouts: { statementMs: 0, lockMs: 2500 },
+      configPath: '/c.json',
+      clubPort: 9092,
+    })
+    expect(loadClubEnv({ DATABASE_URL: 'postgres://x', CLUB_PORT: '', SCHOOL_CONFIG: '' })).toMatchObject({
+      clubPort: 8082,
+      configPath: 'config/school.json',
+    })
+  })
+
+  test('rejects an invalid CLUB_PORT or database timeout', () => {
+    for (const port of ['0', '65536', '-1', '80.5', 'abc']) {
+      expect(() => loadClubEnv({ DATABASE_URL: 'postgres://x', CLUB_PORT: port }), port).toThrow(/CLUB_PORT/)
+    }
+    expect(() => loadClubEnv({ DATABASE_URL: 'postgres://x', DATABASE_LOCK_TIMEOUT_MS: '1.5' })).toThrow(
+      /DATABASE_LOCK_TIMEOUT_MS/,
+    )
   })
 })
 

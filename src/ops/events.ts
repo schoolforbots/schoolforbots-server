@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely'
 import type { Database, OpsEventKind } from '../shared/schema.js'
 
-export type OpsService = 'registration' | 'class'
+export type OpsService = 'registration' | 'class' | 'club'
 export type { OpsEventKind }
 
 /** Notes that a service has started, for the alert about a service that keeps restarting. */

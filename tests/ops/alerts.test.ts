@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely'
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { checkAlerts, diskUsedPercent, type AlertKind } from '../../src/ops/alerts.js'
+import type { OpsService } from '../../src/ops/events.js'
 import { MemoryMailer } from '../../src/registration/mailer.js'
 import type { SchoolConfig } from '../../src/shared/config.js'
 import type { Maintenance } from '../../src/shared/maintenance.js'
@@ -43,7 +44,7 @@ function setup(opts: { alerts?: Partial<SchoolConfig['alerts']>; operatorEmail?:
   return { config, clock, mailer, deps, check: () => checkAlerts(deps()) }
 }
 
-async function events(kind: OpsEventKind, times: Date[], service: 'registration' | 'class' = 'registration') {
+async function events(kind: OpsEventKind, times: Date[], service: OpsService = 'registration') {
   for (const at of times) await db.insertInto('opsEvents').values({ service, kind, at }).execute()
 }
 async function llmCalls(outcome: 'ok' | 'failed', times: Date[], httpStatus: number | null = null) {
@@ -54,7 +55,7 @@ async function llmCalls(outcome: 'ok' | 'failed', times: Date[], httpStatus: num
       .execute()
   }
 }
-async function starts(service: 'registration' | 'class', times: Date[]) {
+async function starts(service: OpsService, times: Date[]) {
   for (const startedAt of times) await db.insertInto('serviceStarts').values({ service, startedAt }).execute()
 }
 async function backup(ok: boolean, finishedAt: Date) {
@@ -249,6 +250,16 @@ describe('job_failed', () => {
     t.clock.advance(60 * 60_000)
     expect(await t.check()).toEqual(['job_failed'])
     expect(t.mailer.notices[1]?.subject).toContain('1')
+  })
+})
+
+describe('the club service', () => {
+  test('its internal errors count with the others, and its restarts are named', async () => {
+    await events('internal_error', Array.from({ length: 20 }, () => minutesAgo(1)), 'club')
+    await starts('club', [minutesAgo(1), minutesAgo(5), minutesAgo(10)])
+    const t = setup()
+    expect((await t.check()).sort()).toEqual(['internal_errors', 'restarts'])
+    expect(t.mailer.notices.map((n) => n.subject)).toContainEqual(expect.stringMatching(/^【机器人网校】社团服务一直在重启/))
   })
 })
 

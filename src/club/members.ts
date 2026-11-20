@@ -2,7 +2,7 @@ import { sql, type Expression, type Kysely, type SqlBool } from 'kysely'
 import type { Static } from 'typebox'
 import type { ClubId } from '../protocol/club.js'
 import type { Database } from '../shared/db.js'
-import { MEMBER_STATUSES } from '../shared/schema.js'
+import { MEMBER_STATUSES, type StudentStatus } from '../shared/schema.js'
 
 // The club members table. A row counts as a membership only while it is current (see `current`): the student is still
 // at the school (active or suspended), and joined in their present time there. A row left behind by a student who
@@ -96,4 +96,52 @@ export async function dropStaleMemberships(db: Kysely<Database>): Promise<number
     .where((eb) => eb.not(current()))
     .executeTakeFirstOrThrow()
   return Number(result.numDeletedRows)
+}
+
+/** What the club needs of a student to tell whether they may stay: their standing, and whether they are a member. */
+export interface StudentStanding {
+  readonly status: StudentStatus
+  readonly suspendedUntil: Date | null
+  /** Null when the student is in no class (or in one with no division yet), as the door counts it. */
+  readonly classId: number | null
+  readonly member: boolean
+}
+
+/**
+ * The standing of each of `studentIds` still on the students table, and whether they are a current member of the
+ * club, in one query: what the club service's rounds of the students online need. A student not on the table is not
+ * in the map.
+ */
+export async function standingsAmong(
+  db: Kysely<Database>,
+  studentIds: readonly number[],
+  club: Club,
+): Promise<Map<number, StudentStanding>> {
+  if (studentIds.length === 0) return new Map()
+  const rows = await db
+    .selectFrom('students as s')
+    .leftJoin('classes as c', 'c.id', 's.classId')
+    .leftJoin('clubMembers as m', (j) => j.onRef('m.studentId', '=', 's.id').on('m.club', '=', club))
+    .select([
+      's.id',
+      's.status',
+      's.suspendedUntil',
+      's.classId',
+      'c.division',
+      // No row of the club makes `current()` null, which counts as not a member.
+      sql<boolean>`coalesce(${current()}, false)`.as('member'),
+    ])
+    .where('s.id', 'in', [...studentIds])
+    .execute()
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        status: r.status,
+        suspendedUntil: r.suspendedUntil,
+        classId: r.division === null ? null : r.classId,
+        member: r.member,
+      },
+    ]),
+  )
 }

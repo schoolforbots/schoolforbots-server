@@ -28,7 +28,7 @@ const HOUR = 60 * MINUTE
 const LLM_DOWN_MIN_FAILURES = 3
 const JOB_FAILED_FIRST_LOOK_BACK = 24 * HOUR
 
-const SERVICE_NAMES: Record<OpsService, string> = { registration: '报名服务', class: '上课服务' }
+const SERVICE_NAMES: Record<OpsService, string> = { registration: '报名服务', class: '上课服务', club: '社团服务' }
 
 /**
  * The fixed name of each alert (the backup alert has two). A transport that only sends approved templates (Tencent
