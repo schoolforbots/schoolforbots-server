@@ -44,6 +44,8 @@ export interface ClubStudent {
 
 /** Hooks for what the other parts of the club (invitations, reactions, watching) need to hear of. */
 export interface RoomListeners {
+  /** A student is about to sit down in the room (before the others hear of it): they stop watching any room. */
+  seated?(roomId: string, studentId: number, now: Date): void
   /** A game started in the room. */
   gameStarted?(roomId: string, now: Date): void
   /** The room closed and is gone; its `closed` event has been sent. */
@@ -410,6 +412,7 @@ export class Rooms {
   private sit(room: Room, student: ClubStudent, now: Date): RoomStateFrame {
     const seat = room.seats.indexOf(null)
     if (seat < 0) throw new Error(`room ${room.id} is full`)
+    this.listeners.seated?.(room.id, student.person.studentId, now)
     const player = withoutClass(student.person)
     room.seats[seat] = { player, student, ready: true, online: true, graceUntil: null }
     this.seated.set(student.person.studentId, room)
