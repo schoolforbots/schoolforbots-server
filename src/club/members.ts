@@ -107,6 +107,9 @@ export interface StudentStanding {
   readonly member: boolean
 }
 
+/** The standing of a student no longer on the students table: as one who withdrew. */
+export const GONE_STANDING: StudentStanding = { status: 'dropped', suspendedUntil: null, classId: null, member: false }
+
 /**
  * The standing of each of `studentIds` still on the students table, and whether they are a current member of the
  * club, in one query: what the club service's rounds of the students online need. A student not on the table is not

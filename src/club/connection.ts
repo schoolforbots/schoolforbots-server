@@ -23,7 +23,7 @@ import { clubClosedAt } from './hours.js'
 import type { ClubClosing, HubConnection } from './hub.js'
 import type { AckResult } from './game.js'
 import type { InviteTargets } from './invites.js'
-import { isMember, memberEmails } from './members.js'
+import { GONE_STANDING, memberEmails, standingsAmong } from './members.js'
 import type { ServerMessage } from './outbox.js'
 import { studentPersonWithClass } from './people.js'
 import type { ClubStudent } from './rooms.js'
@@ -44,8 +44,10 @@ import { CLUB_WS_ERROR_MESSAGES, type ClubWsErrorCode } from './ws-errors.js'
 type Hello = Static<typeof ClubHelloMessage>
 type Welcome = Static<typeof ClubWelcomeMessage>
 
-// The transport's numbers are the class's (src/class/connection.ts), written again here rather than imported, so the
-// club service loads nothing of the class service.
+// The transport's numbers are the class's (src/class/connection.ts), written again here rather than imported: the
+// class connection's module would bring the class service's code with it. (The club service does import two modules
+// of the class service that depend on nothing of it: src/class/ticker.ts, and src/class/timeline.ts through the
+// maintenance switch.)
 
 /** The most a frame may carry, in bytes; a bigger one is answered `invalid_message` and the connection stays open. */
 export const MAX_FRAME_BYTES = 16 * 1024
@@ -203,34 +205,22 @@ export function serveConnection(
     const door = clubDoor(deps, clock.now())
     if (door !== null) return refuse(door)
 
-    const row = await db
+    // Whether the student may come in is judged as the service's rounds judge it (`standingsAmong`). The key was the
+    // student's at the upgrade; a student gone since is no member of anything.
+    const standings = await standingsAmong(db, [studentId], club.game.club)
+    const refusal = studentRefusal(standings.get(studentId) ?? GONE_STANDING, club.game, config, clock.now())
+    if (refusal !== null) return refuse(refusal)
+    // Their name and class, for `welcome` and the rooms. Gone, or out of their class, since the line above: the
+    // standing of a student gone.
+    const r = await db
       .selectFrom('students as s')
-      .leftJoin('classes as c', 'c.id', 's.classId')
-      .select([
-        's.id',
-        's.ownerName',
-        's.aiName',
-        's.email',
-        's.status',
-        's.suspendedUntil',
-        's.classId',
-        'c.division',
-        'c.slot',
-        'c.classNo',
-      ])
+      .innerJoin('classes as c', 'c.id', 's.classId')
+      .select(['s.id', 's.ownerName', 's.aiName', 's.email', 'c.division', 'c.slot', 'c.classNo'])
       .where('s.id', '=', studentId)
       .executeTakeFirst()
-    // The key was the student's at the upgrade; a student gone since is no member of anything.
-    const member = row === undefined ? false : await isMember(db, studentId, club.game.club)
-    const standing =
-      row === undefined
-        ? { status: 'dropped' as const, suspendedUntil: null, classId: null, member }
-        : { ...row, classId: row.division === null ? null : row.classId, member }
-    const refusal = studentRefusal(standing, club.game, config, clock.now())
-    if (refusal !== null) return refuse(refusal)
-    const r = row!
+    if (r === undefined) return refuse(studentRefusal(GONE_STANDING, club.game, config, clock.now())!)
     const student: ClubStudent = {
-      person: studentPersonWithClass(r, { division: r.division!, slot: r.slot!, classNo: r.classNo! }, config),
+      person: studentPersonWithClass(r, { division: r.division, slot: r.slot, classNo: r.classNo }, config),
       email: r.email,
     }
     const stats = await club.game.stats(studentId)

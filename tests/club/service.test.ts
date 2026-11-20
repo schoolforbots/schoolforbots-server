@@ -29,8 +29,10 @@ vi.mock('../../src/club/members.js', async (importOriginal) => {
   }
 })
 
-/** Holds the rounds' query back until the function it gives is called. */
+/** Holds the rounds' query back until the function it gives is called, and counts its calls from now. */
 function holdQuery(): () => void {
+  // Every hello asks it too (the door judges as the rounds do); only the calls from here are counted.
+  query.calls = 0
   let release!: () => void
   query.hold = new Promise((resolve) => {
     release = resolve
@@ -527,7 +529,44 @@ describe('a room that fails', () => {
     expect(ticked).toHaveBeenCalledTimes(1)
     expect(s.internalErrors).toBe(1)
     expect(s.logs.entries().filter((e) => e.msg === 'club room failed')).toHaveLength(1)
-    expect(s.service.club.rooms.size).toBe(2)
+
+    // The room that failed is closed: its game played out, its student out of it, with no `closed` event (the
+    // protocol has no reason for it); the other room goes on.
+    expect(first.over).toBe(true)
+    expect(s.service.club.rooms.size).toBe(1)
+    expect(s.service.club.rooms.roomOf(a.id)).toBeNull()
+    expect(s.service.club.rooms.roomOf(b.id)).not.toBeNull()
+    const toA = await a.client.sync()
+    expect(toA.at(-1)).toMatchObject({ type: 'room.left', reason: 'closed' })
+    expect(toA.some((m) => m.type === 'room.event' && m.event.kind === 'closed')).toBe(false)
+    // So it does not fail again at every tick; the student may open another room.
+    s.clock.advance(1000)
+    await s.service.tick()
+    expect(s.internalErrors).toBe(1)
+    expect((await exchange(a.client, { type: 'room.create', visibility: 'public', bots: true })).ack.ok).toBe(true)
+  })
+
+  test('whose game fails again as it is played out is forgotten all the same, its spectators no longer watching', async () => {
+    const s = await start()
+    errorsExpected = true
+    const a = await member()
+    const watcher = await member()
+    const created = await exchange(a.client, { type: 'room.create', visibility: 'public', bots: true })
+    const roomId = created.ack.result.room.roomId as string
+    expect((await exchange(watcher.client, { type: 'watch', roomId })).ack.ok).toBe(true)
+    const session = s.game.sessions[0]!
+    session.tick = () => {
+      throw new Error('the game broke')
+    }
+    session.finish = () => {
+      throw new Error('and broke again')
+    }
+    await s.service.tick()
+    expect(s.internalErrors).toBe(2)
+    expect(s.service.club.rooms.size).toBe(0)
+    expect(s.service.club.rooms.roomOf(a.id)).toBeNull()
+    expect(s.service.club.watchers.watchedBy(watcher.id)).toBeNull()
+    expect((await a.client.sync()).at(-1)).toMatchObject({ type: 'room.left', roomId, reason: 'closed' })
   })
 })
 
