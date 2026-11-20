@@ -143,9 +143,9 @@ export class Rooms {
   /**
    * When the club next closes, seen from `now`. The answer found from an earlier moment holds until it comes (the
    * config does not change while the service runs), so it is reused until then instead of searching days ahead for
-   * every room state and turn.
+   * every room state and turn. Also `welcome.closesAt`.
    */
-  private closesAt(now: Date): Date {
+  closesAt(now: Date): Date {
     const t = now.getTime()
     const cached = this.nextCloseCache
     if (cached !== null && cached.from <= t && t < cached.at.getTime()) return cached.at

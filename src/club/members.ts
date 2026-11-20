@@ -68,6 +68,23 @@ export async function membersAmong(db: Kysely<Database>, studentIds: readonly nu
 }
 
 /**
+ * The owners' emails of the current members of the club among `studentIds`, by student number, in one query: what an
+ * invitation needs to know of the ones it names. One who is not a current member is not among them.
+ */
+export async function memberEmails(
+  db: Kysely<Database>,
+  studentIds: readonly number[],
+  club: Club,
+): Promise<Map<number, string>> {
+  if (studentIds.length === 0) return new Map()
+  const rows = await currentMembers(db, club)
+    .select(['m.studentId', 's.email'])
+    .where('m.studentId', 'in', [...studentIds])
+    .execute()
+  return new Map(rows.map((r) => [r.studentId, r.email]))
+}
+
+/**
  * Deletes every row of every club that is not a current membership (the student withdrew, was expelled, or re-enrolled
  * since joining), and says how many went. Suspended members keep theirs.
  */
