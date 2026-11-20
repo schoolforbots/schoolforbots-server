@@ -179,7 +179,19 @@ describe('how often', () => {
     checkAck(h.reactions.react(B, SMILE, h.now))
   })
 
-  test('what is kept goes when the room closes', () => {
+  test('the interval holds after the room closes: a room of one, a reaction, leaving, a new room at once', () => {
+    const h = partsHarness()
+    checkAck(h.rooms.create(A, { visibility: 'public', bots: false }, h.now), 'RoomResult')
+    checkAck(h.reactions.react(A, SMILE, h.now))
+    checkAck(h.rooms.leave(1, h.now))
+    expect(h.rooms.size).toBe(0)
+    checkAck(h.rooms.create(A, { visibility: 'public', bots: false }, h.now), 'RoomResult')
+    expectError(h.reactions.react(A, SMILE, h.now), 'react_cap')
+    h.now = new Date(h.now.getTime() + 5000)
+    checkAck(h.reactions.react(A, SMILE, h.now))
+  })
+
+  test('what is kept goes once the interval is over and a room starts a game or closes', () => {
     const h = partsHarness()
     room(h)
     checkAck(h.reactions.react(A, SMILE, h.now))
@@ -187,6 +199,21 @@ describe('how often', () => {
     expect(h.reactions.size).toBe(2)
     checkAck(h.rooms.leave(2, h.now))
     checkAck(h.rooms.leave(1, h.now))
+    // Closed within the interval: the times are kept, of no room.
+    expect(h.reactions.size).toBe(2)
+    h.now = new Date(h.now.getTime() + 5000)
+    checkAck(h.rooms.create(C, { visibility: 'public', bots: false }, h.now), 'RoomResult')
+    checkAck(h.rooms.leave(3, h.now))
     expect(h.reactions.size).toBe(0)
+  })
+
+  test('a room closing within the interval keeps the time but not the count', () => {
+    const h = partsHarness({ reactsPerGame: 1 })
+    checkAck(h.rooms.create(A, { visibility: 'public', bots: false }, h.now), 'RoomResult')
+    checkAck(h.reactions.react(A, SMILE, h.now))
+    checkAck(h.rooms.leave(1, h.now))
+    h.now = new Date(h.now.getTime() + 5000)
+    checkAck(h.rooms.create(A, { visibility: 'public', bots: false }, h.now), 'RoomResult')
+    checkAck(h.reactions.react(A, SMILE, h.now))
   })
 })

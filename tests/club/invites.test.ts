@@ -81,15 +81,16 @@ describe('sending invitations', () => {
     checkAck(h.invites.create(A, { visibility: 'public', bots: false, invite: [2, 3] }, everyone, h.now), 'RoomResult')
     // Two of three gone: one more, and then no more today.
     expect(checkAck(h.invites.invite(A, 4, everyone, h.now))).toEqual({ ok: true })
-    expectError(h.invites.invite(A, 4, everyone, h.now), 'invite_cap')
-    expect(invitesOf(h, 4)).toHaveLength(1)
+    expectError(h.invites.invite(A, 5, members(A, B, C, D, student(5)), h.now), 'invite_cap')
+    expect(invitesOf(h, 5)).toHaveLength(0)
     // Another student's count is their own.
     const roomId = h.rooms.roomOf(1)!
     checkAck(h.rooms.join(D, roomId, h.now), 'RoomResult')
     expect(checkAck(h.invites.invite(D, 2, everyone, h.now))).toEqual({ ok: true })
     // Midnight in Shanghai: a new day.
     h.advance(60)
-    expect(checkAck(h.invites.invite(A, 3, everyone, h.now))).toEqual({ ok: true })
+    expect(checkAck(h.invites.invite(A, 5, members(student(5)), h.now))).toEqual({ ok: true })
+    expect(invitesOf(h, 5)).toHaveLength(1)
   })
 
   test('room.create with invitations past the count is invite_cap and opens nothing', () => {
@@ -186,9 +187,10 @@ describe('answering invitations', () => {
 
   test('one invited while offline gets the invitations not expired yet when they connect', () => {
     const h = partsHarness()
-    const { invite } = invited(h)
+    const { roomId, invite } = invited(h, 'public')
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
     h.advance(100)
-    checkAck(h.invites.invite(A, 2, everyone, h.now))
+    checkAck(h.invites.invite(C, 2, everyone, h.now))
     // The first has 80 seconds left, the second 180.
     h.advance(90)
     const pending = h.invites.pendingFor(2, h.now)
@@ -197,5 +199,25 @@ describe('answering invitations', () => {
     expect(h.invites.pendingFor(3, h.now)).toEqual([])
     // Accepted after the reconnect.
     checkAck(h.invites.accept(B, pending[0]!.inviteId, h.now), 'RoomResult')
+  })
+
+  test('inviting the same one to the same room again while the invitation waits is no error, and sends and counts nothing', () => {
+    const h = partsHarness({ invitesPerDay: 2 })
+    const { roomId, invite } = invited(h, 'public')
+    h.advance(60)
+    expect(checkAck(h.invites.invite(A, 2, everyone, h.now))).toEqual({ ok: true })
+    expect(invitesOf(h, 2)).toEqual([invite])
+    expect(h.invites.size).toBe(1)
+    // Still one of two counted: one more goes.
+    expect(checkAck(h.invites.invite(A, 3, everyone, h.now))).toEqual({ ok: true })
+    expectError(h.invites.invite(A, 4, everyone, h.now), 'invite_cap')
+    // Another student in the room inviting B is another invitation.
+    checkAck(h.rooms.join(D, roomId, h.now), 'RoomResult')
+    checkAck(h.invites.invite(D, 2, everyone, h.now))
+    expect(invitesOf(h, 2)).toHaveLength(2)
+    // Once the first has expired, A's invitation is a new one (and past A's count).
+    h.advance(120)
+    expect(endedOf(h, 1)).toEqual([{ type: 'invite.ended', inviteId: invite.inviteId, reason: 'expired' }])
+    expectError(h.invites.invite(A, 2, everyone, h.now), 'invite_cap')
   })
 })

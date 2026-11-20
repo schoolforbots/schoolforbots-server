@@ -59,7 +59,7 @@ export function clubParts(options: ClubPartsOptions): ClubParts {
       },
       closed(roomId, reason, now) {
         watchers.roomClosed(roomId)
-        reactions.roomClosed(roomId)
+        reactions.roomClosed(roomId, now)
         invites.roomClosed(roomId)
         extra.closed?.(roomId, reason, now)
       },

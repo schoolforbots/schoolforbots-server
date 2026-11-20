@@ -95,7 +95,8 @@ export class Invites {
   /**
    * `room.invite`: invites `to` to the room the student sits in. Refused with `not_in_room`, `not_member_target` (the
    * one invited is not a club member), `same_owner` (they are of the same owner as someone in the room) and
-   * `invite_cap`.
+   * `invite_cap`. An invitation of the student's to the same one and room that is waiting still is no error: it
+   * stands, and nothing is sent or counted again.
    */
   invite(student: ClubStudent, to: number, targets: InviteTargets, now: Date): AckResult {
     const rooms = this.rooms()
@@ -104,6 +105,8 @@ export class Invites {
     const target = targets(to)
     if (target === null || target.studentId !== to) return fail('not_member_target')
     if (rooms.students(roomId).some((s) => s.email === target.email)) return fail('same_owner')
+    // The same invitation out already: it stands, and nothing new is sent or counted.
+    if (this.waiting(student.person.studentId, to, roomId, now)) return { ok: true }
     if (!this.mayInvite(student.person.studentId, 1, now)) return fail('invite_cap')
     this.send(student, roomId, target, now)
     return { ok: true }
@@ -167,6 +170,16 @@ export class Invites {
       return null
     }
     return invite
+  }
+
+  /** Whether an invitation from `from` to `to` into the room is waiting for an answer and has not expired. */
+  private waiting(from: number, to: number, roomId: string, now: Date): boolean {
+    for (const invite of this.invites.values()) {
+      if (invite.from.person.studentId === from && invite.to === to && invite.roomId === roomId) {
+        if (now.getTime() < invite.expiresAt.getTime()) return true
+      }
+    }
+    return false
   }
 
   /** Whether the student may send `count` more invitations today. */
