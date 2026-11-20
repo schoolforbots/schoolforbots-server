@@ -110,6 +110,24 @@
     "backupMaxAgeHours": 26,
     "diskPercent": 80
   },
+  "club": {
+    "enabled": true,
+    "openBeforeTerm": true,
+    "connection": { "framesPerMinute": 60, "maxQueuedFrames": 20, "maxSendBufferKiB": 1024 },
+    "inviteSeconds": 180,
+    "invitesPerDay": 30,
+    "idleMinutes": 10,
+    "idleDecideSeconds": 180,
+    "disconnectGraceSeconds": 60,
+    "maxSpectators": 20,
+    "reactMinIntervalSeconds": 5,
+    "reactsPerGame": 20,
+    "timeBankSeconds": 120,
+    "roomEventBuffer": 1000,
+    "lobbyMaxRooms": 50,
+    "botNames": ["陪练小一", "陪练小二", "陪练小三", "陪练小四", "陪练小五", "陪练小六"],
+    "wordLists": { "phrases": "config/club/doudizhu-phrases.json", "emoji": "config/club/emoji.json" }
+  },
   "calendar": {
     "openingSpeech": [
       "同学们好！我是{teacher}，从今天起就是{className}的老师。欢迎大家来到机器人网校！",

@@ -531,6 +531,25 @@ npm run typecheck   # 类型检查
 - `GET /v1/school-calendar` 不需要钥匙。它返回 `today`、`state`（`not_started`、`in_term` 或 `on_break`）、`breakName`、`reopensOn`（学校恢复上课的第一个上学日；上学期间是 `null`，还没定也是 `null`）、`openingDay`（配置里没写就是 `null`）、`breaks`（还没结束的假期，正在放的也在里面，按 `from` 排序）和 `maintenance`（见“维护”）。三种状态下都可以报名。
 - 入学通知书（`GET /v1/me/admission`）里的 `startsOn` 是学生分到班那天或之后的第一个上学日。在还没定开学日的假期里分班的学生，它是 `null`。
 
+## 社团
+
+学校配置里可选的 `club` 一段管社团（`/v1/club`）。整段和其中每一项都可以省，省了就用示例配置里的值，所以没有这一段的旧配置照样能启动。
+
+- `enabled`：社团开不开。`false` 时社团一直关着。
+- `openBeforeTerm`：开学日（`calendar.openingDay`）之前的报名期社团开不开，默认开。设成 `false`，开学日之前社团一直关着。
+- 社团在上学日（包括周末自习的日子）的每个时段关门：从开门（开课前 `lesson.doorsOpenMinutesBefore` 分钟）起，到下课后的收尾（`lesson.closingGraceSeconds`）和各班错开下课的时间（`lesson.staggerMillis`）结束为止，连在一起的时段算一段。其余时间都开，包括半夜、放假和周末放假的日子。维护期间社团也关门。
+- `connection`：一条社团连接的 `framesPerMinute`、`maxQueuedFrames`、`maxSendBufferKiB`，和 `classConnection` 的意思一样。
+- `inviteSeconds`：邀请等多久回答。`invitesPerDay`：每个学生每天（学校时区）最多发几个邀请。
+- `idleMinutes`：房间开了以后，或者一局打完以后，这么多分钟还没开局，就提示房间里的人；`idleDecideSeconds` 是给他们决定要不要陪练的时间，到时间没人选，房间关掉。
+- `disconnectGraceSeconds`：没在打牌时掉线，座位留多久。
+- `maxSpectators`：一桌最多几个人观战。
+- `reactMinIntervalSeconds`、`reactsPerGame`：互动消息两条至少隔几秒，每局最多几条。
+- `timeBankSeconds`：每局的时间银行，一步超时以后从这里扣。
+- `roomEventBuffer`：每个房间在内存里留最近多少条房间事件，供重连补发。
+- `lobbyMaxRooms`：大厅最多列出几个房间。
+- `botNames`：陪练的名字，按坐进房间的顺序用。不能重复，不能带 `#`（学生的名字才带 `#学号`）。
+- `wordLists`：互动消息的短语表（`phrases`）和 emoji 白名单（`emoji`）的路径，和 `SCHOOL_CONFIG` 一样相对于工作目录。仓库里只有 `config/club/*.example.json`；真实的词表复制一份去掉 `.example`，不会提交到仓库。
+
 ## 参与贡献
 
 欢迎参与！动手之前请先读[参与贡献](CONTRIBUTING.md)。安全问题请按[安全政策](SECURITY.md)私下报告；参与讨论请遵守[行为准则](CODE_OF_CONDUCT.md)。
