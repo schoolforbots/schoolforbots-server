@@ -178,8 +178,12 @@ export class Club {
    * closing's reason), and then everyone connected is sent `closing` and disconnected.
    */
   closeDoors(closing: DoorClosing, now: Date): void {
-    this.rooms.closeAll(closing.reason, now)
-    this.hub.disconnectAll(closing)
+    // Everyone is sent away even if closing the rooms went wrong.
+    try {
+      this.rooms.closeAll(closing.reason, now)
+    } finally {
+      this.hub.disconnectAll(closing)
+    }
   }
 
   /** Everyone connected is sent `closing` and disconnected; the rooms are left as they are (the service stopping). */

@@ -48,6 +48,22 @@ export function examplePath(path: string): string | null {
   return path.endsWith('.json') ? `${path.slice(0, -'.json'.length)}.example.json` : null
 }
 
+/** `what` after a Chinese word: with a space before it when it starts with a Latin letter (`emoji 表`). */
+const spaced = (what: string): string => (/^[A-Za-z]/.test(what) ? ` ${what}` : what)
+
+/**
+ * Whether an entry of the emoji list is an emoji: it has a pictographic character in it, or it is a flag (two
+ * regional indicators) or a keycap (`#`, `*` or a digit, then the keycap mark). A bare joiner or variation selector,
+ * a Han character or a letter is not.
+ */
+export function isEmoji(entry: string): boolean {
+  return (
+    /\p{Extended_Pictographic}/u.test(entry) ||
+    /^\p{Regional_Indicator}{2}$/u.test(entry) ||
+    /^[0-9#*]️?⃣$/u.test(entry)
+  )
+}
+
 /**
  * Reads the file at `path`, or the example next to it (`<name>.example.json`, with a stderr warning) when it is
  * missing, as the prompts and the moderation lists are read. Throws when neither is there.
@@ -56,9 +72,9 @@ function readListFile(path: string, what: string, warn: (message: string) => voi
   if (existsSync(path)) return { file: path, text: readFileSync(path, 'utf8') }
   const example = examplePath(path)
   if (example === null || !existsSync(example)) {
-    throw new Error(`社团的${what}缺失：没有 ${path}${example === null ? '' : `，也没有 ${example}`}`)
+    throw new Error(`社团的${spaced(what)}缺失：没有 ${path}${example === null ? '' : `，也没有 ${example}`}`)
   }
-  warn(`[club] 未找到 ${path}，改用示例文件 ${example}（只是示例内容，部署前请放入真实的${what}）`)
+  warn(`[club] 未找到 ${path}，改用示例文件 ${example}（只是示例内容，部署前请放入真实的${spaced(what)}）`)
   return { file: example, text: readFileSync(example, 'utf8') }
 }
 
@@ -67,11 +83,11 @@ function parseList<T extends TSchema>(schema: T, file: string, text: string, wha
   try {
     value = JSON.parse(text)
   } catch (err) {
-    throw new Error(`社团的${what}（${file}）不是合法的 JSON：${err instanceof Error ? err.message : String(err)}`)
+    throw new Error(`社团的${spaced(what)}（${file}）不是合法的 JSON：${err instanceof Error ? err.message : String(err)}`)
   }
   if (!Value.Check(schema, value)) {
     const errors = [...Value.Errors(schema, value)].slice(0, 5).map((e) => `${e.instancePath || '/'} ${e.message}`)
-    throw new Error(`社团的${what}（${file}）格式不对：${errors.join('；')}`)
+    throw new Error(`社团的${spaced(what)}（${file}）格式不对：${errors.join('；')}`)
   }
   return value
 }
@@ -80,9 +96,9 @@ const repeated = (values: readonly string[]): string[] => [...new Set(values.fil
 
 /**
  * The club's word lists from the files `club.wordLists` names (each falling back to its example, see `readListFile`),
- * checked: the schemas above, phrase ids and texts unique, each phrase text at most 20 characters and each emoji one
- * character as a person sees it, no emoji twice. Throws, naming the file and what is wrong, so a bad list stops the
- * start.
+ * checked: the schemas above, phrase ids and texts unique, each phrase text at most 20 characters, each emoji one
+ * character as a person sees it and an emoji (`isEmoji`), no emoji twice. Throws, naming the file and what is wrong,
+ * so a bad list stops the start.
  */
 export function loadWordLists(
   paths: { readonly phrases: string; readonly emoji: string },
@@ -104,7 +120,7 @@ export function loadWordLists(
   const twice = repeated(emoji)
   if (twice.length > 0) problems.push(`${emojiFile.file}：emoji 重复：${twice.join(' ')}`)
   for (const e of emoji) {
-    if (graphemeCount(e) !== 1) problems.push(`${emojiFile.file}：${JSON.stringify(e)} 不是一个 emoji`)
+    if (graphemeCount(e) !== 1 || !isEmoji(e)) problems.push(`${emojiFile.file}：${JSON.stringify(e)} 不是一个 emoji`)
   }
   if (problems.length > 0) throw new Error(`社团的词表有问题：\n${problems.join('\n')}`)
   return { emoji, phrases }

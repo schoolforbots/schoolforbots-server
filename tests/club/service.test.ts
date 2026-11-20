@@ -13,7 +13,33 @@ import { captureLogs } from '../helpers/logs.js'
 import { type Client, HELLO, type Received, track } from './helpers/club-app.js'
 import { fakeGame, type FakeGame, QUICK_DECK } from './helpers/fake-game.js'
 import { exampleWordLists } from './helpers/parts.js'
-import { exampleConfig, T0 } from './helpers/rooms.js'
+import { exampleConfig, student, T0 } from './helpers/rooms.js'
+
+// The rounds' query, held back while `hold` is set, and counted.
+const query = vi.hoisted(() => ({ hold: null as Promise<void> | null, calls: 0 }))
+vi.mock('../../src/club/members.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/club/members.js')>()
+  return {
+    ...real,
+    standingsAmong: async (...args: Parameters<typeof real.standingsAmong>) => {
+      query.calls++
+      if (query.hold !== null) await query.hold
+      return real.standingsAmong(...args)
+    },
+  }
+})
+
+/** Holds the rounds' query back until the function it gives is called. */
+function holdQuery(): () => void {
+  let release!: () => void
+  query.hold = new Promise((resolve) => {
+    release = resolve
+  })
+  return () => {
+    query.hold = null
+    release()
+  }
+}
 
 // The club service (src/club/service.ts) on a fresh database, with a clock that moves only when a test moves it and
 // ticks only when a test calls `tick()`: closing and opening by the timetable, maintenance, the clubs switched off,
@@ -54,6 +80,8 @@ let errorsExpected = false
 const sockets: { terminate(): void }[] = []
 
 afterEach(async () => {
+  query.hold = null
+  query.calls = 0
   for (const ws of sockets.splice(0)) ws.terminate()
   if (h !== undefined) {
     if (!errorsExpected) expect(h.logs.entries().filter((e) => e.level >= 50)).toEqual([])
@@ -196,6 +224,59 @@ describe('closing by the timetable', () => {
     expect(await a.client.closed()).toBe(1000)
     expect(s.service.club.rooms.size).toBe(0)
     expect(s.service.club.online()).toEqual([])
+  })
+
+  test('a room whose game fails as it is played out is closed all the same, and everyone is still sent away', async () => {
+    const s = await start()
+    errorsExpected = true
+    const a = await member()
+    const b = await member()
+    await exchange(a.client, { type: 'room.create', visibility: 'public', bots: true })
+    await exchange(b.client, { type: 'room.create', visibility: 'public', bots: true })
+    s.game.sessions[0]!.finish = () => {
+      throw new Error('the game broke')
+    }
+
+    s.clock.set(CLOSURE.startsAt)
+    await s.service.tick()
+    for (const x of [a, b]) {
+      expect((await untilClosing(x.client)).at(-1)).toMatchObject({ type: 'closing', reason: 'club_closed' })
+    }
+    // The other room was played out and closed as usual.
+    expect(s.game.sessions[1]!.over).toBe(true)
+    expect(s.service.club.rooms.size).toBe(0)
+    expect(s.service.club.rooms.roomOf(a.id)).toBeNull()
+    expect(s.internalErrors).toBe(1)
+    expect(s.logs.entries().filter((e) => e.msg === 'club room failed')).toHaveLength(1)
+  })
+
+  test('a room left behind while it is closed is closed at the next tick', async () => {
+    const s = await start()
+    s.clock.set(CLOSURE.startsAt)
+    await s.service.tick()
+
+    // A room left behind (as by a close that went wrong), with nobody connected.
+    const create = { id: 'c', type: 'room.create', visibility: 'public', bots: false } as const
+    expect(s.service.club.handle(student(4242), create, () => null, s.clock.now()).ok).toBe(true)
+    expect(s.service.club.rooms.size).toBe(1)
+
+    s.clock.advance(1000)
+    await s.service.tick()
+    expect(s.service.club.rooms.size).toBe(0)
+  })
+
+  test('a connection that got in while it is closed is sent away at the next tick', async () => {
+    const s = await start()
+    s.clock.set(CLOSURE.startsAt)
+    await s.service.tick()
+    const close = vi.fn()
+    s.service.club.hub.add({ studentId: 4343, send: () => {}, close })
+
+    s.clock.advance(1000)
+    await s.service.tick()
+    expect(close).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: 'closing', reason: 'club_closed', reopensAt: CLOSURE.endsAt.toISOString() }),
+    )
   })
 
   test('while it is closed nobody comes in, and once it reopens they do', async () => {
@@ -341,6 +422,49 @@ describe('the rounds of the students online', () => {
     expect(await hello(again)).toMatchObject({ type: 'closing', reason })
   })
 
+  test('a student no longer on the students table is sent away as not a member', async () => {
+    const s = await start()
+    const { a, b } = await twoAtATable(s)
+    await dbHandle!.deleteFrom('clubMembers').where('studentId', '=', a.id).execute()
+    await dbHandle!.deleteFrom('students').where('id', '=', a.id).execute()
+    await nextRound(s)
+    expect(await a.client.next()).toEqual({ type: 'closing', reason: 'not_member', message: expect.any(String) })
+    expect(s.service.club.online()).toEqual([b.id])
+  })
+
+  test('a round whose query is still going when the service stops sends nobody away after it', async () => {
+    const s = await start()
+    const { a } = await twoAtATable(s)
+    await dbHandle!.updateTable('students').set({ status: 'suspended', suspendedUntil: null }).where('id', '=', a.id).execute()
+    const release = holdQuery()
+    s.clock.advance(s.config.switchRefreshSeconds * 1000)
+    await s.service.tick()
+    expect(query.calls).toBe(1)
+
+    s.service.disconnectAll()
+    expect((await untilClosing(a.client)).at(-1)).toEqual(SERVICE_STOPPING)
+    const disconnect = vi.spyOn(s.service.club, 'disconnect')
+    release()
+    await s.service.roundsDone()
+    expect(disconnect).not.toHaveBeenCalled()
+  })
+
+  test('a tick while a round is still going starts no second one', async () => {
+    const s = await start()
+    await twoAtATable(s)
+    const release = holdQuery()
+    s.clock.advance(s.config.switchRefreshSeconds * 1000)
+    await s.service.tick()
+    s.clock.advance(s.config.switchRefreshSeconds * 1000)
+    await s.service.tick()
+    expect(query.calls).toBe(1)
+    release()
+    await s.service.roundsDone()
+    // The next one, once it is due, runs.
+    await nextRound(s)
+    expect(query.calls).toBe(2)
+  })
+
   test('a round that fails is logged and counted, and the next one happens', async () => {
     const s = await start()
     errorsExpected = true
@@ -390,13 +514,20 @@ describe('a room that fails', () => {
     const s = await start()
     errorsExpected = true
     const a = await member()
+    const b = await member()
     await exchange(a.client, { type: 'room.create', visibility: 'public', bots: true })
-    s.game.sessions[0]!.tick = () => {
+    await exchange(b.client, { type: 'room.create', visibility: 'public', bots: true })
+    const [first, second] = [s.game.sessions[0]!, s.game.sessions[1]!]
+    first.tick = () => {
       throw new Error('the game broke')
     }
+    const ticked = vi.spyOn(second, 'tick')
     await s.service.tick()
+    // Whichever room comes first in the tick, the other is ticked all the same.
+    expect(ticked).toHaveBeenCalledTimes(1)
     expect(s.internalErrors).toBe(1)
     expect(s.logs.entries().filter((e) => e.msg === 'club room failed')).toHaveLength(1)
+    expect(s.service.club.rooms.size).toBe(2)
   })
 })
 

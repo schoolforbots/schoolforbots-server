@@ -157,9 +157,9 @@ export function createClubService(deps: ClubServiceDeps): ClubService {
       return
     }
     if (door.reason !== 'club_closed' && door.reason !== 'maintenance') return
-    // Closed already, nobody can have come in since; anyone found inside all the same is sent out too.
-    if (!wasClosed || club.online().length > 0) {
-      app.log.info({ reason: door.reason, online: club.online().length }, 'club closed')
+    // Closed already, nobody can have come in since; anyone (or any room) found inside all the same is closed too.
+    if (!wasClosed || club.online().length > 0 || club.rooms.size > 0) {
+      app.log.info({ reason: door.reason, online: club.online().length, rooms: club.rooms.size }, 'club closed')
       club.closeDoors(door as DoorClosing, now)
     }
     wasClosed = true
