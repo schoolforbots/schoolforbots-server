@@ -1,3 +1,4 @@
+import { once } from 'node:events'
 import type { FastifyServerOptions } from 'fastify'
 import { expect } from 'vitest'
 import WebSocket from 'ws'
@@ -120,6 +121,7 @@ export interface ClubAppOptions {
   readonly game?: FakeGame
   readonly logger?: FastifyServerOptions['logger']
   readonly helloTimeoutMs?: number
+  readonly pingIntervalMs?: number
   readonly rateWindowMs?: number
   readonly onInternalError?: () => void
 }
@@ -144,6 +146,7 @@ export async function buildTestClubApp(options: ClubAppOptions = {}) {
     ...(options.logger === undefined ? {} : { logger: options.logger }),
     ...(options.helloTimeoutMs === undefined ? {} : { helloTimeoutMs: options.helloTimeoutMs }),
     ...(options.rateWindowMs === undefined ? {} : { rateWindowMs: options.rateWindowMs }),
+    ...(options.pingIntervalMs === undefined ? {} : { pingIntervalMs: options.pingIntervalMs }),
     ...(options.onInternalError === undefined ? {} : { onInternalError: options.onInternalError }),
   }
   const app = buildClubApp(deps)
@@ -204,6 +207,26 @@ export async function buildTestClubApp(options: ClubAppOptions = {}) {
       )
       sockets.push(ws)
       if (client === undefined) throw new Error('The connection was never set up')
+      return client
+    },
+
+    /**
+     * Opens a connection over TCP, the service listening on a port of its own, for what an injected connection does
+     * not do: answer pings (unless `autoPong` is false), and stop reading.
+     */
+    async connectTcp(key: string, p: { autoPong?: boolean } = {}): Promise<Client> {
+      if (!app.server.listening) await app.listen({ port: 0, host: '127.0.0.1' })
+      const address = app.server.address()
+      if (address === null || typeof address === 'string') throw new Error('The service is not listening on a port')
+      const ws = new WebSocket(`ws://127.0.0.1:${address.port}/v1/club`, {
+        headers: { authorization: `Bearer ${key}` },
+        autoPong: p.autoPong ?? true,
+      })
+      // A connection the server drops may end with a reset: that is the point, not a failure of the test.
+      ws.on('error', () => {})
+      const client = track(ws)
+      sockets.push(ws)
+      await once(ws, 'open')
       return client
     },
 
