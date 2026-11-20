@@ -117,7 +117,10 @@ export interface FakeGameOptions {
    * `bidRedealLimit` are filled up with the last one. Shuffled with `random` when absent.
    */
   readonly decks?: readonly (readonly Card[])[]
-  /** The first bidder of a room's first game; random when absent. Each later game's goes one seat on. */
+  /**
+   * The first bidder of a room's first game; random when absent. Each later game's is the seat after the first bidder
+   * of the previous game's last deal (redeals included), as the real game does it.
+   */
   readonly firstBidder?: number
   /** Shuffles the decks and picks the first bidder; `crypto.randomInt` when absent. */
   readonly random?: RandomInt
@@ -166,7 +169,7 @@ const defined = <T extends object>(value: T): T =>
 
 export class FakeSession implements GameSession {
   readonly gameId: number
-  /** The first bidder of the first deal. */
+  /** The first bidder of the first deal; `state.firstBidder` is that of the deal now. */
   readonly firstBidder: number
   private readonly roomId: string
   private readonly players: readonly SeatPlayer[]
@@ -190,7 +193,7 @@ export class FakeSession implements GameSession {
     const random = options.random
     this.firstBidder =
       start.previous instanceof FakeSession
-        ? (start.previous.firstBidder + 1) % 3
+        ? (start.previous.state.firstBidder + 1) % 3
         : (options.firstBidder ?? (random ?? ((n: number) => Math.floor(Math.random() * n)))(3))
     let decks = options.decks
     if (decks !== undefined && decks.length > 0) {
@@ -259,7 +262,8 @@ export class FakeSession implements GameSession {
 
   /**
    * For tests: puts a student seat in trusteeship, as timeouts would (`reason: "timeouts"`). The trustee plays its
-   * steps at once (`auto: "trustee"`) until `trusteeOff` or a step of its own.
+   * steps at once (`auto: "trustee"`), so the seat is never asked and only `trusteeOff` gives it back; a real game
+   * must also let a step of the seat's own do it (see `GameSession.handle`).
    */
   trusteeOn(seat: number, now: Date): GameOutput {
     this.assertStarted()
