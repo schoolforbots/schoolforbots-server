@@ -1,0 +1,600 @@
+import { describe, expect, test } from 'vitest'
+import { nextClose } from '../../src/club/hours.js'
+import type { RoomEventFrame } from '../../src/club/outbox.js'
+import type { FakeSession } from './helpers/fake-game.js'
+import { checkAck, expectError, harness, type Harness, openRoom, playOut, roomOf, student, T0 } from './helpers/rooms.js'
+
+const A = student(1)
+const B = student(2)
+const C = student(3)
+const D = student(4)
+
+const kinds = (frames: RoomEventFrame[]) => frames.map((f) => f.event.kind)
+const eventsOfRoom = (h: Harness, roomId: string) =>
+  h.outbox.roomEvents.filter((r) => r.roomId === roomId).map((r) => r.frame)
+const leftMessages = (h: Harness, studentId: number) => h.outbox.of(studentId).filter((m) => m.type === 'room.left')
+
+/** A room of A, B and C whose first game has started. */
+function fullRoom(h: Harness): string {
+  const roomId = openRoom(h, A, [B])
+  checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+  return roomId
+}
+
+describe('opening and joining', () => {
+  test('a new room has its host in seat 0, ready, and no game', () => {
+    const h = harness()
+    const result = checkAck(h.rooms.create(A, { visibility: 'public', bots: false }, h.now), 'RoomResult')
+    const room = roomOf(result)
+    expect(room.roomId).toMatch(/^r[0-9a-z]{6}$/)
+    expect(room).toMatchObject({
+      club: 'doudizhu',
+      visibility: 'public',
+      host: 1,
+      spectators: 0,
+      gamesPlayed: 0,
+      closesAt: nextClose(h.config, T0).toISOString(),
+      lastSeq: 1,
+      game: null,
+    })
+    expect(room.seats).toEqual([
+      { seat: 0, player: { studentId: 1, displayName: '主人1家的小鱼1 #0001', bot: false }, ready: true, online: true, trustee: false },
+      { seat: 1, player: null, ready: false, online: false, trustee: false },
+      { seat: 2, player: null, ready: false, online: false, trustee: false },
+    ])
+    // Its own `joined` is in the state it was given, so it is not sent to it.
+    expect(h.outbox.of(1)).toEqual([])
+    expect(h.rooms.roomOf(1)).toBe(room.roomId)
+  })
+
+  test('the others hear of whoever joins; the one who joins gets the state with their own joined', () => {
+    const h = harness()
+    const roomId = openRoom(h, A)
+    const room = roomOf(checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult'))
+    expect(room.lastSeq).toBe(2)
+    expect(room.seats[1]!.player!.studentId).toBe(2)
+    expect(h.outbox.eventsOf(1).map((f) => [f.seq, f.event])).toEqual([
+      [2, { kind: 'joined', seat: 1, player: { studentId: 2, displayName: '主人2家的小鱼2 #0002', bot: false } }],
+    ])
+    expect(h.outbox.of(2)).toEqual([])
+  })
+
+  test('the room fills, and the first game starts: the deal to all, each hand to its own seat alone', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.outbox.clear()
+    const room = roomOf(checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult'))
+    // C's state is from right after it sat down; the game follows as room events.
+    expect(room.game).toBeNull()
+    expect(room.lastSeq).toBe(3)
+    expect(h.game.sessions).toHaveLength(1)
+    for (const id of [1, 2, 3]) {
+      const got = h.outbox.of(id)
+      const hands = got.filter((m) => m.type === 'hand')
+      expect(hands).toHaveLength(1)
+      expect(got.filter((m) => m.type === 'room.event').map((m) => (m as RoomEventFrame).seq)).toEqual(
+        id === 3 ? [4] : [3, 4],
+      )
+    }
+    // The first bidder (seat 0, A) alone is asked.
+    expect(h.outbox.deliveries.filter((d) => d.message.type === 'your_turn').map((d) => d.studentId)).toEqual([1])
+    const state = h.rooms.state(roomId, h.now)!
+    expect(state.game).toMatchObject({ phase: 'bidding', toAct: 0 })
+  })
+
+  test('a game, ready, and the next game, which goes on from the last', () => {
+    const h = harness()
+    const roomId = fullRoom(h)
+    playOut(h, roomId)
+    let state = h.rooms.state(roomId, h.now)!
+    expect(state.gamesPlayed).toBe(1)
+    expect(state.game).toMatchObject({ phase: 'over' })
+    expect(state.seats.map((s) => s.ready)).toEqual([false, false, false])
+
+    h.outbox.clear()
+    checkAck(h.rooms.ready(1, h.now))
+    checkAck(h.rooms.ready(1, h.now)) // ready already: no error, nothing new
+    checkAck(h.rooms.ready(2, h.now))
+    expect(kinds(h.outbox.eventsOf(3))).toEqual(['ready', 'ready'])
+    expect(h.outbox.eventsOf(3).map((f) => f.event)).toEqual([
+      { kind: 'ready', seat: 0 },
+      { kind: 'ready', seat: 1 },
+    ])
+    expect(h.game.sessions).toHaveLength(1)
+    checkAck(h.rooms.ready(3, h.now))
+    expect(h.game.sessions).toHaveLength(2)
+    expect((h.game.sessions[1] as FakeSession).firstBidder).toBe(1)
+    state = h.rooms.state(roomId, h.now)!
+    expect(state.game).toMatchObject({ phase: 'bidding', gameId: 2 })
+    playOut(h, roomId)
+    expect(h.rooms.state(roomId, h.now)!.gamesPlayed).toBe(2)
+  })
+
+  test('a student in a room may not open, join or quick-join another', () => {
+    const h = harness()
+    const roomId = openRoom(h, A)
+    const other = openRoom(h, B)
+    expectError(h.rooms.create(A, { visibility: 'public', bots: false }, h.now), 'in_room')
+    expectError(h.rooms.join(A, other, h.now), 'in_room')
+    expectError(h.rooms.join(A, roomId, h.now), 'in_room')
+    expectError(h.rooms.quick(A, h.now), 'in_room')
+  })
+
+  test('no such room, an invite-only room, a full room', () => {
+    const h = harness()
+    expectError(h.rooms.join(A, 'rnope00', h.now), 'room_not_found')
+    const invite = openRoom(h, A, [], 'invite')
+    expectError(h.rooms.join(B, invite, h.now), 'room_private')
+    checkAck(h.rooms.join(B, invite, h.now, { invited: true }), 'RoomResult')
+    checkAck(h.rooms.join(C, invite, h.now, { invited: true }), 'RoomResult')
+    expectError(h.rooms.join(D, invite, h.now, { invited: true }), 'room_full')
+  })
+
+  test('room ids are drawn again when they are taken', () => {
+    const draws = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6]
+    const h = harness({ randomInt: () => draws.shift() ?? 0 })
+    const first = openRoom(h, A)
+    const second = openRoom(h, B)
+    expect(first).toBe('r000000')
+    expect(second).toBe('r123456')
+  })
+})
+
+describe('the same owner', () => {
+  test('two students of one owner never sit in one room, by joining or by quick join', () => {
+    const h = harness()
+    const sibling = student(9, 'owner1@example.com')
+    const roomId = openRoom(h, A)
+    expectError(h.rooms.join(sibling, roomId, h.now), 'same_owner')
+    expectError(h.rooms.join(sibling, roomId, h.now, { invited: true }), 'same_owner')
+    const quick = checkAck(h.rooms.quick(sibling, h.now), 'QuickJoinResult')
+    expect(quick).toMatchObject({ ok: true, result: { created: true } })
+    expect(roomOf(quick).roomId).not.toBe(roomId)
+  })
+})
+
+describe('leaving', () => {
+  test('the one who leaves is told, the others see it, and the host passes to the next student in seat order', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.outbox.clear()
+    checkAck(h.rooms.leave(1, h.now))
+    expect(leftMessages(h, 1)).toEqual([{ type: 'room.left', roomId, reason: 'left' }])
+    expect(h.outbox.eventsOf(1)).toEqual([])
+    expect(h.outbox.eventsOf(2).map((f) => f.event)).toEqual([
+      { kind: 'left', seat: 0, player: { studentId: 1, displayName: '主人1家的小鱼1 #0001', bot: false }, reason: 'left' },
+      { kind: 'host', studentId: 2 },
+    ])
+    expect(h.rooms.roomOf(1)).toBeNull()
+    expect(h.rooms.state(roomId, h.now)!.host).toBe(2)
+  })
+
+  test('the host goes round the seats', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B]) // A in seat 0, B in seat 1
+    checkAck(h.rooms.leave(1, h.now)) // B is host; seat 0 is free
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult') // C takes seat 0
+    checkAck(h.rooms.leave(2, h.now)) // after seat 1: seat 2 is free, then seat 0
+    expect(h.rooms.state(roomId, h.now)!.host).toBe(3)
+  })
+
+  test('when the last student leaves, the room closes as empty and is forgotten', () => {
+    const closed: string[] = []
+    const h = harness({ listeners: { closed: (roomId, reason) => closed.push(`${roomId}:${reason}`) } })
+    const roomId = openRoom(h, A)
+    checkAck(h.rooms.leave(1, h.now))
+    expect(closed).toEqual([`${roomId}:empty`])
+    expect(h.rooms.size).toBe(0)
+    expect(h.rooms.state(roomId, h.now)).toBeNull()
+    expect(h.rooms.replay(1, roomId, 0)).toBeNull()
+    expect(kinds(eventsOfRoom(h, roomId))).toEqual([])
+  })
+
+  test('a room with only bots left closes as empty', () => {
+    const h = harness({ spectators: () => [900] })
+    const roomId = roomOf(checkAck(h.rooms.create(A, { visibility: 'public', bots: true }, h.now), 'RoomResult')).roomId
+    playOut(h, roomId)
+    checkAck(h.rooms.leave(1, h.now))
+    expect(h.rooms.size).toBe(0)
+    const last = h.outbox.eventsOf(900).slice(-2).map((f) => f.event)
+    expect(last).toEqual([
+      expect.objectContaining({ kind: 'left', seat: 0, reason: 'left' }),
+      { kind: 'closed', reason: 'empty' },
+    ])
+  })
+
+  test('nobody leaves during a game, nor gets ready', () => {
+    const h = harness()
+    const roomId = fullRoom(h)
+    expectError(h.rooms.leave(2, h.now), 'game_in_progress')
+    expectError(h.rooms.ready(2, h.now), 'game_in_progress')
+    expect(h.rooms.roomOf(2)).toBe(roomId)
+  })
+
+  test('a student in no room', () => {
+    const h = harness()
+    expectError(h.rooms.leave(1, h.now), 'not_in_room')
+    expectError(h.rooms.ready(1, h.now), 'not_in_room')
+    expectError(h.rooms.bots(1, h.now), 'not_in_room')
+    expectError(h.rooms.trusteeOff(1, h.now), 'not_in_room')
+    expectError(h.rooms.gameMessage(1, { id: 'b', type: 'bid', game: 'doudizhu', turn: 1, bid: 3 }, h.now), 'not_in_room')
+  })
+
+  test('game messages before the first game', () => {
+    const h = harness()
+    openRoom(h, A)
+    expectError(h.rooms.gameMessage(1, { id: 'b', type: 'bid', game: 'doudizhu', turn: 1, bid: 3 }, h.now), 'stale_turn')
+    expectError(h.rooms.trusteeOff(1, h.now), 'not_trustee')
+  })
+})
+
+describe('the idle prompt', () => {
+  const IDLE = 10 * 60
+  const DECIDE = 180
+
+  test('before the first game: nobody is asked out, and room.bots fills the seats and starts', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.advance(IDLE - 1)
+    expect(kinds(h.outbox.eventsOf(1))).not.toContain('idle')
+    h.advance(1)
+    const idle = h.outbox.eventsOf(1).find((f) => f.event.kind === 'idle')!
+    expect(idle.event).toEqual({ kind: 'idle', decideBy: new Date(h.now.getTime() + DECIDE * 1000).toISOString() })
+    expect(h.rooms.state(roomId, h.now)!.seats.filter((s) => s.player !== null)).toHaveLength(2)
+
+    h.outbox.clear()
+    checkAck(h.rooms.bots(2, h.now))
+    const events = h.outbox.eventsOf(1)
+    expect(events[0]!.event).toEqual({
+      kind: 'bots',
+      seats: [2],
+      players: [{ studentId: null, displayName: '陪练小一', bot: true }],
+    })
+    expect(events[1]!.event).toMatchObject({ kind: 'game', event: { kind: 'dealt' } })
+    expect(h.game.sessions).toHaveLength(1)
+    expectError(h.rooms.bots(2, h.now), 'no_idle_prompt')
+  })
+
+  test('after a game: those not ready are asked out first, then the prompt', () => {
+    const h = harness()
+    const roomId = fullRoom(h)
+    playOut(h, roomId)
+    h.outbox.clear()
+    checkAck(h.rooms.ready(1, h.now))
+    h.advance(IDLE)
+    expect(leftMessages(h, 2)).toEqual([{ type: 'room.left', roomId, reason: 'not_ready' }])
+    expect(leftMessages(h, 3)).toEqual([{ type: 'room.left', roomId, reason: 'not_ready' }])
+    expect(h.outbox.eventsOf(1).map((f) => f.event.kind === 'left' ? `left:${f.event.seat}:${f.event.reason}` : f.event.kind)).toEqual([
+      'ready',
+      'left:1:not_ready',
+      'left:2:not_ready',
+      'idle',
+    ])
+    expect(h.rooms.roomOf(2)).toBeNull()
+    checkAck(h.rooms.bots(1, h.now))
+    expect(h.game.sessions).toHaveLength(2)
+  })
+
+  test('a host asked out passes the host to a student who stays', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    playOut(h, roomId)
+    checkAck(h.rooms.ready(3, h.now))
+    h.outbox.clear()
+    h.advance(IDLE)
+    expect(h.outbox.eventsOf(3).map((f) => f.event.kind === 'left' ? `left:${f.event.seat}` : f.event.kind)).toEqual([
+      'left:1',
+      'left:0',
+      'host',
+      'idle',
+    ])
+    expect(h.rooms.state(roomId, h.now)!.host).toBe(3)
+  })
+
+  test('after a game nobody is ready: everyone is asked out and the room closes as empty, with no prompt', () => {
+    const h = harness({ spectators: () => [900] })
+    const roomId = fullRoom(h)
+    playOut(h, roomId)
+    h.outbox.clear()
+    h.advance(IDLE)
+    expect(kinds(h.outbox.eventsOf(900))).toEqual(['left', 'left', 'left', 'closed'])
+    expect(h.outbox.eventsOf(900).at(-1)!.event).toEqual({ kind: 'closed', reason: 'empty' })
+    expect(h.rooms.size).toBe(0)
+  })
+
+  test('the idle clock starts again when a game ends', () => {
+    const h = harness()
+    const roomId = fullRoom(h)
+    h.advance(IDLE + 60) // during the game: no prompt
+    expect(kinds(h.outbox.eventsOf(1))).not.toContain('idle')
+    playOut(h, roomId)
+    for (const id of [1, 2, 3]) checkAck(h.rooms.ready(id, h.now)) // the second game starts
+    playOut(h, roomId)
+    h.outbox.clear()
+    checkAck(h.rooms.ready(1, h.now))
+    checkAck(h.rooms.ready(2, h.now))
+    checkAck(h.rooms.ready(3, h.now))
+    expect(h.game.sessions).toHaveLength(3)
+  })
+
+  test('nobody answers by decideBy: the room closes as idle', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.advance(IDLE)
+    h.outbox.clear()
+    h.advance(DECIDE - 1)
+    expect(h.rooms.size).toBe(1)
+    h.advance(1)
+    expect(h.rooms.size).toBe(0)
+    for (const id of [1, 2]) {
+      expect(h.outbox.eventsOf(id).map((f) => f.event)).toEqual([{ kind: 'closed', reason: 'idle' }])
+      expect(leftMessages(h, id)).toEqual([{ type: 'room.left', roomId, reason: 'closed' }])
+    }
+    expect(h.rooms.roomOf(1)).toBeNull()
+  })
+
+  test('room.bots at decideBy, before the tick, is too late', () => {
+    const h = harness()
+    openRoom(h, A, [B])
+    h.advance(IDLE)
+    h.now = new Date(h.now.getTime() + DECIDE * 1000)
+    expectError(h.rooms.bots(1, h.now), 'no_idle_prompt')
+  })
+
+  test('the room fills before decideBy: the game starts and the prompt is over', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.advance(IDLE)
+    h.advance(30)
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    expect(h.game.sessions).toHaveLength(1)
+    expectError(h.rooms.bots(1, h.now), 'no_idle_prompt')
+    h.advance(DECIDE) // past the old decideBy: nothing closes
+    expect(h.rooms.size).toBe(1)
+  })
+
+  test('room.bots without a prompt', () => {
+    const h = harness()
+    openRoom(h, A)
+    expectError(h.rooms.bots(1, h.now), 'no_idle_prompt')
+  })
+
+  test('a room opened with bots starts at once and never gets a prompt while it plays', () => {
+    const started: string[] = []
+    const h = harness({ listeners: { gameStarted: (roomId) => started.push(roomId) } })
+    const result = checkAck(h.rooms.create(A, { visibility: 'invite', bots: true }, h.now), 'RoomResult')
+    const roomId = roomOf(result).roomId
+    expect(started).toEqual([roomId])
+    const events = h.outbox.eventsOf(1)
+    expect(events[0]!.event).toEqual({
+      kind: 'bots',
+      seats: [1, 2],
+      players: [
+        { studentId: null, displayName: '陪练小一', bot: true },
+        { studentId: null, displayName: '陪练小二', bot: true },
+      ],
+    })
+    expect(h.outbox.of(1).filter((m) => m.type === 'hand')).toHaveLength(1)
+    h.advance(IDLE + DECIDE + 1)
+    expect(kinds(h.outbox.eventsOf(1))).not.toContain('idle')
+    expect(h.rooms.size).toBe(1)
+    const state = h.rooms.state(roomId, h.now)!
+    expect(state.seats.map((s) => [s.ready, s.online])).toEqual([
+      [true, true],
+      [true, true],
+      [true, true],
+    ])
+  })
+
+  test('bots stay ready after a game; the student alone gets ready', () => {
+    const h = harness()
+    const roomId = roomOf(h.rooms.create(A, { visibility: 'public', bots: true }, h.now)).roomId
+    playOut(h, roomId)
+    expect(h.rooms.state(roomId, h.now)!.seats.map((s) => s.ready)).toEqual([false, true, true])
+    checkAck(h.rooms.ready(1, h.now))
+    expect(h.game.sessions).toHaveLength(2)
+  })
+})
+
+describe('disconnecting', () => {
+  const GRACE = 60
+
+  test('out of a game, the seat is kept for the grace, and then the student is put out', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.rooms.disconnected(2, h.now)
+    expect(h.rooms.state(roomId, h.now)!.seats[1]).toMatchObject({ online: false, ready: true })
+    h.outbox.clear()
+    h.advance(GRACE - 1)
+    expect(h.rooms.roomOf(2)).toBe(roomId)
+    h.advance(1)
+    expect(h.rooms.roomOf(2)).toBeNull()
+    expect(h.outbox.eventsOf(1).map((f) => f.event)).toEqual([
+      expect.objectContaining({ kind: 'left', seat: 1, reason: 'disconnected_idle' }),
+    ])
+    // Nobody to tell: B is not connected.
+    expect(h.outbox.of(2)).toEqual([])
+  })
+
+  test('coming back within the grace keeps the seat', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.rooms.disconnected(2, h.now)
+    h.advance(GRACE - 1)
+    h.rooms.reconnected(2, h.now)
+    h.advance(GRACE * 2)
+    expect(h.rooms.roomOf(2)).toBe(roomId)
+    expect(h.rooms.state(roomId, h.now)!.seats[1]!.online).toBe(true)
+  })
+
+  test('the host put out passes the host on; the last one put out closes the room', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.rooms.disconnected(1, h.now)
+    h.advance(GRACE)
+    expect(h.rooms.state(roomId, h.now)!.host).toBe(2)
+    h.rooms.disconnected(2, h.now)
+    h.advance(GRACE)
+    expect(h.rooms.size).toBe(0)
+  })
+
+  test('during a game the seat is kept; the grace counts from the end of the game', () => {
+    const h = harness()
+    const roomId = fullRoom(h)
+    h.rooms.disconnected(2, h.now)
+    h.advance(GRACE * 10)
+    expect(h.rooms.roomOf(2)).toBe(roomId)
+    expect(h.rooms.state(roomId, h.now)!.seats[1]!.online).toBe(false)
+    playOut(h, roomId)
+    h.advance(GRACE - 1)
+    expect(h.rooms.roomOf(2)).toBe(roomId)
+    h.advance(1)
+    expect(h.rooms.roomOf(2)).toBeNull()
+  })
+
+  test('a student who disconnected before the game started keeps the seat while it is played', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.rooms.disconnected(2, h.now)
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult') // the game starts
+    h.advance(GRACE * 2)
+    expect(h.rooms.roomOf(2)).toBe(roomId)
+  })
+
+  test('a reconnect gets the events it missed that are still kept, and its hand and turn', () => {
+    const h = harness()
+    const roomId = fullRoom(h)
+    expect(h.rooms.replay(1, 'rother0', 0)).toBeNull()
+    expect(h.rooms.replay(4, roomId, 0)).toBeNull()
+    const all = h.rooms.replay(1, roomId, 0)!
+    expect(all.map((f) => f.seq)).toEqual([1, 2, 3, 4])
+    expect(all.every((f) => f.replayed)).toBe(true)
+    expect(h.rooms.replay(1, roomId, 3)!.map((f) => f.seq)).toEqual([4])
+    expect(h.rooms.replay(1, roomId, 4)).toEqual([])
+    expect(h.rooms.resend(1, h.now).map((m) => m.type)).toEqual(['hand', 'your_turn'])
+    expect(h.rooms.resend(2, h.now).map((m) => m.type)).toEqual(['hand'])
+    expect(h.rooms.resend(4, h.now)).toEqual([])
+  })
+})
+
+describe('room events', () => {
+  test('seq counts from 1 without a gap, and only the last roomEventBuffer are kept', () => {
+    const h = harness({ club: { roomEventBuffer: 5 }, game: {} })
+    const roomId = fullRoom(h)
+    playOut(h, roomId)
+    const sent = eventsOfRoom(h, roomId).map((f) => f.seq)
+    const last = h.rooms.state(roomId, h.now)!.lastSeq
+    expect(last).toBeGreaterThan(5)
+    // Every seq from 2 on went out (seq 1, A's joined, had nobody else to go to).
+    expect(sent).toEqual(Array.from({ length: last - 1 }, (_, i) => i + 2))
+    expect(h.rooms.replay(1, roomId, 0)!.map((f) => f.seq)).toEqual([last - 4, last - 3, last - 2, last - 1, last])
+  })
+
+  test('the spectators get the public events but no private message, and are counted', () => {
+    const h = harness({ spectators: () => [900, 901] })
+    const watched = openRoom(h, A, [B])
+    expect(h.rooms.state(watched, h.now)!.spectators).toBe(2)
+    checkAck(h.rooms.join(C, watched, h.now), 'RoomResult')
+    playOut(h, watched)
+    const toSpectator = h.outbox.deliveries.filter((d) => d.studentId === 900)
+    expect(toSpectator.length).toBeGreaterThan(0)
+    expect(toSpectator.every((d) => d.as === 'spectator' && d.message.type === 'room.event')).toBe(true)
+    expect(h.outbox.eventsOf(900).map((f) => f.seq)).toEqual(eventsOfRoom(h, watched).map((f) => f.seq))
+  })
+
+  test('a private event goes to those it names who sit in the room, and is replayed to them alone', () => {
+    const h = harness({ spectators: () => [900] })
+    const roomId = openRoom(h, A, [B])
+    h.outbox.clear()
+    const from = { studentId: 1, displayName: '主人1家的小鱼1 #0001', bot: false as const }
+    const to = { studentId: 2, displayName: '主人2家的小鱼2 #0002', bot: false as const }
+    const seq = h.rooms.emit(
+      roomId,
+      { kind: 'react', from, to, reaction: 'phrase', content: 'p1', text: '好牌', visibility: 'private' },
+      h.now,
+      [1, 2, 77],
+    )
+    const pub = h.rooms.emit(roomId, { kind: 'ready', seat: 0 }, h.now)
+    expect(pub).toBe(seq + 1)
+    expect(h.outbox.roomEvents.map((r) => r.audience)).toEqual([
+      { seated: [1, 2], spectators: [] },
+      { seated: [1, 2], spectators: [900] },
+    ])
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    playOut(h, roomId)
+    expect(h.rooms.replay(1, roomId, 0)!.map((f) => f.seq)).toContain(seq)
+    expect(h.rooms.replay(3, roomId, 0)!.map((f) => f.seq)).not.toContain(seq)
+    expect(h.rooms.replay(3, roomId, 0)!.map((f) => f.seq)).toContain(pub)
+  })
+
+  test('a hand goes to its seat alone, and a bot seat gets nothing', () => {
+    const h = harness({ spectators: () => [900] })
+    roomOf(h.rooms.create(A, { visibility: 'public', bots: true }, h.now))
+    const privates = h.outbox.deliveries.filter((d) => d.message.type === 'hand' || d.message.type === 'your_turn')
+    expect(privates.map((d) => [d.studentId, d.as, d.message.type])).toEqual([
+      [1, 'student', 'hand'],
+      [1, 'student', 'your_turn'],
+    ])
+  })
+})
+
+describe('closing the club', () => {
+  test('a game being played is played out, then every room closes and its students are put out', () => {
+    const closed: string[] = []
+    const h = harness({ listeners: { closed: (_, reason) => closed.push(reason) } })
+    const playing = fullRoom(h)
+    const waiting = openRoom(h, D)
+    h.outbox.clear()
+    h.rooms.closeAll('club_closed', h.now)
+    const events = h.outbox.eventsOf(1)
+    const auto = events.flatMap((f) =>
+      f.event.kind === 'game' && 'auto' in f.event.event ? [f.event.event.auto] : [],
+    )
+    expect(auto.length).toBeGreaterThan(0)
+    expect(auto.every((a) => a === 'closing')).toBe(true)
+    expect(events.some((f) => f.event.kind === 'game' && f.event.event.kind === 'over')).toBe(true)
+    expect(events.at(-1)!.event).toEqual({ kind: 'closed', reason: 'club_closed' })
+    expect((h.game.sessions[0] as FakeSession).over).toBe(true)
+    for (const id of [1, 2, 3]) expect(leftMessages(h, id)).toEqual([{ type: 'room.left', roomId: playing, reason: 'closed' }])
+    expect(leftMessages(h, 4)).toEqual([{ type: 'room.left', roomId: waiting, reason: 'closed' }])
+    expect(h.rooms.size).toBe(0)
+    expect(closed).toEqual(['club_closed', 'club_closed'])
+    expect(h.rooms.roomOf(1)).toBeNull()
+    expect(h.rooms.lobby().rooms).toEqual([])
+  })
+
+  test('maintenance closes the rooms the same way', () => {
+    const h = harness()
+    openRoom(h, A)
+    h.rooms.closeAll('maintenance', h.now)
+    expect(h.outbox.eventsOf(1).at(-1)!.event).toEqual({ kind: 'closed', reason: 'maintenance' })
+    expect(h.rooms.size).toBe(0)
+  })
+
+  test('the memory of closed rooms is let go', () => {
+    const h = harness()
+    for (let i = 0; i < 100; i++) {
+      const s = student(100 + i)
+      openRoom(h, s)
+      checkAck(h.rooms.leave(s.person.studentId, h.now))
+    }
+    expect(h.rooms.size).toBe(0)
+  })
+})
+
+describe('the trustee', () => {
+  test('trustee.off goes to the game and the state shows the seat in trusteeship', () => {
+    const h = harness()
+    const roomId = fullRoom(h)
+    const session = h.game.sessions[0] as FakeSession
+    // Seat 1 goes to the trustee; it acts only when seat 1 is to act, which seat 0 is now.
+    const out = session.trusteeOn(1, h.now)
+    expect(out.emits).toHaveLength(1)
+    expect(h.rooms.state(roomId, h.now)!.seats.map((s) => s.trustee)).toEqual([false, true, false])
+    checkAck(h.rooms.trusteeOff(2, h.now))
+    expect(h.rooms.state(roomId, h.now)!.seats.map((s) => s.trustee)).toEqual([false, false, false])
+    expect(h.outbox.eventsOf(1).at(-1)!.event).toEqual({ kind: 'trustee', seat: 1, on: false, reason: 'off' })
+    expectError(h.rooms.trusteeOff(2, h.now), 'not_trustee')
+  })
+})
