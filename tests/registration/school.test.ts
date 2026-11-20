@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { Value } from 'typebox/value'
 import { afterEach, describe, expect, test } from 'vitest'
+import { clubHours } from '../../src/club/hours.js'
 import { SchoolCalendar, SchoolRulesDiffResult, SchoolRulesResult, SchoolRulesVersionResult } from '../../src/protocol/http.js'
 import type { SchoolConfig } from '../../src/shared/config.js'
 import { setMaintenance } from '../../src/shared/maintenance.js'
@@ -23,7 +24,15 @@ async function schoolWith(calendar: Calendar | undefined, now?: string, config: 
   if (now !== undefined) t.clock.set(new Date(now))
 }
 
+/** The calendar, less its `clubs`, which is checked here against `clubHours` at the same moment. */
 async function getCalendar() {
+  const body = await getFullCalendar()
+  const { clubs, ...rest } = body
+  expect(clubs).toEqual(clubHours(t.config, t.clock.now()))
+  return rest
+}
+
+async function getFullCalendar() {
   const res = await t.app.inject({ method: 'GET', url: '/v1/school-calendar' })
   expect(res.statusCode).toBe(200)
   expect(Value.Check(SchoolCalendar, res.json())).toBe(true)
@@ -187,6 +196,65 @@ describe('GET /v1/school-calendar', () => {
       reopensOn: '2026-12-07',
       breaks: [{ from: '2026-11-23', reopensOn: '2026-12-07', name: '期中假' }],
     })
+  })
+})
+
+describe('the clubs in the school calendar', () => {
+  /** A school with the example calendar settings and these club settings, whose clock reads `now`. */
+  async function clubSchool(now: string, club: { enabled?: boolean; openBeforeTerm?: boolean } = {}, calendar = OPENING) {
+    const config = exampleConfig()
+    t = await buildTestApp({ config: { calendar, club: { ...config.club, ...club } } })
+    t.clock.set(new Date(now))
+  }
+
+  test('in term: the closures of the next 24 hours, one per slot, from the doors to the end of the closing grace', async () => {
+    // Monday 7 December 2026, 09:00 in Beijing: the morning doors open at 09:45.
+    await clubSchool('2026-12-07T09:00:00+08:00')
+    const { clubs } = await getFullCalendar()
+    expect(clubs).toEqual(clubHours(t.config, t.clock.now()))
+    expect(clubs.enabled).toBe(true)
+    const grace = t.config.lesson.closingGraceSeconds * 1000
+    const window = (slotStart: string) => ({
+      startsAt: new Date(new Date(`${slotStart}+08:00`).getTime() - 15 * 60_000).toISOString(),
+      endsAt: new Date(new Date(`${slotStart}+08:00`).getTime() + t.config.lesson.dismissalMinute * 60_000 + grace).toISOString(),
+    })
+    expect(clubs.closures).toEqual([
+      window('2026-12-07T10:00:00'),
+      window('2026-12-07T15:00:00'),
+      window('2026-12-07T20:00:00'),
+    ])
+  })
+
+  test('on a break the clubs are open all day: no closures', async () => {
+    await clubSchool('2026-12-25T12:00:00+08:00')
+    expect((await getFullCalendar()).clubs).toEqual({ enabled: true, closures: [] })
+  })
+
+  test('switched off, the calendar says so, and the timetable still gives the closures', async () => {
+    await clubSchool('2026-12-07T09:00:00+08:00', { enabled: false })
+    const { clubs } = await getFullCalendar()
+    expect(clubs.enabled).toBe(false)
+    expect(clubs.closures).toHaveLength(3)
+  })
+
+  test('closed before term when the clubs do not open early: one closure to 24 hours from now', async () => {
+    await clubSchool('2026-11-20T12:00:00+08:00', { openBeforeTerm: false })
+    expect((await getFullCalendar()).clubs).toEqual({
+      enabled: true,
+      closures: [{ startsAt: '2026-11-20T04:00:00.000Z', endsAt: '2026-11-21T04:00:00.000Z' }],
+    })
+
+    await clubSchool('2026-11-20T12:00:00+08:00', { openBeforeTerm: true })
+    expect((await getFullCalendar()).clubs).toEqual({ enabled: true, closures: [] })
+  })
+
+  test('maintenance is not among the closures', async () => {
+    await clubSchool('2026-12-25T12:00:00+08:00')
+    await setMaintenance(t.db, { message: '服务器升级中', expectedBackAt: null }, new Date('2026-12-25T11:00:00+08:00'))
+    await t.maintenance.refresh()
+    const calendar = await getFullCalendar()
+    expect(calendar.maintenance).not.toBeNull()
+    expect(calendar.clubs).toEqual({ enabled: true, closures: [] })
   })
 })
 

@@ -90,6 +90,7 @@ export async function buildTestApp(
   return {
     app,
     db,
+    config,
     mailer,
     clock,
     maintenance,
