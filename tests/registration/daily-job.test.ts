@@ -811,7 +811,7 @@ describe('the records the alert mails count', () => {
   })
 })
 
-describe('taking students who left the school out of the clubs', () => {
+describe('deleting the club memberships that are no longer current', () => {
   const members = async () =>
     (await db.selectFrom('clubMembers').select('studentId').orderBy('studentId').execute()).map((r) => r.studentId)
 
@@ -822,6 +822,7 @@ describe('taking students who left the school out of the clubs', () => {
       const inClass = status === 'active' || status === 'suspended'
       const { id } = await insertStudent(db, {
         status,
+        createdAt: new Date(now.getTime() - 10 * DAY),
         classId: inClass ? classId : null,
         assignedAt: now,
         lastAttendedAt: now,
@@ -844,10 +845,34 @@ describe('taking students who left the school out of the clubs', () => {
   test('a student the same run drops for staying away leaves the clubs in that run', async () => {
     const longAgo = new Date(clock.now().getTime() - 60 * DAY)
     const classId = await insertClass(db, { classNo: 1 })
-    const { id } = await insertStudent(db, { status: 'active', classId, assignedAt: longAgo, lastAttendedAt: longAgo })
+    const { id } = await insertStudent(db, {
+      status: 'active',
+      classId,
+      createdAt: longAgo,
+      assignedAt: longAgo,
+      lastAttendedAt: longAgo,
+    })
     await db.insertInto('clubMembers').values({ studentId: id, club: 'doudizhu', joinedAt: longAgo }).execute()
 
     expect(await job()).toMatchObject({ dropped: 1, clubMembersDropped: 1 })
+    expect(await members()).toEqual([])
+  })
+
+  test('a membership from before a re-enrolment goes, though the student is back in a class', async () => {
+    const now = clock.now()
+    const classId = await insertClass(db, { classNo: 1 })
+    // Joined on the 1st, withdrew, re-enrolled on the 2nd and was seated again.
+    const { id } = await insertStudent(db, {
+      status: 'active',
+      classId,
+      createdAt: new Date(now.getTime() - 20 * DAY),
+      queuedAt: new Date(now.getTime() - DAY),
+      assignedAt: now,
+      lastAttendedAt: now,
+    })
+    await db.insertInto('clubMembers').values({ studentId: id, club: 'doudizhu', joinedAt: new Date(now.getTime() - 2 * DAY) }).execute()
+
+    expect(await job()).toMatchObject({ clubMembersDropped: 1 })
     expect(await members()).toEqual([])
   })
 })

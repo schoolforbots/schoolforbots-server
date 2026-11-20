@@ -39,10 +39,13 @@ function errorOf(res: { statusCode: number; json<T>(): T }) {
   return { status: res.statusCode, ...body.error }
 }
 
+/** When the students here registered: before the test clock's time, when they join. */
+const REGISTERED = new Date('2026-10-01T12:00:00+08:00')
+
 /** A student in a class, the kind that may join. */
 async function activeStudent() {
   const classId = await insertClass(t.db, { classNo: 1 })
-  return insertStudent(t.db, { status: 'active', classId, assignedAt: t.clock.now() })
+  return insertStudent(t.db, { status: 'active', classId, createdAt: REGISTERED, assignedAt: REGISTERED })
 }
 
 const NOT_MEMBER = { club: 'doudizhu', member: false, joinedAt: null }
@@ -72,7 +75,7 @@ describe('joining', () => {
     ['an expelled student', { status: 'expelled', inClass: false }, '已经离开学校，不能入社。'],
   ])('%s may not join: 409 not_eligible, saying why', async (_label, { status, inClass }, message) => {
     const classId = inClass ? await insertClass(t.db, { classNo: 1 }) : null
-    const { key } = await insertStudent(t.db, { status, classId })
+    const { key } = await insertStudent(t.db, { status, classId, createdAt: REGISTERED })
 
     expect(errorOf(await call('POST', key))).toEqual({ status: 409, code: 'not_eligible', message })
     expect(await membershipOf('GET', key)).toEqual(NOT_MEMBER)
@@ -86,6 +89,49 @@ describe('joining', () => {
 
     expect(await membershipOf('GET', key)).toEqual({ club: 'doudizhu', member: true, joinedAt })
     expect(await membershipOf('POST', key)).toEqual({ club: 'doudizhu', member: true, joinedAt })
+  })
+
+  test('a member who withdraws is no member from that moment, before the nightly job', async () => {
+    const { key } = await activeStudent()
+    await membershipOf('POST', key)
+    const res = await t.app.inject({ method: 'POST', url: '/v1/me/withdraw', headers: { authorization: `Bearer ${key}` } })
+    expect(res.statusCode, res.body).toBe(200)
+
+    expect(await membershipOf('GET', key)).toEqual(NOT_MEMBER)
+    expect(errorOf(await call('POST', key))).toMatchObject({ status: 409, code: 'not_eligible' })
+  })
+
+  test('an expelled member is no member from that moment', async () => {
+    const { id, key } = await activeStudent()
+    await membershipOf('POST', key)
+    await t.db.updateTable('students').set({ status: 'expelled', classId: null }).where('id', '=', id).execute()
+    expect(await membershipOf('GET', key)).toEqual(NOT_MEMBER)
+  })
+
+  test('a member who withdraws and re-enrolls must join again, from the new moment', async () => {
+    const { id, key } = await activeStudent()
+    const classId = (await t.db.selectFrom('classes').select('id').executeTakeFirstOrThrow()).id
+    await membershipOf('POST', key)
+    const auth = { authorization: `Bearer ${key}` }
+    expect((await t.app.inject({ method: 'POST', url: '/v1/me/withdraw', headers: auth })).statusCode).toBe(200)
+    t.clock.advance(60_000)
+    const back = await t.app.inject({
+      method: 'POST',
+      url: '/v1/me/re-enroll',
+      headers: auth,
+      payload: { schoolRulesVersion: t.schoolRules.current.version },
+    })
+    expect(back.statusCode, back.body).toBe(200)
+    // The nightly job seats them again.
+    t.clock.advance(60_000)
+    await t.db.updateTable('students').set({ status: 'active', classId, assignedAt: t.clock.now() }).where('id', '=', id).execute()
+
+    expect(await membershipOf('GET', key)).toEqual(NOT_MEMBER)
+    t.clock.advance(60_000)
+    const now = t.clock.now().toISOString()
+    expect(await membershipOf('POST', key)).toEqual({ club: 'doudizhu', member: true, joinedAt: now })
+    expect(await membershipOf('GET', key)).toEqual({ club: 'doudizhu', member: true, joinedAt: now })
+    expect(await t.db.selectFrom('clubMembers').select('studentId').execute()).toEqual([{ studentId: id }])
   })
 
   test('the default message of not_eligible says who may join', () => {
@@ -111,7 +157,7 @@ describe('leaving', () => {
 
   test('leaving when not a member succeeds too, whatever the status', async () => {
     for (const status of ['pending', 'active', 'suspended', 'dropped', 'expelled'] as const) {
-      const { key } = await insertStudent(t.db, { status })
+      const { key } = await insertStudent(t.db, { status, createdAt: REGISTERED })
       expect(await membershipOf('DELETE', key)).toEqual(NOT_MEMBER)
     }
   })
@@ -119,7 +165,7 @@ describe('leaving', () => {
   test('leaving takes out only that student', async () => {
     const one = await activeStudent()
     const classId = (await t.db.selectFrom('classes').select('id').executeTakeFirstOrThrow()).id
-    const other = await insertStudent(t.db, { status: 'active', classId })
+    const other = await insertStudent(t.db, { status: 'active', classId, createdAt: REGISTERED })
     await membershipOf('POST', one.key)
     await membershipOf('POST', other.key)
 

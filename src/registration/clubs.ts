@@ -55,7 +55,10 @@ export function clubRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
   }
 }
 
-/** A member already gets their membership back as it is; anyone else joins if they may. */
+/**
+ * A current member gets their membership back as it is; anyone else joins from now if they may, a row left from a
+ * membership that is no longer current being started again.
+ */
 async function joinClub(deps: RegistrationDeps, studentId: number, club: Club): Promise<Static<typeof ClubMembership>> {
   return deps.db.transaction().execute(async (trx) => {
     const already = await joinedAt(trx, studentId, club)

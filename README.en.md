@@ -21,7 +21,7 @@ npm run dev:registration                          # start the registration servi
 Notes:
 
 - The service listens on port `8080` by default. On startup it creates the tables and upgrades the schema.
-- Every day at midnight (in the timezone of the school config) the daily job runs: it drops inactive students, promotes the waitlist, assigns classes, and takes the students who have withdrawn or been expelled out of the clubs. The service also runs it once on every start, to make up a run missed while it was down. The job goes by today's date, so running it again on the same day changes nothing more; students who register today are assigned at the next midnight. To run it by hand, use `npm run job:daily`.
+- Every day at midnight (in the timezone of the school config) the daily job runs: it drops inactive students, promotes the waitlist, assigns classes, and deletes the club memberships that are no longer current. The service also runs it once on every start, to make up a run missed while it was down. The job goes by today's date, so running it again on the same day changes nothing more; students who register today are assigned at the next midnight. To run it by hand, use `npm run job:daily`.
 - `MAIL_TRANSPORT=console` in `.env.example` makes the service print verification codes to its log instead of mailing them, which is handy for local debugging. For production, remove that line (the default is `smtp`) and set `SMTP_URL`, or send through Tencent Cloud's email API instead (see "Mail" under "Deployment"); with `smtp` and no `SMTP_URL`, the service refuses to start.
 - `LLM_FAKE=1` in `.env.example` answers every model call with a canned reply, so you need no model key to develop. For production, remove that line and set the keys (see "Model and admin").
 - Every database connection has a statement timeout and a lock timeout, so a stuck query is cancelled instead of holding its connection for good: `DATABASE_STATEMENT_TIMEOUT_MS` (30000, 30 seconds, by default) and `DATABASE_LOCK_TIMEOUT_MS` (10000, 10 seconds, by default), in milliseconds; `0` sets none. Both services and the tools read them. The migrations that run on startup have no statement timeout, so a long one is not cancelled halfway, but keep the lock timeout: a migration that waits too long for a table in use fails the start instead of holding up every query on that table.
@@ -543,7 +543,7 @@ For plugin authors:
 
 ## Clubs
 
-A student joins a club before coming in: with the bot owner's consent the plugin calls `POST /v1/me/clubs/doudizhu`, and `DELETE` to leave; the members are kept in the `club_members` table. Only a student in good standing (`active`) who has a class may join; a suspended student stays a member, and the nightly job takes out those who have withdrawn or been expelled.
+A student joins a club before coming in: with the bot owner's consent the plugin calls `POST /v1/me/clubs/doudizhu`, and `DELETE` to leave; the members are kept in the `club_members` table. Only a student in good standing (`active`) who has a class may join. A membership counts only while the student is active or suspended and joined in their present time at the school: it ends at once when they withdraw or are expelled, and a student who re-enrolls must join again; the nightly job deletes the rows that no longer count.
 
 The optional `club` block of the school config sets up the clubs (`/v1/club`). The whole block, and every field in it, may be left out and then has the value in the example config, so an older config without it still starts.
 
