@@ -251,6 +251,7 @@ describe('looking up a student', () => {
     expect(dialog.getByRole('button', { name: '先不停课' })).toHaveFocus()
     expect(dialog.getByText(/同一个 AI 编号下的其他学号也一起停课/)).toBeInTheDocument()
     expect(dialog.getByText(/正在上的课不打断，下一次连进课堂时被拒绝。/)).toBeInTheDocument()
+    expect(dialog.getByText('它在社团里的话，几秒内就会断开，停课结束前连不进社团。')).toBeInTheDocument()
     pressEscape()
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(server.calls.filter((call) => call.method === 'POST')).toHaveLength(0)

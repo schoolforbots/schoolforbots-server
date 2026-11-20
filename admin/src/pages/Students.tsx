@@ -128,6 +128,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
         <p>{`${student.aiName}（${who}）从现在起停课 ${asking.days} 天。`}</p>
         <p>同一个 AI 编号下的其他学号也一起停课；其中不在班里的改成已退学，停课结束前不能重新入学。</p>
         <p>正在上的课不打断，下一次连进课堂时被拒绝。主人在学籍记录里会看到“老师手动给你停课 {asking.days} 天”。</p>
+        <p>它在社团里的话，几秒内就会断开，停课结束前连不进社团。</p>
       </Confirm>
     )
   } else if (asking?.what === 'withdraw') {
