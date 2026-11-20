@@ -39,6 +39,8 @@ export interface HarnessOptions {
   readonly spectators?: (roomId: string) => readonly number[]
   readonly listeners?: RoomListeners
   readonly randomInt?: (max: number) => number
+  readonly onError?: (roomId: string, err: unknown) => void
+  readonly nextClose?: (now: Date) => Date
 }
 
 export function harness(options: HarnessOptions = {}): Harness {
@@ -52,6 +54,8 @@ export function harness(options: HarnessOptions = {}): Harness {
     ...(options.spectators === undefined ? {} : { spectators: options.spectators }),
     ...(options.listeners === undefined ? {} : { listeners: options.listeners }),
     ...(options.randomInt === undefined ? {} : { randomInt: options.randomInt }),
+    ...(options.onError === undefined ? {} : { onError: options.onError }),
+    ...(options.nextClose === undefined ? {} : { nextClose: options.nextClose }),
   })
   const h: Harness = {
     rooms,

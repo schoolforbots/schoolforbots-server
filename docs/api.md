@@ -447,21 +447,21 @@
         {
           "seat": 0,
           "player": { "studentId": 52, "displayName": "小林家的豆豆 #0052", "bot": false },
-          "ready": false,
+          "ready": true,
           "online": true,
           "trustee": false
         },
         {
           "seat": 1,
           "player": { "studentId": 61, "displayName": "老王家的阿福 #0061", "bot": false },
-          "ready": false,
+          "ready": true,
           "online": true,
           "trustee": false
         },
         {
           "seat": 2,
           "player": { "studentId": 37, "displayName": "阿杰家的小鱼 #0037", "bot": false },
-          "ready": false,
+          "ready": true,
           "online": true,
           "trustee": false
         }

@@ -59,6 +59,10 @@ export interface RoomsOptions {
   /** The spectators of a room, by student number; none when absent (watching plugs in here). */
   readonly spectators?: (roomId: string) => readonly number[]
   readonly listeners?: RoomListeners
+  /** Something went wrong in a room's tick; the other rooms go on. Thrown away when absent. */
+  readonly onError?: (roomId: string, err: unknown) => void
+  /** When the club next closes, seen from `now`: `nextClose` of the config when absent. */
+  readonly nextClose?: (now: Date) => Date
 }
 
 /** Someone in a seat. A bot is always online and ready, and has no `student`. */
@@ -117,6 +121,10 @@ export class Rooms {
   /** The room each seated student sits in. */
   private readonly seated = new Map<number, Room>()
   private opened = 0
+  private readonly onError: (roomId: string, err: unknown) => void
+  private readonly findNextClose: (now: Date) => Date
+  /** The last next close found, and the moment it was found from. */
+  private nextCloseCache: { from: number; at: Date } | null = null
 
   constructor(options: RoomsOptions) {
     this.config = options.config
@@ -125,6 +133,23 @@ export class Rooms {
     this.randomInt = options.randomInt ?? ((max) => cryptoRandomInt(max))
     this.spectators = options.spectators ?? (() => [])
     this.listeners = options.listeners ?? {}
+    this.onError = options.onError ?? (() => {})
+    const config = options.config
+    this.findNextClose = options.nextClose ?? ((now) => nextClose(config, now))
+  }
+
+  /**
+   * When the club next closes, seen from `now`. The answer found from an earlier moment holds until it comes (the
+   * config does not change while the service runs), so it is reused until then instead of searching days ahead for
+   * every room state and turn.
+   */
+  private closesAt(now: Date): Date {
+    const t = now.getTime()
+    const cached = this.nextCloseCache
+    if (cached !== null && cached.from <= t && t < cached.at.getTime()) return cached.at
+    const at = this.findNextClose(now)
+    this.nextCloseCache = { from: t, at }
+    return at
   }
 
   // ---- Client messages ----
@@ -184,12 +209,12 @@ export class Rooms {
 
   /**
    * `room.ready`: after a game, the student is ready for the next one, which starts once every seat is taken and
-   * ready. Being ready already is no error. Refused (`game_in_progress`) while a game is played.
+   * ready. Being ready already is no error; during a game it does nothing (the student is asked again after it).
    */
   ready(studentId: number, now: Date): AckResult {
     const room = this.seated.get(studentId)
     if (room === undefined) return fail('not_in_room')
-    if (this.playing(room)) return fail('game_in_progress')
+    if (this.playing(room)) return { ok: true }
     const seat = this.seatOf(room, studentId)
     const occupant = room.seats[seat]!
     if (occupant.ready) return { ok: true }
@@ -283,15 +308,25 @@ export class Rooms {
   /** About once a second: the games' timeouts, the grace of disconnected students, idle prompts and their end. */
   tick(now: Date): void {
     for (const room of [...this.rooms.values()]) {
-      if (this.playing(room)) this.dispatch(room, room.session!.tick(now), now)
-      if (room.closed || this.playing(room)) continue
-      this.endGraces(room, now)
-      if (room.closed) continue
-      if (room.prompt !== null) {
-        if (now.getTime() >= room.prompt.decideBy.getTime()) this.close(room, 'idle', now)
-      } else if (now.getTime() >= room.waitingSince.getTime() + this.config.club.idleMinutes * 60_000) {
-        this.idlePrompt(room, now)
+      // One room going wrong (its game throwing, say) must not stop the others.
+      try {
+        this.tickRoom(room, now)
+      } catch (err) {
+        this.onError(room.id, err)
       }
+    }
+  }
+
+  private tickRoom(room: Room, now: Date): void {
+    if (room.closed) return
+    if (this.playing(room)) this.dispatch(room, room.session!.tick(now), now)
+    if (room.closed || this.playing(room)) return
+    this.endGraces(room, now)
+    if (room.closed) return
+    if (room.prompt !== null) {
+      if (now.getTime() >= room.prompt.decideBy.getTime()) this.close(room, 'idle', now)
+    } else if (now.getTime() >= room.waitingSince.getTime() + this.config.club.idleMinutes * 60_000) {
+      this.idlePrompt(room, now)
     }
   }
 
@@ -379,7 +414,13 @@ export class Rooms {
     room.seats[seat] = { player, student, ready: true, online: true, graceUntil: null }
     this.seated.set(student.person.studentId, room)
     this.emitTo(room, { kind: 'joined', seat, player }, now, null, student.person.studentId)
-    return this.stateOf(room, now)
+    const state = this.stateOf(room, now)
+    // A newcomer to a room under an idle prompt is told of it too (the same `decideBy`; the idle clock goes on), so
+    // they may answer it. A room they have just filled starts its game instead.
+    if (room.prompt !== null && room.seats.includes(null)) {
+      this.emitTo(room, { kind: 'idle', decideBy: room.prompt.decideBy.toISOString() }, now, null, null)
+    }
+    return state
   }
 
   /** Takes the student out of the seat, tells the room, passes the host on, and closes the room when it is empty. */
@@ -430,7 +471,7 @@ export class Rooms {
       roomId: room.id,
       players: room.seats.map((occupant) => occupant!.player),
       previous: room.session,
-      closesAt: (at) => nextClose(this.config, at),
+      closesAt: (at) => this.closesAt(at),
       now,
     })
     room.session = session
@@ -564,7 +605,7 @@ export class Rooms {
       })),
       spectators: this.spectators(room.id).length,
       gamesPlayed: room.gamesPlayed,
-      closesAt: nextClose(this.config, now).toISOString(),
+      closesAt: this.closesAt(now).toISOString(),
       lastSeq: room.seq,
       game: session?.table() ?? null,
     }
