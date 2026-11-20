@@ -158,7 +158,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
       {read.error !== undefined && <p className="action-error" role="alert">没能读取维护状态。{read.error.message}</p>}
       <ul className="switch-effects">
         <li className={turningOn ? undefined : 'switch-now'}>
-          维护中：上课服务不让任何人进，在线的插件都会被断开；校历接口把说明和预计恢复时间告诉插件。
+          维护中：上课服务和社团服务都不让任何人进，在线的插件都会被断开，社团里打到一半的牌局由托管替所有人打完；校历接口把说明和预计恢复时间告诉插件。
         </li>
         <li className={turningOn ? 'switch-now' : undefined}>没在维护：一切照常。</li>
       </ul>
@@ -202,7 +202,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
         >
           {asksMessage ? (
             <>
-              {turningOn ? <p>开始维护以后，在线的插件都会被断开，新的连接也不让进，直到结束维护。</p> : <p>只改说明和预计恢复时间，维护照常进行。</p>}
+              {turningOn ? <p>开始维护以后，在线的插件都会被断开（社团里打到一半的牌局由托管打完），新的连接也不让进，直到结束维护。</p> : <p>只改说明和预计恢复时间，维护照常进行。</p>}
               <label className="field-label" htmlFor={messageId}>
                 说明（插件会看到，最多 {MAX_MESSAGE} 字）
               </label>

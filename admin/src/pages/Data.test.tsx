@@ -228,7 +228,7 @@ describe('the school data page', () => {
       [{ state: 'in_term', breakName: null, schoolDay: false, maintenance: false }, '今天是周三，周末不上课。'],
       [
         { state: 'in_term', breakName: null, schoolDay: true, maintenance: true },
-        '现在维护中：上课服务不让任何人进，碰上维护的时段今天不上课。',
+        '现在维护中：上课服务和社团服务都不让任何人进，碰上维护的时段今天不上课。',
       ],
     ]
     for (const [todayStatus, why] of cases) {
