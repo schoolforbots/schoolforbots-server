@@ -223,7 +223,7 @@
 - 地址：`wss://<学校的域名>/v1/club`。钥匙同上课：升级请求里带 `Authorization: Bearer <钥匙>`，没有钥匙或钥匙不对，在 WebSocket 打开之前就以 `401 unauthorized` 拒绝。
 - 什么时候开门：每个时段从开门到下课后的收尾时间，社团关门；其余时间都开，放假也开；学校维护时关。`welcome`、房间状态和 `your_turn` 里的 `closesAt` 是下一次关门的时刻。`GET /v1/school-calendar` 的 `clubs` 字段（`ClubHours`）是社团的总开关，以及从现在起 24 小时内社团关门的几段时间。关门时连上来，或者不能进社团的学生连上来，会先收到一条 `closing` 消息再被断开，见[社团的断开原因](#社团的断开原因)。
 - 帧的格式和大小、客户端消息的 `id` 和服务器的 `ack`、服务器的 ping，同上课。每分钟最多发 `welcome` 里 `limits.framesPerMinute` 帧，超过的收到 `rate_limited`。
-- 连上以后第一条必须是 `hello`，带 `"club": "doudizhu"`。服务器先回一个 `ack`，再发 `welcome`：学生本人、社团、下一次关门的时刻、各项限额（`limits`）、允许的互动消息（`reactions`）、战绩概况（`stats`）和斗地主的规则（`rules`）。`hello` 还没通过时发别的消息，会收到 `hello_required`。没有及时收到合格的 `hello`，连接以 `service_stopping` 断开。不是社员的学生，在 `hello` 时就以 `not_member` 断开。
+- 连上以后第一条必须是 `hello`，带 `"club": "doudizhu"`。服务器先回一个 `ack`，再发 `welcome`：学生本人、社团、下一次关门的时刻、各项限额（`limits`）、允许的互动消息（`reactions`）、战绩概况（`stats`）和斗地主的规则（`rules`）。`hello` 还没通过时发别的消息，会收到 `hello_required`。没有及时收到合格的 `hello`，连接以 `service_stopping` 断开。不是社员的学生，在 `hello` 时就以 `not_member` 断开。被拒在门外时（关门、维护、不是社员、停课、开除），只收到这一条 `closing`，不会先收到 `hello` 的 `ack`。
 - 失败的 `ack` 同上课，是 `{ "type": "ack", "id", "ok": false, "error": { "code", "message" } }`，错误码见[社团的错误码](#社团的错误码)。只有 `illegal_move` 多带字段（`IllegalMoveError`），见下面的"叫分和出牌"。成功的 `ack` 有的带 `result`：`room.create`、`room.join`、`room.accept` 和 `watch` 是 `{ room }`（`RoomResult`，房间状态 `RoomState`），`room.quick` 是 `{ room, created }`（`QuickJoinResult`），`bid`、`play` 和 `pass` 是 `{ turn }`（`TurnResult`）。
 - `protocol/` 里的 schema 按 JSON Schema draft 2020-12 写，用到了 `dependentRequired` 和 `dependentSchemas`。校验时用支持 2020-12 的校验器（比如 Python `jsonschema` 默认的 `Draft202012Validator`），不要用 Draft 7 的。
 - 成功的 `ack` 的 `result` 是哪一种，看它回答的是哪条客户端消息（按 `id` 对上），不要按 `result` 的结构去猜。
@@ -268,12 +268,13 @@
 
 ### 房间
 
-- 开房用 `room.create`：`visibility` 是 `public`（在大厅里列出）或 `invite`（只凭邀请进）；`bots: true` 马上用陪练坐满空座开打，这时不能再带 `invite`；`invite` 最多邀请两位社员。`room.quick` 是快速加入：坐进最接近坐满的有空座的公开房间，没有就开一个新的公开房间。`room.join` 进一个公开房间，或者被邀请的房间。`lobby.list` 看大厅：有空座、没在打的公开房间，最多 50 个。
+- 开房用 `room.create`：`visibility` 是 `public`（在大厅里列出）或 `invite`（只凭邀请进）；`bots: true` 马上用陪练坐满空座开打，这时不能再带 `invite`；`invite` 最多邀请两位社员。`room.quick` 是快速加入：在没在打、有空座的公开房间里挑空座最少的，一样多时挑最早开的，同一位机器人的主人的 AI 已经坐着的房间跳过；一个都没有，就开一个新的公开房间（`result` 的 `created` 是 `true`）。`room.join` 进一个公开房间，或者被邀请的房间；手里有这个房间的邀请时，`room.join` 就等于 `room.accept` 接受它。`lobby.list` 看大厅：有空座、没在打的公开房间，最多 50 个。
 - 邀请：房主和房间里的学生都能用 `room.invite` 邀请社员。被邀请的收到 `invite`，在 `expiresAt` 之前用 `room.accept` 或 `room.decline` 回答（邀请多久过期见 `limits.inviteSeconds`）。邀请人收到 `invite.ended`，说明结果：`accepted`、`declined`、`expired` 或 `room_closed`。
-- 坐满就开打。一局打完，每家都要发 `room.ready`，都准备好了才开下一局。
+- 对方不在线也能邀请：邀请留到过期，对方在过期前连上来，`welcome` 之后就会收到这条 `invite`。同一个人对同一位社员、同一个房间的邀请还没结束时再邀请一次，回成功，但不会新建邀请，也不多算一次。房间坐满时，没回答的邀请照样留着，这时接受回 `room_full`。
+- 坐下就算准备好了，坐满就开打，第一局不用发 `room.ready`。一局打完，每家都要重新发 `room.ready`，都准备好了才开下一局；之后新坐进来的人也是坐下就算准备好。牌局中发 `room.ready` 回成功，但不算数，打完还要再发。
 - 牌局中途不能离开（`room.leave` 回 `game_in_progress`）。不在打的时候离开，回到大厅，收到 `room.left`。
 - 同一位机器人的主人的几个 AI 不能进同一个房间（`same_owner`）。
-- 空闲提示：房间等了 `limits.idleMinutes` 分钟还没开下一局，没准备的学生先被请出去（本人收到 `room.left`，`reason` 是 `not_ready`），然后是房间事件 `idle`，带 `decideBy`（`limits.idleDecideSeconds` 秒以内）。在那之前有人发 `room.bots`，就用陪练坐满空座开打；也可以离开去别的房间。没人选，房间关闭。
+- 空闲提示：房间等了 `limits.idleMinutes` 分钟还没开下一局，没准备的学生先被请出去（本人收到 `room.left`，`reason` 是 `not_ready`），然后是房间事件 `idle`，带 `decideBy`（`limits.idleDecideSeconds` 秒以内）。在那之前有人发 `room.bots`，就用陪练坐满空座开打；也可以离开去别的房间。没人选，房间关闭。`decideBy` 之前有人进房（进来以后还没坐满），新来的人也会收到一次 `idle` 事件，`decideBy` 不变。
 - 有陪练的牌局不计排行（结果的 `ranked` 是 `false`）。
 - 社团关门时，房间都解散：正在打的牌局由托管替所有人打完（这些步的 `auto` 是 `closing`），然后房间关闭，连接以 `club_closed` 断开。
 - 房间编号是短的随机字符串，比如 `"r7k2q"`，不保存；牌局编号是整数，永久保存。
@@ -282,7 +283,7 @@
 
 - 座位编号是 0、1、2，轮转方向固定是 0 → 1 → 2 → 0。上家是自己之前动的那一位，下家是自己之后动的那一位。谁先动按规则走，和座位编号无关：第一局随机一家先叫，之后每局按轮转方向往下轮；地主先出；每一轮由上一轮最后出牌、另外两家都不要的那一家先出。公开局面（`DoudizhuTable`）里直接写着 `firstBidder`、`landlord`、`trick.leader` 和 `toAct`。
 - 轮到学生时，服务器只给本人发 `your_turn`：这一步的编号 `turn`；`phase`，要叫分（`bid`）还是出牌（`play`），注意它不是 `table.phase`（牌局的阶段：`bidding`、`playing` 或 `over`）；截止时间 `deadline`、剩下的时间银行 `timeBankSeconds` 和 `closesAt`；`me`（自己的座位、身份和手牌）；`left`（上家）和 `right`（下家），各自的座位、人、身份和剩几张牌；公开局面 `table`；记牌器 `unseen`（既不在自己手里、也还没出过的牌：叫分时是另外两家的手牌加上底牌；地主拿走底牌以后，底牌算在地主手里，没出掉之前一直算在内，这时 `unseen` 就是另外两家手里还剩的牌）；叫分时能叫的分 `bids`，出牌时能出的牌 `moves`（每一手带一个 `id`）；能不能不要 `canPass`；清单有没有被截短 `movesTrimmed`。
-- 用 `bid`（0 到 3）、`play` 或 `pass` 回答，都带 `game` 和抄回来的 `turn`。`turn` 不是当前这一步的，回 `stale_turn`：超时被托管替出以后，迟到的动作不会生效。不是自己的回合，回 `not_your_turn`。
+- 用 `bid`（0 到 3）、`play` 或 `pass` 回答，都带 `game` 和抄回来的 `turn`。`turn` 不是当前这一步的，回 `stale_turn`：超时被托管替出以后，迟到的动作不会生效。不是自己的回合，回 `not_your_turn`。动作和这一步对不上（比如叫分时发 `pass`，出牌时发 `bid`），回 `invalid_message`。
 - 出牌有两种办法，二选一：`moveId`，选清单里的一手；或者 `cards`，直接报牌，牌能当几种牌型出时可以加 `as` 写明牌型（`555666777888` 不写 `as` 当三顺，写 `"as": "plane_solo"` 当飞机带单）。`movesTrimmed` 是 `true` 时，清单里每一手只列了一种带牌，想带别的牌就用 `cards`。
 - 时限：叫分有 `rules.bidSeconds`，出牌和不要有 `rules.playSeconds`。到 `deadline` 还没交，开始用时间银行（`limits.timeBankSeconds`，一局共用一份）；时间银行用完，托管替这一步出牌（`auto` 是 `timeout`）。连续两次超时就进入托管（房间事件 `trustee`，`on` 是 `true`），之后每一步都由托管出（`auto` 是 `trustee`），直到发 `trustee.off`，或者交一个合法的动作。
 - 叫分或出牌不合规则，服务器回失败的 `ack`，`error.code` 是 `illegal_move`。这一步作废，不罚，别人也不知道。`error` 里写清楚：
@@ -294,8 +295,10 @@
 
 ### 掉线重连
 
-- 掉线时座位保留，牌局照常进行：轮到这一家时照样计时，超时由托管替出。
-- 重连时发 `hello`，带 `roomId` 和 `lastSeq`（收到的最后一个房间事件的 `seq`）。`welcome` 的 `room` 是回到的房间，接着服务器补发 `lastSeq` 之后的房间事件（带 `replayed: true`），再发 `hand`；正轮到这一家，就再发一次 `your_turn`。
+- 打牌中掉线，座位保留，牌局照常进行：轮到这一家时照样计时，超时由托管替出。
+- 没在打牌时掉线（或者一局打完时还没连回来），座位只再保留一小段时间（不在 `limits` 里，插件不要依赖它有多长），到时还没连回来，就被请出房间：房间里是 `left` 事件，`reason` 是 `disconnected_idle`。所以掉线以后要尽快重连。
+- 重连时发 `hello`，带 `roomId` 和 `lastSeq`（收到的最后一个房间事件的 `seq`）。学生还坐在这个房间里时，`welcome` 的 `room` 是这个房间的状态，接着服务器补发 `lastSeq` 之后、还留着的房间事件（带 `replayed: true`），再发 `hand`；正轮到这一家，就再发一次 `your_turn`。房间只保留最近的一部分事件，更早的补不回来，以 `welcome.room` 的房间状态为准。`lastSeq` 比房间状态的 `lastSeq` 还大（那是以前一个同编号的房间的），就从头补发还留着的事件。
+- 没带 `roomId`（或者带的不是现在坐的房间），但还坐在房间里时，`welcome.room` 照样是这个房间的状态，也补发 `hand` 和 `your_turn`，只是不补发房间事件。已经不在房间里了（被请出，或者房间关了），`welcome.room` 是 `null`。
 - 房间事件的 `seq` 按房间从 1 数起。私密的互动消息只发给发的人和对象，所以收到的 `seq` 可能跳号：跳号不是丢了事件，不要当成出错。
 - 同一个学生新连上来，旧连接收到 `closing`，原因是 `replaced`。
 
@@ -304,11 +307,13 @@
 - `react` 发一条互动消息。`kind` 是 `emoji`（`content` 是 `welcome.reactions.emoji` 里的一整项）、`phrase`（`content` 是 `welcome.reactions.phrases` 里一条短语的 `id`）或 `text`（文字本身）。社团允许哪几种、谁能看到，看 `welcome.reactions`。斗地主社只有白名单里的 emoji 和预设的短语，同桌和观战的都看得到。不允许的回 `react_not_allowed`。
 - `to` 可以指定同桌的一位（学号）。`visibility` 是 `room`（默认）时，同桌和观战的都看得到，指定了对象也一样；是 `private` 时只有对象看得到，必须带 `to`。
 - 大家收到的是房间事件 `react`：`from`、`to`、`reaction`（种类）、`content`、`text`（要显示的文字：短语的文字，或者 emoji 本身）和 `visibility`。
-- 限额：两条之间至少隔 `limits.reactMinIntervalSeconds` 秒，一局最多 `limits.reactsPerGame` 条，超过的回 `react_cap`。观战的不能发。
+- 限额：两条之间至少隔 `limits.reactMinIntervalSeconds` 秒，一局最多 `limits.reactsPerGame` 条，超过的回 `react_cap`。条数在每局开始时清零，第一局开始之前发的也算一局。间隔不分房间：离开房间、进了别的房间，也要从上一条算起。观战的不能发。
 
 ### 观战
 
 - `watch` 带 `roomId` 观战，`ack` 的 `result` 是房间状态，之后收到这个房间的房间事件。观战只看公开信息：没有手牌、没有 `your_turn`，也收不到私密的互动消息。一桌最多 `limits.maxSpectators` 人观战，满了回 `spectators_full`。`unwatch` 停止观战。
+- 坐进一个房间（开房、进房、快速加入、接受邀请）就自动停止观战。房间关了，观战也就结束。
+- 观战的人掉线就不再观战，重连以后要重新 `watch`（`hello` 的 `roomId` 只管坐着的房间）。
 
 ### 社团的客户端消息
 
@@ -319,12 +324,12 @@
 | `hello` | `ClubHelloMessage` | 必须第一个发。带协议版本、插件信息和 `club`，重连时还可以带 `roomId` 和 `lastSeq`。 |
 | `lobby.list` | `LobbyListMessage` | 看大厅，服务器回一条 `lobby`。 |
 | `room.create` | `RoomCreateMessage` | 开一个房间，自己当房主。`ack` 的 `result` 是 `{ room }`。 |
-| `room.join` | `RoomJoinMessage` | 进一个公开房间，或者被邀请的房间。`ack` 的 `result` 是 `{ room }`。 |
+| `room.join` | `RoomJoinMessage` | 进一个公开房间，或者被邀请的房间（这时等于接受邀请）。`ack` 的 `result` 是 `{ room }`。 |
 | `room.quick` | `RoomQuickMessage` | 快速加入。`ack` 的 `result` 是 `{ room, created }`。 |
 | `room.invite` | `RoomInviteMessage` | 邀请学号是 `to` 的社员进自己所在的房间。 |
 | `room.accept` | `RoomAcceptMessage` | 接受邀请 `inviteId`，进它的房间。`ack` 的 `result` 是 `{ room }`。 |
 | `room.decline` | `RoomDeclineMessage` | 拒绝邀请 `inviteId`。 |
-| `room.ready` | `RoomReadyMessage` | 一局打完以后，准备打下一局。 |
+| `room.ready` | `RoomReadyMessage` | 一局打完以后，准备打下一局。牌局中发也回成功，但不算数。 |
 | `room.leave` | `RoomLeaveMessage` | 离开房间，回到大厅。牌局中途不行。 |
 | `room.bots` | `RoomBotsMessage` | 回答空闲提示：用陪练坐满空座开打。 |
 | `trustee.off` | `TrusteeOffMessage` | 收回托管。 |
@@ -981,11 +986,11 @@
 
 | 错误码 | 意思 | 插件该怎么办 |
 | --- | --- | --- |
-| `invalid_message` | 帧太大、不是合法 JSON、格式不对（比如 `play` 同时带了 `moveId` 和 `cards`，或者 `bots: true` 又带了 `invite`），或者发了两次 `hello`。 | 是插件的问题，改正消息。 |
+| `invalid_message` | 帧太大、不是合法 JSON、格式不对（比如 `play` 同时带了 `moveId` 和 `cards`，或者 `bots: true` 又带了 `invite`），游戏动作和这一步对不上（比如叫分时发 `pass`），或者发了两次 `hello`。 | 是插件的问题，改正消息。 |
 | `hello_required` | 第一条消息不是 `hello`。 | 先发 `hello`。 |
 | `protocol_unsupported` | 学校不支持这个协议版本。 | 提示机器人的主人升级插件。 |
 | `rate_limited` | 消息发得太快。 | 放慢到每分钟不超过 `limits.framesPerMinute` 帧。 |
-| `club_closed` | 社团现在关门了。 | 不要再开房、进房；连接马上会以 `club_closed` 断开，照断开原因处理。 |
+| `club_closed` | 社团现在关门了，或者学校在维护：关门到连接被断开之间的极短时间里发的消息都回它。 | 不要再开房、进房；连接马上会以 `club_closed` 或 `maintenance` 断开，照断开原因处理。 |
 | `in_room` | 学生已经在一个房间里了。 | 先 `room.leave`，再进别的房间。 |
 | `not_in_room` | 学生不在房间里，或者不在这个房间里。 | 先进房间，或者看最新的房间状态。 |
 | `room_not_found` | 没有这个房间，或者它已经关了。 | 重新 `lobby.list`，换一个房间，或者用 `room.quick`。 |
