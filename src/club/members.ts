@@ -1,22 +1,40 @@
-import type { Kysely } from 'kysely'
+import { sql, type Expression, type Kysely, type SqlBool } from 'kysely'
 import type { Static } from 'typebox'
 import type { ClubId } from '../protocol/club.js'
 import type { Database } from '../shared/db.js'
+import { MEMBER_STATUSES } from '../shared/schema.js'
 
-// The club members table. Membership is the row alone: whether a member may play now (not suspended, still at the
-// school) is for the club service to check against the student's status. The registration service decides who may
-// join (`src/registration/clubs.ts`), and the nightly job takes out the students who left the school.
+// The club members table. A row counts as a membership only while it is current (see `current`): the student is still
+// at the school (active or suspended), and joined in their present time there. A row left behind by a student who
+// withdrew or was expelled counts for nothing from that moment, and the nightly job deletes it; one from before a
+// re-enrolment counts for nothing either, so a student who comes back joins again. Whether a member may play now (not
+// suspended) is for the club service to check against the student's status. The registration service decides who may
+// join (`src/registration/clubs.ts`).
 
 export type Club = Static<typeof ClubId>
 
-/** When the student joined the club, null when they are not a member. */
+/**
+ * Whether the `club_members` row `m`, joined to its student `s`, is a current membership: the student is in a class
+ * (active or suspended) and joined no earlier than they last joined the queue. Re-enrolling sets `queued_at` anew (and
+ * registering sets it first), so a membership from before a withdrawal ends with it.
+ */
+function current(): Expression<SqlBool> {
+  // In brackets, so that `not` taken of it applies to the whole of it.
+  return sql<SqlBool>`(s.status in (${sql.join([...MEMBER_STATUSES])}) and m.joined_at >= s.queued_at)`
+}
+
+/** The current memberships of the club, `m` joined to their students `s`. */
+function currentMembers(db: Kysely<Database>, club: Club) {
+  return db
+    .selectFrom('clubMembers as m')
+    .innerJoin('students as s', 's.id', 'm.studentId')
+    .where('m.club', '=', club)
+    .where(current())
+}
+
+/** When the student joined the club, null when they are not a current member. */
 export async function joinedAt(db: Kysely<Database>, studentId: number, club: Club): Promise<Date | null> {
-  const row = await db
-    .selectFrom('clubMembers')
-    .select('joinedAt')
-    .where('studentId', '=', studentId)
-    .where('club', '=', club)
-    .executeTakeFirst()
+  const row = await currentMembers(db, club).select('m.joinedAt').where('m.studentId', '=', studentId).executeTakeFirst()
   return row?.joinedAt ?? null
 }
 
@@ -25,18 +43,16 @@ export async function isMember(db: Kysely<Database>, studentId: number, club: Cl
 }
 
 /**
- * Makes the student a member from `now`, and gives the moment they joined: `now`, or the earlier one when they are a
- * member already (joining twice changes nothing). Whether they may join is the caller's to check.
+ * Makes the student a member from `now`: a row left from a membership that is no longer current is started again at
+ * `now`. Whether they may join, and whether they are a current member already, is the caller's to check.
  */
 export async function join(db: Kysely<Database>, studentId: number, club: Club, now: Date): Promise<Date> {
   await db
     .insertInto('clubMembers')
     .values({ studentId, club, joinedAt: now })
-    .onConflict((oc) => oc.columns(['studentId', 'club']).doNothing())
+    .onConflict((oc) => oc.columns(['studentId', 'club']).doUpdateSet({ joinedAt: now }))
     .execute()
-  const at = await joinedAt(db, studentId, club)
-  if (at === null) throw new Error(`student ${studentId} is not a member of ${club} right after joining`)
-  return at
+  return now
 }
 
 /** Takes the student out of the club; nothing happens when they are not a member. */
@@ -44,26 +60,23 @@ export async function leave(db: Kysely<Database>, studentId: number, club: Club)
   await db.deleteFrom('clubMembers').where('studentId', '=', studentId).where('club', '=', club).execute()
 }
 
-/** Which of `studentIds` are members of the club, in one query. */
+/** Which of `studentIds` are current members of the club, in one query. */
 export async function membersAmong(db: Kysely<Database>, studentIds: readonly number[], club: Club): Promise<Set<number>> {
   if (studentIds.length === 0) return new Set()
-  const rows = await db
-    .selectFrom('clubMembers')
-    .select('studentId')
-    .where('club', '=', club)
-    .where('studentId', 'in', [...studentIds])
-    .execute()
+  const rows = await currentMembers(db, club).select('m.studentId').where('m.studentId', 'in', [...studentIds]).execute()
   return new Set(rows.map((r) => r.studentId))
 }
 
 /**
- * Takes the students who have left the school (dropped or expelled) out of every club, and says how many memberships
- * that ended. Suspended students keep theirs.
+ * Deletes every row of every club that is not a current membership (the student withdrew, was expelled, or re-enrolled
+ * since joining), and says how many went. Suspended members keep theirs.
  */
-export async function dropNonStudents(db: Kysely<Database>): Promise<number> {
+export async function dropStaleMemberships(db: Kysely<Database>): Promise<number> {
   const result = await db
-    .deleteFrom('clubMembers')
-    .where('studentId', 'in', db.selectFrom('students').select('id').where('status', 'in', ['dropped', 'expelled']))
+    .deleteFrom('clubMembers as m')
+    .using('students as s')
+    .whereRef('s.id', '=', 'm.studentId')
+    .where((eb) => eb.not(current()))
     .executeTakeFirstOrThrow()
   return Number(result.numDeletedRows)
 }

@@ -118,7 +118,7 @@ Errors: `400 invalid_request` (`{club}` is not a club's id); `401 unauthorized`.
 
 Joins the club. Joining needs the bot owner's consent: a plugin calls this only when the owner turns the club on, never on the owner's behalf by itself. Needs a key. This route has no request body: do not send a JSON `Content-Type` (as with `POST /v1/me/withdraw`). Reply: `200` with `ClubMembership`. A student who is a member already gets the membership back as it is, with the same `joinedAt`.
 
-Only a student in good standing who has a class (the `status` of `GET /v1/me` is `active` and its `className` is not `null`) may join. A student still waiting for a class, suspended, withdrawn or expelled gets `409 not_eligible`, whose `message` says which. A suspension does not end a membership the student already has, but the student cannot connect to the club while it lasts; withdrawn and expelled students are taken out of the clubs by the nightly job.
+Only a student in good standing who has a class (the `status` of `GET /v1/me` is `active` and its `className` is not `null`) may join. A student still waiting for a class, suspended, withdrawn or expelled gets `409 not_eligible`, whose `message` says which. A suspension does not end a membership the student already has, but the student cannot connect to the club while it lasts. Withdrawing or being expelled ends the membership at once, and `GET` answers `member: false` from then on; a student who withdraws and re-enrolls must join again.
 
 Errors: `400 invalid_request` (`{club}` is not a club's id, or a JSON `Content-Type` with no body); `401 unauthorized`; `409 not_eligible`.
 

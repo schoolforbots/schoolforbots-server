@@ -1,5 +1,5 @@
 import { sql, type Kysely } from 'kysely'
-import { dropNonStudents } from '../club/members.js'
+import { dropStaleMemberships } from '../club/members.js'
 import { inactivityCutoffDay } from '../shared/calendar.js'
 import type { Clock } from '../shared/clock.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
@@ -29,7 +29,7 @@ export interface DailyJobReport {
   reinstated: number
   /** Chat messages deleted for being older than `messageRetentionDays`. */
   messagesPurged: number
-  /** Club memberships ended because the student has left the school (dropped or expelled). */
+  /** Club member rows deleted for no longer being current: the student left the school, or re-enrolled since. */
   clubMembersDropped: number
 }
 
@@ -47,8 +47,8 @@ export function teacherPersonaFor(config: SchoolConfig, classesBefore: number): 
  * The nightly job, in one transaction: drop students who stopped coming, promote the waitlist into the freed
  * seats, put the pending students who joined the queue before today into a class, bring back the suspended
  * students whose suspension is over, delete the chat messages past their retention and the ops records (events,
- * service starts, backup runs) older than 30 days, and take the students who have left the school (dropped or
- * expelled) out of the clubs.
+ * service starts, backup runs) older than 30 days, and delete the club memberships that are no longer current
+ * (the student left the school, or re-enrolled since joining).
  *
  * The rules that count days go by today's date in the school's timezone, not by the time of the run: a run that
  * starts late, or one that makes up for a missed midnight, does what the midnight run would have done, and running
@@ -80,7 +80,7 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
     const messagesPurged = await purgeMessages(trx, startOfLocalDay(now, config.timezone, config.messageRetentionDays))
     await purgeOps(trx, new Date(now.getTime() - OPS_RETENTION_DAYS * 24 * 60 * 60_000))
     // After the drops above, so a student dropped tonight leaves the clubs tonight too.
-    const clubMembersDropped = await dropNonStudents(trx)
+    const clubMembersDropped = await dropStaleMemberships(trx)
     return { dropped, promoted, assigned, classesCreated, reinstated, messagesPurged, clubMembersDropped }
   })
 }
