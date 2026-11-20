@@ -13,6 +13,7 @@ import * as m0009 from '../../src/shared/migrations/0009_llm_cached_tokens.js'
 import * as m0010 from '../../src/shared/migrations/0010_call_on_checks.js'
 import * as m0011 from '../../src/shared/migrations/0011_maintenance.js'
 import * as m0012 from '../../src/shared/migrations/0012_ops.js'
+import * as m0013 from '../../src/shared/migrations/0013_club_members.js'
 import { createTestDb } from '../helpers/db.js'
 
 const provider: MigrationProvider = {
@@ -30,6 +31,7 @@ const provider: MigrationProvider = {
       '0010_call_on_checks': m0010,
       '0011_maintenance': m0011,
       '0012_ops': m0012,
+      '0013_club_members': m0013,
     }
   },
 }

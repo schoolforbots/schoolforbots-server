@@ -284,6 +284,14 @@ export interface BackupRunsTable {
   ok: boolean
 }
 
+/** A student's membership of a club, from `joinedAt` on. Leaving deletes the row. */
+export interface ClubMembersTable {
+  studentId: number
+  /** The club's id (`ClubId` in src/protocol/club.ts); only `doudizhu` so far. */
+  club: string
+  joinedAt: Date
+}
+
 export interface ModerationExclusionsTable {
   id: Generated<number>
   kind: 'word' | 'pattern'
@@ -471,4 +479,5 @@ export interface Database {
   weeklyReviews: WeeklyReviewsTable
   adminSessions: AdminSessionsTable
   teacherLineBlocks: TeacherLineBlocksTable
+  clubMembers: ClubMembersTable
 }

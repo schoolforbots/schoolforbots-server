@@ -94,17 +94,17 @@ test('spec five-day example through the database', async () => {
 
 test('running twice the same day changes nothing', async () => {
   await insertPending(130)
-  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 130, classesCreated: 2, reinstated: 0, messagesPurged: 0 })
+  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 130, classesCreated: 2, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
   const before = await classSizes('junior', 'evening')
 
-  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
   expect(await classSizes('junior', 'evening')).toEqual(before)
 })
 
 test('divisions and slots are assigned separately', async () => {
   await insertPending(3, { division: 'junior', slot: 'evening' })
   await insertPending(2, { division: 'primary', slot: 'morning' })
-  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 5, classesCreated: 2, reinstated: 0, messagesPurged: 0 })
+  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 5, classesCreated: 2, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
 
   const classes = await db.selectFrom('classes').select(['division', 'slot', 'classNo']).orderBy('id').execute()
   expect(classes).toHaveLength(2)
@@ -132,20 +132,20 @@ describe('the local day', () => {
       lastAttendedAt: beijing('2026-10-04T05:00:00'),
     })
     for (let i = 0; i < 3; i++) await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-02T20:00:00') })
-    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 3, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 3, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
     const sizes = await classSizes('junior', 'evening')
 
     clock.set(beijing('2026-11-03T09:00:00'))
     const morning: { id: number }[] = []
     for (let i = 0; i < 2; i++) morning.push(await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-03T08:00:00') }))
-    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
     expect(await classSizes('junior', 'evening')).toEqual(sizes)
     expect(await statusOf(fading.id)).toMatchObject({ status: 'active', classId })
     for (const { id } of morning) expect(await statusOf(id)).toMatchObject({ status: 'pending', classId: null })
 
     // The next night places this morning's students and drops the one who stopped coming.
     clock.set(beijing('2026-11-04T00:00:05'))
-    expect(await job()).toEqual({ dropped: 1, promoted: 0, assigned: 2, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(await job()).toEqual({ dropped: 1, promoted: 0, assigned: 2, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
     expect(await statusOf(fading.id)).toMatchObject({ status: 'dropped', classId: null })
   })
 
@@ -381,7 +381,7 @@ describe('promoting the waitlist', () => {
       queuedAt: new Date(now.getTime() - 2 * DAY),
     })
 
-    expect(await job(config)).toEqual({ dropped: 1, promoted: 1, assigned: 1, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(await job(config)).toEqual({ dropped: 1, promoted: 1, assigned: 1, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
 
     expect(await statusOf(first.id)).toMatchObject({ status: 'active', classId, assignedAt: now })
     expect(await statusOf(second.id)).toMatchObject({ status: 'waitlisted', classId: null, assignedAt: null })
@@ -418,7 +418,7 @@ describe('promoting the waitlist', () => {
       await trx.updateTable('students').set({ status: 'expelled' }).where('id', '=', waiting.id).execute()
     })
 
-    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
     expect(await statusOf(waiting.id)).toMatchObject({ status: 'expelled', classId: null, assignedAt: null })
   })
 
@@ -467,7 +467,7 @@ describe('placing pending students who change under the job', () => {
       await trx.updateTable('students').set({ status: 'dropped' }).where('id', '=', gone.id).execute()
     })
 
-    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
     expect(await statusOf(gone.id)).toMatchObject({ status: 'dropped', classId: null, assignedAt: null })
     expect(await db.selectFrom('classes').select('id').execute()).toEqual([])
   })
@@ -498,7 +498,7 @@ describe('placing pending students who change under the job', () => {
       await trx.updateTable('students').set({ status: 'dropped' }).where('id', '=', gone.id).execute()
     })
 
-    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 1, classesCreated: 1, reinstated: 0, messagesPurged: 0 })
+    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 1, classesCreated: 1, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
     expect(await classSizes('junior', 'evening')).toEqual([1])
     expect(await statusOf(gone.id)).toMatchObject({ status: 'dropped', classId: null })
     expect(await statusOf(stays.id)).toMatchObject({ status: 'active' })
@@ -614,7 +614,7 @@ test('assigned students become active with assignedAt = now', async () => {
   const a = await insertStudent(db, { status: 'pending', createdAt: lastEvening() })
   const b = await insertStudent(db, { status: 'pending', createdAt: lastEvening(), division: 'senior', slot: 'morning' })
 
-  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 2, classesCreated: 2, reinstated: 0, messagesPurged: 0 })
+  expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 2, classesCreated: 2, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
   const now = clock.now()
   for (const { id } of [a, b]) {
     const s = await statusOf(id)
@@ -652,7 +652,7 @@ describe('locking', () => {
   test.each(['morning', 'afternoon', 'evening'] as const)('the job waits for a verify holding the %s slot lock', async (slot) => {
     const { finishedWhileLocked, report } = await jobWaitsFor((trx) => lock(trx, slotLockKey(slot)))
     expect(finishedWhileLocked).toBe(false)
-    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0 })
+    expect(report).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0 })
   })
 
   test('the job waits for another job holding the job lock', async () => {
@@ -808,5 +808,46 @@ describe('the records the alert mails count', () => {
     expect((await db.selectFrom('opsEvents').select('at').execute()).map((r) => r.at)).toEqual([recent])
     expect((await db.selectFrom('serviceStarts').select('startedAt').execute()).map((r) => r.startedAt)).toEqual([recent])
     expect((await db.selectFrom('backupRuns').select('finishedAt').execute()).map((r) => r.finishedAt)).toEqual([recent])
+  })
+})
+
+describe('taking students who left the school out of the clubs', () => {
+  const members = async () =>
+    (await db.selectFrom('clubMembers').select('studentId').orderBy('studentId').execute()).map((r) => r.studentId)
+
+  test('dropped and expelled students lose their memberships; suspended and active ones keep theirs', async () => {
+    const now = clock.now()
+    const classId = await insertClass(db, { classNo: 1 })
+    const member = async (status: 'active' | 'suspended' | 'dropped' | 'expelled') => {
+      const inClass = status === 'active' || status === 'suspended'
+      const { id } = await insertStudent(db, {
+        status,
+        classId: inClass ? classId : null,
+        assignedAt: now,
+        lastAttendedAt: now,
+        // A suspension still running, so tonight's run does not end it.
+        suspendedUntil: status === 'suspended' ? new Date(now.getTime() + 3 * DAY) : null,
+      })
+      await db.insertInto('clubMembers').values({ studentId: id, club: 'doudizhu', joinedAt: now }).execute()
+      return id
+    }
+    const active = await member('active')
+    const suspended = await member('suspended')
+    await member('dropped')
+    await member('expelled')
+
+    expect(await job()).toMatchObject({ clubMembersDropped: 2 })
+    expect(await members()).toEqual([active, suspended])
+    expect(await job()).toMatchObject({ clubMembersDropped: 0 })
+  })
+
+  test('a student the same run drops for staying away leaves the clubs in that run', async () => {
+    const longAgo = new Date(clock.now().getTime() - 60 * DAY)
+    const classId = await insertClass(db, { classNo: 1 })
+    const { id } = await insertStudent(db, { status: 'active', classId, assignedAt: longAgo, lastAttendedAt: longAgo })
+    await db.insertInto('clubMembers').values({ studentId: id, club: 'doudizhu', joinedAt: longAgo }).execute()
+
+    expect(await job()).toMatchObject({ dropped: 1, clubMembersDropped: 1 })
+    expect(await members()).toEqual([])
   })
 })

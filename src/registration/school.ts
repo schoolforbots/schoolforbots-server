@@ -7,6 +7,7 @@ import {
   SchoolRulesResult,
   SchoolRulesVersionResult,
 } from '../protocol/http.js'
+import { clubHours } from '../club/hours.js'
 import { calendarStatus, nextSchoolDay } from '../shared/calendar.js'
 import type { SchoolConfig } from '../shared/config.js'
 import type { Maintenance } from '../shared/maintenance.js'
@@ -32,7 +33,7 @@ export function schoolRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox 
     })
 
     app.get('/v1/school-calendar', { schema: { response: { 200: SchoolCalendar } } }, async () =>
-      schoolCalendarOn(localDate(deps.clock.now(), deps.config.timezone), deps.config, deps.maintenance.current()),
+      schoolCalendarAt(deps.clock.now(), deps.config, deps.maintenance.current()),
     )
 
     const { schoolRules } = deps
@@ -71,12 +72,12 @@ function published(v: SchoolRulesVersion): Static<typeof SchoolRulesVersionResul
   return { version: v.version, changes: v.changes, url: schoolRulesUrl(v.version), text: v.text }
 }
 
-/** The calendar as it stands on the school day `today`: the state of the school, and the breaks not over yet. */
-function schoolCalendarOn(
-  today: string,
-  config: SchoolConfig,
-  maintenance: Maintenance | null,
-): Static<typeof SchoolCalendar> {
+/**
+ * The calendar as it stands at `now`: the state of the school on today's school day, the breaks not over yet, and when
+ * the clubs are closed in the next 24 hours.
+ */
+function schoolCalendarAt(now: Date, config: SchoolConfig, maintenance: Maintenance | null): Static<typeof SchoolCalendar> {
+  const today = localDate(now, config.timezone)
   const { state, breakName, reopensOn } = calendarStatus(today, config)
   // A break is over from the day the school is back; the one that is on now is not.
   const breaks = (config.calendar?.breaks ?? [])
@@ -105,6 +106,7 @@ function schoolCalendarOn(
     },
     doorsOpenMinutesBefore: config.lesson.doorsOpenMinutesBefore,
     weekendStudy: config.lesson.weekendStudy,
+    clubs: clubHours(config, now),
   }
 }
 

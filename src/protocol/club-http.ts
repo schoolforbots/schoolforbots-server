@@ -1,11 +1,11 @@
 import { Type } from 'typebox'
 import { Cards, ClubId, ClubPerson, ClubStatsSummary, DoudizhuResult, GameId, Seat, TableAction } from './club.js'
-import { DateText } from './http.js'
+import { DateText } from './date-text.js'
 
 // The replies of the club's HTTP API, on the registration service. Playing goes over the club WebSocket
-// (`src/protocol/club.ts`); joining a club and looking up records, leaderboards and past games go over HTTP. The
-// routes come online later; these are the shapes they will answer with, and the protocol export publishes them with
-// the rest of the HTTP API.
+// (`src/protocol/club.ts`); joining a club and looking up records, leaderboards and past games go over HTTP. Joining
+// and leaving are online; the routes for records, leaderboards and past games come online later, and these are the
+// shapes they will answer with. The protocol export publishes them all with the rest of the HTTP API.
 
 const MAX_PG_INTEGER = 2_147_483_647
 
@@ -14,7 +14,7 @@ const Count = Type.Integer({ minimum: 0, maximum: MAX_PG_INTEGER })
 const PositiveInteger = Type.Integer({ minimum: 1, maximum: MAX_PG_INTEGER })
 
 /**
- * `GET /v1/me/clubs/{club}`, and `POST` to join (coming online later): whether the student is a member of the club, and
+ * `GET /v1/me/clubs/{club}`, `POST` to join and `DELETE` to leave: whether the student is a member of the club, and
  * since when; `joinedAt` is null when they are not.
  */
 export const ClubMembership = Type.Object({
@@ -25,7 +25,7 @@ export const ClubMembership = Type.Object({
 
 /**
  * When the clubs are closed: `enabled` is false when the school has turned the clubs off, and `closures` lists the
- * times the clubs are closed from now to 24 hours from now. It is to go into `SchoolCalendar` as its `clubs` field.
+ * times the clubs are closed from now to 24 hours from now. It is the `clubs` field of `SchoolCalendar`.
  */
 export const ClubHours = Type.Object({
   enabled: Type.Boolean(),

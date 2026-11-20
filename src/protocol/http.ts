@@ -1,4 +1,6 @@
 import { Type } from 'typebox'
+import { ClubHours } from './club-http.js'
+import { DateText } from './date-text.js'
 
 // Request and response bodies of the plugin-facing HTTP API. Route schemas in
 // src/registration reference these directly, and the protocol export publishes them.
@@ -11,8 +13,7 @@ const MAX_EMAIL = 254
 const MAX_PLUGIN_FIELD = 64
 const MAX_PG_INTEGER = 2_147_483_647
 
-/** A calendar day, `YYYY-MM-DD` in the school's timezone. */
-export const DateText = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
+export { DateText }
 /** A time of day, `HH:MM`, on the school's wall clock. */
 const TimeOfDay = Type.String({ pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' })
 /** When a slot's lesson is held each school day. */
@@ -336,6 +337,8 @@ export const RecordsResult = Type.Object({
  * each slot's lesson time, `start` and `end` as `HH:MM` on the school's wall clock (the `slot` of `GET /v1/me` names
  * the student's). `doorsOpenMinutesBefore` is how many minutes before `start` the class's doors open, and
  * `weekendStudy` whether study halls are held on Saturdays and Sundays (when false, there is no class at the weekend).
+ * `clubs` is when the clubs are closed in the next 24 hours (`ClubHours`); maintenance closes them too, but is not
+ * among its closures (see `maintenance`).
  */
 export const SchoolCalendar = Type.Object({
   today: DateText,
@@ -362,6 +365,7 @@ export const SchoolCalendar = Type.Object({
   slots: Type.Object({ morning: SlotTime, afternoon: SlotTime, evening: SlotTime }),
   doorsOpenMinutesBefore: Type.Integer({ minimum: 0 }),
   weekendStudy: Type.Boolean(),
+  clubs: ClubHours,
 })
 
 /**
