@@ -169,6 +169,21 @@ describe('nextClose', () => {
     const long = withCalendar({ breaks: [{ from: '2026-11-11', reopensOn: '2026-12-31' }] })
     expect(nextClose(long, at('21:00'))).toEqual(later(at('21:00'), 7 * 24 * 60 * 60 * 1000))
   })
+
+  test('looks at least 7 days ahead, so the fallback is never later than a real closure', () => {
+    // Lessons prepared 3 days ahead only; the school is back on the Monday, 6 days on.
+    const config: SchoolConfig = {
+      ...withCalendar({ breaks: [{ from: '2026-11-11', reopensOn: '2026-11-16' }] }),
+      lessonGeneration: { ...base.lessonGeneration, horizonDays: 3 },
+    }
+    expect(nextClose(config, at('21:00'))).toEqual(at('09:45', '2026-11-16'))
+    // Back on the Tuesday a week on: past the 7 days, so the fallback, which comes before that closure.
+    const longer: SchoolConfig = {
+      ...withCalendar({ breaks: [{ from: '2026-11-11', reopensOn: '2026-11-24' }] }),
+      lessonGeneration: { ...base.lessonGeneration, horizonDays: 3 },
+    }
+    expect(nextClose(longer, at('21:00'))).toEqual(later(at('21:00'), 7 * 24 * 60 * 60 * 1000))
+  })
 })
 
 describe('agrees with classBusy', () => {

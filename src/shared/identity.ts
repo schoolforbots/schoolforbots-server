@@ -53,6 +53,11 @@ function mixesScripts(name: string): boolean {
 // are listed by hand.
 const RESERVED = /[#♯⌗]/u
 
+/** Whether `name`, once NFKC turns the full-width and small forms into #, carries a # or a look-alike of it. */
+export function hasReservedMark(name: string): boolean {
+  return RESERVED.test(name.normalize('NFKC'))
+}
+
 export function displayName(ownerName: string, aiName: string): string {
   return `${ownerName}家的${aiName}`
 }

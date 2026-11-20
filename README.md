@@ -547,7 +547,7 @@ npm run typecheck   # 类型检查
 - `timeBankSeconds`：每局的时间银行，一步超时以后从这里扣。
 - `roomEventBuffer`：每个房间在内存里留最近多少条房间事件，供重连补发。
 - `lobbyMaxRooms`：大厅最多列出几个房间。
-- `botNames`：陪练的名字，按坐进房间的顺序用。不能重复，不能带 `#`（学生的名字才带 `#学号`）。
+- `botNames`：陪练的名字，按坐进房间的顺序用。至少两个（三人桌最多补两个陪练）。不能重复，首尾不能有空白，不能带 `#`（全角 `＃` 等变体也不行；学生的名字才带 `#学号`）。
 - `wordLists`：互动消息的短语表（`phrases`）和 emoji 白名单（`emoji`）的路径，和 `SCHOOL_CONFIG` 一样相对于工作目录。仓库里只有 `config/club/*.example.json`；真实的词表复制一份去掉 `.example`，不会提交到仓库。
 
 ## 参与贡献

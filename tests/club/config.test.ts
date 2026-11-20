@@ -88,7 +88,8 @@ describe('the club block', () => {
     ['disconnectGraceSeconds', -1],
     ['roomEventBuffer', 0],
     ['botNames', []],
-    ['botNames', ['']],
+    ['botNames', ['陪练小一']],
+    ['botNames', ['', '陪练小二']],
     ['wordLists', { phrases: '' }],
     ['connection', { maxSendBufferKiB: 0 }],
   ])('a wrong club.%s stops the start and names it', (name, value) => {
@@ -98,14 +99,30 @@ describe('the club block', () => {
     expect(() => loadSchoolConfig(path)).toThrow(new RegExp(`club\\.${name}`))
   })
 
-  test('a bot name with a # in it, or one given twice, stops the start', () => {
-    const hash = writeConfig((club) => {
-      club!.botNames = ['陪练 #1']
+  test.each([
+    ['陪练 #1', /club\.botNames\.0: a bot's name must not contain # or a look-alike/],
+    ['陪练＃1', /club\.botNames\.0: a bot's name must not contain # or a look-alike/],
+    ['陪练﹟1', /club\.botNames\.0: a bot's name must not contain # or a look-alike/],
+    ['陪练♯1', /club\.botNames\.0: a bot's name must not contain # or a look-alike/],
+    ['陪练⌗1', /club\.botNames\.0: a bot's name must not contain # or a look-alike/],
+    ['   ', /club\.botNames\.0: a bot's name must not be blank/],
+    [' 陪练', /club\.botNames\.0: a bot's name must not start or end with a space/],
+    ['陪练　', /club\.botNames\.0: a bot's name must not start or end with a space/],
+  ])('the bot name %j stops the start', (name, message) => {
+    const path = writeConfig((club) => {
+      club!.botNames = [name, '陪练小二']
     })
-    expect(() => loadSchoolConfig(hash)).toThrow(/club\.botNames\.0: a bot's name must not contain #/)
+    expect(() => loadSchoolConfig(path)).toThrow(message)
+  })
+
+  test('a bot name given twice, or once more in full-width letters, stops the start', () => {
     const twice = writeConfig((club) => {
       club!.botNames = ['陪练小一', '陪练小二', '陪练小一']
     })
     expect(() => loadSchoolConfig(twice)).toThrow(/club\.botNames\.2: names must not repeat/)
+    const wide = writeConfig((club) => {
+      club!.botNames = ['Bot A', 'Ｂｏｔ　Ａ']
+    })
+    expect(() => loadSchoolConfig(wide)).toThrow(/club\.botNames\.1: names must not repeat/)
   })
 })

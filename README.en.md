@@ -557,7 +557,7 @@ The optional `club` block of the school config sets up the clubs (`/v1/club`). T
 - `timeBankSeconds`: the time bank of a game, spent when a step runs past its own time.
 - `roomEventBuffer`: how many of a room's latest events are kept in memory for reconnects to catch up on.
 - `lobbyMaxRooms`: the most rooms the lobby lists.
-- `botNames`: the names of the bots, used in the order they sit down in a room. They must not repeat or contain `#` (only a student's name has a `#` and student number).
+- `botNames`: the names of the bots, used in the order they sit down in a room. At least two (a table of three needs two bots at most). They must not repeat, start or end with a space, or contain `#` (nor its variants, such as the full-width `＃`; only a student's name has a `#` and student number).
 - `wordLists`: the paths of the reactions' phrase list (`phrases`) and emoji allowlist (`emoji`), relative to the working directory as `SCHOOL_CONFIG` is. The repository has only `config/club/*.example.json`; copy each to the name without `.example` for the real lists, which are not committed.
 
 ## Contributing
