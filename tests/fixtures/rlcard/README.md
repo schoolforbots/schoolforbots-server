@@ -15,13 +15,27 @@ with it.
 
 The zip holds `jsondata/card_type.json` (cards → move types), `jsondata/type_card.json` (move type → strength →
 cards) and `jsondata/action_space.txt` (every move, and `pass`). The fixture is made from `card_type.json`; the script
-checks that the other two files list the same moves with the same types. Each move has exactly one RLCard type.
+checks that the other two files list the same moves with the same types and strengths. Each move has exactly one
+RLCard type.
 
 ## Format
 
-A gzipped JSON array with one move per line: `["<cards>", ["<MoveType>", ...]]`, sorted by length and then rank by
-rank. Cards are written in RLCard's characters, low to high: `3`–`9`, `T` (10), `J`, `Q`, `K`, `A`, `2`, `B` (black
-joker, 小王), `R` (red joker, 大王). 27471 moves.
+A gzipped JSON array with one move per line, sorted by length and then rank by rank:
+
+```
+["<cards>", [["<MoveType>", "<RLCard type>", <strength>], ...]]
+```
+
+for example `["33344456",[["plane_solo","trio_solo_chain_2",1]]]`.
+
+- Cards are written in RLCard's characters, low to high: `3`–`9`, `T` (10), `J`, `Q`, `K`, `A`, `2`, `B` (black
+  joker, 小王), `R` (red joker, 大王).
+- The RLCard type is its name with the chain length (`trio_solo_chain_2`).
+- The strength is RLCard's number for the move within that type: higher is stronger, but it does not always start
+  at 0. `card_type.json` gives it as a string; here it is a number.
+- Each move has exactly one reading. 27471 moves.
+
+The current file is 86729 bytes, sha256 `b9dcad3131a3ee32d051407413c857edf45d039cd071d95787c84f9b47e84723`.
 
 ## Move type names
 

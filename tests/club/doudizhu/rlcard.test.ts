@@ -14,10 +14,12 @@ import { DEFAULT_DOUDIZHU_RULES } from '../../../src/club/doudizhu/rules.js'
 //
 // The fixture lists every move RLCard knows, each with its move types in our names. RLCard lists only legal moves, so
 // on its own it can only show moves RLCard has and we read differently. To see the other way too (moves we take and
-// RLCard does not have), the test also builds every set of cards our `classify` could take, by shape: all sets of up
-// to 5 cards, every chain of singles, pairs and trios, every trio chain with any k kickers or with k pairs, every four
-// with any 2 kickers or 2 pairs. Every move `classify` gives is of one of those shapes, so the union of the fixture and
-// those sets holds every move either side takes, and each one is compared both ways.
+// RLCard does not have), the test also builds sets of cards by shape: all sets of up to 5 cards; every chain of
+// singles, pairs and trios, also ones running on past the ace into the 2 and the jokers; every trio chain with any k
+// kickers or with k pairs; every four with any 2 kickers or 2 pairs; where pairs are carried, also a bomb as two of
+// them. Every move the rules allow is of one of those shapes, so the union of the fixture and those sets holds every
+// move either side should take, plus the near misses, and each one is compared both ways. A move of some other shape
+// that `classify` wrongly took (six unrelated cards, say) would not be seen here.
 
 const FIXTURE = new URL('../../fixtures/rlcard/doudizhu-types.json.gz', import.meta.url)
 
@@ -97,7 +99,8 @@ function candidates(): Set<string> {
       counts[i]!--
     }
   }
-  // Adds every way of putting `pairs` more pairs of different ranks, none already in `counts`, from `from` up.
+  // Adds every way of putting `pairs` more pairs on top of `counts`, of ranks not in it yet, from `from` up. Two of
+  // the pairs may be one rank (a bomb), so `33334444` and `3334445555` are built and both sides are asked about them.
   const extendPairs = (pairs: number, from = 0): void => {
     if (pairs === 0) {
       found.add(toCards(counts))
@@ -107,14 +110,22 @@ function candidates(): Set<string> {
       if (counts[i] !== 0) continue
       counts[i] = 2
       extendPairs(pairs - 1, i + 1)
+      if (pairs >= 2) {
+        counts[i] = 4
+        extendPairs(pairs - 2, i + 1)
+      }
       counts[i] = 0
     }
   }
   for (let size = 1; size <= 5; size++) extend(size)
   for (let n = 1; n <= 3; n++) {
     for (let k = 2; k * n <= 20; k++) {
-      for (let low = 0; low + k <= ACE - MIN_RANK + 1; low++) {
-        for (let i = 0; i < k; i++) counts[low + i] = n
+      // Chains may run on past the ace into the 2 and the jokers (as far as the deck has the cards), so that a
+      // chain or plane we wrongly took there would show up as a difference.
+      for (let low = 0; low + k <= 15; low++) {
+        const ranksOfChain = Array.from({ length: k }, (_, i) => low + i)
+        if (ranksOfChain.some((i) => n > cap(i + MIN_RANK))) continue
+        for (const i of ranksOfChain) counts[i] = n
         found.add(toCards(counts))
         if (n === 3 && 4 * k <= 20) extend(k)
         if (n === 3 && 5 * k <= 20) extendPairs(k)
@@ -137,6 +148,11 @@ function candidates(): Set<string> {
  */
 function explain(cards: string, reading: Interpretation, rules: ClassifyRules): Category | null {
   if (reading.type !== 'plane_solo' && reading.type !== 'four_two_solo') return null
+  if (reading.type === 'plane_solo') {
+    // The trios of a plane must run on, low to high, and stop at the ace; no kind of the table covers anything else.
+    const trios = [...new Set(reading.body)]
+    if (reading.main > ACE || trios.some((rank, i) => rank !== trios[0]! + i)) return null
+  }
   const kickers = reading.kickers
   const bothJokers = kickers.includes(BLACK_JOKER) && kickers.includes(RED_JOKER)
   if (rules.soloKickersMayBeJokers && bothJokers) return 'joker_wings'
@@ -199,14 +215,29 @@ const counts = (comparison: Comparison): Record<string, number> =>
 const handsOf = (comparison: Comparison, category: Category): string[] =>
   (comparison.byCategory.get(category) ?? []).map((d) => d.cards)
 
+/** A move of the fixture as RLCard reads it: our type, RLCard's name (with the chain length) and its strength. */
+interface RlcardReading {
+  readonly cards: string
+  readonly type: MoveType
+  readonly name: string
+  readonly strength: number
+}
+
 let rlcard: Map<string, readonly string[]>
+let rlcardReadings: RlcardReading[]
 let space: string[]
 let underRlcard: Comparison
 let underSchool: Comparison
 
 beforeAll(() => {
-  const rows = JSON.parse(gunzipSync(readFileSync(FIXTURE)).toString('utf8')) as [string, string[]][]
-  rlcard = new Map(rows)
+  const rows = JSON.parse(gunzipSync(readFileSync(FIXTURE)).toString('utf8')) as [
+    string,
+    [MoveType, string, number][],
+  ][]
+  rlcard = new Map(rows.map(([cards, readings]) => [cards, [...new Set(readings.map(([type]) => type))]]))
+  rlcardReadings = rows.flatMap(([cards, readings]) =>
+    readings.map(([type, name, strength]) => ({ cards, type, name, strength })),
+  )
   space = [...new Set([...rlcard.keys(), ...candidates()])]
   underRlcard = compare(space, rlcard, RLCARD_RULES)
   underSchool = compare(space, rlcard, DEFAULT_DOUDIZHU_RULES)
@@ -261,5 +292,29 @@ describe('classify against RLCard', () => {
     expect(handsOf(underSchool, 'joker_wings')).toContain(KNOWN_DIFFERENCES.joker_wings.example)
     expect(jokers.every((d) => d.cards.endsWith('BR') && d.missing.length === 0 && !rlcard.has(d.cards))).toBe(true)
     expect(new Set(jokers.flatMap((d) => d.extra))).toEqual(new Set(['plane_solo', 'four_two_solo']))
+  })
+
+  test('orders the moves of each RLCard type as RLCard does', () => {
+    // Within one RLCard type (`trio_solo_chain_3` and so on: one of our types at one length), RLCard numbers the
+    // moves by strength, not always from 0. Our main rank must give the same order: the same strength the same main,
+    // a higher strength a higher main. Where we have more than one reading of the type, the first (strongest) counts.
+    const byName = new Map<string, RlcardReading[]>()
+    for (const reading of rlcardReadings) {
+      if (!byName.has(reading.name)) byName.set(reading.name, [])
+      byName.get(reading.name)!.push(reading)
+    }
+    expect(byName.size).toBe(37)
+    const wrong: string[] = []
+    for (const [name, readings] of byName) {
+      const mainOf = new Map<number, number>()
+      for (const { cards, type, strength } of readings) {
+        const main = classify(toRanks(cards), RLCARD_RULES).find((r) => r.type === type)!.main
+        if ((mainOf.get(strength) ?? main) !== main) wrong.push(`${name} ${strength}: ${cards}`)
+        mainOf.set(strength, main)
+      }
+      const ordered = [...mainOf].sort(([a], [b]) => a - b).map(([, main]) => main)
+      if (ordered.some((main, i) => i > 0 && main <= ordered[i - 1]!)) wrong.push(`${name}: mains ${ordered.join(' ')}`)
+    }
+    expect(wrong.slice(0, 20)).toEqual([])
   })
 })

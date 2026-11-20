@@ -9,7 +9,8 @@ import { crc32, gzipSync, inflateRawSync } from 'node:zlib'
 //   npx tsx scripts/gen-rlcard-fixture.ts path/to/jsondata.zip
 //
 // The zip is only read as data: its sha256 is checked, then `card_type.json` (cards -> RLCard's move types) is taken
-// out, checked against `type_card.json` and `action_space.txt`, and its move type names are mapped to ours. The output
+// out, checked against `type_card.json` and `action_space.txt`, and each move is written with its move types (our name
+// and RLCard's) and RLCard's strength for it. The output
 // is the same bytes every time: sorted lines, a gzip header with no time stamp and no OS.
 
 const ZIP_SHA256 = '10882cea3c35cd15ec63044abec16091403d4d80ff98a85b6078a5548d2305fd'
@@ -96,14 +97,14 @@ const cardType = JSON.parse(read('jsondata/card_type.json')) as Record<string, [
 const typeCard = JSON.parse(read('jsondata/type_card.json')) as Record<string, Record<string, string[]>>
 const actionSpace = read('jsondata/action_space.txt').trim().split(/\s+/)
 
-// The three files must agree: every cards string of card_type.json has the same types in type_card.json, and the
-// action space is those strings plus `pass`.
+// The three files must agree: every cards string of card_type.json has the same types and strengths in
+// type_card.json, and the action space is those strings plus `pass`.
 const fromTypeCard = new Map<string, Set<string>>()
 for (const [name, byStrength] of Object.entries(typeCard)) {
-  for (const list of Object.values(byStrength)) {
+  for (const [strength, list] of Object.entries(byStrength)) {
     for (const cards of list) {
       if (!fromTypeCard.has(cards)) fromTypeCard.set(cards, new Set())
-      fromTypeCard.get(cards)!.add(name)
+      fromTypeCard.get(cards)!.add(`${name} ${strength}`)
     }
   }
 }
@@ -111,7 +112,7 @@ const hands = Object.keys(cardType)
 if (fromTypeCard.size !== hands.length) fail('card_type.json and type_card.json list different hands')
 for (const cards of hands) {
   if (!/^[3-9TJQKA2BR]+$/.test(cards)) fail(`not a cards string: ${cards}`)
-  const names = cardType[cards]!.map(([name]) => name).sort()
+  const names = cardType[cards]!.map(([name, strength]) => `${name} ${strength}`).sort()
   if (names.join() !== [...(fromTypeCard.get(cards) ?? [])].sort().join()) fail(`${cards}: the files disagree`)
 }
 const actionsOk = actionSpace.every((action) => action === 'pass' || action in cardType)
@@ -121,7 +122,15 @@ if (actionSpace.length !== hands.length + 1 || !actionSpace.includes('pass') || 
 
 const lines = hands
   .sort(compareHands)
-  .map((cards) => JSON.stringify([cards, [...new Set(cardType[cards]!.map(([name]) => ourType(name)))].sort()]))
+  .map((cards) => {
+    // Each reading: our move type, RLCard's name for it (with the chain length) and RLCard's strength within that name.
+    const readings = cardType[cards]!.map(([name, strength]): [string, string, number] => {
+      if (!/^\d+$/.test(strength)) fail(`${cards}: strength ${strength}`)
+      return [ourType(name), name, Number(strength)]
+    })
+    readings.sort((a, b) => (a.join() < b.join() ? -1 : a.join() > b.join() ? 1 : 0))
+    return JSON.stringify([cards, readings])
+  })
 const json = `[\n${lines.join(',\n')}\n]\n`
 const gz = gzipSync(json, { level: 9 })
 gz[9] = 0xff // the gzip header's OS byte: "unknown" on every platform (the time stamp is already 0)
