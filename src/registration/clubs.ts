@@ -61,17 +61,20 @@ export function clubRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
  */
 async function joinClub(deps: RegistrationDeps, studentId: number, club: Club): Promise<Static<typeof ClubMembership>> {
   return deps.db.transaction().execute(async (trx) => {
-    const already = await joinedAt(trx, studentId, club)
-    if (already !== null) return membership(club, already)
-
-    // The status is read again under a share lock: a withdrawal, a penalty or the nightly job may have changed it
-    // since the key was checked, and none of them can until this commits, so nobody joins on their way out.
+    // The student row is locked first, and read again under the lock. Two joins by one student take turns, so the
+    // second finds the first's membership and gives it back as it is. And a withdrawal, a penalty or the nightly job
+    // may have changed the status since the key was checked, but none of them can until this commits, so nobody joins
+    // on their way out. (No key update: the club_members foreign key's own lock does not wait on it.)
     const student = await trx
       .selectFrom('students')
       .select(['status', 'classId'])
       .where('id', '=', studentId)
-      .forShare()
+      .forNoKeyUpdate()
       .executeTakeFirstOrThrow()
+
+    const already = await joinedAt(trx, studentId, club)
+    if (already !== null) return membership(club, already)
+
     const reason = whyNotEligible(student)
     if (reason !== null) throw new ApiError(409, 'not_eligible', {}, reason)
 
