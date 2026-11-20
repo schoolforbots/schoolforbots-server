@@ -26,11 +26,16 @@ export type TurnView = Pick<
 
 const NO_TRUSTEES: readonly [boolean, boolean, boolean] = [false, false, false]
 
+function checkTrustee(trustee: readonly boolean[]): void {
+  if (trustee.length !== 3) throw new Error(`trustee needs one flag per seat, got ${trustee.length}`)
+}
+
 /**
  * The public state of the game, for everyone at the table and the spectators. `trustee` is who is in trusteeship, by
  * seat, which the club layer knows; nobody by default. `multiplier` is before the cap.
  */
 export function publicTable(state: GameState, trustee: readonly boolean[] = NO_TRUSTEES): TableView {
+  checkTrustee(trustee)
   const last = state.trick?.last ?? null
   return {
     game: 'doudizhu',
@@ -80,6 +85,7 @@ function unseenBy(state: GameState, seat: number): RankName[] {
  * from 1), no bids, and a pass unless it leads. Throws when `seat` is not to act.
  */
 export function turnView(state: GameState, seat: number, trustee: readonly boolean[] = NO_TRUSTEES): TurnView {
+  checkTrustee(trustee)
   if (state.toAct !== seat) throw new Error(`seat ${seat} is not to act`)
   const bidding = state.phase === 'bidding'
   let bids: number[] | null = null

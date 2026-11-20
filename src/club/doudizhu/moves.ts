@@ -1,7 +1,15 @@
 import { MOVE_TYPE_NAMES, type Move as MoveSchema } from '../../protocol/club.js'
 import type { Static } from 'typebox'
 import { BLACK_JOKER, type Card, MAX_RANK, MIN_RANK, RED_JOKER, toRank } from './cards.js'
-import { type ClassifyRules, type Interpretation, MOVE_TYPES, type MoveType } from './classify.js'
+import {
+  ACE,
+  type ClassifyRules,
+  type Interpretation,
+  MAX_MOVE_LENGTH,
+  type MoveType,
+  repeat,
+  TYPE_ORDER,
+} from './classify.js'
 import { beats } from './compare.js'
 
 // The legal moves of a hand: every move it can lead, or every move that beats the move to beat. The moves are built
@@ -9,12 +17,6 @@ import { beats } from './compare.js'
 
 /** A list longer than this is trimmed to one choice of kickers per move body. */
 export const MOVES_LIMIT = 300
-
-/** The highest rank a chain (straight, pair straight, trio straight, plane) may reach: the ace. */
-const ACE = 14
-
-/** The most cards one move can have. */
-const MAX_LENGTH = 20
 
 export interface LegalMoves {
   /** The moves in list order; the `id` of a move in `your_turn` is its index plus 1. */
@@ -25,8 +27,6 @@ export interface LegalMoves {
 
 /** What a move to beat needs: what `beats` looks at. */
 export type MoveToBeat = Pick<Interpretation, 'type' | 'main' | 'length'>
-
-const TYPE_ORDER: ReadonlyMap<MoveType, number> = new Map(MOVE_TYPES.map((type, i) => [type, i]))
 
 /** Compares two lists of ranks card by card, low to high; a shorter list that is a prefix comes first. */
 function compareRanks(a: readonly number[], b: readonly number[]): number {
@@ -54,8 +54,6 @@ export function compareMoves(a: Interpretation, b: Interpretation): number {
 export function toMove(move: Pick<Interpretation, 'type' | 'cards'>): Static<typeof MoveSchema> {
   return { type: move.type, name: MOVE_TYPE_NAMES[move.type], cards: [...move.cards].sort((a, b) => a - b).map(toRank) }
 }
-
-const repeat = (rank: number, times: number): number[] => new Array<number>(times).fill(rank)
 
 /**
  * Every multiset of `size` kickers from `pool` (a count per rank), at most `maxPer` of a rank, low to high. `skip`
@@ -167,17 +165,17 @@ function enumerate(
   if (want('straight')) chains(1, 5, (low, top) => add('straight', top, run(low, top, 1)))
   if (want('pair_straight')) {
     chains(2, rules.minPairStraight, (low, top) => {
-      if ((top - low + 1) * 2 <= MAX_LENGTH) add('pair_straight', top, run(low, top, 2))
+      if ((top - low + 1) * 2 <= MAX_MOVE_LENGTH) add('pair_straight', top, run(low, top, 2))
     })
   }
   chains(3, 2, (low, top) => {
     const links = top - low + 1
     const body = run(low, top, 3)
-    if (rules.bareTrio && want('trio_straight') && links * 3 <= MAX_LENGTH) add('trio_straight', top, body)
-    if (want('plane_solo') && links * 4 <= MAX_LENGTH) {
+    if (rules.bareTrio && want('trio_straight') && links * 3 <= MAX_MOVE_LENGTH) add('trio_straight', top, body)
+    if (want('plane_solo') && links * 4 <= MAX_MOVE_LENGTH) {
       for (const k of soloKickers(ranksOf(low, top), links)) add('plane_solo', top, body, k)
     }
-    if (want('plane_pair') && links * 5 <= MAX_LENGTH) {
+    if (want('plane_pair') && links * 5 <= MAX_MOVE_LENGTH) {
       for (const k of pairKickers(ranksOf(low, top), links)) add('plane_pair', top, body, k)
     }
   })
