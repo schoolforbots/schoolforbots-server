@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { emptyTally } from '../../src/tools/sim-club.js'
 import {
   type BotResult,
+  type ClubExpect,
   clubReportJson,
   clubReportLines,
   clubVerdict,
@@ -11,9 +12,12 @@ import {
   type Verification,
 } from '../../src/tools/sim-club-report.js'
 
+/** A bot that got in and saw a game to the end, unless `counts` says otherwise. */
 function bot(studentId: number, counts: Partial<ReturnType<typeof emptyTally>> = {}): BotResult {
-  return { studentId, tally: { ...emptyTally(), welcomes: 1, ...counts } }
+  return { studentId, tally: { ...emptyTally(), welcomes: 1, gameIds: new Set([100 + studentId]), ...counts } }
 }
+
+const line = (e: Partial<ClubExpect> = {}): ClubExpect => ({ ackMs: null, turnMs: null, ...e })
 
 const verified = (missing: Verification['missing'] = [], failedBots = 0): Verification => ({
   bots: 2,
@@ -21,6 +25,7 @@ const verified = (missing: Verification['missing'] = [], failedBots = 0): Verifi
   closingGames: 1,
   missing,
   failedBots,
+  complete: true,
 })
 
 describe('the totals', () => {
@@ -46,7 +51,7 @@ describe('the totals', () => {
         closingGameIds: new Set([2]),
         ended: '学号在别处连上了',
       }),
-      bot(3, { welcomes: 0 }),
+      bot(3, { welcomes: 0, gameIds: new Set() }),
     ])
     expect(totals).toMatchObject({
       bots: 3,
@@ -72,20 +77,20 @@ describe('the verdict', () => {
   test('checks the p99 of each delay against its line, exactly on the line passing', () => {
     const report = summarizeClub([bot(1)], samples, null, null)
     expect(report.ack).toMatchObject({ count: 5, p50: 30, p99: 1000, max: 1000 })
-    expect(clubVerdict(report, { ackMs: 1000, turnMs: 6 })).toEqual({ pass: true, failures: [] })
-    expect(clubVerdict(report, { ackMs: 999 }).failures).toEqual(['ack 延迟的 p99 是 1000 毫秒，超过了 999 毫秒'])
-    expect(clubVerdict(report, {})).toEqual({ pass: true, failures: [] })
+    expect(clubVerdict(report, line({ ackMs: 1000, turnMs: 6 }))).toEqual({ pass: true, failures: [] })
+    expect(clubVerdict(report, line({ ackMs: 999 })).failures).toEqual(['ack 延迟的 p99 是 1000 毫秒，超过了 999 毫秒'])
+    expect(clubVerdict(report, line())).toEqual({ pass: true, failures: [] })
   })
 
   test('a line with no samples fails', () => {
     const report = summarizeClub([bot(1)], { ackMs: [], turnMs: [] }, null, null)
-    expect(clubVerdict(report, { turnMs: 1000 }).failures).toEqual(['换手延迟没有样本，没法判断是否在 1000 毫秒内'])
+    expect(clubVerdict(report, line({ turnMs: 1000 })).failures).toEqual(['换手延迟没有样本，没法判断是否在 1000 毫秒内'])
   })
 
   test('an unexpected disconnect, a message off the protocol, a missing game or an unreadable record always fail', () => {
     const missing = [{ studentId: 1, gameId: 7, closing: true }]
     const report = summarizeClub([bot(1, { unexpectedDisconnects: 2, invalid: 1 })], samples, null, verified(missing, 1))
-    expect(clubVerdict(report, {}).failures).toEqual([
+    expect(clubVerdict(report, line()).failures).toEqual([
       '有 2 次意外断开',
       '收到 1 条不合协议的消息',
       '牌谱少了 1 局',
@@ -94,8 +99,27 @@ describe('the verdict', () => {
   })
 
   test('failures to connect and refusals do not fail a run by themselves', () => {
-    const report = summarizeClub([bot(1, { connectFailures: 3, refusals: { stale_turn: 4 } })], samples, { checks: 2, failures: 1 }, verified())
-    expect(clubVerdict(report, {}).pass).toBe(true)
+    const report = summarizeClub([bot(1, { connectFailures: 3, refusals: { stale_turn: 4 } })], samples, { checks: 2, failures: 0 }, verified())
+    expect(clubVerdict(report, line()).pass).toBe(true)
+  })
+
+  test('a run where nothing happened fails: nobody got in, no game ended, or no record could be checked', () => {
+    const nobody = summarizeClub([bot(1, { welcomes: 0, gameIds: new Set(), connectFailures: 5 })], samples, null, null)
+    expect(clubVerdict(nobody, line()).failures).toEqual(['没有一个机器人进得了社团'])
+    const noGame = summarizeClub([bot(1, { gameIds: new Set() })], samples, null, null)
+    expect(clubVerdict(noGame, line()).failures).toEqual(['一局也没打完'])
+    const noSample = summarizeClub([bot(1)], samples, null, { ...verified(), bots: 0, games: 0, closingGames: 0 })
+    expect(clubVerdict(noSample, line()).failures).toEqual(['没有可以核对牌谱的机器人'])
+  })
+
+  test('a game left without its over as the club closed, a failed /healthz, or a check not finished fail', () => {
+    const report = summarizeClub([bot(1, { closingWithoutOver: 1 })], samples, { checks: 3, failures: 1 }, { ...verified(), complete: false })
+    expect(clubVerdict(report, line()).failures).toEqual([
+      '学校请走时有 1 局没收到 over',
+      '/healthz 失败了 1 次',
+      '牌谱核对没做完',
+    ])
+    expect(clubReportLines(report, clubVerdict(report, line())).join('\n')).toContain('核对没做完')
   })
 })
 
@@ -108,7 +132,7 @@ describe('the report', () => {
       { checks: 12, failures: 1 },
       verified(missing),
     )
-    const verdict = clubVerdict(report, {})
+    const verdict = clubVerdict(report, line())
     const text = clubReportLines(report, verdict).join('\n')
     expect(text).toContain('ack 延迟（发出游戏动作到收到 ack）：1 个样本')
     expect(text).toContain('换手延迟（上一步房间事件的 at 到收到 your_turn）：没有样本')
@@ -120,7 +144,7 @@ describe('the report', () => {
     expect(text).toContain('关门或停服时打完的局：牌谱少了 1 局')
     expect(text).toContain('少了：学号 9 的第 7 局（关门或停服时打完）')
     expect(text).toContain('结论：不及格')
-    const json = clubReportJson(report, { ackMs: 500 }, verdict)
-    expect(json).toMatchObject({ pass: false, expect: { ackMs: 500 }, verification: { missing } })
+    const json = clubReportJson(report, line({ ackMs: 500 }), verdict)
+    expect(json).toMatchObject({ pass: false, expect: { ackMs: 500, turnMs: null }, verification: { missing } })
   })
 })

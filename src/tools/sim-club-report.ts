@@ -33,6 +33,7 @@ export const COUNTED = [
   'reactsRefused',
   'framesHeld',
   'framesDropped',
+  'closingWithoutOver',
 ] as const satisfies readonly (keyof ClubBotTally)[]
 
 export type Counted = (typeof COUNTED)[number]
@@ -107,7 +108,7 @@ export interface MissingGame {
 
 /** The check of the records of a sample of the bots. */
 export interface Verification {
-  /** Bots whose records were looked up, and the games of theirs that were looked for. */
+  /** Bots whose records were looked up, and the games of theirs that were looked for (each game once). */
   bots: number
   games: number
   /** Of those, the games played out as the club closed or the service stopped. */
@@ -115,6 +116,8 @@ export interface Verification {
   missing: MissingGame[]
   /** Bots whose records could not be read (a request failed every time). */
   failedBots: number
+  /** False when the check was stopped before its end (Ctrl-C): then nothing is known missing, and nothing sure. */
+  complete: boolean
 }
 
 export interface ClubReport {
@@ -135,29 +138,39 @@ export function summarizeClub(
   return { ack: statOf(samples.ackMs), turn: statOf(samples.turnMs), totals: totalTallies(bots), healthz, verification }
 }
 
+/** The pass line: the p99 of each delay (ms), null when not judged. */
 export interface ClubExpect {
-  ackMs?: number | undefined
-  turnMs?: number | undefined
+  ackMs: number | null
+  turnMs: number | null
 }
 
 /**
  * Whether the run is within the pass line: the p99 of the ack delays within `ackMs` and of the hand-off delays within
- * `turnMs` (each only when given; exactly on the line passes; a limit with no samples fails), and always: no unexpected
- * disconnect, no message off the protocol, no game missing from the records checked, and every record checked read.
+ * `turnMs` (each only when given; exactly on the line passes; a limit with no samples fails), and always: some bot got
+ * in and some game was played to the end (a run where nothing happened proves nothing); no unexpected disconnect, no
+ * message off the protocol, no game left without its `over` as the club closed or the service stopped; `/healthz`
+ * never failed when watched; and when records were to be checked, some were, to the end, every one read and no game
+ * missing.
  */
 export function clubVerdict(report: ClubReport, expect: ClubExpect): { pass: boolean; failures: string[] } {
   const failures: string[] = []
-  const check = (what: string, stat: Stat, limit: number | undefined) => {
-    if (limit === undefined) return
+  const check = (what: string, stat: Stat, limit: number | null) => {
+    if (limit === null) return
     if (stat.p99 === null) failures.push(`${what}没有样本，没法判断是否在 ${limit} 毫秒内`)
     else if (stat.p99 > limit) failures.push(`${what}的 p99 是 ${stat.p99} 毫秒，超过了 ${limit} 毫秒`)
   }
   check('ack 延迟', report.ack, expect.ackMs)
   check('换手延迟', report.turn, expect.turnMs)
-  const { totals, verification } = report
+  const { totals, verification, healthz } = report
+  if (totals.welcomes === 0) failures.push('没有一个机器人进得了社团')
+  else if (totals.games === 0) failures.push('一局也没打完')
   if (totals.unexpectedDisconnects > 0) failures.push(`有 ${totals.unexpectedDisconnects} 次意外断开`)
   if (totals.invalid > 0) failures.push(`收到 ${totals.invalid} 条不合协议的消息`)
+  if (totals.closingWithoutOver > 0) failures.push(`学校请走时有 ${totals.closingWithoutOver} 局没收到 over`)
+  if (healthz !== null && healthz.failures > 0) failures.push(`/healthz 失败了 ${healthz.failures} 次`)
   if (verification !== null) {
+    if (verification.bots === 0) failures.push('没有可以核对牌谱的机器人')
+    if (!verification.complete) failures.push('牌谱核对没做完')
     if (verification.missing.length > 0) failures.push(`牌谱少了 ${verification.missing.length} 局`)
     if (verification.failedBots > 0) failures.push(`有 ${verification.failedBots} 个机器人的牌谱查不了`)
   }
@@ -187,7 +200,7 @@ export function clubReportLines(report: ClubReport, verdict: { pass: boolean; fa
     `连接：连上 ${t.connects} 次，进社团 ${t.welcomes} 次，连不上 ${t.connectFailures} 次，意外断开 ${t.unexpectedDisconnects} 次`,
     `学校请走：${countsText(t.closings)}`,
     `凑桌：邀请 ${t.seated.invite} 次，快速加入 ${t.seated.quick} 次，带陪练 ${t.seated.bots} 次；换桌：${countsText(t.reforms)}；空闲时叫陪练 ${t.botsAsked} 次`,
-    `对局：打完 ${t.games} 局，其中关门或停服时打完的 ${t.closingGames} 局`,
+    `对局：打完 ${t.games} 局，其中关门或停服时打完的 ${t.closingGames} 局；学校请走时没收到 over 的 ${t.closingWithoutOver} 局`,
     `步数：收到 your_turn ${t.turns} 次，交了 ${t.steps} 步；故意超时 ${t.timeoutsLeft} 次，超时替出 ${t.timeoutSteps} 步，托管替出 ${t.trusteeSteps} 步，关门替出 ${t.closingSteps} 步`,
     `托管：进托管 ${t.trusteeOn} 次（关门时 ${t.trusteeOnClosing} 次），出托管 ${t.trusteeOff} 次；收回：交一步 ${t.takeBackByStep} 次，trustee.off ${t.takeBackByOff} 次`,
     `非法动作：发出 ${t.illegalSent} 次，被拒 ${t.illegalRefused} 次，重交 ${t.retries} 次`,
@@ -201,7 +214,8 @@ export function clubReportLines(report: ClubReport, verdict: { pass: boolean; fa
   if (v === null) lines.push('牌谱核对：没有做')
   else {
     lines.push(
-      `牌谱核对：${v.bots} 个机器人，${v.games} 局（其中关门或停服时打完的 ${v.closingGames} 局），少了 ${v.missing.length} 局，查不了的机器人 ${v.failedBots} 个`,
+      `牌谱核对：${v.bots} 个机器人，${v.games} 局（其中关门或停服时打完的 ${v.closingGames} 局），少了 ${v.missing.length} 局，查不了的机器人 ${v.failedBots} 个` +
+        (v.complete ? '' : '；核对没做完'),
     )
     const closingMissing = v.missing.filter((m) => m.closing).length
     lines.push(`关门或停服时打完的局：牌谱少了 ${closingMissing} 局`)
