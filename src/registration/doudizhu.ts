@@ -19,10 +19,11 @@ import { ApiError } from './errors.js'
 
 const MAX_PG_INTEGER = 2_147_483_647
 
-// What a board is serialized with: `ClubLeaderboard` without its if/then/else (which ties `weekStartsOn` to the board),
-// which the serializer cannot merge. Leaving it out changes nothing of the shape: it says only which of null and a date
-// goes with which board, and the query always gives the right one (tests/registration/doudizhu.test.ts checks the
-// replies against the whole schema).
+// What a board is serialized with: `ClubLeaderboard` without its if/then/else (which ties `weekStartsOn` to the board).
+// With it, fast-json-stringify cannot build the route's serializer and the service does not start: "Failed to merge
+// "type" keyword schemas". A response schema only serializes the reply, it does not validate it, and leaving the
+// condition out changes nothing of the shape: it says only which of null and a date goes with which board, and the
+// query always gives the right one (tests/registration/doudizhu.test.ts checks the replies against the whole schema).
 const LeaderboardReply = Type.Object(ClubLeaderboard.properties)
 
 const LeaderboardQuery = Type.Object({ board: Type.Union([Type.Literal('week'), Type.Literal('all')]) })
