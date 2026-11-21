@@ -137,13 +137,19 @@ export class Club {
   // ---- Connections ----
 
   /**
-   * The student has come in (their connection is in the hub): their seat, if they have one, is theirs for good again,
-   * and this is what they are sent after `welcome`. The room events after `lastSeq` are replayed when `roomId` names
+   * The student has come in (their connection is in the hub), from `address` (null when not known): their seat, if
+   * they have one, is theirs for good again (the game being played there told the address), and this is what they
+   * are sent after `welcome`. The room events after `lastSeq` are replayed when `roomId` names
    * the room they sit in; a `lastSeq` past that room's last event is of another room that had the same id, and the
    * room is replayed whole then (what is kept of it).
    */
-  rejoined(studentId: number, hello: { roomId?: string; lastSeq?: number }, now: Date): Rejoin {
-    this.rooms.reconnected(studentId, now)
+  rejoined(
+    studentId: number,
+    hello: { roomId?: string; lastSeq?: number },
+    now: Date,
+    address: string | null = null,
+  ): Rejoin {
+    this.rooms.reconnected(studentId, now, address)
     const roomId = this.rooms.roomOf(studentId)
     let replay: RoomEventFrame[] = []
     if (roomId !== null && hello.roomId === roomId) {

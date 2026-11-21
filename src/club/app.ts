@@ -5,6 +5,7 @@ import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { databaseAlive, registerHealthz } from '../shared/healthz.js'
 import type { Maintenance } from '../shared/maintenance.js'
+import { inetAddress } from '../shared/net.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
 import type { Club } from './club.js'
@@ -43,6 +44,12 @@ export interface ClubDeps {
   clubEnabled?: () => boolean
   /** Whether the club is closed by the timetable at a moment. Unset: `clubClosedAt` of the config. */
   closedAt?: (now: Date) => ClubClosed
+  /**
+   * True when the service runs behind a reverse proxy whose X-Forwarded-For can be trusted: the address a student's
+   * seat is recorded with (see `SessionStart.addresses`) is then the client's that the proxy names, not the proxy's.
+   * Unset: false.
+   */
+  trustProxy?: boolean
   /** What `GET /healthz` checks. Unset: only that the database answers. */
   healthCheck?: () => Promise<boolean>
   /** Called each time something unexpected goes wrong in a connection (the places that close it with 1011). */
@@ -62,7 +69,7 @@ const BEARER = /^Bearer\s+(\S+)$/i
  * happens on a connection.
  */
 export function buildClubApp(deps: ClubDeps): FastifyInstance {
-  const app = Fastify({ logger: deps.logger })
+  const app = Fastify({ trustProxy: deps.trustProxy ?? false, logger: deps.logger })
   const noteInternalError = () => {
     try {
       deps.onInternalError?.()
@@ -111,7 +118,8 @@ export function buildClubApp(deps: ClubDeps): FastifyInstance {
         const studentId = students.get(request)
         try {
           if (studentId === undefined) throw new Error('The upgrade reached the handler without a student')
-          serveConnection(deps, socket, { studentId, log: request.log })
+          // The peer's address, or behind a trusted proxy the client's it names (see `ClubDeps.trustProxy`).
+          serveConnection(deps, socket, { studentId, ip: inetAddress(request.ip), log: request.log })
         } catch (err) {
           request.log.error({ err }, 'club connection failed')
           noteInternalError()

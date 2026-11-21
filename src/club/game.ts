@@ -6,6 +6,7 @@ import type {
   ClubServerMessage,
   ClubStatsSummary,
   ClubWelcomeMessage,
+  ReactMessage,
   RoomEvent,
   RoomState,
 } from '../protocol/club.js'
@@ -24,7 +25,13 @@ import type { ClubWsErrorCode } from './ws-errors.js'
 // A game is driven only by calls: a session never sets a timer of its own and never reads the clock, it is given
 // `now` on every call. The club layer calls `tick` about once a second, which is when timeouts happen. Everything is
 // synchronous: the room logic runs one call at a time and needs the result at once. A game that has to store
-// something (a game record, the stats) does it on its own, without making the club layer wait.
+// something (a game record, the stats) does it on its own, without making the club layer wait; `GameModule.drain`
+// waits for what is still being stored, when the service stops.
+//
+// Besides the players' steps, the club layer tells a session what a game record may want and the players do not see
+// through the game: the reactions sent to the whole table during the game (`GameSession.reacted`), and the address
+// each student seat is connected from (`SessionStart.addresses`, `GameSession.addressChanged`). An address is for the
+// records alone: a game never puts it in anything it sends.
 //
 // Seats are numbered from 0 to `GameModule.seats - 1`, and a session's seat numbers are the room's. The club layer
 // knows nothing of how many seats a game has but `seats`.
@@ -91,6 +98,23 @@ export interface GameReply {
 /** A seat and who sits in it: a student or a bot (see `people.ts`). */
 export type SeatPlayer = Static<typeof ClubPerson>
 
+/**
+ * A reaction sent to the whole table (visibility `room`) while a game is played, as the club layer tells the session
+ * of it (`GameSession.reacted`), after the room has been sent it. Private reactions, and reactions while no game is
+ * being played, are not told; spectators cannot react.
+ */
+export interface GameReaction {
+  /** The seat of the student who sent it. */
+  readonly from: number
+  /** The seat of the student it names, or null. */
+  readonly to: number | null
+  readonly kind: Static<typeof ReactMessage>['kind']
+  /** As sent: an emoji, a phrase's id, or a text. */
+  readonly content: string
+  /** What it showed: the `text` of the `react` room event. */
+  readonly text: string
+}
+
 /** Everything a new session is given. */
 export interface SessionStart {
   /** The room the game is played in; every private message carries it. */
@@ -102,12 +126,19 @@ export interface SessionStart {
    */
   readonly players: readonly SeatPlayer[]
   /**
-   * The room's session before this one, null for the room's first game. A game that goes on from game to game reads
-   * what it needs from it. The seats may be taken by others since; the seat numbers stay. For doudizhu the first game
-   * of a room has a random first bidder, and each later game's first bidder is the seat after the first bidder of the
-   * previous game's last deal, redeals included, so a seat that has just bid first does not bid first again.
+   * The address each student seat is connected from now (`players[i]`'s in `addresses[i]`), or of its last connection
+   * when it is offline; null for a bot's seat, or when the address is not known. Changes during the game come by
+   * `GameSession.addressChanged`. Only for the game's records: never sent to anyone.
    */
-  readonly previous: GameSession | null
+  readonly addresses: readonly (string | null)[]
+  /**
+   * What the room's previous game handed on (its `GameSession.carry()`, taken once it was over), null for the room's
+   * first game. The club layer keeps it as it is and never looks inside; the seats may be taken by others since, but
+   * the seat numbers stay. For doudizhu it is the first bidder of the previous game's last deal (redeals included):
+   * the first game of a room has a random first bidder, and each later game's first bidder is the seat after it, so a
+   * seat that has just bid first does not bid first again.
+   */
+  readonly carry: unknown | null
   /**
    * When the club closes next, seen from `now` (`welcome.closesAt`, `your_turn.closesAt`). The club layer closes the
    * club at that moment and calls `finish`; the game only shows the time.
@@ -118,8 +149,8 @@ export interface SessionStart {
 
 /**
  * One game played in one room, from the deal to the end. The room calls `start` once, then any of the others until
- * `over`, and keeps the session after it is over (for `table`, `resend` and the next game's `previous`) until the
- * next game starts or the room closes. Every call is given the time it happens at; none waits.
+ * `over`. Once it is over the room takes its `carry` for the next game, and keeps the session only for `table` and
+ * `resend` until the next game starts or the room closes. Every call is given the time it happens at; none waits.
  */
 export interface GameSession {
   /** Deals, and plays the bots' steps up to the first student to act. Called once, right after `newSession`. */
@@ -164,6 +195,21 @@ export interface GameSession {
   table(): GameTable
   /** Whether the seat is in trusteeship now (`RoomState.seats[].trustee`); always false for a bot. */
   trustee(seat: number): boolean
+  /**
+   * A reaction was sent to the whole table while the game is not over (see `GameReaction`), at `now`. For the game's
+   * record only: nothing is sent back.
+   */
+  reacted(reaction: GameReaction, now: Date): void
+  /**
+   * The student in `seat` has connected again, from `address` (null when not known), while the game is not over.
+   * For the game's records only: never sent to anyone.
+   */
+  addressChanged(seat: number, address: string | null, now: Date): void
+  /**
+   * What this game hands on to the room's next game (`SessionStart.carry`); called once, once the game is over. Small,
+   * and anything the game likes: the club layer keeps it as it is and never looks inside.
+   */
+  carry(): unknown
   readonly over: boolean
 }
 
@@ -188,4 +234,9 @@ export interface GameModule {
   stats(studentId: number): Promise<Static<typeof ClubStatsSummary>>
   /** A new game for the players in `start.players`; nothing happens until `start` is called on it. */
   newSession(start: SessionStart): GameSession
+  /**
+   * Resolves once what the games have handed over to be stored (their records) is stored, or `timeoutMs` has passed,
+   * whichever comes first; never rejects. For the service stopping, after the games being played have been finished.
+   */
+  drain(timeoutMs: number): Promise<void>
 }

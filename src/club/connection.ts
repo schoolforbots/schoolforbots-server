@@ -110,14 +110,17 @@ export function clubDoor(deps: ClubDeps, now: Date): ClubClosing | null {
   return m === null ? null : maintenanceClosing(m)
 }
 
-/** Serves one connection whose key belongs to the student `studentId` (the upgrade checked it). */
+/**
+ * Serves one connection whose key belongs to the student `studentId` (the upgrade checked it), from `ip` (null when
+ * not known), which only the game is told (see `SessionStart.addresses`): it is never sent, nor logged.
+ */
 export function serveConnection(
   deps: ClubDeps,
   socket: WebSocket,
-  p: { studentId: number; log: FastifyBaseLogger },
+  p: { studentId: number; ip: string | null; log: FastifyBaseLogger },
 ): void {
   const { db, config, clock, club } = deps
-  const { studentId, log } = p
+  const { studentId, ip, log } = p
   const limits = config.club.connection
   const maxSendBufferBytes = limits.maxSendBufferKiB * 1024
 
@@ -222,6 +225,7 @@ export function serveConnection(
     const student: ClubStudent = {
       person: studentPersonWithClass(r, { division: r.division, slot: r.slot, classNo: r.classNo }, config),
       email: r.email,
+      address: ip,
     }
     const stats = await club.game.stats(studentId)
     // The client may have gone meanwhile; a closed connection must never be registered.
@@ -245,7 +249,7 @@ export function serveConnection(
       me = student
       // The old connection's close finds a newer one in the hub, so the student is not taken for gone.
       replaced?.close(REPLACED)
-      back = club.rejoined(studentId, hello, now)
+      back = club.rejoined(studentId, hello, now, ip)
     } finally {
       queued = held
       held = null

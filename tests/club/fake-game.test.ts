@@ -18,7 +18,7 @@ const students: SeatPlayer[] = [
 const withBots: SeatPlayer[] = [students[0]!, botPerson('陪练小一'), botPerson('陪练小二')]
 
 function session(players: SeatPlayer[], options: Parameters<typeof fakeGame>[0] = {}, game = fakeGame(options)) {
-  const s = game.newSession({ roomId: ROOM, players, previous: null, closesAt: () => CLOSES, now: T0 }) as FakeSession
+  const s = game.newSession({ roomId: ROOM, players, addresses: players.map(() => null), carry: null, closesAt: () => CLOSES, now: T0 }) as FakeSession
   return { game, s }
 }
 
@@ -139,10 +139,15 @@ describe('whole games', () => {
   test('the next game of a room bids first one seat on, with the next game number', () => {
     const { game, s } = session(students, { decks: [QUICK_DECK], firstBidder: 2 })
     s.start(T0)
-    const next = game.newSession({ roomId: ROOM, players: students, previous: s, closesAt: () => CLOSES, now: later(1) })
+    const next = game.newSession({ roomId: ROOM, players: students, addresses: [null, null, null], carry: s.carry(), closesAt: () => CLOSES, now: later(1) })
     const started = next.start(later(1))
     expect(gameEvents(started)[0]).toMatchObject({ kind: 'dealt', gameId: 2, firstBidder: 0 })
     expect(game.sessions).toEqual([s, next])
+  })
+
+  test('nothing is stored yet, so drain resolves at once', async () => {
+    const { game } = session(students)
+    await expect(game.drain(10_000)).resolves.toBeUndefined()
   })
 })
 
@@ -175,7 +180,7 @@ describe('nobody bids', () => {
     expect(privates(outputs.at(-1)!)).toEqual([])
 
     // The last deal's first bidder was seat 2, so the next game bids first from seat 0 (not seat 1, after the first).
-    const next = game.newSession({ roomId: ROOM, players: students, previous: s, closesAt: () => CLOSES, now: later(20) })
+    const next = game.newSession({ roomId: ROOM, players: students, addresses: [null, null, null], carry: s.carry(), closesAt: () => CLOSES, now: later(20) })
     const started = next.start(later(20))
     expect(gameEvents(started)[0]).toMatchObject({ kind: 'dealt', gameId: 2, firstBidder: 0 })
     expect(yourTurns(started).map((t) => t.seat)).toEqual([0])

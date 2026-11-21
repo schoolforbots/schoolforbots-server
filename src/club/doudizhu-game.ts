@@ -25,6 +25,7 @@ import type {
   GameModule,
   GameOutput,
   GamePrivateMessage,
+  GameReaction,
   GameReply,
   GameRoomEvent,
   GameSession,
@@ -42,7 +43,9 @@ import type { ClubStatsSummary, YourTurnMessage } from '../protocol/club.js'
 //   (`timeBankSeconds: 0`), nothing ever times out, and `tick` does nothing. So no seat ever goes to the trustee by
 //   itself; only `finish` (the club closing) hands every student seat to it and plays the game out
 //   (`auto: "closing"`).
-// - No game records: nothing is stored, during or after a game.
+// - No game records: nothing is stored, during or after a game (so `drain` has nothing to wait for). A session keeps
+//   what a record will need that the engine does not: the reactions at the table (`reactions`) and the address of
+//   each student seat (`addresses`).
 // - No stats: `stats` gives 0 for everyone.
 // The full game replaces this module or fills it in: the clock, the time bank, the trustee after timeouts, the game
 // records, the stats and the rankings.
@@ -59,7 +62,7 @@ export interface DoudizhuGameOptions {
   readonly decks?: readonly (readonly Card[])[]
   /**
    * The first bidder of a room's first game; random when absent. Each later game's is the seat after the first bidder
-   * of the previous game's last deal (redeals included).
+   * of the previous game's last deal (redeals included), which is what a session hands on (`DoudizhuCarry`).
    */
   readonly firstBidder?: number
   /** Shuffles the decks and picks the first bidder; `crypto.randomInt` when absent. */
@@ -79,6 +82,26 @@ export type MakeDoudizhuSession = (start: SessionStart, options: DoudizhuSession
 
 const NO_STATS: Static<typeof ClubStatsSummary> = { games: 0, wins: 0, points: { total: 0, week: 0 } }
 
+/** What a game of doudizhu hands on to the room's next (`GameSession.carry`). */
+export interface DoudizhuCarry {
+  /** The first bidder of the game's last deal (after its redeals, if any). */
+  readonly firstBidder: number
+}
+
+/** The first bidder a carry names, or null when it is not a doudizhu carry. */
+function carriedFirstBidder(carry: unknown): number | null {
+  if (typeof carry !== 'object' || carry === null) return null
+  const firstBidder = (carry as { firstBidder?: unknown }).firstBidder
+  return typeof firstBidder === 'number' && Number.isInteger(firstBidder) && firstBidder >= 0 && firstBidder < 3
+    ? firstBidder
+    : null
+}
+
+/** A reaction at the table as a session keeps it: the club layer's `GameReaction`, and when it was sent. */
+export interface KeptReaction extends GameReaction {
+  readonly at: Date
+}
+
 /** Doudizhu, three seats; `make` makes each session (a plain `DoudizhuSession` when absent). */
 export function doudizhuGame(options: DoudizhuGameOptions = {}, make?: MakeDoudizhuSession): GameModule {
   const rules = options.rules ?? DEFAULT_DOUDIZHU_RULES
@@ -94,6 +117,7 @@ export function doudizhuGame(options: DoudizhuGameOptions = {}, make?: MakeDoudi
     rules: () => ({ ...rules }),
     stats: async (studentId) => options.stats?.(studentId) ?? NO_STATS,
     newSession: (start) => makeSession(start, sessionOptions, nextGameId++),
+    drain: async () => {},
   }
 }
 
@@ -116,6 +140,10 @@ export class DoudizhuSession implements GameSession {
   private readonly closesAt: (now: Date) => Date
   private readonly turnMillis: number
   protected readonly trustees: boolean[]
+  /** The address of each student seat now, or of its last connection; null for a bot or when not known. */
+  private readonly seatAddresses: (string | null)[]
+  /** The reactions sent to the whole table during the game, oldest first. */
+  private readonly tableReactions: KeptReaction[] = []
   private current: GameState
   private started = false
   /** The deadline of the `your_turn` out now; null when nobody is asked. */
@@ -130,11 +158,11 @@ export class DoudizhuSession implements GameSession {
     this.closesAt = start.closesAt
     this.turnMillis = (options.turnSeconds ?? 60) * 1000
     this.trustees = [false, false, false]
+    this.seatAddresses = this.players.map((player, seat) => (player.bot ? null : (start.addresses[seat] ?? null)))
     const random = options.random
+    const carried = carriedFirstBidder(start.carry)
     this.firstBidder =
-      start.previous instanceof DoudizhuSession
-        ? (start.previous.state.firstBidder + 1) % 3
-        : (options.firstBidder ?? (random ?? cryptoRandomInt)(3))
+      carried !== null ? (carried + 1) % 3 : (options.firstBidder ?? (random ?? cryptoRandomInt)(3))
     let decks = options.decks
     if (decks !== undefined && decks.length > 0) {
       const last = decks[decks.length - 1]!
@@ -238,6 +266,31 @@ export class DoudizhuSession implements GameSession {
 
   trustee(seat: number): boolean {
     return this.trustees[seat] ?? false
+  }
+
+  reacted(reaction: GameReaction, now: Date): void {
+    if (this.over) return
+    this.tableReactions.push({ ...reaction, at: now })
+  }
+
+  addressChanged(seat: number, address: string | null, _now: Date): void {
+    if (this.over || this.players[seat]?.bot !== false) return
+    this.seatAddresses[seat] = address
+  }
+
+  /** The first bidder of the deal now: of the last deal, once the game is over. */
+  carry(): DoudizhuCarry {
+    return { firstBidder: this.current.firstBidder }
+  }
+
+  /** The reactions sent to the whole table during the game, oldest first. */
+  get reactions(): readonly KeptReaction[] {
+    return this.tableReactions
+  }
+
+  /** The address of each student seat (null for a bot, or when not known), by seat. */
+  get addresses(): readonly (string | null)[] {
+    return this.seatAddresses
   }
 
   // ---- For a subclass (the tests' fake game) ----

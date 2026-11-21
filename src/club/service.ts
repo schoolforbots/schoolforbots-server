@@ -46,6 +46,8 @@ export interface ClubServiceDeps {
    * when it comes on, the club closes for those inside (`maintenance`). Unset: never on.
    */
   maintenance?: MaintenanceWatch
+  /** Whether X-Forwarded-For names the client (see `ClubDeps.trustProxy`). Unset: false. */
+  trustProxy?: boolean
   /** Fastify logger options; unset means no logging. */
   logger?: FastifyServerOptions['logger']
   /** See `ClubDeps.helloTimeoutMs`. */
@@ -131,6 +133,7 @@ export function createClubService(deps: ClubServiceDeps): ClubService {
     maintenance: () => deps.maintenance?.current() ?? null,
     healthCheck: healthy,
     onInternalError: noteInternalError,
+    ...(deps.trustProxy === undefined ? {} : { trustProxy: deps.trustProxy }),
     ...(deps.helloTimeoutMs === undefined ? {} : { helloTimeoutMs: deps.helloTimeoutMs }),
     ...(deps.pingIntervalMs === undefined ? {} : { pingIntervalMs: deps.pingIntervalMs }),
     ...(deps.rateWindowMs === undefined ? {} : { rateWindowMs: deps.rateWindowMs }),

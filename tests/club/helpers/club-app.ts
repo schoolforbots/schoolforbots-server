@@ -124,6 +124,8 @@ export interface ClubAppOptions {
   readonly pingIntervalMs?: number
   readonly rateWindowMs?: number
   readonly onInternalError?: () => void
+  /** See `ClubDeps.trustProxy`. */
+  readonly trustProxy?: boolean
 }
 
 export async function buildTestClubApp(options: ClubAppOptions = {}) {
@@ -148,6 +150,7 @@ export async function buildTestClubApp(options: ClubAppOptions = {}) {
     ...(options.rateWindowMs === undefined ? {} : { rateWindowMs: options.rateWindowMs }),
     ...(options.pingIntervalMs === undefined ? {} : { pingIntervalMs: options.pingIntervalMs }),
     ...(options.onInternalError === undefined ? {} : { onInternalError: options.onInternalError }),
+    ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
   }
   const app = buildClubApp(deps)
   await app.ready()
@@ -212,14 +215,15 @@ export async function buildTestClubApp(options: ClubAppOptions = {}) {
 
     /**
      * Opens a connection over TCP, the service listening on a port of its own, for what an injected connection does
-     * not do: answer pings (unless `autoPong` is false), and stop reading.
+     * not do: answer pings (unless `autoPong` is false), stop reading, and come from an address (with any other
+     * `headers` of the upgrade, such as X-Forwarded-For).
      */
-    async connectTcp(key: string, p: { autoPong?: boolean } = {}): Promise<Client> {
+    async connectTcp(key: string, p: { autoPong?: boolean; headers?: Record<string, string> } = {}): Promise<Client> {
       if (!app.server.listening) await app.listen({ port: 0, host: '127.0.0.1' })
       const address = app.server.address()
       if (address === null || typeof address === 'string') throw new Error('The service is not listening on a port')
       const ws = new WebSocket(`ws://127.0.0.1:${address.port}/v1/club`, {
-        headers: { authorization: `Bearer ${key}` },
+        headers: { ...p.headers, authorization: `Bearer ${key}` },
         autoPong: p.autoPong ?? true,
       })
       // A connection the server drops may end with a reset: that is the point, not a failure of the test.

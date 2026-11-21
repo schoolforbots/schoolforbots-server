@@ -1,6 +1,8 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+import type { SessionStart } from '../../src/club/game.js'
 import { nextClose } from '../../src/club/hours.js'
-import type { RoomEventFrame } from '../../src/club/outbox.js'
+import type { RoomEventFrame, ServerMessage } from '../../src/club/outbox.js'
+import type { ClubStudent } from '../../src/club/rooms.js'
 import type { FakeSession } from './helpers/fake-game.js'
 import { checkAck, expectError, harness, type Harness, openRoom, playOut, roomOf, student, T0 } from './helpers/rooms.js'
 
@@ -721,5 +723,88 @@ describe('the next close', () => {
       const now = new Date(T0.getTime() + hours * 3600_000)
       expect(h.rooms.state(roomId, now)!.closesAt).toBe(nextClose(h.config, now).toISOString())
     }
+  })
+})
+
+describe('what the game is told', () => {
+  type YourTurn = Extract<ServerMessage, { type: 'your_turn' }>
+  const lastTurn = (h: Harness) => h.outbox.deliveries.filter((d) => d.message.type === 'your_turn').at(-1)!
+
+  /** Every student bids nothing until the game ends: the deal is redealt up to the limit, and nobody is landlord. */
+  function bidNothing(h: Harness, roomId: string): void {
+    for (let step = 0; h.rooms.state(roomId, h.now)!.game!.phase !== 'over'; step++) {
+      if (step > 50) throw new Error('the game did not end')
+      const { studentId, message } = lastTurn(h)
+      const turn = (message as YourTurn).turn
+      checkAck(h.rooms.gameMessage(studentId, { id: 'b', type: 'bid', game: 'doudizhu', turn, bid: 0 }, h.now))
+    }
+  }
+
+  const readyAll = (h: Harness) => {
+    for (const id of [1, 2, 3]) checkAck(h.rooms.ready(id, h.now))
+  }
+
+  test('the next game is given the last game’s carry, not the session: one seat on from the last deal, redeals included', () => {
+    const h = harness()
+    const starts: SessionStart[] = []
+    const newSession = h.game.newSession.bind(h.game)
+    h.game.newSession = (start) => {
+      starts.push(start)
+      return newSession(start)
+    }
+    const roomId = fullRoom(h)
+    expect(starts[0]!.carry).toBeNull()
+
+    // Game 1 bids first from seat 0; nobody bids, so its deals bid first from 0, 1 and 2.
+    bidNothing(h, roomId)
+    const dealts = eventsOfRoom(h, roomId).flatMap((f) =>
+      f.event.kind === 'game' && f.event.event.kind === 'dealt' ? [f.event.event.firstBidder] : [],
+    )
+    expect(dealts).toEqual([0, 1, 2])
+    readyAll(h)
+    expect(starts[1]!.carry).toEqual({ firstBidder: 2 })
+    expect(h.game.sessions).not.toContain(starts[1]!.carry)
+    expect((h.game.sessions[1] as FakeSession).firstBidder).toBe(0)
+
+    // Game 2 has a landlord at its first deal, from seat 0: game 3 bids first from seat 1.
+    playOut(h, roomId)
+    readyAll(h)
+    expect(starts[2]!.carry).toEqual({ firstBidder: 0 })
+    expect((h.game.sessions[2] as FakeSession).firstBidder).toBe(1)
+  })
+
+  const withAddress = (s: ClubStudent, address: string): ClubStudent => ({ ...s, address })
+
+  test('each student seat’s address at the start, and a new one on a reconnect during the game; never sent', () => {
+    const h = harness()
+    const roomId = openRoom(h, withAddress(A, '203.0.113.1'), [withAddress(B, '203.0.113.2')])
+    // A reconnect between games changes the address the next game starts with.
+    h.rooms.disconnected(2, h.now)
+    h.rooms.reconnected(2, h.now, '203.0.113.22')
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult') // no address known
+    const session = h.game.sessions[0]!
+    expect(session.addresses).toEqual(['203.0.113.1', '203.0.113.22', null])
+
+    const told = vi.spyOn(session, 'addressChanged')
+    h.rooms.disconnected(1, h.now)
+    h.rooms.reconnected(1, h.now, '203.0.113.11')
+    expect(told).toHaveBeenCalledWith(0, '203.0.113.11', h.now)
+    expect(session.addresses).toEqual(['203.0.113.11', '203.0.113.22', null])
+
+    // Once the game is over it is not told, and the next game starts with the address now.
+    playOut(h, roomId)
+    h.rooms.reconnected(3, h.now, '203.0.113.3')
+    expect(told).toHaveBeenCalledTimes(1)
+    readyAll(h)
+    expect(h.game.sessions[1]!.addresses).toEqual(['203.0.113.11', '203.0.113.22', '203.0.113.3'])
+
+    expect(JSON.stringify(h.outbox.deliveries)).not.toContain('203.0.113')
+    expect(JSON.stringify(h.rooms.state(roomId, h.now))).not.toContain('203.0.113')
+  })
+
+  test('a bot seat has no address', () => {
+    const h = harness()
+    checkAck(h.rooms.create(withAddress(A, '203.0.113.1'), { visibility: 'public', bots: true }, h.now), 'RoomResult')
+    expect(h.game.sessions[0]!.addresses).toEqual(['203.0.113.1', null, null])
   })
 })
