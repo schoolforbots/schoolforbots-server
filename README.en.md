@@ -25,7 +25,7 @@ Notes:
 - `MAIL_TRANSPORT=console` in `.env.example` makes the service print verification codes to its log instead of mailing them, which is handy for local debugging. For production, remove that line (the default is `smtp`) and set `SMTP_URL`, or send through Tencent Cloud's email API instead (see "Mail" under "Deployment"); with `smtp` and no `SMTP_URL`, the service refuses to start.
 - `LLM_FAKE=1` in `.env.example` answers every model call with a canned reply, so you need no model key to develop. For production, remove that line and set the keys (see "Model and admin").
 - Every database connection has a statement timeout and a lock timeout, so a stuck query is cancelled instead of holding its connection for good: `DATABASE_STATEMENT_TIMEOUT_MS` (30000, 30 seconds, by default) and `DATABASE_LOCK_TIMEOUT_MS` (10000, 10 seconds, by default), in milliseconds; `0` sets none. Both services and the tools read them. The migrations that run on startup have no statement timeout, so a long one is not cancelled halfway, but keep the lock timeout: a migration that waits too long for a table in use fails the start instead of holding up every query on that table.
-- Behind a reverse proxy, set `TRUST_PROXY=1` for both services, so that they record the client's address that the proxy passes in `X-Forwarded-For` rather than the proxy's own. Otherwise keep it at `0`: anyone can write that header.
+- Behind a reverse proxy, set `TRUST_PROXY=1` for the registration, class and club services, so that they record the client's address that the proxy passes in `X-Forwarded-For` rather than the proxy's own. Otherwise keep it at `0`: anyone can write that header.
 - When `data/moderation/` has no real word lists, the service uses the placeholder content of the `*.example.txt` files and prints a warning on startup. The real config, the real word lists and `.env` are never committed to the repository.
 - When you are done, stop the database with `docker compose -f docker-compose.dev.yml down`. To start over with an empty database, use `docker compose -f docker-compose.dev.yml down -v`, which deletes the data too.
 
@@ -555,7 +555,7 @@ npm run dev:club           # then start the club service; it restarts when the c
 Notes:
 
 - Like the class service, the club service does not upgrade the schema itself; on startup it only checks that the database is up to date, so start the registration service once first.
-- The service listens on port `8082` by default; change it with `CLUB_PORT`. It reads only `DATABASE_URL`, `DATABASE_STATEMENT_TIMEOUT_MS`, `DATABASE_LOCK_TIMEOUT_MS`, `SCHOOL_CONFIG`, `CLUB_PORT` and `LOG_LEVEL`; it needs no mail or model settings.
+- The service listens on port `8082` by default; change it with `CLUB_PORT`. It reads only `DATABASE_URL`, `DATABASE_STATEMENT_TIMEOUT_MS`, `DATABASE_LOCK_TIMEOUT_MS`, `SCHOOL_CONFIG`, `TRUST_PROXY`, `CLUB_PORT` and `LOG_LEVEL`; it needs no mail or model settings.
 - When a word list file named in `club.wordLists` does not exist, the service uses the example next to it (`*.example.json`) and prints a warning on startup; a malformed list stops the start.
 - The `hello` deadline, the pings and the `connection` limits work as in the class service. It has `GET /healthz` too, which, as in the class service, also requires its clock to be ticking.
 - Run only one instance of the club service. Rooms, invitations, watching and room events live only in memory: when the service stops or restarts, every connection is closed with `service_stopping` and every room is gone, games halfway through included.

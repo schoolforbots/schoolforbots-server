@@ -2,7 +2,15 @@ import { randomInt as cryptoRandomInt } from 'node:crypto'
 import type { Static } from 'typebox'
 import type { RoomEvent, RoomState } from '../protocol/club.js'
 import type { SchoolConfig } from '../shared/config.js'
-import type { AckResult, GameClientMessage, GameModule, GameOutput, GamePrivateMessage, GameSession } from './game.js'
+import type {
+  AckResult,
+  GameClientMessage,
+  GameModule,
+  GameOutput,
+  GamePrivateMessage,
+  GameReaction,
+  GameSession,
+} from './game.js'
 import { nextClose } from './hours.js'
 import { type LobbyFrame, lobbyMessage, quickJoinRoom, type RoomSummary } from './lobby.js'
 import type { Outbox, RoomEventFrame } from './outbox.js'
@@ -47,6 +55,11 @@ export interface ClubStudent {
    * same owner, and never sit in the same room.
    */
   readonly email: string
+  /**
+   * The address of the connection the student came in on; null or absent when not known. Only for the game (see
+   * `SessionStart.addresses`): never sent to anyone.
+   */
+  readonly address?: string | null
 }
 
 /** Hooks for what the other parts of the club (invitations, reactions, watching) need to hear of. */
@@ -82,6 +95,8 @@ interface Occupant {
   online: boolean
   /** When a disconnected student is put out of the room; null while online, or while a game is played. */
   graceUntil: Date | null
+  /** The address of the student's connection now, or of the last one; null for a bot, or when not known. */
+  address: string | null
 }
 
 /** A room event as the room keeps it for a reconnect: the frame, and who may see it (null: everyone). */
@@ -102,8 +117,12 @@ interface Room {
   seq: number
   /** The last `roomEventBuffer` room events, oldest first. */
   readonly events: KeptEvent[]
-  /** The game being played, or the last one, over; null before the first. */
+  /**
+   * The game being played, or the last one, over (kept only for its `table` and `resend`); null before the first.
+   */
   session: GameSession | null
+  /** What the last game handed on to the next (`GameSession.carry`); null before the first game ended. */
+  carry: unknown
   /** Whether `session` is being played and its end has not been dealt with yet. */
   inGame: boolean
   gamesPlayed: number
@@ -284,13 +303,36 @@ export class Rooms {
     occupant.graceUntil = this.playing(room) ? null : this.graceFrom(now)
   }
 
-  /** The student is connected again: their seat is theirs for good again. */
-  reconnected(studentId: number, _now: Date): void {
+  /**
+   * The student is connected again, from `address` (null when not known): their seat is theirs for good again. The
+   * game being played is told the address.
+   */
+  reconnected(studentId: number, now: Date, address: string | null = null): void {
     const room = this.seated.get(studentId)
     if (room === undefined) return
-    const occupant = room.seats[this.seatOf(room, studentId)]!
+    const seat = this.seatOf(room, studentId)
+    const occupant = room.seats[seat]!
     occupant.online = true
     occupant.graceUntil = null
+    occupant.address = address
+    if (this.playing(room)) room.session!.addressChanged(seat, address, now)
+  }
+
+  /**
+   * A reaction of the student `from` (to the student `to`, or nobody) has been sent to the whole table of their room:
+   * the game being played there, if any, is told of it (see `GameReaction`).
+   */
+  reacted(
+    roomId: string,
+    from: number,
+    to: number | null,
+    reaction: Omit<GameReaction, 'from' | 'to'>,
+    now: Date,
+  ): void {
+    const room = this.rooms.get(roomId)
+    if (room === undefined || !this.playing(room)) return
+    const toSeat = to === null ? null : this.seatOf(room, to)
+    room.session!.reacted({ ...reaction, from: this.seatOf(room, from), to: toSeat }, now)
   }
 
   /**
@@ -429,6 +471,7 @@ export class Rooms {
       seq: 0,
       events: [],
       session: null,
+      carry: null,
       inGame: false,
       gamesPlayed: 0,
       waitingSince: now,
@@ -456,7 +499,7 @@ export class Rooms {
     if (seat < 0) throw new Error(`room ${room.id} is full`)
     this.listeners.seated?.(room.id, student.person.studentId, now)
     const player = withoutClass(student.person)
-    room.seats[seat] = { player, student, ready: true, online: true, graceUntil: null }
+    room.seats[seat] = { player, student, ready: true, online: true, graceUntil: null, address: student.address ?? null }
     this.seated.set(student.person.studentId, room)
     this.emitTo(room, { kind: 'joined', seat, player }, now, null, student.person.studentId)
     const state = this.stateOf(room, now)
@@ -501,7 +544,7 @@ export class Rooms {
     const seatedPeople = room.seats.flatMap((occupant) => (occupant === null ? [] : [occupant.player]))
     const bots = newBots(this.config.club.botNames, seatedPeople, free.length)
     free.forEach((seat, i) => {
-      room.seats[seat] = { player: bots[i]!, student: null, ready: true, online: true, graceUntil: null }
+      room.seats[seat] = { player: bots[i]!, student: null, ready: true, online: true, graceUntil: null, address: null }
     })
     this.emitTo(room, { kind: 'bots', seats: free, players: bots }, now, null, null)
   }
@@ -515,7 +558,8 @@ export class Rooms {
     const session = this.game.newSession({
       roomId: room.id,
       players: room.seats.map((occupant) => occupant!.player),
-      previous: room.session,
+      addresses: room.seats.map((occupant) => occupant!.address),
+      carry: room.carry,
       closesAt: (at) => this.closesAt(at),
       now,
     })
@@ -542,6 +586,7 @@ export class Rooms {
   /** A game has ended: every student is to get ready again, the idle clock and the grace of the absent start. */
   private gameOver(room: Room, now: Date): void {
     room.inGame = false
+    room.carry = room.session!.carry()
     room.gamesPlayed++
     room.waitingSince = now
     room.prompt = null

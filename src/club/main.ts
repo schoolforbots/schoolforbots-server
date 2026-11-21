@@ -45,6 +45,7 @@ async function main(): Promise<void> {
     game: doudizhuGame(),
     wordLists,
     maintenance,
+    trustProxy: env.trustProxy,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     onInternalError: noteInternalError,
   })

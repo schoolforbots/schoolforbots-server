@@ -611,6 +611,7 @@ describe('loadClubEnv', () => {
       databaseUrl: 'postgres://x',
       databaseTimeouts: { statementMs: 30_000, lockMs: 10_000 },
       configPath: 'config/school.json',
+      trustProxy: false,
       clubPort: 8082,
     })
     // What would stop the other services is none of its business.
@@ -626,13 +627,16 @@ describe('loadClubEnv', () => {
         CLUB_PORT: '9092',
         DATABASE_STATEMENT_TIMEOUT_MS: '0',
         DATABASE_LOCK_TIMEOUT_MS: '2500',
+        TRUST_PROXY: '1',
       }),
     ).toEqual({
       databaseUrl: 'postgres://x',
       databaseTimeouts: { statementMs: 0, lockMs: 2500 },
       configPath: '/c.json',
+      trustProxy: true,
       clubPort: 9092,
     })
+    expect(loadClubEnv({ DATABASE_URL: 'postgres://x', TRUST_PROXY: '0' }).trustProxy).toBe(false)
     expect(loadClubEnv({ DATABASE_URL: 'postgres://x', CLUB_PORT: '', SCHOOL_CONFIG: '' })).toMatchObject({
       clubPort: 8082,
       configPath: 'config/school.json',

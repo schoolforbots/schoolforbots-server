@@ -1,7 +1,7 @@
 import type { Static } from 'typebox'
 import type { ReactMessage, RoomEvent } from '../protocol/club.js'
 import type { SchoolConfig } from '../shared/config.js'
-import type { AckResult, GameModule } from './game.js'
+import type { AckResult, GameModule, GameReaction } from './game.js'
 import { withoutClass } from './people.js'
 import type { ClubStudent } from './rooms.js'
 import type { Phrase } from './word-lists.js'
@@ -14,6 +14,9 @@ import type { Phrase } from './word-lists.js'
 // Two reactions of one student are at least `reactMinIntervalSeconds` apart, wherever they are sent, and a student
 // sends at most `reactsPerGame` in one game of a room: the count starts again when a game starts in the room, and
 // what is sent before a room's first game counts as one game too. Both refusals are `react_cap`.
+//
+// A reaction sent to the whole table is told to the game being played there, if any, for its record
+// (`ReactingRooms.reacted`, `GameSession.reacted`); a private one is not.
 //
 // What is kept is bounded: one record per student who reacted, dropped once their interval is over when their room
 // starts a game or closes (or, after it closed, when any room does).
@@ -35,6 +38,11 @@ export interface ReactingRooms {
   students(roomId: string): ClubStudent[]
   /** Sends a room event (see `Rooms.emit`): private to `visibleTo` when given. */
   emit(roomId: string, event: RoomEventBody, now: Date, visibleTo?: Iterable<number>): number
+  /**
+   * A reaction of the student `from` (naming the student `to`, or nobody) has been sent to the whole table: tells the
+   * game being played in the room, if any (see `Rooms.reacted`).
+   */
+  reacted(roomId: string, from: number, to: number | null, reaction: Omit<GameReaction, 'from' | 'to'>, now: Date): void
 }
 
 export interface ReactionsOptions {
@@ -120,7 +128,13 @@ export class Reactions {
       text,
       visibility,
     }
-    rooms.emit(roomId, event, now, visibility === 'private' ? [studentId, to!.person.studentId] : undefined)
+    if (visibility === 'private') {
+      rooms.emit(roomId, event, now, [studentId, to!.person.studentId])
+    } else {
+      rooms.emit(roomId, event, now)
+      const reaction = { kind: message.kind, content: message.content, text }
+      rooms.reacted(roomId, studentId, to?.person.studentId ?? null, reaction, now)
+    }
     return { ok: true }
   }
 

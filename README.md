@@ -25,7 +25,7 @@ npm run dev:registration                          # 启动报名服务，改代�
 - `.env.example` 里的 `MAIL_TRANSPORT=console` 让服务不发邮件，验证码只打印在服务日志里，方便本地调试。正式运行时删掉这一行（默认是 `smtp`），并填上 `SMTP_URL`，或者改用腾讯云的邮件推送 API（见"部署"里的"发信"）；用 `smtp` 却没填 `SMTP_URL`，服务会拒绝启动。
 - `.env.example` 里的 `LLM_FAKE=1` 让每次调用大模型都拿到一条写死的回复，本地开发不用大模型的钥匙。正式运行时删掉这一行，并填上钥匙（见“大模型和后台”）。
 - 每个数据库连接都设了语句超时和等锁超时，卡住的查询会被取消，不会一直占着连接：`DATABASE_STATEMENT_TIMEOUT_MS`（默认 30000，即 30 秒）和 `DATABASE_LOCK_TIMEOUT_MS`（默认 10000，即 10 秒），单位是毫秒，设成 `0` 表示不设。两个服务和各个工具都读这两项。启动时跑的表结构升级不受语句超时限制，耗时长的升级不会做到一半被取消；但等锁超时照样有效：升级等一张正在使用的表等得太久，就报错、启动失败，而不是让这张表上的所有查询都排在它后面。
-- 服务放在反向代理后面时，两个服务都要设 `TRUST_PROXY=1`，这样记下的是代理在 `X-Forwarded-For` 里转来的客户端地址，而不是代理自己的地址。不在代理后面就保持 `0`：这个请求头谁都能伪造。
+- 服务放在反向代理后面时，报名、上课和社团三个服务都要设 `TRUST_PROXY=1`，这样记下的是代理在 `X-Forwarded-For` 里转来的客户端地址，而不是代理自己的地址。不在代理后面就保持 `0`：这个请求头谁都能伪造。
 - `data/moderation/` 下没有真实词库时，服务会改用 `*.example.txt` 里的占位内容，并在启动时打印警告。真实配置、真实词库和 `.env` 都不会提交到仓库。
 - 开发结束后用 `docker compose -f docker-compose.dev.yml down` 关掉数据库。想换一个空数据库从头来，用 `docker compose -f docker-compose.dev.yml down -v`，它会把数据一起删掉。
 
@@ -545,7 +545,7 @@ npm run dev:club           # 再启动社团服务，改代码会自动重启
 说明：
 
 - 社团服务和上课服务一样，自己不升级表结构，启动时只检查数据库是不是已经升级到最新，所以要先启动一次报名服务。
-- 服务默认监听 `8082` 端口，用 `CLUB_PORT` 修改。它只读 `DATABASE_URL`、`DATABASE_STATEMENT_TIMEOUT_MS`、`DATABASE_LOCK_TIMEOUT_MS`、`SCHOOL_CONFIG`、`CLUB_PORT` 和 `LOG_LEVEL`，不需要邮件和大模型的设置。
+- 服务默认监听 `8082` 端口，用 `CLUB_PORT` 修改。它只读 `DATABASE_URL`、`DATABASE_STATEMENT_TIMEOUT_MS`、`DATABASE_LOCK_TIMEOUT_MS`、`SCHOOL_CONFIG`、`TRUST_PROXY`、`CLUB_PORT` 和 `LOG_LEVEL`，不需要邮件和大模型的设置。
 - `club.wordLists` 指的词表文件不存在时，服务改用旁边的示例文件（`*.example.json`），并在启动时打印警告；词表格式不对时拒绝启动。
 - `hello` 的期限、ping 和 `connection` 的限额和上课服务一样。它也有 `GET /healthz`，和上课服务一样要求时钟在走。
 - 社团服务只运行一个实例。房间、邀请、观战和房间事件都只存在内存里：服务停止或重启时，所有连接以 `service_stopping` 断开，房间全部消失，打到一半的牌局也一样。

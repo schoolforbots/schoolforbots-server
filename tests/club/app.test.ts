@@ -330,3 +330,43 @@ describe('closing', () => {
     expect(s.club.online()).toEqual([])
   })
 })
+
+describe('what the game is told', () => {
+  const FIRST = '198.51.100.7'
+  const SECOND = '198.51.100.8'
+  const forwarded = (ip: string) => ({ headers: { 'x-forwarded-for': ip } })
+
+  test('behind a trusted proxy: the forwarded address at the start and after a reconnect, sent to nobody', async () => {
+    const s = await start({ trustProxy: true })
+    const a = await s.addStudent()
+    const first = await s.connectTcp(a.key, forwarded(FIRST))
+    await s.hello(first)
+    const created = await exchange(first, { type: 'room.create', visibility: 'public', bots: true })
+    const roomId = created.ack.result.room.roomId as string
+    const session = s.game.sessions[0]!
+    expect(session.addresses).toEqual([FIRST, null, null])
+
+    // A reaction to the table during the game reaches the game, with the seats.
+    const reacted = await exchange(first, { type: 'react', kind: 'emoji', content: EMOJI })
+    expect(reacted.ack.ok).toBe(true)
+    expect(session.reactions).toEqual([
+      { from: 0, to: null, kind: 'emoji', content: EMOJI, text: EMOJI, at: s.clock.now() },
+    ])
+
+    const second = await s.connectTcp(a.key, forwarded(SECOND))
+    await s.hello(second, { roomId, lastSeq: 0 })
+    await second.sync()
+    expect(session.addresses).toEqual([SECOND, null, null])
+
+    for (const m of [...first.received, ...second.received]) expect(JSON.stringify(m)).not.toContain('198.51.100.')
+  })
+
+  test('not behind a trusted proxy: X-Forwarded-For is not believed, the peer is', async () => {
+    const s = await start()
+    const a = await s.addStudent()
+    const client = await s.connectTcp(a.key, forwarded(FIRST))
+    await s.hello(client)
+    await exchange(client, { type: 'room.create', visibility: 'public', bots: true })
+    expect(s.game.sessions[0]!.addresses).toEqual(['127.0.0.1', null, null])
+  })
+})

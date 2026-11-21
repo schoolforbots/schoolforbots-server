@@ -651,9 +651,10 @@ export type ClassEnv = Pick<
 
 /**
  * What the club service reads from the environment: the database, the school config (which names the club's word
- * lists) and its port. It sends no mail, calls no model and checks no text, so it needs none of their settings.
+ * lists), whether it runs behind a trusted proxy, and its port. It sends no mail, calls no model and checks no text,
+ * so it needs none of their settings.
  */
-export interface ClubEnv extends Pick<Env, 'databaseUrl' | 'databaseTimeouts' | 'configPath'> {
+export interface ClubEnv extends Pick<Env, 'databaseUrl' | 'databaseTimeouts' | 'configPath' | 'trustProxy'> {
   clubPort: number
 }
 
@@ -724,6 +725,7 @@ export function loadClubEnv(env: NodeJS.ProcessEnv): ClubEnv {
     databaseUrl: requireDatabaseUrl(get),
     databaseTimeouts: databaseTimeoutsOf(get),
     configPath: configPathOf(get),
+    trustProxy: trustProxyOf(get),
     clubPort: parsePort('CLUB_PORT', get('CLUB_PORT'), 8082),
   }
 }

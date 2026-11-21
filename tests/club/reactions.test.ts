@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { Static } from 'typebox'
 import type { ReactMessage } from '../../src/protocol/club.js'
 import { checkProtocol } from './helpers/fake-game.js'
@@ -215,5 +215,43 @@ describe('how often', () => {
     h.now = new Date(h.now.getTime() + 5000)
     checkAck(h.rooms.create(A, { visibility: 'public', bots: false }, h.now), 'RoomResult')
     checkAck(h.reactions.react(A, SMILE, h.now))
+  })
+})
+
+describe('what the game is told', () => {
+  const later = (h: PartsHarness) => {
+    h.now = new Date(h.now.getTime() + 5000)
+    return h.now
+  }
+
+  test('reactions to the whole table during a game reach the session, with the seats; private ones do not', () => {
+    const h = partsHarness({}, undefined, { kinds: ['emoji', 'phrase'], visibility: ['room', 'private'] })
+    const roomId = room(h)
+    checkAck(h.reactions.react(A, SMILE, h.now))
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult') // the game starts
+    checkAck(h.watchers.watch(4, roomId, h.now), 'RoomResult')
+    const session = h.game.sessions[0]!
+    // Before the game: not told.
+    expect(session.reactions).toEqual([])
+
+    const first = later(h)
+    checkAck(h.reactions.react(B, react({ kind: 'phrase', content: 'hello', to: 3 }), first))
+    later(h)
+    checkAck(h.reactions.react(A, react({ kind: 'emoji', content: '😀', to: 2, visibility: 'private' }), h.now))
+    expectError(h.reactions.react(D, SMILE, h.now), 'react_not_allowed') // a spectator
+    const second = later(h)
+    checkAck(h.reactions.react(C, SMILE, second))
+    expect(session.reactions).toEqual([
+      { from: 1, to: 2, kind: 'phrase', content: 'hello', text: '大家好，请多关照', at: first },
+      { from: 2, to: null, kind: 'emoji', content: '😀', text: '😀', at: second },
+    ])
+
+    // After the game: not told.
+    playOut(h, roomId)
+    const told = vi.spyOn(session, 'reacted')
+    later(h)
+    checkAck(h.reactions.react(A, SMILE, h.now))
+    expect(told).not.toHaveBeenCalled()
+    expect(session.reactions).toHaveLength(2)
   })
 })
