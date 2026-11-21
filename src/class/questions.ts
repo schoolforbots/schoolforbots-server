@@ -13,6 +13,7 @@ import type { DisciplineRecorder } from './discipline.js'
 import { appendClassEvent, classEventMessage, lockSession, stepWritten, type StoredEvent } from './events.js'
 import type { Hub } from './hub.js'
 import type { ActiveSession } from './runtime.js'
+import type { SecondLayerCap } from './second-layer-cap.js'
 import type { TeacherAi } from './teacher-ai.js'
 import * as teacher from './teacher.js'
 import type { WsErrorCode } from './ws-errors.js'
@@ -54,6 +55,8 @@ export interface QuestionsDeps {
   moderator: Moderator
   /** An answer is said to the class: past the word list, it passes the second layer for the teacher's lines too. */
   secondLayer?: SecondLayer
+  /** The lines of each student the second layer has stopped this lesson, the chat engine's: an answer counts there too. */
+  secondLayerCap?: SecondLayerCap
   discipline: DisciplineRecorder
   /** Comments on the answers; without it, the teacher thanks the student with the template line at once. */
   teacherAi?: Pick<TeacherAi, 'startComment'>
@@ -188,8 +191,12 @@ async function block(deps: QuestionsDeps, line: Line, blocked: Blocked): Promise
   return fail('blocked', { category: blocked.category })
 }
 
-/** An answer the second layer stopped: kept undelivered, and no violation is recorded for it. */
+/**
+ * An answer the second layer stopped: kept undelivered, and no violation is recorded for it. It counts toward the
+ * student's limit of lines stopped (see second-layer-cap.ts).
+ */
 async function blockBySecondLayer(deps: QuestionsDeps, line: Line): Promise<AckResult> {
+  deps.secondLayerCap?.count(line.from)
   await writeLine(deps.db, line, 'second_layer')
   const { studentId, sessionId } = line.from
   deps.log?.({ studentId, sessionId, layer: 'second_layer' }, `${line.kind} blocked`)
@@ -287,7 +294,11 @@ export async function answer(deps: QuestionsDeps, p: Participant, callId: number
   if (typeof call === 'string') return fail(call)
   const verdict = moderator.check(text)
   if (verdict.verdict === 'blocked') return block(deps, line, verdict)
-  if ((await deps.secondLayer?.check('teacher', text)) === 'blocked') return blockBySecondLayer(deps, line)
+  if (deps.secondLayer !== undefined) {
+    // Past the student's limit the answer is answered as stopped, without asking the second layer or keeping it.
+    if (deps.secondLayerCap?.reached(p) === true) return fail('blocked', { category: 'sensitive' })
+    if ((await deps.secondLayer.check('teacher', text)) === 'blocked') return blockBySecondLayer(deps, line)
+  }
 
   const outcome = await db.transaction().execute(async (trx): Promise<{ refused: WsErrorCode } | StoredEvent[]> => {
     // From here the session is locked until the answer is written: the time cannot run out in between, and no other

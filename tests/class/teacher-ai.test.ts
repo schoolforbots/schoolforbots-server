@@ -928,7 +928,7 @@ describe('the teacher answering in the class service', () => {
       config: {
         llm: { ...base.llm, maxConcurrent: 16 },
         lesson: { ...base.lesson, callOns: [{ kind: 'review', afterSegment: 3 }, { kind: 'extension', afterSegment: 4 }] },
-        secondLayer: { implementation: 'llm', batchMillis: 50, timeoutSeconds: 1 },
+        secondLayer: { ...base.secondLayer, implementation: 'llm', batchMillis: 50, timeoutSeconds: 1 },
       },
       model: ({ db, config, clock }) => {
         const llm = createLlm({ db, config, clock, providers: { [config.llm.purposes.answer.provider]: provider } })

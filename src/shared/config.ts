@@ -379,6 +379,10 @@ export const SchoolConfigSchema = Type.Object({
     // Lines wait this long to be checked together.
     batchMillis: PositiveInt,
     timeoutSeconds: PositiveInt,
+    // How many of a student's lines the second layer may stop in one lesson (chat lines and answers together). Past it,
+    // the student's lines that pass the word list are not sent to it for the rest of the lesson and are answered as
+    // stopped, without being kept. Default `DEFAULT_SECOND_LAYER_BLOCKS_PER_STUDENT`.
+    blocksPerStudentPerLesson: Type.Optional(PositiveInt),
   }),
   // The runtime switches' starting values, used until an operator changes one.
   switchDefaults: Type.Object({
@@ -416,17 +420,21 @@ export const SchoolConfigSchema = Type.Object({
 /** The window the classes' steps are spread over when the config does not say (`lesson.staggerMillis`). */
 export const DEFAULT_STAGGER_MILLIS = 2000
 
+/** The lines of a student the second layer may stop in a lesson when the config does not say. */
+export const DEFAULT_SECOND_LAYER_BLOCKS_PER_STUDENT = 5
+
 type RawSchoolConfig = Static<typeof SchoolConfigSchema>
 
 /**
  * The config as loaded: `wsHandshake`, `alerts` and `club` are always there, with the defaults for whatever the file
- * left out, and so is `lesson.staggerMillis`.
+ * left out, and so are `lesson.staggerMillis` and `secondLayer.blocksPerStudentPerLesson`.
  */
-export type SchoolConfig = Omit<RawSchoolConfig, 'wsHandshake' | 'alerts' | 'club' | 'lesson'> & {
+export type SchoolConfig = Omit<RawSchoolConfig, 'wsHandshake' | 'alerts' | 'club' | 'lesson' | 'secondLayer'> & {
   wsHandshake: WsHandshakeConfig
   alerts: AlertsConfig
   club: ClubConfig
   lesson: RawSchoolConfig['lesson'] & { staggerMillis: number }
+  secondLayer: RawSchoolConfig['secondLayer'] & { blocksPerStudentPerLesson: number }
 }
 
 function pointerToPath(pointer: string): string {
@@ -520,6 +528,10 @@ export function loadSchoolConfig(path: string): SchoolConfig {
     alerts: { ...DEFAULT_ALERTS, ...parsed.alerts },
     club: clubOf(parsed.club),
     lesson: { ...parsed.lesson, staggerMillis: parsed.lesson.staggerMillis ?? DEFAULT_STAGGER_MILLIS },
+    secondLayer: {
+      ...parsed.secondLayer,
+      blocksPerStudentPerLesson: parsed.secondLayer.blocksPerStudentPerLesson ?? DEFAULT_SECOND_LAYER_BLOCKS_PER_STUDENT,
+    },
   }
   const crossFieldProblems: string[] = []
   if (config.classSize.max < config.classSize.standard) {

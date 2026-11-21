@@ -14,6 +14,7 @@ import {
   type QuestionsDeps,
 } from '../../src/class/questions.js'
 import type { ActiveSession } from '../../src/class/runtime.js'
+import { createSecondLayerCap } from '../../src/class/second-layer-cap.js'
 import { CHECK_MARGIN_MS, createTeacherAi, type TeacherAi } from '../../src/class/teacher-ai.js'
 import { callOnQuestion, callOnNoAnswer, callOnThanks, questionReceived } from '../../src/class/teacher.js'
 import { classDelayMs } from '../../src/class/timeline.js'
@@ -551,6 +552,31 @@ describe('questions and the call-on', () => {
       ])
       expect(await records()).toEqual([])
       expect(logged).toContainEqual(expect.objectContaining({ studentId: a.studentId, layer: 'second_layer' }))
+    })
+
+    test('past the limit of lines the second layer stopped (chat lines too), an answer is not asked about or kept', async () => {
+      const session = await room()
+      const a = await student(session)
+      const b = await student(session)
+      await callOnStep(deps(), session, 1, QUESTION)
+      const answers = layer(new Array(10).fill('blocked'))
+      const cap = createSecondLayerCap(config.secondLayer.blocksPerStudentPerLesson)
+      const d = { ...deps({ secondLayer: answers.secondLayer }), secondLayerCap: cap }
+      // The chat engine counted the rest of a's lines it stopped.
+      for (let i = 1; i < config.secondLayer.blocksPerStudentPerLesson; i++) cap.count(a)
+
+      expect(await answer(d, a, 2, '光会被吸进水里')).toEqual(failure('blocked', { category: 'sensitive' }))
+      expect(await answer(d, a, 2, '光会被水吃掉')).toEqual(failure('blocked', { category: 'sensitive' }))
+      expect(await answer(d, a, 2, BANNED)).toEqual(failure('blocked', { category: 'sensitive' }))
+      expect(answers.checked).toEqual([{ source: 'teacher', text: '光会被吸进水里' }])
+      expect(await messageRows()).toEqual([
+        row(a, 'answer', '光会被吸进水里', { moderation: 'second_layer' }),
+        row(a, 'answer', BANNED, { moderation: 'sensitive', matchedTerm: BANNED }),
+      ])
+      expect((await records()).map((r) => r.kind)).toEqual(['school_rule'])
+      expect(await stepsOf(session)).toEqual(['call-on-1', 'call-on-1#2'])
+      // Another student is asked about as before.
+      expect(cap.reached(b)).toBe(false)
     })
 
     test('an empty, blank, too long or NUL answer is invalid_message, even from someone not called on', async () => {
