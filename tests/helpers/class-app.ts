@@ -103,7 +103,11 @@ export async function buildTestClassApp(
     intervalMs: service.intervalMs,
     disconnectAll: service.disconnectAll,
     watchTicker: service.watchTicker,
+    rounds: service.rounds,
+    roundsDone: service.roundsDone,
     async destroy() {
+      // A round the last tick started is let finish before its database goes.
+      await service.roundsDone()
       maintenance.stop()
       await app.close()
       await destroyDb()

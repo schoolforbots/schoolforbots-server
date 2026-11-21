@@ -90,6 +90,7 @@ async function main(): Promise<void> {
     maintenance.stop()
     moderator.stop()
     await ticker.stop() // waits for a tick still running; after it no answering starts
+    await service.roundsDone()
     // The answers still being worked on get half the time the shutdown has to reach the class; any later is dropped.
     await Promise.race([service.teacherAi?.idle(), delay(SHUTDOWN_DEADLINE_MS / 2)])
     service.disconnectAll() // and from now on nobody comes in
