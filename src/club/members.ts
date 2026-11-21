@@ -23,8 +23,11 @@ function current(): Expression<SqlBool> {
   return sql<SqlBool>`(s.status in (${sql.join([...MEMBER_STATUSES])}) and m.joined_at >= s.queued_at)`
 }
 
-/** The current memberships of the club, `m` joined to their students `s`. */
-function currentMembers(db: Kysely<Database>, club: Club) {
+/**
+ * The current memberships of the club, `m` joined to their students `s`: a query to join more onto (the leaderboards
+ * do), with the condition of `current` applied.
+ */
+export function currentMembers(db: Kysely<Database>, club: Club) {
   return db
     .selectFrom('clubMembers as m')
     .innerJoin('students as s', 's.id', 'm.studentId')
