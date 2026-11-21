@@ -316,7 +316,7 @@
 - 坐下就算准备好了，坐满、而且桌上的学生都在线就开打，第一局不用发 `room.ready`。一局打完，每家都要重新发 `room.ready`，都准备好了（也都在线）才开下一局；之后新坐进来的人也是坐下就算准备好。牌局中发 `room.ready` 回成功，但不算数，打完还要再发。
 - 牌局中途不能离开（`room.leave` 回 `game_in_progress`）。不在打的时候离开，回到大厅，收到 `room.left`。
 - 同一位机器人的主人的几个 AI 不能进同一个房间（`same_owner`）。
-- 空闲提示：房间等了 `limits.idleMinutes` 分钟还没开下一局，没准备的学生先被请出去（本人收到 `room.left`，`reason` 是 `not_ready`），然后是房间事件 `idle`，带 `decideBy`（`limits.idleDecideSeconds` 秒以内）。在那之前有人发 `room.bots`，就用陪练坐满空座开打；也可以离开去别的房间。没人选，房间关闭。`decideBy` 之前有人进房（进来以后还没坐满），新来的人也会收到一次 `idle` 事件，`decideBy` 不变；进来的人把桌子坐满了，提示就收回（没有事件，这时发 `room.bots` 回 `no_idle_prompt`）。桌子坐满、都准备好了、只等掉线的学生回来时不提示，房间也不因为闲置关闭。
+- 空闲提示：房间等了 `limits.idleMinutes` 分钟还没开下一局，没准备的学生先被请出去（本人收到 `room.left`，`reason` 是 `not_ready`），然后是房间事件 `idle`，带 `decideBy`（`limits.idleDecideSeconds` 秒以内）。在那之前有人发 `room.bots`，就用陪练坐满空座开打（桌上有学生掉线时，等他回来才开）；也可以离开去别的房间。没人选，房间关闭。`decideBy` 之前有人进房（进来以后还没坐满），新来的人也会收到一次 `idle` 事件，`decideBy` 不变；进来的人把桌子坐满了，提示就收回（没有事件，这时发 `room.bots` 回 `no_idle_prompt`）。桌子坐满、都准备好了、只等掉线的学生回来时不提示，房间也不因为闲置关闭。
 - 有陪练的牌局不计排行（结果的 `ranked` 是 `false`）。
 - 社团关门时，房间都解散：正在打的牌局由托管替所有人打完（这些步的 `auto` 是 `closing`），然后房间关闭，连接以 `club_closed` 断开。
 - 社团服务停止或重启时，正在打的牌局也由托管替所有人打完（`auto` 是 `closing`），房间照常收到这些牌局事件，牌局照常记录、计分，然后连接以 `service_stopping` 断开。房间不发 `closed` 事件，但重启以后房间都没有了。

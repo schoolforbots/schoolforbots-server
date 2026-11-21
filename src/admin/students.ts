@@ -201,7 +201,7 @@ export function studentRoutes(deps: AdminDeps): FastifyPluginAsync {
           const student = students.get(id)
           if (student === undefined) throw NOT_FOUND
           if (student.status === 'expelled') throw new ApiError(409, 'wrong_status', {}, EXPELLED)
-          // As after class: every student of the AI id who is not expelled. One in a lesson or the club now is sent out
+          // As after class: every student of the AI id who is not expelled. One in a lesson or the club is sent out
           // within `switchRefreshSeconds` by that service's rounds; a later connection is refused.
           const reached = [...students.values()].filter((s) => s.status !== 'expelled')
           await suspendAiStudents(trx, reached, until)
