@@ -1,4 +1,5 @@
 import { once } from 'node:events'
+import type { Socket } from 'node:net'
 import type { FastifyServerOptions } from 'fastify'
 import { expect } from 'vitest'
 import WebSocket from 'ws'
@@ -126,11 +127,19 @@ export interface ClubAppOptions {
   readonly onInternalError?: () => void
   /** See `ClubDeps.trustProxy`. */
   readonly trustProxy?: boolean
+  /** The upgrades allowed per address; unset, the example config's. */
+  readonly wsHandshake?: SchoolConfig['wsHandshake']
+  /** See `ClubDeps.handshakeWindowMs`. */
+  readonly handshakeWindowMs?: number
 }
 
 export async function buildTestClubApp(options: ClubAppOptions = {}) {
   const { db, destroy: destroyDb } = await createTestDb()
-  const config: SchoolConfig = { ...exampleConfig, club: { ...exampleConfig.club, ...options.club } }
+  const config: SchoolConfig = {
+    ...exampleConfig,
+    club: { ...exampleConfig.club, ...options.club },
+    wsHandshake: options.wsHandshake ?? exampleConfig.wsHandshake,
+  }
   const clock = createTestClock(options.now ?? T0)
   const game = options.game ?? fakeGame({ decks: [QUICK_DECK], firstBidder: 0 })
   const club = new Club({ config, game, wordLists: exampleWordLists })
@@ -151,6 +160,7 @@ export async function buildTestClubApp(options: ClubAppOptions = {}) {
     ...(options.pingIntervalMs === undefined ? {} : { pingIntervalMs: options.pingIntervalMs }),
     ...(options.onInternalError === undefined ? {} : { onInternalError: options.onInternalError }),
     ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
+    ...(options.handshakeWindowMs === undefined ? {} : { handshakeWindowMs: options.handshakeWindowMs }),
   }
   const app = buildClubApp(deps)
   await app.ready()
@@ -196,12 +206,18 @@ export async function buildTestClubApp(options: ClubAppOptions = {}) {
       return student
     },
 
-    /** Opens a connection with `key` (none when null). Listeners are attached before the upgrade. */
-    async connect(key: string | null): Promise<Client> {
+    /**
+     * Opens a connection with `key` (none when null), from `remoteAddress` if given (an injected connection comes from
+     * 127.0.0.1 otherwise). Listeners are attached before the upgrade.
+     */
+    async connect(key: string | null, p: { remoteAddress?: string } = {}): Promise<Client> {
       let client: Client | undefined
       const ws = await app.injectWS(
         '/v1/club',
-        { headers: key === null ? {} : { authorization: `Bearer ${key}` } },
+        {
+          headers: key === null ? {} : { authorization: `Bearer ${key}` },
+          ...(p.remoteAddress === undefined ? {} : { socket: { remoteAddress: p.remoteAddress } as Socket }),
+        },
         {
           onInit(socket) {
             client = track(socket)

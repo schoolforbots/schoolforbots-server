@@ -44,6 +44,10 @@
     "maxQueuedFrames": 20,
     "maxSendBufferKiB": 1024
   },
+  "wsHandshake": {
+    "upgradesPerIpPerMinute": 60,
+    "authFailuresPerIpPerMinute": 10
+  },
   "chat": {
     "maxInitiationsPerLesson": 3,
     "maxRoundsPerConversation": 5,

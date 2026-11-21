@@ -61,6 +61,8 @@ export interface ClassServiceDeps {
   pingIntervalMs?: number
   /** The window the frames per minute are counted in, in real milliseconds (see `ClassDeps`); tests shorten it. */
   rateWindowMs?: number
+  /** The window an address's upgrades are counted in, in real milliseconds (see `ClassDeps`); tests shorten it. */
+  handshakeWindowMs?: number
   /**
    * The maintenance switch, as the database says it is (see `startMaintenanceWatch`). When it comes on, everyone
    * connected is sent the `maintenance` `closing` and disconnected; while it is on, nobody comes in and the lesson
@@ -218,6 +220,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     helloTimeoutMs: deps.helloTimeoutMs,
     pingIntervalMs: deps.pingIntervalMs,
     rateWindowMs: deps.rateWindowMs,
+    handshakeWindowMs: deps.handshakeWindowMs,
     stopping: () => stopping,
     maintenance,
     healthCheck: healthy,

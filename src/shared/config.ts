@@ -237,6 +237,23 @@ function clubProblems(club: ClubConfig): string[] {
   return problems
 }
 
+// The WebSocket upgrades (`/v1/class`, `/v1/club`) each address may make, counted in each service on its own. Every
+// field may be left out and then has its default (see `DEFAULT_WS_HANDSHAKE`).
+const WsHandshakeSchema = Type.Object({
+  // Upgrades per address in any minute, whatever their key; past it, an upgrade is answered 429 before its key is read.
+  upgradesPerIpPerMinute: Type.Optional(PositiveInt),
+  // Upgrades with a missing or unknown key per address in any minute; once an address has had this many, its upgrades
+  // are answered 429 before their key is read, until the oldest of them is a minute old.
+  authFailuresPerIpPerMinute: Type.Optional(PositiveInt),
+})
+
+export interface WsHandshakeConfig {
+  upgradesPerIpPerMinute: number
+  authFailuresPerIpPerMinute: number
+}
+
+export const DEFAULT_WS_HANDSHAKE: WsHandshakeConfig = { upgradesPerIpPerMinute: 60, authFailuresPerIpPerMinute: 10 }
+
 export const SchoolConfigSchema = Type.Object({
   timezone: Type.String({ minLength: 1 }),
   classSize: Type.Object({ standard: PositiveInt, max: PositiveInt }),
@@ -314,6 +331,7 @@ export const SchoolConfigSchema = Type.Object({
     expulsion: Type.Object({ schoolRuleCount: PositiveInt, windowDays: PositiveInt, banDays: PositiveInt }),
   }),
   messageRetentionDays: PositiveInt,
+  wsHandshake: Type.Optional(WsHandshakeSchema),
   alerts: Type.Optional(AlertsSchema),
   club: Type.Optional(ClubSchema),
   llm: Type.Object({
@@ -401,10 +419,11 @@ export const DEFAULT_STAGGER_MILLIS = 2000
 type RawSchoolConfig = Static<typeof SchoolConfigSchema>
 
 /**
- * The config as loaded: `alerts` and `club` are always there, with the defaults for whatever the file left out, and so
- * is `lesson.staggerMillis`.
+ * The config as loaded: `wsHandshake`, `alerts` and `club` are always there, with the defaults for whatever the file
+ * left out, and so is `lesson.staggerMillis`.
  */
-export type SchoolConfig = Omit<RawSchoolConfig, 'alerts' | 'club' | 'lesson'> & {
+export type SchoolConfig = Omit<RawSchoolConfig, 'wsHandshake' | 'alerts' | 'club' | 'lesson'> & {
+  wsHandshake: WsHandshakeConfig
   alerts: AlertsConfig
   club: ClubConfig
   lesson: RawSchoolConfig['lesson'] & { staggerMillis: number }
@@ -497,6 +516,7 @@ export function loadSchoolConfig(path: string): SchoolConfig {
   const parsed = raw as RawSchoolConfig
   const config: SchoolConfig = {
     ...parsed,
+    wsHandshake: { ...DEFAULT_WS_HANDSHAKE, ...parsed.wsHandshake },
     alerts: { ...DEFAULT_ALERTS, ...parsed.alerts },
     club: clubOf(parsed.club),
     lesson: { ...parsed.lesson, staggerMillis: parsed.lesson.staggerMillis ?? DEFAULT_STAGGER_MILLIS },
