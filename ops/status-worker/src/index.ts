@@ -1,5 +1,7 @@
 import {
+  type ClubState,
   decide,
+  decideClub,
   decideMail,
   type MailState,
   type Manual,
@@ -28,6 +30,11 @@ const MAILS = {
     text: '学校发不出邮件，新同学收不到验证码。请检查发信的设置。',
   },
   mail_up: { subject: '【机器人网校】发信已恢复', text: '学校又能发邮件了。' },
+  club_down: {
+    subject: '【机器人网校】连不上社团服务了',
+    text: '从外面连不上社团服务，已经连续好几分钟了。请去看一下服务器上的社团服务。',
+  },
+  club_up: { subject: '【机器人网校】社团服务已恢复', text: '社团服务又能连上了。' },
 } as const
 
 async function get(url: string): Promise<Response | null> {
@@ -44,10 +51,19 @@ async function readOk(url: string): Promise<boolean | null> {
   return res.status === 200
 }
 
-export async function probeSchool(base: string): Promise<{ probe: Probe; mailOk: boolean | null }> {
+export async function probeSchool(
+  base: string,
+): Promise<{ probe: Probe; mailOk: boolean | null; clubOk: boolean | null }> {
   const root = base.replace(/\/+$/, '')
-  const [reg, cls] = await Promise.all([readOk(`${root}/healthz`), readOk(`${root}/healthz/class`)])
+  const [reg, cls, club] = await Promise.all([
+    readOk(`${root}/healthz`),
+    readOk(`${root}/healthz/class`),
+    readOk(`${root}/healthz/club`),
+  ])
+  // The club service is not part of the school's health: status.json does not depend on it.
   const healthy = reg === true && cls === true
+  // A school that cannot be reached at all says nothing about the club service.
+  const clubOk = reg === null ? null : club === true
 
   let maintenance: Probe['maintenance'] = null
   let mailOk: boolean | null = null
@@ -74,7 +90,7 @@ export async function probeSchool(base: string): Promise<{ probe: Probe; mailOk:
       mailOk = null
     }
   }
-  return { probe: { healthy, maintenance }, mailOk }
+  return { probe: { healthy, maintenance }, mailOk, clubOk }
 }
 
 async function readJson<T>(kv: KVNamespace, key: string): Promise<T | null> {
@@ -121,9 +137,10 @@ async function put(env: Env, key: string, value: unknown): Promise<boolean> {
 // decision comes back every minute, and sending would repeat it every minute); status.json keeps
 // its last content. Each check is independent: one failure never stops the other.
 export async function runOnce(env: Env, now: Date): Promise<void> {
-  const [prev, prevMail, manualRaw, note, pendingRaw] = await Promise.all([
+  const [prev, prevMail, prevClub, manualRaw, note, pendingRaw] = await Promise.all([
     readJson<StoredState>(env.STATE, 'state'),
     readJson<MailState>(env.STATE, 'mail'),
+    readJson<ClubState>(env.STATE, 'club'),
     env.STATE.get('manual'),
     env.STATE.get('note'),
     readJson<MailKind[]>(env.STATE, 'pending'),
@@ -133,7 +150,7 @@ export async function runOnce(env: Env, now: Date): Promise<void> {
     maintenance: manualRaw?.trim() === 'maintenance',
     note: note?.trim() ? note.trim() : null,
   }
-  const { probe, mailOk } = await probeSchool(env.SCHOOL_URL)
+  const { probe, mailOk, clubOk } = await probeSchool(env.SCHOOL_URL)
 
   const queue = [...pending]
 
@@ -143,6 +160,16 @@ export async function runOnce(env: Env, now: Date): Promise<void> {
   // mailOk is null when the registration service could not be read at all.
   const mail = decideMail(prevMail, mailOk, state.next.status === 'maintenance', now)
   if (mail.write && (await put(env, 'mail', mail.next)) && mail.mail) queue.push(mail.mail)
+
+  // Mails only: status.json leaves the club service out. While the whole school is down its own mail says enough, so
+  // the club's count waits.
+  const club = decideClub(
+    prevClub,
+    state.next.status === 'down' ? null : clubOk,
+    state.next.status === 'maintenance',
+    now,
+  )
+  if (club.write && (await put(env, 'club', club.next)) && club.mail) queue.push(club.mail)
 
   const left: MailKind[] = []
   for (const kind of queue) {

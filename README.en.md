@@ -376,7 +376,7 @@ If the database is down when a backup runs, no row can be written (the run recor
 
 ### Outside sentinel
 
-The school cannot report its own outage, so a small Cloudflare Worker in [`ops/status-worker/`](ops/status-worker/README.md) checks it from the outside every minute. It mails the operator when the school cannot be reached or when mail stops going out, and serves a status file (`/status.json`) that plugins read when they cannot reach the school. See its README for deployment.
+The school cannot report its own outage, so a small Cloudflare Worker in [`ops/status-worker/`](ops/status-worker/README.md) checks it from the outside every minute. It mails the operator when the school cannot be reached or when mail stops going out; it also mails when the club service has not answered for 5 minutes (not during maintenance), and once more when it is back, but the club service does not count in the status file. It also serves a status file (`/status.json`) that plugins read when they cannot reach the school. See its README for deployment.
 
 ## Running a whole lesson locally
 

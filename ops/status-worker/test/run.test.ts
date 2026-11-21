@@ -7,17 +7,19 @@ const at = (min: number) => new Date(T0 + min * 60_000)
 interface School {
   reg: number
   cls: number
+  club: number
   mailOk: boolean
   maintenance: { message: string } | null
 }
 
 function setup() {
-  const school: School = { reg: 200, cls: 200, mailOk: true, maintenance: null }
+  const school: School = { reg: 200, cls: 200, club: 200, mailOk: true, maintenance: null }
   vi.stubGlobal('fetch', async (input: string | URL | Request) => {
     const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname
     const j = (status: number, body: unknown) => new Response(JSON.stringify(body), { status })
     if (path === '/healthz') return school.reg === 0 ? Promise.reject(new Error('x')) : j(school.reg, {})
     if (path === '/healthz/class') return school.cls === 0 ? Promise.reject(new Error('x')) : j(school.cls, {})
+    if (path === '/healthz/club') return school.club === 0 ? Promise.reject(new Error('x')) : j(school.club, {})
     if (path === '/healthz/mail') return school.reg === 0 ? Promise.reject(new Error('x')) : j(200, { ok: school.mailOk })
     if (path === '/v1/school-calendar') return j(200, { maintenance: school.maintenance })
     return j(404, {})
@@ -127,5 +129,47 @@ describe('runOnce', () => {
     school.mailOk = false
     await runOnce(env, at(0))
     expect(ctl.sent).toEqual([])
+  })
+
+  it('mails when the club service is down, and leaves status.json at ok', async () => {
+    const { school, kv, ctl, env } = setup()
+    await runOnce(env, at(0))
+    school.club = 502
+    for (let m = 1; m <= 5; m++) await runOnce(env, at(m))
+    expect(ctl.sent).toEqual([])
+    await runOnce(env, at(6))
+    expect(ctl.sent).toEqual(['【机器人网校】连不上社团服务了'])
+    expect(status(kv)).toBe('ok')
+    for (let m = 7; m <= 20; m++) await runOnce(env, at(m))
+    expect(ctl.sent.length).toBe(1)
+    school.club = 200
+    await runOnce(env, at(21))
+    expect(ctl.sent).toEqual(['【机器人网校】连不上社团服务了', '【机器人网校】社团服务已恢复'])
+    expect(status(kv)).toBe('ok')
+  })
+
+  it('counts a club service that does not answer at all as down', async () => {
+    const { school, ctl, env } = setup()
+    school.club = 0
+    for (let m = 0; m <= 5; m++) await runOnce(env, at(m))
+    expect(ctl.sent).toEqual(['【机器人网校】连不上社团服务了'])
+  })
+
+  it('mails nothing about the club service in maintenance', async () => {
+    const { school, kv, ctl, env } = setup()
+    school.maintenance = { message: '维护' }
+    school.club = 502
+    for (let m = 0; m <= 30; m++) await runOnce(env, at(m))
+    expect(status(kv)).toBe('maintenance')
+    expect(ctl.sent).toEqual([])
+  })
+
+  it('sends only the school mail when the whole school is down', async () => {
+    const { school, ctl, env } = setup()
+    await runOnce(env, at(0))
+    school.reg = 503
+    school.club = 503
+    for (let m = 1; m <= 30; m++) await runOnce(env, at(m))
+    expect(ctl.sent).toEqual(['【机器人网校】连不上学校了'])
   })
 })

@@ -121,3 +121,45 @@ export function decideMail(
   }
   return keep
 }
+
+export interface ClubState {
+  badSince: string | null
+  notifiedAt: string | null
+}
+
+/**
+ * Whether to mail about the club service, which status.json leaves out. `clubOk` is null when the probe says nothing
+ * about it (the school could not be reached at all: the school's own mail covers that). A club service that keeps
+ * failing for `downAfterMs` is mailed, and again every `repeatMs` while it stays down; a recovery is mailed only after a
+ * down was. Maintenance mails nothing and restarts a count that has not been mailed yet.
+ */
+export function decideClub(
+  prev: ClubState | null,
+  clubOk: boolean | null,
+  inMaintenance: boolean,
+  now: Date,
+  downAfterMs = 5 * 60_000,
+  repeatMs = 60 * 60_000,
+): { next: ClubState; write: boolean; mail: 'club_down' | 'club_up' | null } {
+  const cur: ClubState = prev ?? { badSince: null, notifiedAt: null }
+  const keep = { next: cur, write: false, mail: null } as const
+  const clear = { badSince: null, notifiedAt: null }
+  if (clubOk === null) return keep
+  if (inMaintenance) {
+    // A service stopped for the maintenance is not an outage; one already mailed is told when it is back.
+    if (cur.badSince !== null && cur.notifiedAt === null) return { next: clear, write: true, mail: null }
+    return keep
+  }
+  const nowIso = now.toISOString()
+  if (clubOk) {
+    if (cur.badSince === null) return keep
+    return { next: clear, write: true, mail: cur.notifiedAt === null ? null : 'club_up' }
+  }
+  if (cur.badSince === null) return { next: { badSince: nowIso, notifiedAt: null }, write: true, mail: null }
+  const due =
+    cur.notifiedAt === null
+      ? now.getTime() - Date.parse(cur.badSince) >= downAfterMs
+      : now.getTime() - Date.parse(cur.notifiedAt) >= repeatMs
+  if (!due) return keep
+  return { next: { badSince: cur.badSince, notifiedAt: nowIso }, write: true, mail: 'club_down' }
+}
