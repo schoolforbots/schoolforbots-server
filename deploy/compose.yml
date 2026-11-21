@@ -1,4 +1,4 @@
-# The school in production: one image run as two services, a database, a proxy that holds the certificate, a watchdog
+# The school in production: one image run as three services, a database, a proxy that holds the certificate, a watchdog
 # and the nightly backup. Start and update it with deploy.sh. The variables below come from the .env next to this file
 # (see env.example); the backup's settings come from backup.env (see backup.env.example).
 
@@ -76,6 +76,26 @@ services:
       registration:
         condition: service_healthy
 
+  # Waits for the migrations of the registration service before it starts. When it stops, the games being played are
+  # played out by the trustee and stored first: up to club.recordDrainSeconds (10 by default) on top of the 10 seconds
+  # every service has to stop, so it gets longer than Docker's default 10 seconds before it is killed.
+  club:
+    <<: *service
+    command: ['node', 'dist/club/main.js']
+    environment:
+      <<: *service-environment
+      CLUB_PORT: '8082'
+    healthcheck:
+      test: ['CMD', 'node', 'dist/tools/healthcheck.js', '8082']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 30s
+    depends_on:
+      registration:
+        condition: service_healthy
+
   caddy:
     image: caddy:2
     environment:
@@ -92,6 +112,7 @@ services:
     depends_on:
       - registration
       - class
+      - club
     restart: unless-stopped
     logging: *logging
 

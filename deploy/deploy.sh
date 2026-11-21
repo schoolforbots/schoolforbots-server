@@ -4,8 +4,9 @@
 # Pulls the image, starts postgres (a no-op when it runs; on a new server this is what creates it) and waits until it
 # is healthy, recreates the registration service (it upgrades the database when it starts) and waits until it is
 # healthy, waits for the class service to be free (no class on, none opening within 15 minutes; --now skips the wait),
-# recreates it and waits until it is healthy, then brings up the rest. Stops with a non-zero exit code at the first
-# step that fails.
+# recreates it and waits until it is healthy, recreates the club service and waits until it is healthy (with no wait
+# before: a game being played when it stops is played out and stored first), then brings up the rest. Stops with a
+# non-zero exit code at the first step that fails.
 #
 # For a trial on one machine: COMPOSE_FILES="compose.yml compose.local.yml" SKIP_PULL=1 deploy/deploy.sh <tag> --now
 set -euo pipefail
@@ -41,20 +42,20 @@ wait_timeout=240
 # then three failed checks 30 seconds apart before it counts as unhealthy.
 registration_wait_timeout=720
 
-echo "deploy: step 1/6: pulling the image (tag ${tag})"
+echo "deploy: step 1/7: pulling the image (tag ${tag})"
 if [ "${SKIP_PULL:-0}" = 1 ]; then
   echo "deploy: SKIP_PULL is set, not pulling"
 else
-  compose pull registration class
+  compose pull registration class club
 fi
 
-echo "deploy: step 2/6: starting postgres if it is not running, and waiting until it is healthy"
+echo "deploy: step 2/7: starting postgres if it is not running, and waiting until it is healthy"
 compose up -d --wait --wait-timeout "$wait_timeout" postgres
 
-echo "deploy: step 3/6: recreating registration (migrates the database) and waiting until it is healthy"
+echo "deploy: step 3/7: recreating registration (migrates the database) and waiting until it is healthy"
 compose up -d --no-deps --force-recreate --wait --wait-timeout "$registration_wait_timeout" registration
 
-echo "deploy: step 4/6: waiting for the class service to be free"
+echo "deploy: step 4/7: waiting for the class service to be free"
 if [ "$now" = 1 ]; then
   echo "deploy: --now, not waiting"
 else
@@ -69,10 +70,13 @@ else
   done
 fi
 
-echo "deploy: step 5/6: recreating class and waiting until it is healthy"
+echo "deploy: step 5/7: recreating class and waiting until it is healthy"
 compose up -d --no-deps --force-recreate --wait --wait-timeout "$wait_timeout" class
 
-echo "deploy: step 6/6: bringing up the other services"
+echo "deploy: step 6/7: recreating club and waiting until it is healthy"
+compose up -d --no-deps --force-recreate --wait --wait-timeout "$wait_timeout" club
+
+echo "deploy: step 7/7: bringing up the other services"
 compose up -d --build --wait --wait-timeout "$wait_timeout"
 
 # Remembered, so that a later `docker compose up` does not go back to the old tag. A failure here stops the script.
