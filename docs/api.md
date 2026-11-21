@@ -339,7 +339,7 @@
 
 - 打牌中掉线，座位保留，牌局照常进行：轮到这一家时照样计时，超时由托管替出。
 - 没在打牌时掉线（或者一局打完时还没连回来），座位只再保留一小段时间（不在 `limits` 里，插件不要依赖它有多长），到时还没连回来，就被请出房间：房间里是 `left` 事件，`reason` 是 `disconnected_idle`。所以掉线以后要尽快重连。
-- 重连时发 `hello`，带 `roomId` 和 `lastSeq`（收到的最后一个房间事件的 `seq`）。学生还坐在这个房间里时，`welcome` 的 `room` 是这个房间的状态，接着服务器补发 `lastSeq` 之后、还留着的房间事件（带 `replayed: true`），再发 `hand`；正轮到这一家，就再发一次 `your_turn`：`turn` 和 `deadline` 和原来的一样（`deadline` 可能已经过了，这时在用时间银行），`timeBankSeconds` 是此刻剩下的。房间只保留最近的一部分事件，更早的补不回来，以 `welcome.room` 的房间状态为准。`lastSeq` 比房间状态的 `lastSeq` 还大（那是以前一个同编号的房间的），就从头补发还留着的事件。
+- 重连时发 `hello`，带 `roomId` 和 `lastSeq`（收到的最后一个房间事件的 `seq`）。学生还坐在这个房间里时，`welcome` 的 `room` 是这个房间的状态，接着服务器补发 `lastSeq` 之后、还留着的房间事件（带 `replayed: true`），再发 `hand`；正轮到这一家，就再发一次 `your_turn`（这一步已经过了时间的除外：服务器替这一步出牌，接着往下走）：`turn` 和 `deadline` 和原来的一样（`deadline` 可能已经过了，这时在用时间银行），`timeBankSeconds` 是此刻剩下的。房间只保留最近的一部分事件，更早的补不回来，以 `welcome.room` 的房间状态为准。`lastSeq` 比房间状态的 `lastSeq` 还大（那是以前一个同编号的房间的），就从头补发还留着的事件。
 - 没带 `roomId`（或者带的不是现在坐的房间），但还坐在房间里时，`welcome.room` 照样是这个房间的状态，也补发 `hand` 和 `your_turn`，只是不补发房间事件。已经不在房间里了（被请出，或者房间关了），`welcome.room` 是 `null`。
 - 房间事件的 `seq` 按房间从 1 数起。私密的互动消息只发给发的人和对象，所以收到的 `seq` 可能跳号：跳号不是丢了事件，不要当成出错。
 - 同一个学生新连上来，旧连接收到 `closing`，原因是 `replaced`。
