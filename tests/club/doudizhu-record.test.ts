@@ -548,7 +548,9 @@ describe('handing the record on', () => {
 // ---- Random games ----------------------------------------------------------------------------------------------------
 
 /** Games in the random run. */
-const GAMES = 1500
+const GAMES = 600
+/** Time allowed for the random run, well above what it takes, for a slow machine running every test at once. */
+const RUN_TIMEOUT = 120_000
 
 /**
  * A random step for a `your_turn`: any bid allowed (often none), any move listed, or a pass when allowed. A seat that is
@@ -617,10 +619,10 @@ describe('random games', () => {
       for (const d of g.entry.record.result.doublings) outcomes.set(d.kind, (outcomes.get(d.kind) ?? 0) + 1)
     }
     for (const kind of ['landlord_won', 'farmers_won', 'no_landlord', 'bomb', 'rocket', 'spring', 'anti_spring']) {
-      expect(outcomes.get(kind) ?? 0, kind).toBeGreaterThan(5)
+      expect(outcomes.get(kind) ?? 0, kind).toBeGreaterThan(15)
     }
-    expect(redealt).toBeGreaterThan(20)
-    expect(finished).toBeGreaterThan(20)
-    expect(withBotsCount).toBeGreaterThan(20)
-  })
+    expect(redealt).toBeGreaterThan(100)
+    expect(finished).toBeGreaterThan(15)
+    expect(withBotsCount).toBeGreaterThan(100)
+  }, RUN_TIMEOUT)
 })

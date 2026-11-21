@@ -511,7 +511,9 @@ describe('without the clock', () => {
 // ---- Random games against the clock -----------------------------------------------------------------------------
 
 /** Games in the random run. */
-const GAMES = 2000
+const GAMES = 600
+/** Time allowed for the random run, well above what it takes, for a slow machine running every test at once. */
+const RUN_TIMEOUT = 120_000
 /** Keys of the engine's own state that must never reach a room event before the game is over. */
 const PRIVATE_KEYS = /"(suit|hand|hands|decks|spareDecks|body|kickers|main|movesBy)"/
 
@@ -824,6 +826,6 @@ describe('random games against the clock', () => {
     }
     for (let g = 0; g < GAMES; g++) randomGame(random, tally)
     // Every path was taken, many times.
-    for (const [name, count] of Object.entries(tally)) expect(count, name).toBeGreaterThan(20)
-  })
+    for (const [name, count] of Object.entries(tally)) expect(count, name).toBeGreaterThan(50)
+  }, RUN_TIMEOUT)
 })

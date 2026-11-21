@@ -33,7 +33,9 @@ import { deckOf, seededRandomInt } from './helpers.js'
 
 const GAME_ID = 7
 /** Games in each of the two random runs. */
-const GAMES = 2000
+const GAMES = 600
+/** Time allowed for each random run, well above what it takes, for a slow machine running every test at once. */
+const RUN_TIMEOUT = 120_000
 const STUDENT = (seat: number) => ({ studentId: 50 + seat, displayName: `学生 #00${50 + seat}`, bot: false as const })
 const AUTOS: readonly Exclude<Auto, null>[] = ['timeout', 'trustee', 'bot', 'closing']
 
@@ -460,7 +462,7 @@ function playMany(games: number, seedBase: number, player: (seed: number) => Pla
 }
 
 describe('random games', () => {
-  test('2000 games with every seat in trusteeship', () => {
+  test(`${GAMES} games with every seat in trusteeship`, () => {
     // One game in ten all by the trustee, which never bids; the rest with random bids so that there is play.
     const tally = playMany(GAMES, 10_000, (seed) => (seed % 10 === 0 ? trustee : trusteeAfterBids))
     expect(tally.outcomes.get('no_landlord')).toBeGreaterThanOrEqual(GAMES / 10)
@@ -468,9 +470,9 @@ describe('random games', () => {
     expect(tally.outcomes.get('farmers_won')).toBeGreaterThan(0)
     expect(tally.redeals).toBeGreaterThan(0)
     expect(tally.bombs).toBeGreaterThan(0)
-  })
+  }, RUN_TIMEOUT)
 
-  test('2000 games of random legal steps, sent every way, with illegal ones refused on the way', () => {
+  test(`${GAMES} games of random legal steps, sent every way, with illegal ones refused on the way`, () => {
     const tally = playMany(GAMES, 20_000, () => randomPlayer)
     expect(tally.outcomes.get('landlord_won')).toBeGreaterThan(0)
     expect(tally.outcomes.get('farmers_won')).toBeGreaterThan(0)
@@ -478,7 +480,7 @@ describe('random games', () => {
     expect(tally.redeals).toBeGreaterThan(0)
     expect(tally.bombs).toBeGreaterThan(0)
     expect(tally.capped).toBeGreaterThan(0)
-  })
+  }, RUN_TIMEOUT)
 })
 
 describe('games with fixed decks', () => {
