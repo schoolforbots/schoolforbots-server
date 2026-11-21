@@ -23,6 +23,8 @@ export interface RoomSummary {
   readonly opened: number
   /** The owners' emails of the students seated in it. */
   readonly owners: ReadonlySet<string>
+  /** Whether a student seated in it is not connected now (their seat waits for them, and no game starts). */
+  readonly away: boolean
 }
 
 /** Whether a room is open to anyone who comes by: public, not playing, and with a free seat. */
@@ -55,9 +57,10 @@ export function lobbyMessage(rooms: Iterable<RoomSummary>, max: number): LobbyFr
 
 /**
  * The room quick join seats a student in: the open room with the fewest free seats, the oldest among as full, leaving
- * out the rooms where a student of the same owner (`email`) sits. Null when there is none, and a new room is opened.
+ * out the rooms where a student of the same owner (`email`) sits, and those where a seated student is away (a game
+ * would not start there until they are back). Null when there is none, and a new room is opened.
  */
 export function quickJoinRoom(rooms: Iterable<RoomSummary>, email: string): RoomSummary | null {
-  const candidates = [...rooms].filter((room) => open(room) && !room.owners.has(email)).sort(byFullness)
+  const candidates = [...rooms].filter((room) => open(room) && !room.away && !room.owners.has(email)).sort(byFullness)
   return candidates[0] ?? null
 }

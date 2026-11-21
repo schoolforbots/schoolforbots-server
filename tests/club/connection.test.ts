@@ -290,6 +290,35 @@ describe('the connection', () => {
     expect(events.at(-1)).toMatchObject({ kind: 'left', seat: 1, reason: 'disconnected_idle' })
   })
 
+  test('a room filled while its host is away starts when they come back, after their welcome and replay', async () => {
+    const s = await start()
+    const a = await s.member()
+    const created = await a.client.request({ type: 'room.create', visibility: 'public', bots: false })
+    const roomId = created.result.room.roomId as string
+    a.client.ws.terminate()
+    await waitUntil(() => s.club.online().length === 0, 'the disconnect')
+    const b = await s.member()
+    const c = await s.member()
+    await b.client.request({ type: 'room.join', roomId })
+    await c.client.request({ type: 'room.join', roomId })
+    expect(s.club.rooms.state(roomId, s.clock.now())!.game).toBeNull()
+
+    const again = await s.connect(a.key)
+    const welcome = await s.hello(again, { roomId, lastSeq: 1 })
+    // The welcome is the room as it was when A came back: everyone there, no game yet.
+    expect(welcome.room.game).toBeNull()
+    expect(welcome.room.seats.map((seat: { online: boolean }) => seat.online)).toEqual([true, true, true])
+    const after = await again.sync()
+    const seqs = after.filter((m) => m.type === 'room.event').map((m) => m.seq as number)
+    // B's and C's joins replayed, then the game's events, each once and in order.
+    expect(seqs[0]).toBe(2)
+    expect(seqs).toEqual([...new Set(seqs)].sort((x, y) => x - y))
+    expect(seqs.at(-1)).toBe(s.club.rooms.state(roomId, s.clock.now())!.lastSeq)
+    expect(after.filter((m) => m.type === 'hand')).toHaveLength(1)
+    expect(s.club.rooms.state(roomId, s.clock.now())!.game).toMatchObject({ phase: 'bidding' })
+    expect((await b.client.sync()).filter((m) => m.type === 'hand')).toHaveLength(1)
+  })
+
   test('frames past the rate are rate_limited, and not handled', async () => {
     const s = await start({ club: { connection: { framesPerMinute: 2, maxQueuedFrames: 20, maxSendBufferKiB: 1024 } } })
     const { client } = await s.member()

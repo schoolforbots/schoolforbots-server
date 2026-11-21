@@ -1,5 +1,5 @@
 import type { Static } from 'typebox'
-import type { ClubClientMessage, InviteMessage } from '../protocol/club.js'
+import type { ClubClientMessage, InviteMessage, RoomState } from '../protocol/club.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { localMoment } from '../shared/local-time.js'
 import type { Maintenance } from '../shared/maintenance.js'
@@ -46,6 +46,8 @@ export interface ClubOptions {
 export interface Rejoin {
   /** The room the student sits in, or null. */
   readonly roomId: string | null
+  /** That room's state as they came back (`welcome.room`), or null. */
+  readonly room: Static<typeof RoomState> | null
   /** The room events they missed (`replayed: true`), when their hello named the room they sit in. */
   readonly replay: RoomEventFrame[]
   /** What the game sends their seat again (their hand, their turn). */
@@ -141,7 +143,8 @@ export class Club {
    * they have one, is theirs for good again (the game being played there told the address), and this is what they
    * are sent after `welcome`. The room events after `lastSeq` are replayed when `roomId` names
    * the room they sit in; a `lastSeq` past that room's last event is of another room that had the same id, and the
-   * room is replayed whole then (what is kept of it).
+   * room is replayed whole then (what is kept of it). A game their room waited for them to start starts last, so its
+   * events come after all this (they are held until the welcome is out), and are neither in `room` nor replayed.
    */
   rejoined(
     studentId: number,
@@ -151,18 +154,21 @@ export class Club {
   ): Rejoin {
     this.rooms.reconnected(studentId, now, address)
     const roomId = this.rooms.roomOf(studentId)
+    const room = roomId === null ? null : this.rooms.state(roomId, now)
     let replay: RoomEventFrame[] = []
-    if (roomId !== null && hello.roomId === roomId) {
-      const last = this.rooms.state(roomId, now)!.lastSeq
+    if (roomId !== null && room !== null && hello.roomId === roomId) {
       const lastSeq = hello.lastSeq ?? 0
-      replay = this.rooms.replay(studentId, roomId, lastSeq <= last ? lastSeq : 0) ?? []
+      replay = this.rooms.replay(studentId, roomId, lastSeq <= room.lastSeq ? lastSeq : 0) ?? []
     }
-    return {
+    const back: Rejoin = {
       roomId,
+      room,
       replay,
       resend: this.rooms.resend(studentId, now),
       invites: this.invites.pendingFor(studentId, now),
     }
+    this.rooms.startAfterReturn(studentId, now)
+    return back
   }
 
   /** The student's connection is gone (and no newer one took its place): their seat waits, they stop watching. */

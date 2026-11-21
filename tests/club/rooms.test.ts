@@ -460,13 +460,83 @@ describe('disconnecting', () => {
     expect(h.rooms.roomOf(2)).toBeNull()
   })
 
-  test('a student who disconnected before the game started keeps the seat while it is played', () => {
+  test('a room filled while a student is away does not start; their grace runs, and they are put out', () => {
+    const h = harness()
+    const roomId = openRoom(h, A)
+    h.rooms.disconnected(1, h.now)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    expect(h.game.sessions).toHaveLength(0)
+    expect(h.rooms.state(roomId, h.now)!.game).toBeNull()
+    h.outbox.clear()
+    h.advance(GRACE - 1)
+    expect(h.rooms.roomOf(1)).toBe(roomId)
+    h.advance(1)
+    expect(h.rooms.roomOf(1)).toBeNull()
+    expect(h.outbox.eventsOf(2).map((f) => f.event)).toEqual([
+      expect.objectContaining({ kind: 'left', seat: 0, reason: 'disconnected_idle' }),
+      { kind: 'host', studentId: 2 },
+    ])
+    expect(h.game.sessions).toHaveLength(0)
+  })
+
+  test('the student away comes back within the grace, and the game starts once they have had the room', () => {
+    const h = harness()
+    const roomId = openRoom(h, A)
+    h.rooms.disconnected(1, h.now)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    h.advance(GRACE - 1)
+    h.rooms.reconnected(1, h.now)
+    // Not yet: what the student is sent on coming back is the room as it is, and the game's start follows it.
+    expect(h.game.sessions).toHaveLength(0)
+    h.rooms.startAfterReturn(1, h.now)
+    expect(h.game.sessions).toHaveLength(1)
+    expect(h.rooms.state(roomId, h.now)!.game).toMatchObject({ phase: 'bidding' })
+    expect(h.outbox.of(1).filter((m) => m.type === 'hand')).toHaveLength(1)
+    // Once is enough; a student with no room, or a room playing, is nothing to start.
+    h.rooms.startAfterReturn(1, h.now)
+    h.rooms.startAfterReturn(4, h.now)
+    expect(h.game.sessions).toHaveLength(1)
+    h.advance(GRACE * 2)
+    expect(h.rooms.roomOf(1)).toBe(roomId)
+  })
+
+  test('one of two students away coming back does not start the game; the second does', () => {
     const h = harness()
     const roomId = openRoom(h, A, [B])
+    h.rooms.disconnected(1, h.now)
     h.rooms.disconnected(2, h.now)
-    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult') // the game starts
-    h.advance(GRACE * 2)
-    expect(h.rooms.roomOf(2)).toBe(roomId)
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    h.rooms.reconnected(1, h.now)
+    h.rooms.startAfterReturn(1, h.now)
+    expect(h.game.sessions).toHaveLength(0)
+    h.rooms.reconnected(2, h.now)
+    h.rooms.startAfterReturn(2, h.now)
+    expect(h.game.sessions).toHaveLength(1)
+  })
+
+  test('after a game, the next one waits for a student away even when the others are ready', () => {
+    const h = harness()
+    const roomId = fullRoom(h)
+    playOut(h, roomId)
+    checkAck(h.rooms.ready(1, h.now))
+    h.rooms.disconnected(1, h.now)
+    checkAck(h.rooms.ready(2, h.now))
+    checkAck(h.rooms.ready(3, h.now))
+    expect(h.game.sessions).toHaveLength(1)
+    h.rooms.reconnected(1, h.now)
+    h.rooms.startAfterReturn(1, h.now)
+    expect(h.game.sessions).toHaveLength(2)
+  })
+
+  test('bot seats do not hold the start', () => {
+    const h = harness()
+    const roomId = roomOf(checkAck(h.rooms.create(A, { visibility: 'public', bots: true }, h.now), 'RoomResult')).roomId
+    expect(h.game.sessions).toHaveLength(1)
+    playOut(h, roomId)
+    checkAck(h.rooms.ready(1, h.now))
+    expect(h.game.sessions).toHaveLength(2)
   })
 
   test('a reconnect gets the events it missed that are still kept, and its hand and turn', () => {
@@ -823,6 +893,24 @@ describe('a game hook that fails', () => {
     expect(errors).toEqual([[roomId, failure]])
     expect(h.rooms.state(roomId, h.now)!.seats[1]!.online).toBe(true)
     expect(h.rooms.resend(2, h.now).map((m) => m.type)).toEqual(['hand'])
+  })
+
+  test('a game failing to start as a student comes back is reported, and the room is closed', () => {
+    const errors: [string, unknown][] = []
+    const h = harness({ onError: (roomId, err) => errors.push([roomId, err]) })
+    const roomId = openRoom(h, A, [B])
+    h.rooms.disconnected(1, h.now)
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    const failure = new Error('newSession failed')
+    h.game.newSession = () => {
+      throw failure
+    }
+    h.rooms.reconnected(1, h.now)
+    expect(() => h.rooms.startAfterReturn(1, h.now)).not.toThrow()
+    expect(errors).toEqual([[roomId, failure]])
+    expect(h.rooms.size).toBe(0)
+    expect(h.rooms.roomOf(1)).toBeNull()
+    expect(leftMessages(h, 1)).toEqual([{ type: 'room.left', roomId, reason: 'closed' }])
   })
 
   test('carry throwing is reported; the game ends as any other and the next one starts with no carry', () => {
