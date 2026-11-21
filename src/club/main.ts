@@ -42,7 +42,10 @@ async function main(): Promise<void> {
     db,
     config,
     clock: systemClock,
-    game: doudizhuGame(),
+    game: doudizhuGame({
+      timeBankSeconds: config.club.timeBankSeconds,
+      trusteeDelaySeconds: config.club.trusteeDelaySeconds,
+    }),
     wordLists,
     maintenance,
     trustProxy: env.trustProxy,
