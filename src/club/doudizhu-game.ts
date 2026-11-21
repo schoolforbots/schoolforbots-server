@@ -77,8 +77,9 @@ import { type DoudizhuGameEntry, gameEntry, isRanked } from './doudizhu-record.j
 //   `resend` does not send again a `your_turn` whose step is due already: the next call makes it.
 // - `trusteeDelaySeconds` must be at least 1 and less than both `bidSeconds` and `playSeconds` (`doudizhuGame`
 //   throws otherwise), so the short deadline is always shorter than a step's own.
-// - Bots play at once (`auto: "bot"`). `finish` (the club closing) hands every student seat to the trustee and plays
-//   the game out at once (`auto: "closing"`).
+// - Bots play at once (`auto: "bot"`). `finish` (the club closing, or the service stopping) hands every student seat
+//   to the trustee (`trustee` on, `reason: "closing"`) and plays the game out at once (`auto: "closing"`); the game is
+//   recorded as any other.
 //
 // Without the clock (`clock: false`, for the club layer's tests): every `your_turn` has a deadline a fixed
 // `turnSeconds` after it is sent and no time bank (`timeBankSeconds: 0`), nothing ever times out and `tick` does

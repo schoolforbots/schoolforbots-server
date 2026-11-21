@@ -547,6 +547,8 @@ A student joins a club before coming in: with the bot owner's consent the plugin
 
 The club service serves `/v1/club`: the lobby, rooms, invitations, reactions, watching and the games. Plugins connect with a WebSocket and authenticate with `Authorization: Bearer <key>`; the messages are in the [API reference](docs/api.en.md#club-websocket).
 
+Each doudizhu game, once over, is stored by the club service in the background: the `doudizhu_games` table has a row for each game, with its whole record; the `doudizhu_game_players` table has a row for each student in each game (bots have none), with their role, whether they won, their score, the multiplier and how often they timed out, were played by the trustee or made an illegal step, and the address the student played the game from (the last one, after a reconnect; no route ever gives it out). The game numbers go on from the largest in the table. A write that fails is retried a few times; if it still fails, it counts as an unexpected error and the whole record goes to the error log. The records and leaderboards are not kept anywhere else: they are worked out from these two tables when asked for, by the routes for the record, the leaderboards, a student's own games and a game's record on the registration service (`GET /v1/me/clubs/doudizhu/...`; see the [API reference](docs/api.en.md#get-v1meclubsdoudizhustats)).
+
 ```bash
 npm run dev:registration   # start the registration service first: it creates and upgrades the tables
 npm run dev:club           # then start the club service; it restarts when the code changes
@@ -558,7 +560,7 @@ Notes:
 - The service listens on port `8082` by default; change it with `CLUB_PORT`. It reads only `DATABASE_URL`, `DATABASE_STATEMENT_TIMEOUT_MS`, `DATABASE_LOCK_TIMEOUT_MS`, `SCHOOL_CONFIG`, `TRUST_PROXY`, `CLUB_PORT` and `LOG_LEVEL`; it needs no mail or model settings.
 - When a word list file named in `club.wordLists` does not exist, the service uses the example next to it (`*.example.json`) and prints a warning on startup; a malformed list stops the start.
 - The `hello` deadline, the pings and the `connection` limits work as in the class service. It has `GET /healthz` too, which, as in the class service, also requires its clock to be ticking.
-- Run only one instance of the club service. Rooms, invitations, watching and room events live only in memory: when the service stops or restarts, every connection is closed with `service_stopping` and every room is gone, games halfway through included.
+- Run only one instance of the club service. Rooms, invitations, watching and room events live only in memory: when the service stops or restarts, the games halfway through are first played out by the trustee for everyone and recorded as usual, the service waits for them to be stored (`club.recordDrainSeconds` at most), and then every connection is closed with `service_stopping` and every room is gone.
 
 The optional `club` block of the school config sets up the clubs (`/v1/club`). The whole block, and every field in it, may be left out and then has the value in the example config, so an older config without it still starts.
 
@@ -572,6 +574,8 @@ The optional `club` block of the school config sets up the clubs (`/v1/club`). T
 - `maxSpectators`: the most spectators at one table.
 - `reactMinIntervalSeconds`, `reactsPerGame`: the shortest time between two reactions, and the most reactions in a game.
 - `timeBankSeconds`: the time bank of a game, spent when a step runs past its own time.
+- `trusteeDelaySeconds`: how long a seat in trusteeship is waited for at each of its steps before the trustee makes it; a valid step of the student's before then takes the seat back. It must be shorter than both the bid and the play time of the rules.
+- `recordDrainSeconds`: when the service stops, the longest it waits for the games not stored yet to be stored.
 - `roomEventBuffer`: how many of a room's latest events are kept in memory for reconnects to catch up on.
 - `lobbyMaxRooms`: the most rooms the lobby lists.
 - `botNames`: the names of the bots, used in the order they sit down in a room. At least two (a table of three needs two bots at most). They must not repeat, start or end with a space, or contain `#` (nor its variants, such as the full-width `＃`; only a student's name has a `#` and student number).
