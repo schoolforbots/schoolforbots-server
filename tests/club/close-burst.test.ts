@@ -70,6 +70,8 @@ async function burst() {
       timeBankSeconds: 0,
       trusteeDelaySeconds: 1,
     },
+    // Every bot connects from the same address.
+    wsHandshake: { upgradesPerIpPerMinute: 100_000, authFailuresPerIpPerMinute: 100_000 },
   }
 
   let maintenance: Maintenance | null = null

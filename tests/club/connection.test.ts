@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { DEFAULT_DOUDIZHU_RULES } from '../../src/club/doudizhu/index.js'
 import { clubClosedAt } from '../../src/club/hours.js'
 import { CLUB_WS_ERROR_MESSAGES } from '../../src/club/ws-errors.js'
@@ -134,6 +134,66 @@ describe('the upgrade', () => {
     const res = await s.app.inject({ method: 'GET', url: '/healthz' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ ok: true })
+  })
+})
+
+describe('the upgrades of an address', () => {
+  const refused = (p: Promise<unknown>) => expect(p).rejects.toThrow('Unexpected server response: 429')
+  /** How many times the upgrades have looked a key up. */
+  const lookups = (s: TestClub) => {
+    const spy = vi.spyOn(s.db, 'selectFrom')
+    return () => spy.mock.calls.filter(([table]) => table === 'students').length
+  }
+
+  test('past upgradesPerIpPerMinute: 429 before the key is looked up; another address and /healthz go on', async () => {
+    const s = await start({ wsHandshake: { upgradesPerIpPerMinute: 3, authFailuresPerIpPerMinute: 2 } })
+    const { key } = await s.addStudent()
+    const looked = lookups(s)
+
+    for (let i = 0; i < 3; i++) await s.connect(key, { remoteAddress: '10.0.0.1' })
+    expect(looked()).toBe(3)
+    await refused(s.connect(key, { remoteAddress: '10.0.0.1' }))
+    const res = await s.app.inject({ method: 'GET', url: '/v1/club', remoteAddress: '10.0.0.1' })
+    expect(res.statusCode).toBe(429)
+    expect(res.json()).toEqual({ error: { code: 'rate_limited', message: '请求太频繁了，请稍后再试。' } })
+    expect(looked()).toBe(3)
+
+    await s.connect(key, { remoteAddress: '10.0.0.2' })
+    expect((await s.app.inject({ method: 'GET', url: '/healthz', remoteAddress: '10.0.0.1' })).statusCode).toBe(200)
+  })
+
+  test('after authFailuresPerIpPerMinute missing or unknown keys, even a valid key from the address is 429, unlooked', async () => {
+    const s = await start({ wsHandshake: { upgradesPerIpPerMinute: 100, authFailuresPerIpPerMinute: 2 } })
+    const { key } = await s.addStudent()
+    const looked = lookups(s)
+
+    await expect(s.connect(null, { remoteAddress: '10.0.0.1' })).rejects.toThrow(/401/)
+    await expect(s.connect('not-a-key', { remoteAddress: '10.0.0.1' })).rejects.toThrow(/401/)
+    expect(looked()).toBe(1)
+    await refused(s.connect(key, { remoteAddress: '10.0.0.1' }))
+    await refused(s.connect('not-a-key', { remoteAddress: '10.0.0.1' }))
+    expect(looked()).toBe(1)
+
+    await s.connect(key, { remoteAddress: '10.0.0.2' })
+    expect(looked()).toBe(2)
+  })
+
+  test('once the window has passed, the address comes in again', async () => {
+    const s = await start({
+      wsHandshake: { upgradesPerIpPerMinute: 2, authFailuresPerIpPerMinute: 1 },
+      handshakeWindowMs: 200,
+    })
+    const { key } = await s.addStudent()
+    const from = { remoteAddress: '10.0.0.1' }
+
+    await expect(s.connect('not-a-key', from)).rejects.toThrow(/401/)
+    await refused(s.connect(key, from))
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await s.connect(key, from)
+    await s.connect(key, from)
+    await refused(s.connect(key, from))
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await s.connect(key, from)
   })
 })
 

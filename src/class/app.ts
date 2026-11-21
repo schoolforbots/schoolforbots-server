@@ -10,6 +10,7 @@ import { inetAddress } from '../shared/net.js'
 import { RateWindow } from '../shared/rate-window.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
+import { HANDSHAKE_RATE_LIMITED, HandshakeGuard } from '../shared/ws-handshake.js'
 import {
   MAX_FRAME_BYTES,
   RATE_WINDOW_MS,
@@ -54,6 +55,11 @@ export interface ClassDeps {
    */
   rateWindowMs?: number
   /**
+   * The window `wsHandshake` counts an address's upgrades and failed keys in, in real milliseconds. Default
+   * `HANDSHAKE_WINDOW_MS`, a minute; tests shorten it.
+   */
+  handshakeWindowMs?: number
+  /**
    * Whether the service is stopping: it has sent everyone connected the `closing` that says so (`SHUTTING_DOWN`). From
    * then on nobody comes in: a new connection is told the same at the door, and a hello still going is answered with
    * it instead of joining. Unset: never.
@@ -91,7 +97,8 @@ const BEARER = /^Bearer\s+(\S+)$/i
 
 /**
  * The classroom WebSocket service: `GET /v1/class`, upgraded with `Authorization: Bearer <key>`. A missing or unknown
- * key is refused with 401 before the WebSocket opens. See src/protocol/ws.ts for the messages and connection.ts for
+ * key is refused with 401 before the WebSocket opens, and an upgrade from an address past its upgrades or failed keys
+ * (`wsHandshake`) with 429 before its key is looked up. See src/protocol/ws.ts for the messages and connection.ts for
  * what happens on a connection.
  */
 export function buildClassApp(deps: ClassDeps): FastifyInstance {
@@ -111,6 +118,8 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
       // Counting an error must not change what happens to the connection.
     }
   }
+  // The upgrades and failed keys of each address (see `wsHandshake`), on real time, so a lesson clock has no say.
+  const handshakes = new HandshakeGuard(deps.config.wsHandshake, deps.handshakeWindowMs)
   // The student each upgrade's key belongs to, from the auth hook to the WebSocket handler.
   const students = new WeakMap<FastifyRequest, StudentRow>()
 
@@ -134,6 +143,8 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
       {
         websocket: true,
         onRequest: async (request, reply) => {
+          // The peer's address, or behind a trusted proxy the client's it names; refused before the database is asked.
+          if (!handshakes.admit(request.ip, performance.now())) return reply.code(429).send(HANDSHAKE_RATE_LIMITED)
           const key = BEARER.exec(request.headers.authorization ?? '')?.[1]
           const student =
             key === undefined
@@ -144,6 +155,7 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
                   .where('keyHash', '=', hashSecret(key))
                   .executeTakeFirst()
           if (student === undefined) {
+            handshakes.failed(request.ip, performance.now())
             return reply.code(401).send({ error: { code: 'unauthorized', message: '钥匙无效，请检查后再试。' } })
           }
           students.set(request, student)

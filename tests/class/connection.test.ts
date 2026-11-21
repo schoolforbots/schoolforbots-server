@@ -241,6 +241,75 @@ describe('the upgrade', () => {
   })
 })
 
+describe('the upgrades of an address', () => {
+  /** Upgrades with `key` (none when null) from `remoteAddress`; resolves with the socket, or rejects with the status. */
+  async function upgrade(s: Service, key: string | null, remoteAddress = '10.0.0.1'): Promise<void> {
+    const ws = await s.app.injectWS('/v1/class', {
+      headers: key === null ? {} : { authorization: `Bearer ${key}` },
+      socket: { remoteAddress } as Socket,
+    })
+    sockets.push(ws)
+  }
+  const refused = (p: Promise<void>) => expect(p).rejects.toThrow('Unexpected server response: 429')
+  /** How many times the upgrades have looked a key up. */
+  const lookups = (s: Service) => {
+    const spy = vi.spyOn(s.db, 'selectFrom')
+    return () => spy.mock.calls.filter(([table]) => table === 'students').length
+  }
+
+  test('past upgradesPerIpPerMinute: 429 before the key is looked up; another address and /healthz go on', async () => {
+    const s = await start({ config: { wsHandshake: { upgradesPerIpPerMinute: 3, authFailuresPerIpPerMinute: 2 } } })
+    const { key } = await addStudent(s, null)
+    const looked = lookups(s)
+
+    for (let i = 0; i < 3; i++) await upgrade(s, key)
+    expect(looked()).toBe(3)
+    await refused(upgrade(s, key))
+    const res = await s.app.inject({ method: 'GET', url: '/v1/class', remoteAddress: '10.0.0.1' })
+    expect(res.statusCode).toBe(429)
+    expect(res.json()).toEqual({ error: { code: 'rate_limited', message: '请求太频繁了，请稍后再试。' } })
+    expect(looked()).toBe(3)
+
+    await upgrade(s, key, '10.0.0.2')
+    // A ticker that has just run, so /healthz is healthy (see healthz.test.ts).
+    s.watchTicker({ lastFinishedAt: () => Date.now() }, 1000)
+    expect((await s.app.inject({ method: 'GET', url: '/healthz', remoteAddress: '10.0.0.1' })).statusCode).toBe(200)
+  })
+
+  test('after authFailuresPerIpPerMinute missing or unknown keys, even a valid key from the address is 429, unlooked', async () => {
+    const s = await start({ config: { wsHandshake: { upgradesPerIpPerMinute: 100, authFailuresPerIpPerMinute: 2 } } })
+    const { key } = await addStudent(s, null)
+    const looked = lookups(s)
+
+    await expect(upgrade(s, null)).rejects.toThrow('Unexpected server response: 401')
+    await expect(upgrade(s, 'ais_unknown')).rejects.toThrow('Unexpected server response: 401')
+    expect(looked()).toBe(1)
+    await refused(upgrade(s, key))
+    await refused(upgrade(s, 'ais_unknown'))
+    expect(looked()).toBe(1)
+
+    await upgrade(s, key, '10.0.0.2')
+    expect(looked()).toBe(2)
+  })
+
+  test('once the window has passed, the address comes in again', async () => {
+    const s = await start({
+      config: { wsHandshake: { upgradesPerIpPerMinute: 2, authFailuresPerIpPerMinute: 1 } },
+      handshakeWindowMs: 200,
+    })
+    const { key } = await addStudent(s, null)
+
+    await expect(upgrade(s, 'ais_unknown')).rejects.toThrow('Unexpected server response: 401')
+    await refused(upgrade(s, key))
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await upgrade(s, key)
+    await upgrade(s, key)
+    await refused(upgrade(s, key))
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await upgrade(s, key)
+  })
+})
+
 describe('a student who may not come in', () => {
   test('a suspended student is told until when and disconnected', async () => {
     const s = await start()

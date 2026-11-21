@@ -118,6 +118,36 @@ test.each([
   expect(() => loadSchoolConfig(tmpPath)).toThrow(new RegExp(`alerts.*${name}|${name}`))
 })
 
+test('the example config writes out the WebSocket handshake limits', () => {
+  expect(loadSchoolConfig('config/school.example.json').wsHandshake).toEqual({
+    upgradesPerIpPerMinute: 60,
+    authFailuresPerIpPerMinute: 10,
+  })
+})
+
+test('a config without wsHandshake, or with only one of its limits, gets the default for the rest', () => {
+  const none = writeTmpConfig((c) => {
+    delete c.wsHandshake
+  })
+  expect(loadSchoolConfig(none).wsHandshake).toEqual({ upgradesPerIpPerMinute: 60, authFailuresPerIpPerMinute: 10 })
+  const some = writeTmpConfig((c) => {
+    c.wsHandshake = { authFailuresPerIpPerMinute: 3 }
+  })
+  expect(loadSchoolConfig(some).wsHandshake).toEqual({ upgradesPerIpPerMinute: 60, authFailuresPerIpPerMinute: 3 })
+})
+
+test.each([
+  ['upgradesPerIpPerMinute', { upgradesPerIpPerMinute: 0 }],
+  ['upgradesPerIpPerMinute', { upgradesPerIpPerMinute: 'many' }],
+  ['authFailuresPerIpPerMinute', { authFailuresPerIpPerMinute: 1.5 }],
+  ['authFailuresPerIpPerMinute', { authFailuresPerIpPerMinute: -1 }],
+])('a wrong wsHandshake.%s stops the start and names it', (name, wsHandshake) => {
+  const tmpPath = writeTmpConfig((c) => {
+    c.wsHandshake = wsHandshake
+  })
+  expect(() => loadSchoolConfig(tmpPath)).toThrow(new RegExp(`wsHandshake.*${name}`))
+})
+
 test('classSize.max below standard is rejected with the field path', () => {
   const tmpPath = writeTmpConfig((c) => {
     c.classSize = { standard: 100, max: 90 }
