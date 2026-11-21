@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify'
 import type { Static } from 'typebox'
 import { Value } from 'typebox/value'
 import type { RawData, WebSocket } from 'ws'
+import type { RateWindow } from '../shared/rate-window.js'
 import {
   type ClubAckMessage,
   ClubClientMessage,
@@ -38,8 +39,9 @@ import { CLUB_WS_ERROR_MESSAGES, type ClubWsErrorCode } from './ws-errors.js'
 // Every client message is answered with its `ack` first, and then what handling it sent the student (see outbox.ts):
 // while the club handles a message, what comes for this connection is held, and sent right after the ack.
 //
-// What a connection may cost is bounded as in the class (`club.connection` in the school config): the frames it may
-// send in any minute, the frames it may have waiting to be handled, and what may wait to go out to it.
+// What a connection may cost is bounded as in the class (`club.connection` in the school config): the frames its student
+// may send in any minute, over all their connections, the frames it may have waiting to be handled, and what may wait
+// to go out to it.
 
 type Hello = Static<typeof ClubHelloMessage>
 type Welcome = Static<typeof ClubWelcomeMessage>
@@ -113,15 +115,16 @@ export function clubDoor(deps: ClubDeps, now: Date): ClubClosing | null {
 /**
  * Serves one connection whose key belongs to the student `studentId` (the upgrade checked it), from `ip` (null when
  * not known), which only the game is told (see `SessionStart.addresses`): it is never sent to anyone, nor logged by
- * the club code.
+ * the club code. `frames` counts the frames of every student over all their connections, the app's one for all (see
+ * `buildClubApp`).
  */
 export function serveConnection(
   deps: ClubDeps,
   socket: WebSocket,
-  p: { studentId: number; ip: string | null; log: FastifyBaseLogger },
+  p: { studentId: number; ip: string | null; log: FastifyBaseLogger; frames: RateWindow<number> },
 ): void {
   const { db, config, clock, club } = deps
-  const { studentId, ip, log } = p
+  const { studentId, ip, log, frames } = p
   const limits = config.club.connection
   const maxSendBufferBytes = limits.maxSendBufferKiB * 1024
 
@@ -376,15 +379,9 @@ export function serveConnection(
     for (const m of after) write(m)
   }
 
-  const rateWindowMs = deps.rateWindowMs ?? RATE_WINDOW_MS
-  const counted: number[] = []
-  const withinRate = (): boolean => {
-    const now = performance.now()
-    while (counted.length > 0 && now - (counted[0] ?? now) >= rateWindowMs) counted.shift()
-    if (counted.length >= limits.framesPerMinute) return false
-    counted.push(now)
-    return true
-  }
+  // Counted for the student, from the upgrade on, whatever connection the frames come on: a student who reconnects goes
+  // on with the window their earlier connections filled. A frame past `framesPerMinute` does not count.
+  const withinRate = (): boolean => frames.allow(studentId, performance.now())
 
   // Attached before anything is awaited, so no frame is missed. Whether a frame is within the rate is decided when it
   // comes, not when its turn does; its answer still comes in order.

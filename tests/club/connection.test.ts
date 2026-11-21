@@ -337,6 +337,30 @@ describe('the connection', () => {
     expect(got[3]).toEqual(error('c', 'rate_limited'))
   })
 
+  test('the rate is the student’s, across connections: a reconnection does not start it again; others have their own', async () => {
+    const s = await start({
+      rateWindowMs: 1000,
+      club: { connection: { framesPerMinute: 2, maxQueuedFrames: 20, maxSendBufferKiB: 1024 } },
+    })
+    const { id, key, client } = await s.member() // hello: 1
+    expect((await client.request({ id: 'a', type: 'room.leave' })).error.code).toBe('not_in_room') // 2
+    client.ws.terminate()
+    await waitUntil(() => s.club.online().length === 0, 'the disconnect')
+
+    // A new connection of the same student: the window is the one the old connection filled.
+    const again = await s.connect(key)
+    again.send({ id: 'h1', ...HELLO })
+    expect(await again.next()).toEqual(error('h1', 'rate_limited'))
+
+    // Another student is not held back by it.
+    const other = await s.member()
+    expect(other.id).not.toBe(id)
+
+    // A window later the student may send again, on the new connection.
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    await s.hello(again)
+  })
+
   test('the rate window passes', async () => {
     const s = await start({
       rateWindowMs: 100,

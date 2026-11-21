@@ -756,6 +756,44 @@ describe('the limits of a connection', () => {
     expect(await client.next()).toMatchObject({ type: 'ack', id: 'q3', ok: true })
   })
 
+  test('the rate is the student’s, across connections: a reconnection does not start it again; others have their own', async () => {
+    const s = await start({
+      config: { classConnection: { ...LIMITS, framesPerMinute: 3 } },
+      rateWindowMs: 1000,
+      handlers: { question: async () => ({ ok: true }) },
+    })
+    const { students } = await seedClass(s, 2)
+    const [a, b] = students
+    await tickAt(s, at('19:50'))
+    const first = await connect(a!.key)
+    await hello(first) // 1
+    first.send({ id: 'q1', type: 'question', text: '光为什么会拐弯？' }) // 2
+    first.send({ id: 'q2', type: 'question', text: '光为什么会拐弯？' }) // 3
+    expect(await take(first, 2)).toMatchObject([
+      { type: 'ack', id: 'q1', ok: true },
+      { type: 'ack', id: 'q2', ok: true },
+    ])
+    first.ws.terminate()
+    await waitUntil(() => s.disconnects.includes(a!.id), 'the disconnect')
+
+    // A new connection of the same student: the window is the one the old connection filled.
+    const second = await connect(a!.key)
+    second.send({ id: 'h1', ...HELLO })
+    expect(await second.next()).toEqual({
+      type: 'ack',
+      id: 'h1',
+      ok: false,
+      error: { code: 'rate_limited', message: WS_ERROR_MESSAGES.rate_limited },
+    })
+
+    // Another student is not held back by it.
+    await hello(await connect(b!.key))
+
+    // A window later the student may send again, on the new connection.
+    await sleep(1100)
+    await hello(second)
+  })
+
   test('a connection with too many frames waiting to be handled is closed', async () => {
     let handled = 0
     const s = await start({

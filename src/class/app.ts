@@ -7,10 +7,12 @@ import type { SchoolConfig } from '../shared/config.js'
 import { databaseAlive, registerHealthz } from '../shared/healthz.js'
 import type { Maintenance } from '../shared/maintenance.js'
 import { inetAddress } from '../shared/net.js'
+import { RateWindow } from '../shared/rate-window.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
 import {
   MAX_FRAME_BYTES,
+  RATE_WINDOW_MS,
   serveConnection,
   type ConnectionContext,
   type MessageHandlers,
@@ -47,7 +49,7 @@ export interface ClassDeps {
    */
   pingIntervalMs?: number
   /**
-   * The window `classConnection.framesPerMinute` counts a connection's frames in, in real milliseconds. Default
+   * The window `classConnection.framesPerMinute` counts a student's frames in, in real milliseconds. Default
    * `RATE_WINDOW_MS`, a minute; tests shorten it.
    */
   rateWindowMs?: number
@@ -94,7 +96,14 @@ const BEARER = /^Bearer\s+(\S+)$/i
  */
 export function buildClassApp(deps: ClassDeps): FastifyInstance {
   const app = Fastify({ trustProxy: deps.trustProxy ?? false, logger: deps.logger })
-  const ctx: ConnectionContext = { deps, announced: new WeakSet() }
+  const ctx: ConnectionContext = {
+    deps,
+    announced: new WeakSet(),
+    frames: new RateWindow({
+      limit: deps.config.classConnection.framesPerMinute,
+      windowMs: deps.rateWindowMs ?? RATE_WINDOW_MS,
+    }),
+  }
   const noteInternalError = () => {
     try {
       deps.onInternalError?.()
