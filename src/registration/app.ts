@@ -11,6 +11,7 @@ import type { Database } from '../shared/db.js'
 import { databaseAlive, registerHealthz } from '../shared/healthz.js'
 import type { SchoolRules } from '../shared/school-rules.js'
 import { clubRoutes } from './clubs.js'
+import { doudizhuRoutes } from './doudizhu.js'
 import { ApiError, registerErrorHandler } from './errors.js'
 import { registerMailHealthz, type MailHealth } from './mail-health.js'
 import { keyResetRoutes } from './key-resets.js'
@@ -86,6 +87,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   app.register(registrationRoutes(deps))
   app.register(meRoutes(deps))
   app.register(clubRoutes(deps))
+  app.register(doudizhuRoutes(deps))
   app.register(recordsRoutes(deps))
   app.register(keyResetRoutes(deps))
   app.register(schoolRoutes(deps))
