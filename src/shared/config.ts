@@ -146,6 +146,9 @@ const ClubSchema = Type.Object({
   reactsPerGame: Type.Optional(NonNegativeInt),
   // Extra time for a whole game, spent when a step runs past its own time.
   timeBankSeconds: Type.Optional(NonNegativeInt),
+  // How long a seat in trusteeship is given, at each of its steps, to take the seat back with a step of its own before
+  // the trustee makes it.
+  trusteeDelaySeconds: Type.Optional(NonNegativeInt),
   // The room events kept for a reconnect to catch up on, per room.
   roomEventBuffer: Type.Optional(PositiveInt),
   // The most rooms the lobby lists.
@@ -175,6 +178,7 @@ export interface ClubConfig {
   reactMinIntervalSeconds: number
   reactsPerGame: number
   timeBankSeconds: number
+  trusteeDelaySeconds: number
   roomEventBuffer: number
   lobbyMaxRooms: number
   botNames: string[]
@@ -194,6 +198,7 @@ export const DEFAULT_CLUB: ClubConfig = {
   reactMinIntervalSeconds: 5,
   reactsPerGame: 20,
   timeBankSeconds: 120,
+  trusteeDelaySeconds: 2,
   roomEventBuffer: 1000,
   lobbyMaxRooms: 50,
   botNames: ['陪练小一', '陪练小二', '陪练小三', '陪练小四', '陪练小五', '陪练小六'],

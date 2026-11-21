@@ -94,7 +94,7 @@ export const QUICK_DECK: readonly Card[] = deckOf(
 
 type YourTurn = Static<typeof YourTurnMessage>
 
-/** The fake game's options are the real one's (`DoudizhuGameOptions`). */
+/** The fake game's options are the real one's (`DoudizhuGameOptions`), without the clock unless `clock: true`. */
 export type FakeGameOptions = DoudizhuGameOptions
 
 /** The fake game, with every session it started, oldest first, for a test to look at. */
@@ -105,7 +105,7 @@ export interface FakeGame extends GameModule {
 /** The doudizhu game of src/club/doudizhu-game.ts, its sessions checked against the protocol and kept. */
 export function fakeGame(options: FakeGameOptions = {}): FakeGame {
   const sessions: FakeSession[] = []
-  const game = doudizhuGame(options, (start, o, gameId) => {
+  const game = doudizhuGame({ clock: false, ...options }, (start, o, gameId) => {
     const session = new FakeSession(start, o, gameId)
     sessions.push(session)
     return session
@@ -120,9 +120,10 @@ export class FakeSession extends DoudizhuSession {
   }
 
   /**
-   * For tests: puts a student seat in trusteeship, as timeouts would (`reason: "timeouts"`). The trustee plays its
-   * steps at once (`auto: "trustee"`), so the seat is never asked and only `trusteeOff` gives it back; a real game
-   * must also let a step of the seat's own do it (see `GameSession.handle`).
+   * For tests: puts a student seat in trusteeship, as timeouts would (`reason: "timeouts"`). Without the clock the
+   * trustee plays its steps at once (`auto: "trustee"`), so the seat is never asked and only `trusteeOff` gives it
+   * back. With the clock (`clock: true`) the seat is asked as the real game asks a seat in trusteeship, with the short
+   * deadline, and a step of its own takes it back too (see the top of src/club/doudizhu-game.ts).
    */
   trusteeOn(seat: number, now: Date): GameOutput {
     this.assertStarted()
