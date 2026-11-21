@@ -429,6 +429,10 @@ export class Rooms {
     if (room.closed || this.playing(room)) return
     this.endGraces(room, now)
     if (room.closed) return
+    // A full table, every seat ready, with no game: it waits for a student away (`startIfReady`), at most their grace.
+    // There is no seat for bots, so no prompt, and the room does not close as idle. Once the grace ends and frees a
+    // seat, the idle clock, which went on all the while, prompts at once.
+    if (room.seats.every((occupant) => occupant !== null && occupant.ready)) return
     if (room.prompt !== null) {
       if (now.getTime() >= room.prompt.decideBy.getTime()) this.close(room, 'idle', now)
     } else if (now.getTime() >= room.waitingSince.getTime() + this.config.club.idleMinutes * 60_000) {
@@ -555,9 +559,16 @@ export class Rooms {
     this.emitTo(room, { kind: 'joined', seat, player }, now, null, student.person.studentId)
     const state = this.stateOf(room, now)
     // A newcomer to a room under an idle prompt is told of it too (the same `decideBy`; the idle clock goes on), so
-    // they may answer it. A room they have just filled starts its game instead.
-    if (room.prompt !== null && room.seats.includes(null)) {
-      this.emitTo(room, { kind: 'idle', decideBy: room.prompt.decideBy.toISOString() }, now, null, null)
+    // they may answer it. A room they have just filled has no seat left for bots, so the prompt is withdrawn (with no
+    // event: the protocol has none, and `room.bots` answers `no_idle_prompt`): its game starts at once when everyone
+    // in it is connected, or else once those away are back, and a grace ending frees a seat and brings the prompt
+    // back (see `tickRoom`).
+    if (room.prompt !== null) {
+      if (room.seats.includes(null)) {
+        this.emitTo(room, { kind: 'idle', decideBy: room.prompt.decideBy.toISOString() }, now, null, null)
+      } else {
+        room.prompt = null
+      }
     }
     return state
   }

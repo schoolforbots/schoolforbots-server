@@ -530,6 +530,51 @@ describe('disconnecting', () => {
     expect(h.game.sessions).toHaveLength(2)
   })
 
+  test('a full table waiting for a student away is not prompted, nor closed as idle, however long the grace', () => {
+    const IDLE = 10 * 60
+    const DECIDE = 180
+    const h = harness({ club: { disconnectGraceSeconds: 3600 } })
+    const roomId = openRoom(h, A, [B])
+    h.rooms.disconnected(2, h.now)
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    h.outbox.clear()
+    for (let i = 0; i < 3; i++) h.advance(IDLE + DECIDE)
+    expect(kinds(h.outbox.eventsOf(1))).toEqual([])
+    expect(h.rooms.size).toBe(1)
+    expectError(h.rooms.bots(1, h.now), 'no_idle_prompt')
+    h.rooms.reconnected(2, h.now)
+    h.rooms.startAfterReturn(2, h.now)
+    expect(h.game.sessions).toHaveLength(1)
+  })
+
+  test('the host away put out at the end of the grace passes the host on, and a newcomer filling the room starts the game', () => {
+    const h = harness()
+    const roomId = openRoom(h, A)
+    h.rooms.disconnected(1, h.now)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    h.advance(GRACE)
+    expect(h.rooms.roomOf(1)).toBeNull()
+    expect(h.rooms.state(roomId, h.now)!.host).toBe(2)
+    expect(h.game.sessions).toHaveLength(0)
+    checkAck(h.rooms.join(D, roomId, h.now), 'RoomResult')
+    expect(h.game.sessions).toHaveLength(1)
+    expect(h.game.sessions[0]!.addresses).toHaveLength(3)
+    expect(h.rooms.state(roomId, h.now)!.game).toMatchObject({ phase: 'bidding' })
+  })
+
+  test('once the service is stopping, a student coming back to a full table starts no game', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B])
+    h.rooms.disconnected(1, h.now)
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    h.rooms.finishAll(h.now)
+    h.rooms.reconnected(1, h.now)
+    h.rooms.startAfterReturn(1, h.now)
+    expect(h.game.sessions).toHaveLength(0)
+    expect(h.rooms.state(roomId, h.now)!.game).toBeNull()
+  })
+
   test('bot seats do not hold the start', () => {
     const h = harness()
     const roomId = roomOf(checkAck(h.rooms.create(A, { visibility: 'public', bots: true }, h.now), 'RoomResult')).roomId
@@ -711,6 +756,37 @@ describe('a newcomer during an idle prompt', () => {
     h.advance(1)
     expect(h.rooms.size).toBe(0)
     expect(leftMessages(h, 2)).toEqual([expect.objectContaining({ reason: 'closed' })])
+  })
+
+  test('one who fills the room while a student is away ends the prompt; the room waits out the grace, then prompts again', () => {
+    const GRACE = 60
+    const { h, roomId } = prompted()
+    // 10 seconds before decideBy, B goes, and C fills the room.
+    h.advance(DECIDE - 30 - 10)
+    h.rooms.disconnected(2, h.now)
+    h.outbox.clear()
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    expect(h.outbox.eventsOf(3)).toEqual([])
+    expect(h.outbox.eventsOf(1).map((f) => f.event.kind)).toEqual(['joined'])
+    expect(h.game.sessions).toHaveLength(0)
+    expectError(h.rooms.bots(3, h.now), 'no_idle_prompt')
+    // decideBy passes: the room stays, C in it.
+    h.advance(10)
+    expect(h.rooms.size).toBe(1)
+    expect(h.rooms.roomOf(3)).toBe(roomId)
+    h.advance(GRACE - 10 - 1)
+    expect(h.rooms.roomOf(2)).toBe(roomId)
+    expect(h.outbox.eventsOf(3).map((f) => f.event.kind)).toEqual([])
+    // B's grace ends: the seat is free, and the room, which has waited long already, is prompted again at once.
+    h.outbox.clear()
+    h.advance(1)
+    expect(h.rooms.roomOf(2)).toBeNull()
+    expect(h.outbox.eventsOf(3).map((f) => f.event)).toEqual([
+      expect.objectContaining({ kind: 'left', seat: 1, reason: 'disconnected_idle' }),
+      { kind: 'idle', decideBy: new Date(h.now.getTime() + DECIDE * 1000).toISOString() },
+    ])
+    checkAck(h.rooms.bots(3, h.now))
+    expect(h.game.sessions).toHaveLength(1)
   })
 
   test('one who fills the room gets the game, not the prompt', () => {
