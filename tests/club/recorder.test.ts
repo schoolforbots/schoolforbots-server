@@ -6,7 +6,7 @@ import type { DoudizhuGameEntry } from '../../src/club/doudizhu-record.js'
 import type { DoudizhuGameOptions } from '../../src/club/doudizhu-game.js'
 import type { GameClientMessage, SeatPlayer } from '../../src/club/game.js'
 import { botPerson, studentPerson } from '../../src/club/people.js'
-import { createRecorder, nextGameId, RETRY_DELAYS_MS, writeGame } from '../../src/club/recorder.js'
+import { ALERT_WAIT_MS, createRecorder, nextGameId, RETRY_DELAYS_MS, writeGame } from '../../src/club/recorder.js'
 import type { Database } from '../../src/shared/schema.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
@@ -287,13 +287,49 @@ describe('drain', () => {
       expect.objectContaining({ why: 'drain_timeout', mayStillLand: true, game: expect.objectContaining({ gameId: 1 }) }),
     ])
     expect(log.entries[0]).not.toHaveProperty('err')
-    await vi.waitFor(async () => expect(await opsEvents()).toEqual([{ service: 'club', kind: 'internal_error' }]))
+    // Written before the drain is over: the service closes the database right after it.
+    expect(await opsEvents()).toEqual([{ service: 'club', kind: 'internal_error' }])
     // The retry's wait ends: it is not tried again, nor logged again.
     wake()
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(db.attempts).toBe(1)
     expect(log.entries).toHaveLength(1)
     expect((await stored()).games).toEqual([])
+  })
+})
+
+describe('drain and the notes of the games given up', () => {
+  test('waits for the note of a game given up before it was called', async () => {
+    const db = failing(t.db, Infinity)
+    const recorder = createRecorder({ db, clock: createTestClock(T0), log: logs(), sleep: noteSleeps().sleep })
+    recorder.enqueue(playGame())
+    await vi.waitFor(() => expect(recorder.pending()).toBe(0))
+    await recorder.drain(10_000)
+    expect(await opsEvents()).toEqual([{ service: 'club', kind: 'internal_error' }])
+  })
+
+  test('waits for a note that never lands only so long', async () => {
+    // Every game write fails, and the note of the game given up never finishes.
+    const failingDb = failing(t.db, Infinity)
+    const db = new Proxy(failingDb, {
+      get(target, key) {
+        if (key === 'insertInto') {
+          return (table: string) =>
+            table === 'opsEvents'
+              ? { values: () => ({ execute: () => new Promise(() => {}) }) }
+              : target.insertInto(table as 'opsEvents')
+        }
+        return Reflect.get(target, key)
+      },
+    }) as typeof failingDb
+    const recorder = createRecorder({ db, clock: createTestClock(T0), log: logs(), sleep: noteSleeps().sleep })
+    recorder.enqueue(playGame())
+    await vi.waitFor(() => expect(recorder.pending()).toBe(0))
+    const started = performance.now()
+    await recorder.drain(10_000)
+    const waited = performance.now() - started
+    expect(waited).toBeGreaterThanOrEqual(ALERT_WAIT_MS - 50)
+    expect(waited).toBeLessThan(ALERT_WAIT_MS * 3)
   })
 })
 
