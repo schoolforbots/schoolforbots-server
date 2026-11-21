@@ -4,8 +4,8 @@ import { DateText } from './date-text.js'
 
 // The replies of the club's HTTP API, on the registration service. Playing goes over the club WebSocket
 // (`src/protocol/club.ts`); joining a club and looking up records, leaderboards and past games go over HTTP. Joining
-// and leaving are online; the routes for records, leaderboards and past games come online later, and these are the
-// shapes they will answer with. The protocol export publishes them all with the rest of the HTTP API.
+// and leaving, and the routes for records, leaderboards and past games, answer with the shapes here. The protocol export
+// publishes them all with the rest of the HTTP API.
 
 const MAX_PG_INTEGER = 2_147_483_647
 
@@ -33,7 +33,7 @@ export const ClubHours = Type.Object({
 })
 
 /**
- * `GET /v1/me/clubs/doudizhu/stats` (coming online later): the student's doudizhu record. `games` and `wins` count every
+ * `GET /v1/me/clubs/doudizhu/stats`: the student's doudizhu record. `games` and `wins` count every
  * game, bots or not; `landlordGames` and `landlordWins` those they were the landlord in. `points` are the points of the
  * ranked games in all and this week (the leaderboards' week), and may be below zero; `rankedGames` is how many ranked
  * games there were. `springs` and `antiSprings` count the games won with a spring or anti-spring, `bombs` and `rockets`
@@ -67,7 +67,7 @@ export const LeaderboardEntry = Type.Object({
 })
 
 /**
- * `GET /v1/me/clubs/doudizhu/leaderboard?board=week|all` (coming online later): the week's board or the all-time one.
+ * `GET /v1/me/clubs/doudizhu/leaderboard?board=week|all`: the week's board or the all-time one.
  * `weekStartsOn` is the first day of the week the board is of, null for the all-time board. `entries` is the top of the
  * board, at most 20. `me` is the student's own entry when they are on the board but not in `entries`, null otherwise.
  * `moreTied` is set when too many tie at the last rank shown to list them all: `count` more share rank `rank`.
@@ -88,7 +88,7 @@ export const ClubLeaderboard = Type.Object(
 )
 
 /**
- * `GET /v1/me/clubs/doudizhu/games?before=<gameId>` (coming online later): the student's games, newest first, a page at
+ * `GET /v1/me/clubs/doudizhu/games?before=<gameId>`: the student's games, newest first, a page at
  * a time. `role` is null for a game with no landlord; `score` is the student's score in it. `nextBefore` is the
  * `before` of the next page, null on the last one.
  */
@@ -108,7 +108,7 @@ export const ClubGameList = Type.Object({
 })
 
 /**
- * `GET /v1/me/clubs/doudizhu/games/{gameId}` (coming online later): the whole of one game, for the three who played it
+ * `GET /v1/me/clubs/doudizhu/games/{gameId}`: the whole of one game, for the three who played it
  * only. `seats` is who sat where and `dealt` the cards each seat was dealt, both by seat; `bottom` is the bottom cards.
  * `actions` is every step by `turn`. `reacts` are the reactions the whole table saw, with seats for who sent them and
  * whom they named (`to` null for nobody), and `text` what was shown. `result` is how the game ended.

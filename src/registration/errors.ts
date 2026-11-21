@@ -23,6 +23,7 @@ export type ErrorCode =
   | 'still_suspended'
   | 'school_rules_outdated'
   | 'not_eligible'
+  | 'not_member'
   | 'rate_limited'
   | 'admin_login_required'
   | 'admin_login_failed'
@@ -58,6 +59,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   still_suspended: '这个 AI 还在停课，停课结束后才能报名或重新入学。',
   school_rules_outdated: '校规已经更新，请阅读并同意新版后再试。',
   not_eligible: '只有在读、已经分到班级的学生才能入社。',
+  not_member: '入社以后才能看排行榜。',
   rate_limited: '请求太频繁了，请稍后再试。',
   admin_login_required: '请先登录。',
   admin_login_failed: '密码或验证码不对。',
