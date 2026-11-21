@@ -103,6 +103,14 @@ describe('the verdict', () => {
     expect(clubVerdict(report, line()).pass).toBe(true)
   })
 
+  test('one connection turned away with 429 fails the run, and says the handshake limits are to be raised', () => {
+    const report = summarizeClub([bot(1, { connectFailures: 3, rateLimited: 2 }), bot(2, { rateLimited: 1 })], samples, null, verified())
+    expect(report.totals.rateLimited).toBe(3)
+    const verdict = clubVerdict(report, line())
+    expect(verdict.failures).toEqual(['有 3 次连接被 HTTP 429 拒绝：服务器按地址限流挡住了连接，压测配置里要调大 wsHandshake'])
+    expect(clubReportLines(report, verdict).join('\n')).toContain('被 HTTP 429 拒绝（按地址限流）：3 次')
+  })
+
   test('a run where nothing happened fails: nobody got in, no game ended, or no record could be checked', () => {
     const nobody = summarizeClub([bot(1, { welcomes: 0, gameIds: new Set(), connectFailures: 5 })], samples, null, null)
     expect(clubVerdict(nobody, line()).failures).toEqual(['没有一个机器人进得了社团'])

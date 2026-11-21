@@ -8,6 +8,7 @@ const samples = (over: Partial<Samples> = {}): Samples => ({
   chatSent: 0,
   unexpectedDisconnects: 0,
   connectFailures: 0,
+  rateLimited: 0,
   neverWelcomed: 0,
   errors: {},
   ...over,
@@ -49,7 +50,7 @@ describe('percentile (nearest rank)', () => {
 
 describe('summarize', () => {
   test('counts and gives the percentiles and the maximum of each list', () => {
-    const run = samples({ segmentMs: [5, 1, 3], chatMs: [7], chatSent: 3, unexpectedDisconnects: 2, connectFailures: 1, neverWelcomed: 4, errors: { initiation_cap: 4 } })
+    const run = samples({ segmentMs: [5, 1, 3], chatMs: [7], chatSent: 3, unexpectedDisconnects: 2, connectFailures: 1, rateLimited: 1, neverWelcomed: 4, errors: { initiation_cap: 4 } })
     expect(summarize(run)).toEqual({
       segment: { count: 3, p50: 3, p90: 5, p99: 5, max: 5 },
       chat: { count: 1, p50: 7, p90: 7, p99: 7, max: 7 },
@@ -57,6 +58,7 @@ describe('summarize', () => {
       chatUnmatched: 2,
       unexpectedDisconnects: 2,
       connectFailures: 1,
+      rateLimited: 1,
       neverWelcomed: 4,
       errors: { initiation_cap: 4 },
     })
@@ -101,6 +103,13 @@ describe('verdict', () => {
     const absent = report({ neverWelcomed: 400 })
     expect(verdict(absent, {}).failures).toEqual([expect.stringContaining('400 个机器人')])
     expect(verdict(report(), {}).pass).toBe(true)
+  })
+
+  test('fails on one connection turned away with 429, and says the handshake limits are to be raised', () => {
+    const limited = report({ connectFailures: 3, rateLimited: 1 })
+    const { pass, failures } = verdict(limited, {})
+    expect(pass).toBe(false)
+    expect(failures).toContain('有 1 次连接被 HTTP 429 拒绝：服务器按地址限流挡住了连接，压测配置里要调大 wsHandshake')
   })
 
   test('checks only the limits it is given', () => {

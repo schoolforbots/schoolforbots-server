@@ -88,7 +88,7 @@ const TAG_PATTERN = new RegExp(`（([${TAG_LETTERS}]{3,})）`)
 export function createSampler(): Sampler {
   let counter = 0
   return {
-    samples: { segmentMs: [], chatMs: [], chatSent: 0, unexpectedDisconnects: 0, connectFailures: 0, neverWelcomed: 0, errors: {} },
+    samples: { segmentMs: [], chatMs: [], chatSent: 0, unexpectedDisconnects: 0, connectFailures: 0, rateLimited: 0, neverWelcomed: 0, errors: {} },
     sent: new Map(),
     nextTag() {
       // The counter in base 20, at least three letters long.
@@ -282,6 +282,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     ws.on('unexpected-response', (_request, response) => {
       say(`连接被拒 HTTP ${response.statusCode}`)
       connectFailed()
+      if (response.statusCode === 429) sampler.samples.rateLimited++
       // A key the school does not know stays unknown: trying again changes nothing.
       if (response.statusCode === 401) end('钥匙不对')
       ws.terminate()
@@ -627,6 +628,7 @@ export function buildReport(samples: Samples, expect: { segmentMs?: number; chat
     `搭话：发出 ${report.chatSent} 句，没对上的 ${report.chatUnmatched} 句`,
     `意外断开：${report.unexpectedDisconnects} 次`,
     `连接失败：${report.connectFailures} 次；一直没进教室的机器人：${report.neverWelcomed} 个`,
+    `连接被 HTTP 429 拒绝（按地址限流）：${report.rateLimited} 次`,
     `被拒：${errors.length === 0 ? '0 次' : errors.map(([code, n]) => `${code} ${n}`).join('、')}`,
     ...failures.map((f) => `没过：${f}`),
     `结论：${pass ? '及格' : '不及格'}`,

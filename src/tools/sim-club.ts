@@ -119,6 +119,8 @@ export interface ClubBotTally {
   welcomes: number
   /** Connection tries that never got in: refused, or an error on the way. */
   connectFailures: number
+  /** Of those, the HTTP refusals with 429: the school's limits per address (`wsHandshake`) turned the upgrade away. */
+  rateLimited: number
   /** Connections closed with no `closing` that the bot did not close: there should be none. */
   unexpectedDisconnects: number
   /** Drops on purpose, and welcomes after one back in the same room. */
@@ -319,6 +321,7 @@ export function emptyTally(): ClubBotTally {
     connects: 0,
     welcomes: 0,
     connectFailures: 0,
+    rateLimited: 0,
     unexpectedDisconnects: 0,
     drops: 0,
     reconnects: 0,
@@ -565,6 +568,7 @@ export function createClubBot(
     ws.on('unexpected-response', (_request, response) => {
       say(`连接被拒 HTTP ${response.statusCode}`)
       connectFailed()
+      if (response.statusCode === 429) tally.rateLimited++
       if (response.statusCode === 401) end('钥匙不对')
       ws.terminate()
     })
