@@ -147,8 +147,8 @@ const ClubSchema = Type.Object({
   // Extra time for a whole game, spent when a step runs past its own time.
   timeBankSeconds: Type.Optional(NonNegativeInt),
   // How long a seat in trusteeship is given, at each of its steps, to take the seat back with a step of its own before
-  // the trustee makes it.
-  trusteeDelaySeconds: Type.Optional(NonNegativeInt),
+  // the trustee makes it. Less than the shortest step of the rules (the game checks it as it starts).
+  trusteeDelaySeconds: Type.Optional(PositiveInt),
   // The room events kept for a reconnect to catch up on, per room.
   roomEventBuffer: Type.Optional(PositiveInt),
   // The most rooms the lobby lists.

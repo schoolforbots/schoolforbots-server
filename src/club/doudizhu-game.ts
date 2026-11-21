@@ -44,7 +44,7 @@ import { bankLeftAt, deadlineOf, dueAt, shownSeconds, stepLimitMs } from './doud
 //
 // The clock (`clock: true`, the default; the pure arithmetic is in doudizhu-clock.ts):
 // - A student asked to act gets a `your_turn` whose `deadline` is the rules' `bidSeconds` (a bid) or `playSeconds` (a
-//   play or a pass) after the step was asked. Each seat has a time bank of `timeBankSeconds` for the whole game, the
+//   play or a pass) after it is sent. Each seat has a time bank of `timeBankSeconds` for the whole game, the
 //   redeals included. Past the deadline the bank is spent: a step made then costs the time past the deadline, to the
 //   millisecond; a step not made by `deadline + bank` times out: the bank is emptied and the trustee makes the step
 //   (`auto: "timeout"`). `your_turn.timeBankSeconds` and `retry.timeBankSeconds` show the bank at that moment, in
@@ -52,18 +52,22 @@ import { bankLeftAt, deadlineOf, dueAt, shownSeconds, stepLimitMs } from './doud
 // - Two timeouts in a row among a seat's own steps put the seat in trusteeship (room event `trustee`, `reason:
 //   "timeouts"`, right after the second of them). A step of the student's own, or taking the seat back, starts the
 //   count again from 0. Bots and the club closing never count.
-// - A seat in trusteeship is still asked: its `your_turn` has a deadline `trusteeDelaySeconds` after the step was
-//   asked and shows the bank as it is; at that deadline the trustee makes the step (`auto: "trustee"`), and the bank is
+// - A seat in trusteeship is still asked: its `your_turn` has a deadline `trusteeDelaySeconds` after it is
+//   sent and shows the bank as it is; at that deadline the trustee makes the step (`auto: "trustee"`), and the bank is
 //   not spent. A valid step of the student's before it takes the seat back (`trustee` off, `reason: "off"`) and is the
 //   student's step; an illegal one does not. `trustee.off` while the seat is asked gives it a new `your_turn` for the
-//   same turn, with the deadline the step would have had out of trusteeship (or now, if that is past).
+//   same turn, with the deadline the step would have had out of trusteeship (from when it was asked), but never less
+//   than `trusteeDelaySeconds` from now.
 // - A step is due at the moment its time runs out; a step of the student's at that very moment is too late. Steps are
-//   made only when a call comes: `tick` (about once a second), and `handle` and `trusteeOff`, which first make every
-//   step due by their `now`, so whether a late step counts never depends on when the last tick was. One call may make
-//   several steps in a row (a timeout, then bots, then a seat in trusteeship whose own deadline is also past). Each
-//   step due is made as at the moment it was due, so the next seat's step is asked from that moment, not from the
-//   call's `now`: how late a tick comes changes nothing but when the steps are sent. A seat whose step is already due
-//   when it is asked is not sent a `your_turn` for it.
+//   made only when a call comes: `tick` (about once a second), and `handle`, `trusteeOff` and `finish`, which first
+//   make the step due by their `now`, so whether a late step counts never depends on when the last tick was.
+// - Every seat's time counts from the moment its `your_turn` is sent (the `now` of the call that sends it), the short
+//   deadline of trusteeship too: no `your_turn` has a deadline already past, and a late tick only delays the steps,
+//   never shortens anyone's time. So one call makes at most one step that was due (then the bots after it, at once),
+//   and only a step the seat was sent a `your_turn` for ever times out or is made by the trustee in trusteeship.
+//   `resend` does not send again a `your_turn` whose step is due already: the next call makes it.
+// - `trusteeDelaySeconds` must be at least 1 and less than both `bidSeconds` and `playSeconds` (`doudizhuGame`
+//   throws otherwise), so the short deadline is always shorter than a step's own.
 // - Bots play at once (`auto: "bot"`). `finish` (the club closing) hands every student seat to the trustee and plays
 //   the game out at once (`auto: "closing"`).
 //
@@ -127,9 +131,12 @@ function carriedFirstBidder(carry: unknown): number | null {
 
 /** How often a seat's steps were not its own, or were refused, in one game: for its record. */
 export interface SeatCounts {
-  /** Steps that timed out (`auto: "timeout"`). */
+  /** Steps that timed out (`auto: "timeout"`): each one a step the seat was sent a `your_turn` for. */
   timeouts: number
-  /** Steps the trustee made while the seat was in trusteeship (`auto: "trustee"`); not those as the club closed. */
+  /**
+   * Steps the trustee made while the seat was in trusteeship (`auto: "trustee"`), each once the seat was sent its
+   * `your_turn` and the short deadline passed; not those as the club closed.
+   */
   trusteeMoves: number
   /** Steps refused with `illegal_move`. */
   illegalMoves: number
@@ -140,9 +147,21 @@ export interface KeptReaction extends GameReaction {
   readonly at: Date
 }
 
-/** Doudizhu, three seats; `make` makes each session (a plain `DoudizhuSession` when absent). */
+/**
+ * Doudizhu, three seats; `make` makes each session (a plain `DoudizhuSession` when absent). With the clock, throws
+ * unless `trusteeDelaySeconds` is at least 1 and less than the rules' `bidSeconds` and `playSeconds`.
+ */
 export function doudizhuGame(options: DoudizhuGameOptions = {}, make?: MakeDoudizhuSession): GameModule {
   const rules = options.rules ?? DEFAULT_DOUDIZHU_RULES
+  if (options.clock ?? true) {
+    const delay = options.trusteeDelaySeconds ?? 2
+    const shortest = Math.min(rules.bidSeconds, rules.playSeconds)
+    if (!(delay >= 1 && delay < shortest)) {
+      throw new RangeError(
+        `club.trusteeDelaySeconds (${delay}) must be at least 1 and less than the shortest step (${shortest} seconds)`,
+      )
+    }
+  }
   const sessionOptions: DoudizhuSessionOptions = { ...options, rules }
   const makeSession: MakeDoudizhuSession = make ?? ((start, o, gameId) => new DoudizhuSession(start, o, gameId))
   // Numbered within this process only: nothing is stored yet that a number would have to be unique against.
@@ -301,12 +320,15 @@ export class DoudizhuSession implements GameSession {
     emits.push({ to: 'room', event: { kind: 'trustee', seat, on: false, reason: 'off' } })
     if (this.clocked && this.current.toAct === seat && this.deadline !== null) {
       // Asked with the short deadline of trusteeship: asked again, the same turn, with the step's own deadline (from
-      // when it was asked), or now if that is past.
-      const deadline = Math.max(deadlineOf(this.askedAt, stepLimitMs(this.rules, this.phaseNow())), now.getTime())
+      // when it was asked), and never less than the short deadline's length from now.
+      const deadline = Math.max(
+        deadlineOf(this.askedAt, stepLimitMs(this.rules, this.phaseNow())),
+        deadlineOf(now.getTime(), this.trusteeDelayMillis),
+      )
       this.deadline = new Date(deadline)
       this.askedInTrusteeship = false
       this.due = dueAt(deadline, this.banks[seat]!, false)
-      if (this.due > now.getTime()) emits.push({ to: 'seat', seat, message: this.yourTurn(seat, now) })
+      emits.push({ to: 'seat', seat, message: this.yourTurn(seat, now) })
     }
     return { ack: { ok: true }, output: this.advance(emits, now, null) }
   }
@@ -320,7 +342,10 @@ export class DoudizhuSession implements GameSession {
   finish(now: Date): GameOutput {
     this.assertStarted()
     if (this.over) return this.idle()
+    // What was due before the club closed is made as it was due (a timeout is a timeout); the rest is played out.
     const emits: GameEmit[] = []
+    this.catchUp(emits, now, false)
+    if (this.over) return this.output(emits, now)
     this.players.forEach((player, seat) => {
       if (player.bot || this.trustees[seat]) return
       this.trustees[seat] = true
@@ -336,7 +361,9 @@ export class DoudizhuSession implements GameSession {
     const messages: GamePrivateMessage[] = []
     const hand = this.handMessage(seat)
     if (hand !== null) messages.push(hand)
-    if (this.current.toAct === seat && this.deadline !== null) messages.push(this.yourTurn(seat, now))
+    // A step already due is not asked again: the next call makes it, and asks the next seat.
+    const due = this.due !== null && this.due <= now.getTime()
+    if (this.current.toAct === seat && this.deadline !== null && !due) messages.push(this.yourTurn(seat, now))
     this.checkPrivate(messages)
     return messages
   }
@@ -406,8 +433,8 @@ export class DoudizhuSession implements GameSession {
 
   /**
    * Plays every step that is not a student's to make now (bots, every seat when `closing`, a seat in trusteeship
-   * without the clock, and, with the clock, every step due by `now`, each as at the moment it was due), then asks the
-   * student to act, if any, with a `your_turn`. Gives what it sends, after `checkOutput`.
+   * without the clock, and, with the clock, the step out now if it is due by `now`), then asks the student to act, if
+   * any, with a `your_turn` whose time counts from `now`. Gives what it sends, after `checkOutput`.
    */
   protected advance(emits: GameEmit[], now: Date, closing: 'closing' | null): GameOutput {
     this.run(emits, now, closing)
@@ -420,14 +447,15 @@ export class DoudizhuSession implements GameSession {
     return output
   }
 
-  /** With the clock, makes every step due by `now` (see `advance`); nothing when none is. */
-  private catchUp(emits: GameEmit[], now: Date): void {
-    if (!this.over && this.due !== null && this.due <= now.getTime()) this.run(emits, now, null)
+  /**
+   * With the clock, makes the step due by `now` (see `advance`), and the bots' after it; nothing when none is. The next
+   * student is asked, and the hands sent, unless `ask` is false (the club closing: nothing private is sent).
+   */
+  private catchUp(emits: GameEmit[], now: Date, ask = true): void {
+    if (!this.over && this.due !== null && this.due <= now.getTime()) this.run(emits, now, null, ask)
   }
 
-  private run(emits: GameEmit[], now: Date, closing: 'closing' | null): void {
-    // The moment the last step was made: `now`, or when the step made here last was due.
-    let at = now.getTime()
+  private run(emits: GameEmit[], now: Date, closing: 'closing' | null, ask = true): void {
     for (;;) {
       const seat = this.current.toAct
       if (seat === null) break
@@ -435,19 +463,20 @@ export class DoudizhuSession implements GameSession {
         ? 'bot'
         : closing ?? (!this.clocked && this.trustees[seat] ? 'trustee' : null)
       if (auto === null) {
-        const asking = this.deadline === null
-        if (asking) this.ask(seat, at)
-        if (this.due === null || this.due > now.getTime()) {
-          if (asking) emits.push({ to: 'seat', seat, message: this.yourTurn(seat, now) })
+        if (this.deadline === null) {
+          if (!ask) break
+          // Asked now, with the whole of its time from now: never due before a later call.
+          this.ask(seat, now.getTime())
+          emits.push({ to: 'seat', seat, message: this.yourTurn(seat, now) })
           break
         }
-        // Due by now: the trustee makes the step, as at the moment it was due.
-        at = this.due
+        if (this.due === null || this.due > now.getTime()) break
+        // Asked before and due by now: the trustee makes the step.
         auto = this.askedInTrusteeship ? 'trustee' : 'timeout'
         if (auto === 'timeout') this.banks[seat] = 0
         this.clearAsk()
       }
-      this.act(emits, seat, auto, closing === null)
+      this.act(emits, seat, auto, closing === null && ask)
       // The second timeout in a row puts the seat in trusteeship, once its step is told (unless it ended the game).
       if (auto === 'timeout' && ++this.timeoutsInRow[seat]! >= 2 && !this.over) {
         this.timeoutsInRow[seat] = 0
@@ -457,7 +486,7 @@ export class DoudizhuSession implements GameSession {
     }
   }
 
-  /** Asks the student in `seat` for its step, at `at` (ms): its deadline, and when it is made for it if it is not. */
+  /** Asks the student in `seat` for its step at `at` (ms, now): its deadline, and when it is made if it is not. */
   private ask(seat: number, at: number): void {
     const inTrusteeship = this.clocked && this.trustees[seat]!
     const limit = !this.clocked
