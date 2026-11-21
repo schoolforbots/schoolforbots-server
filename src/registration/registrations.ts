@@ -14,6 +14,7 @@ import { inetAddress } from '../shared/net.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
 import { isAiSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy, suspensionOfAi } from './capacity.js'
+import { assignQueuedNow } from './daily-job.js'
 import { ApiError, invalidNameError } from './errors.js'
 import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
@@ -289,6 +290,9 @@ async function verifyInTransaction(
     .executeTakeFirstOrThrow()
 
   await trx.updateTable('registrations').set({ verifiedAt: now }).where('id', '=', id).execute()
+  // Local development only: a class now, not at midnight. The slot lock is held, as the nightly job holds it. The
+  // answer still says `pending`, as it would at any other time: the student learns the class from GET /v1/me.
+  if (deps.assignOnVerify && status === 'pending') await assignQueuedNow(trx, config, now, registration.division, registration.slot)
 
   return { ok: true, result: { studentId: student.id, key, status } }
 }

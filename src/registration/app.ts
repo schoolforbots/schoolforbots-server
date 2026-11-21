@@ -33,6 +33,11 @@ export interface RegistrationDeps {
   schoolRules: SchoolRules
   /** True when the service runs behind a reverse proxy whose X-Forwarded-For can be trusted. */
   trustProxy: boolean
+  /**
+   * Local development only (`DEV_ASSIGN_ON_VERIFY=1`): a student who verifies or re-enrolls is put into a class at once,
+   * instead of at the next midnight. Unset: off.
+   */
+  assignOnVerify?: boolean
   /** Fastify logger options; unset means no logging. Unexpected errors are logged at error level. */
   logger?: FastifyServerOptions['logger']
   /** Whether mail is going out, for `GET /healthz/mail`. Unset: always ok. */

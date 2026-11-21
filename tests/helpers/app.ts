@@ -54,6 +54,8 @@ export async function buildTestApp(
     logger?: FastifyServerOptions['logger']
     onInternalError?: () => void
     mailHealth?: { ok(): boolean }
+    /** DEV_ASSIGN_ON_VERIFY: a class at once for a student who verifies or re-enrolls. */
+    assignOnVerify?: boolean
   } = {},
 ) {
   const { db, destroy: destroyDb } = await createTestDb()
@@ -79,6 +81,7 @@ export async function buildTestApp(
     logger: overrides.logger,
     onInternalError: overrides.onInternalError,
     mailHealth: overrides.mailHealth,
+    assignOnVerify: overrides.assignOnVerify,
   })
   try {
     await app.ready()
