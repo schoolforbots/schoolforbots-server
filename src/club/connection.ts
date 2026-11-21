@@ -278,7 +278,7 @@ export function serveConnection(
       },
       stats,
       rules: club.game.rules(),
-      room: back.roomId === null ? null : club.rooms.state(back.roomId, now),
+      room: back.room,
     }
     write(ackMessage(hello.id, { ok: true }))
     write(welcome)

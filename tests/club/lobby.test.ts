@@ -69,6 +69,7 @@ describe('the lobby', () => {
       gamesPlayed: 2,
       opened: 1,
       owners: new Set(),
+      away: false,
       ...over,
     })
     const message = lobbyMessage([summary({})], 50)
@@ -104,6 +105,41 @@ describe('quick join', () => {
     expect(roomOf(result).roomId).not.toBe(mine)
   })
 
+  test('skips a room where a seated student is away, and opens a new one when there is no other', () => {
+    const h = harness()
+    const away = openRoom(h, student(1), [student(2)]) // 1 free, but A is away
+    h.rooms.disconnected(1, h.now)
+    const first = checkAck(h.rooms.quick(student(3), h.now), 'QuickJoinResult')
+    expect(first).toMatchObject({ ok: true, result: { created: true } })
+    const opened = roomOf(first).roomId
+    expect(opened).not.toBe(away)
+    // The room open now is taken over the one with a student away, though that one is fuller and older.
+    const second = checkAck(h.rooms.quick(student(4), h.now), 'QuickJoinResult')
+    expect(roomOf(second).roomId).toBe(opened)
+    // Back, the room is open to quick join again.
+    h.rooms.reconnected(1, h.now)
+    const third = checkAck(h.rooms.quick(student(5), h.now), 'QuickJoinResult')
+    expect(roomOf(third).roomId).toBe(away)
+  })
+
+  test('the choice leaves out a room with a student away', () => {
+    const host = { studentId: 1, displayName: 'x #0001', bot: false as const, className: 'c' }
+    const room = (roomId: string, away: boolean): RoomSummary => ({
+      roomId,
+      visibility: 'public',
+      playing: false,
+      seatsFree: 1,
+      host,
+      bots: false,
+      gamesPlayed: 0,
+      opened: 1,
+      owners: new Set(),
+      away,
+    })
+    expect(quickJoinRoom([room('raaaaaa', true)], 'a@example.com')).toBeNull()
+    expect(quickJoinRoom([room('raaaaaa', true), room('rbbbbbb', false)], 'a@example.com')!.roomId).toBe('rbbbbbb')
+  })
+
   test('opens a public room when there is none', () => {
     const h = harness()
     const result = checkAck(h.rooms.quick(student(1), h.now), 'QuickJoinResult')
@@ -118,9 +154,9 @@ describe('quick join', () => {
     const owners = new Set<string>()
     const host = { studentId: 1, displayName: 'x #0001', bot: false as const, className: 'c' }
     const rooms: RoomSummary[] = [
-      { roomId: 'rbbbbbb', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, gamesPlayed: 0, opened: 2, owners },
-      { roomId: 'raaaaaa', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, gamesPlayed: 0, opened: 1, owners },
-      { roomId: 'rcccccc', visibility: 'public', playing: false, seatsFree: 0, host, bots: false, gamesPlayed: 0, opened: 0, owners },
+      { roomId: 'rbbbbbb', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, gamesPlayed: 0, opened: 2, owners, away: false },
+      { roomId: 'raaaaaa', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, gamesPlayed: 0, opened: 1, owners, away: false },
+      { roomId: 'rcccccc', visibility: 'public', playing: false, seatsFree: 0, host, bots: false, gamesPlayed: 0, opened: 0, owners, away: false },
     ]
     expect(quickJoinRoom(rooms, 'a@example.com')!.roomId).toBe('raaaaaa')
     expect(quickJoinRoom([...rooms].reverse(), 'a@example.com')!.roomId).toBe('raaaaaa')

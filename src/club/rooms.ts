@@ -239,7 +239,8 @@ export class Rooms {
 
   /**
    * `room.ready`: after a game, the student is ready for the next one, which starts once every seat is taken and
-   * ready. Being ready already is no error; during a game it does nothing (the student is asked again after it).
+   * ready, and every student in it is connected. Being ready already is no error; during a game it does nothing (the
+   * student is asked again after it).
    */
   ready(studentId: number, now: Date): AckResult {
     const room = this.seated.get(studentId)
@@ -308,7 +309,8 @@ export class Rooms {
   /**
    * The student is connected again, from `address` (null when not known): their seat is theirs for good again. The
    * game being played is told the address; a game failing to take it goes to `onError`, and the student is back all
-   * the same.
+   * the same. A game the room waited for them to start is not started here, but by `startAfterReturn`, once the
+   * student has been given the room as it is.
    */
   reconnected(studentId: number, now: Date, address: string | null = null): void {
     const room = this.seated.get(studentId)
@@ -323,6 +325,24 @@ export class Rooms {
       room.session!.addressChanged(seat, address, now)
     } catch (err) {
       this.onError(room.id, err)
+    }
+  }
+
+  /**
+   * The student who reconnected has been given their room as it is (`state`, `replay`, `resend`): if the room is
+   * full and ready, and everyone in it is connected now, its game starts, and its events reach them after what they
+   * were given, as they reach the others. Nothing when they sit in no room, or a game is being played there. A game
+   * failing to start goes to `onError` and the room is closed, as when its tick fails: the student is back all the
+   * same.
+   */
+  startAfterReturn(studentId: number, now: Date): void {
+    const room = this.seated.get(studentId)
+    if (room === undefined) return
+    try {
+      this.startIfReady(room, now)
+    } catch (err) {
+      this.onError(room.id, err)
+      this.abandon(room, now)
     }
   }
 
@@ -580,11 +600,16 @@ export class Rooms {
     this.emitTo(room, { kind: 'bots', seats: free, players: bots }, now, null, null)
   }
 
-  /** Starts a game when every seat is taken and ready and none is being played. */
+  /**
+   * Starts a game when every seat is taken and ready, every student in it is connected (a bot always is), and none is
+   * being played. A student away is not dealt into a game the trustee would play for them, ranked: the room waits for
+   * them to come back (`startAfterReturn`), or for their grace to end.
+   */
   private startIfReady(room: Room, now: Date): void {
     if (room.closed || this.playing(room) || this.gamesStopped) return
-    if (!room.seats.every((occupant) => occupant !== null && occupant.ready)) return
+    if (!room.seats.every((occupant) => occupant !== null && occupant.ready && occupant.online)) return
     room.prompt = null
+    // Everyone is connected, so no grace is running: this cuts none short.
     for (const occupant of room.seats) occupant!.graceUntil = null
     const session = this.game.newSession({
       roomId: room.id,
@@ -757,6 +782,7 @@ export class Rooms {
         gamesPlayed: room.gamesPlayed,
         opened: room.opened,
         owners: new Set(room.seats.flatMap((occupant) => (occupant?.student ? [occupant.student.email] : []))),
+        away: room.seats.some((occupant) => occupant !== null && !occupant.online),
       }
     })
   }
