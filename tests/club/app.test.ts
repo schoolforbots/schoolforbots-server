@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { clubClosedClosing, SERVICE_STOPPING } from '../../src/club/club.js'
 import { captureLogs } from '../helpers/logs.js'
 import { answer, fakeGame, QUICK_DECK } from './helpers/fake-game.js'
@@ -359,6 +359,24 @@ describe('what the game is told', () => {
     expect(session.addresses).toEqual([SECOND, null, null])
 
     for (const m of [...first.received, ...second.received]) expect(JSON.stringify(m)).not.toContain('198.51.100.')
+  })
+
+  test('a game failing to take the address of a reconnect does not keep the student out', async () => {
+    const s = await start()
+    const a = await s.addStudent()
+    const first = await s.connectTcp(a.key)
+    await s.hello(first)
+    const created = await exchange(first, { type: 'room.create', visibility: 'public', bots: true })
+    const roomId = created.ack.result.room.roomId as string
+    vi.spyOn(s.game.sessions[0]!, 'addressChanged').mockImplementation(() => {
+      throw new Error('addressChanged failed')
+    })
+    const second = await s.connect(a.key)
+    const welcome = await s.hello(second, { roomId, lastSeq: 0 })
+    expect(welcome.room.roomId).toBe(roomId)
+    expect(welcome.room.seats[0]).toMatchObject({ online: true })
+    expect((await second.sync()).some((m) => m.type === 'hand')).toBe(true)
+    expect(s.club.online()).toEqual([a.id])
   })
 
   test('not behind a trusted proxy: X-Forwarded-For is not believed, the peer is', async () => {

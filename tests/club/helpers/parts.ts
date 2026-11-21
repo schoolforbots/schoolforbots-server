@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import type { InviteTarget } from '../../../src/club/invites.js'
-import { type ClubParts, clubParts } from '../../../src/club/parts.js'
+import { type ClubParts, clubParts, type ClubPartsOptions } from '../../../src/club/parts.js'
 import type { WordLists } from '../../../src/club/reactions.js'
 import type { ClubStudent } from '../../../src/club/rooms.js'
 import type { SchoolConfig } from '../../../src/shared/config.js'
@@ -29,13 +29,20 @@ export function partsHarness(
   club: Partial<SchoolConfig['club']> = {},
   now: Date = T0,
   reactions?: FakeGame['reactions'],
+  onError?: ClubPartsOptions['onError'],
 ): PartsHarness {
   const config: SchoolConfig = { ...exampleConfig, club: { ...exampleConfig.club, ...club } }
   const outbox = new RecordingOutbox()
   const fake = fakeGame({ decks: [QUICK_DECK], firstBidder: 0 })
   // A game that allows other reactions than the fake game's, for the tests of what the club layer does with them.
   const game: FakeGame = reactions === undefined ? fake : { ...fake, reactions }
-  const parts = clubParts({ config, game, outbox, wordLists: exampleWordLists })
+  const parts = clubParts({
+    config,
+    game,
+    outbox,
+    wordLists: exampleWordLists,
+    ...(onError === undefined ? {} : { onError }),
+  })
   const h: PartsHarness = {
     ...parts,
     outbox,
