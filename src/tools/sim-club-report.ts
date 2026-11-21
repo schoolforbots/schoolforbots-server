@@ -34,6 +34,7 @@ export const COUNTED = [
   'framesHeld',
   'framesDropped',
   'closingWithoutOver',
+  'closingMissedAway',
 ] as const satisfies readonly (keyof ClubBotTally)[]
 
 export type Counted = (typeof COUNTED)[number]
@@ -166,7 +167,7 @@ export function clubVerdict(report: ClubReport, expect: ClubExpect): { pass: boo
   else if (totals.games === 0) failures.push('一局也没打完')
   if (totals.unexpectedDisconnects > 0) failures.push(`有 ${totals.unexpectedDisconnects} 次意外断开`)
   if (totals.invalid > 0) failures.push(`收到 ${totals.invalid} 条不合协议的消息`)
-  if (totals.closingWithoutOver > 0) failures.push(`学校请走时有 ${totals.closingWithoutOver} 局没收到 over`)
+  if (totals.closingWithoutOver > 0) failures.push(`学校请走时有 ${totals.closingWithoutOver} 机器人次没收到这一局的 over`)
   if (healthz !== null && healthz.failures > 0) failures.push(`/healthz 失败了 ${healthz.failures} 次`)
   if (verification !== null) {
     if (verification.bots === 0) failures.push('没有可以核对牌谱的机器人')
@@ -200,7 +201,8 @@ export function clubReportLines(report: ClubReport, verdict: { pass: boolean; fa
     `连接：连上 ${t.connects} 次，进社团 ${t.welcomes} 次，连不上 ${t.connectFailures} 次，意外断开 ${t.unexpectedDisconnects} 次`,
     `学校请走：${countsText(t.closings)}`,
     `凑桌：邀请 ${t.seated.invite} 次，快速加入 ${t.seated.quick} 次，带陪练 ${t.seated.bots} 次；换桌：${countsText(t.reforms)}；空闲时叫陪练 ${t.botsAsked} 次`,
-    `对局：打完 ${t.games} 局，其中关门或停服时打完的 ${t.closingGames} 局；学校请走时没收到 over 的 ${t.closingWithoutOver} 局`,
+    `对局：打完 ${t.games} 局，其中关门或停服时打完的 ${t.closingGames} 局`,
+    `关门或停服时：没收到这一局 over 的 ${t.closingWithoutOver} 机器人次；掉线在外、回来时在门口被请走而没看到结局的 ${t.closingMissedAway} 机器人次（只列出，不算进结论）`,
     `步数：收到 your_turn ${t.turns} 次，交了 ${t.steps} 步；故意超时 ${t.timeoutsLeft} 次，超时替出 ${t.timeoutSteps} 步，托管替出 ${t.trusteeSteps} 步，关门替出 ${t.closingSteps} 步`,
     `托管：进托管 ${t.trusteeOn} 次（关门时 ${t.trusteeOnClosing} 次），出托管 ${t.trusteeOff} 次；收回：交一步 ${t.takeBackByStep} 次，trustee.off ${t.takeBackByOff} 次`,
     `非法动作：发出 ${t.illegalSent} 次，被拒 ${t.illegalRefused} 次，重交 ${t.retries} 次`,

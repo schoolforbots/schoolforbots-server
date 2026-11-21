@@ -48,8 +48,9 @@ import {
 // - `closing`: when the club is closed it comes back at `reopensAt`; maintenance and the service stopping are expected
 //   (it comes back a few seconds later, until it is stopped); both at a random moment within a spread, so that bots
 //   sent away together do not all come back together. `replaced` is expected and ends it, as do the other reasons and
-//   a key refused at the door. A connection closed with no `closing` and not by the bot is an unexpected disconnect. Every message received is checked against the
-//   protocol's `ClubServerMessage`; one that does not follow it counts as invalid and is otherwise ignored.
+//   a key refused at the door. A connection closed with no `closing` and not by the bot is an unexpected disconnect.
+//   Every message received is checked against the protocol's `ClubServerMessage`; one that does not follow it counts
+//   as invalid and is otherwise ignored.
 // - What it sees and does is counted in its `tally`; the delays go to a `ClubSampler`: the ack of each game action
 //   (sent to acked), and each hand-off (the `at` of the live game event that came before a `your_turn`, to the moment
 //   that `your_turn` arrived; nothing that was replayed after a reconnect).
@@ -171,6 +172,11 @@ export interface ClubBotTally {
    * there should be none, as every game is played out before anyone is sent away.
    */
   closingWithoutOver: number
+  /**
+   * Games the bot was playing when it dropped and that the club closed or the service stopped while it was away: it
+   * was turned away at the door, and saw nothing of how they ended. Shown only; nothing is wrong with them.
+   */
+  closingMissedAway: number
   /** Games seen to the end (`over`), and how many of them were played out as the club closed or the service stopped. */
   gamesOver: number
   gamesClosing: number
@@ -344,6 +350,7 @@ export function emptyTally(): ClubBotTally {
     gamesOver: 0,
     gamesClosing: 0,
     closingWithoutOver: 0,
+    closingMissedAway: 0,
     gameIds: new Set(),
     closingGameIds: new Set(),
     ended: null,
@@ -935,10 +942,15 @@ export function createClubBot(
     say(`closing ${msg.reason}`)
     const sentAway = msg.reason === 'club_closed' || msg.reason === 'maintenance' || msg.reason === 'service_stopping'
     // Only a connection that was welcomed was in the game when the school closed: one turned away at the door (back
-    // from a drop, say) saw nothing of how the game it left went on.
-    if (sentAway && gameOn && welcomed) {
-      tally.closingWithoutOver++
-      say('学校请走时这一局还没收到 over')
+    // from a drop, say) saw nothing of how the game it left went on. Either way the game is counted once.
+    if (sentAway && gameOn) {
+      if (welcomed) {
+        tally.closingWithoutOver++
+        say('学校请走时这一局还没收到 over')
+      } else {
+        tally.closingMissedAway++
+      }
+      gameOn = false
     }
     switch (msg.reason) {
       case 'club_closed': {
@@ -1234,7 +1246,7 @@ const USAGE =
   '[--mix invite:80,quick:15,bots:5] [--think 1-5] [--pass-rate 0.3] [--timeout-rate 0.02] [--illegal-rate 0.02] ' +
   '[--drop-rate 0.01] [--react-rate 0.05] [--ramp <秒>] [--seed <整数>] [--verify 30 --api http://localhost:8080] ' +
   '[--healthz <地址>] [--report <文件.json>] [--quiet] [--expect-ack-ms 1000] [--expect-turn-ms 1000]\n' +
-  '（核对牌谱时每个地址每分钟最多查 60 次，所以请求会放慢：30 个机器人大约要半分钟以上）'
+  '（核对牌谱的请求按报名服务默认的限速放慢：每个地址每分钟 60 次（httpRateLimitPerMinute），30 个机器人大约要半分钟以上）'
 
 export interface ClubSimArgs extends ClubSimOptions {
   keys: string
