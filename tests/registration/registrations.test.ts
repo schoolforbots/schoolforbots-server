@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Value } from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ErrorBody, InvalidNameError, RegistrationAccepted, VerifyResult } from '../../src/protocol/http.js'
+import { TencentSesError } from '../../src/registration/tencent-ses.js'
 import type { SchoolRules } from '../../src/shared/school-rules.js'
 import { hashSecret } from '../../src/shared/secrets.js'
 import { buildTestApp } from '../helpers/app.js'
@@ -487,17 +488,51 @@ describe('POST /v1/registrations', () => {
     expect(unknownStudent.referrerId).toBeNull()
   })
 
-  test('a failed mail send removes the registration so the owner can retry at once', async () => {
-    const aiId = randomUUID()
-    vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(new Error('smtp down'))
+  // The errors the two transports raise, with the address in them where the real ones have it.
+  const refusedBySes = () => new TencentSesError('SendEmail', 'FailedOperation.IncorrectEmail', 'req-1')
+  const refusedBySmtp = () =>
+    Object.assign(new Error('Recipient command failed: 550 5.1.1 <a@example.com>: no such user'), {
+      code: 'EENVELOPE',
+      command: 'RCPT TO',
+      responseCode: 550,
+      rejected: ['a@example.com'],
+    })
+  const connectionFailed = () =>
+    Object.assign(new Error('connect ECONNREFUSED 192.0.2.1:465 while sending to a@example.com'), {
+      code: 'ECONNECTION',
+      command: 'CONN',
+    })
 
-    const failed = await register(registrationBody({ aiId }))
-    expect(failed.statusCode).toBe(500)
-    expect(errorOf(failed).code).toBe('internal_error')
-    expect(await t.db.selectFrom('registrations').selectAll().execute()).toEqual([])
+  test.each([
+    ['Tencent Cloud refuses the recipient', refusedBySes, 400, 'email_undeliverable', null],
+    ['the SMTP server refuses the recipient at RCPT TO', refusedBySmtp, 400, 'email_undeliverable', null],
+    ['the mail server cannot be reached', connectionFailed, 503, 'mail_unavailable', 'ECONNECTION'],
+  ] as const)(
+    'a failed mail send (%s): the answer says which, no internal error, no address in the log, and the owner can retry at once',
+    async (_case, error, status, code, loggedCode) => {
+      const logs = captureLogs()
+      const onInternalError = vi.fn()
+      await t.destroy()
+      t = await buildTestApp({ logger: { level: 'info', stream: logs.stream }, onInternalError })
+      const aiId = randomUUID()
+      vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(error())
 
-    expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
-  })
+      const failed = await register(registrationBody({ aiId }))
+      expect(failed.statusCode).toBe(status)
+      expect(errorOf(failed).code).toBe(code)
+      expect(Value.Check(ErrorBody, failed.json())).toBe(true)
+      expect(failed.body).not.toContain('example.com')
+      expect(onInternalError).not.toHaveBeenCalled()
+      expect(await t.db.selectFrom('registrations').selectAll().execute()).toEqual([])
+
+      // A refused recipient is logged by the mailer itself; a fault of the mail service once here, with its code only.
+      const warnings = logs.entries().filter((e) => e.level >= 40)
+      expect(warnings).toEqual(loggedCode === null ? [] : [expect.objectContaining({ level: 40, code: loggedCode })])
+      expect(JSON.stringify(logs.entries()).toLowerCase()).not.toContain('example.com')
+
+      expect((await register(registrationBody({ aiId }))).statusCode).toBe(202)
+    },
+  )
 
   test.each([
     ['a name over 64 characters', { ownerName: '阿'.repeat(65) }],
@@ -970,16 +1005,18 @@ describe('logging', () => {
   test('an unexpected error is logged at error level and the client gets 500 internal_error', async () => {
     const logs = captureLogs()
     await useLogger(logs.stream)
-    vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(new Error('smtp down'))
+    vi.spyOn(t.db, 'transaction').mockImplementationOnce(() => {
+      throw new Error('database down')
+    })
 
     const res = await register(registrationBody())
 
     expect(res.statusCode).toBe(500)
     expect(errorOf(res).code).toBe('internal_error')
-    expect(res.body).not.toContain('smtp down')
+    expect(res.body).not.toContain('database down')
     const errors = logs.entries().filter((e) => e.level >= 50)
     expect(errors).toHaveLength(1)
-    expect(errors[0]).toMatchObject({ err: { message: 'smtp down' }, msg: 'smtp down' })
+    expect(errors[0]).toMatchObject({ err: { message: 'database down' }, msg: 'database down' })
   })
 
   test('a 500 calls onInternalError once; a 400 and a 404 do not', async () => {
@@ -991,7 +1028,9 @@ describe('logging', () => {
     expect((await t.app.inject({ method: 'GET', url: '/v1/no-such-route' })).statusCode).toBe(404)
     expect(onInternalError).not.toHaveBeenCalled()
 
-    vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(new Error('smtp down'))
+    vi.spyOn(t.db, 'transaction').mockImplementationOnce(() => {
+      throw new Error('database down')
+    })
     expect((await register(registrationBody())).statusCode).toBe(500)
     expect(onInternalError).toHaveBeenCalledTimes(1)
   })

@@ -8,6 +8,7 @@ import { lock, type Database } from '../shared/db.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
 import { ApiError } from './errors.js'
+import { isMailServiceFault, mailErrorKind } from './mail-errors.js'
 import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
 const MINUTE_MS = 60_000
@@ -152,7 +153,9 @@ async function sendResetMail(deps: RegistrationDeps, mail: PendingMail, log: Fas
   try {
     await deps.mailer.sendCode(mail.email, 'key_reset', mail.code)
   } catch (err) {
-    log.error(err, 'could not send the key reset code')
+    // The error itself can carry the address, so only its code is logged. A refused address is logged by the mailer
+    // (`withMailFailures`); the answer was given before the send, the same as a decoy's, either way.
+    if (isMailServiceFault(err)) log.error({ code: mailErrorKind(err) }, 'could not send the key reset code')
   }
 }
 
