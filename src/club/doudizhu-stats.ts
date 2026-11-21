@@ -62,13 +62,13 @@ export async function doudizhuStats(
       sql<string>`count(*) filter (where anti_spring)`.as('antiSprings'),
       sql<string>`coalesce(sum(bombs), 0)`.as('bombs'),
       sql<string>`coalesce(sum(rockets), 0)`.as('rockets'),
-      sql<string>`coalesce(max(multiplier), 0)`.as('maxMultiplier'),
+      sql<number>`coalesce(max(multiplier), 0)`.as('maxMultiplier'),
       sql<string>`coalesce(sum(timeouts), 0)`.as('timeouts'),
       sql<string>`coalesce(sum(trustee_moves), 0)`.as('trusteeMoves'),
       sql<string>`coalesce(sum(illegal_moves), 0)`.as('illegalMoves'),
     ])
     .executeTakeFirstOrThrow()
-  // count and sum come back as bigint text.
+  // count and sum come back as bigint text; max of an integer as a number.
   return {
     games: Number(row.games),
     wins: Number(row.wins),
@@ -142,6 +142,9 @@ export function rankBoard(standings: readonly BoardStanding[], studentId: number
  * club who played at least one ranked game in the period (this week, from `weekStart`; or ever); their points are the
  * sum of their scores in those games, and `games` how many there were. Whether the student asking may see it (a member
  * only) is the caller's to check. Members are shown by name and class as at the club's tables.
+ *
+ * A member's points are those of all their ranked games in the period, the ones from before they last joined too: a
+ * record is for good, and membership decides only who is listed.
  */
 export async function doudizhuLeaderboard(
   db: Kysely<Database>,
@@ -186,7 +189,8 @@ export async function doudizhuLeaderboard(
 
 /**
  * The student's own games, newest first (by game number), `GAMES_PAGE_SIZE` a page: those numbered below `before`, or
- * the newest with `before` null. `nextBefore` is the `before` of the next page, null on the last.
+ * the newest with `before` null. `nextBefore` is the `before` of the next page, null on the last. Ordered by game
+ * number, which is the order the games started in, not the order they ended in.
  */
 export async function doudizhuGames(
   db: Kysely<Database>,
@@ -244,10 +248,11 @@ export async function doudizhuGameRecord(
   if (row === undefined) return null
   // The stored record is the whole one without the game's own columns, with the rules (not shown).
   const { rules: _rules, ...rest } = row.record as unknown as StoredDoudizhuRecord
+  // The game's own columns win over anything of the same name in the stored record.
   return {
+    ...rest,
     gameId: row.gameId,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt.toISOString(),
-    ...rest,
   }
 }
