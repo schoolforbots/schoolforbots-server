@@ -171,5 +171,26 @@ describe('runOnce', () => {
     school.club = 503
     for (let m = 1; m <= 30; m++) await runOnce(env, at(m))
     expect(ctl.sent).toEqual(['【机器人网校】连不上学校了'])
+    school.reg = 200
+    school.club = 200
+    for (let m = 31; m <= 40; m++) await runOnce(env, at(m))
+    expect(ctl.sent).toEqual(['【机器人网校】连不上学校了', '【机器人网校】学校已恢复'])
+  })
+
+  it('does not count the time the school was down against a club service that starts a minute after it', async () => {
+    const { school, kv, ctl, env } = setup()
+    await runOnce(env, at(0))
+    school.reg = 503
+    school.cls = 503
+    school.club = 503
+    for (let m = 1; m <= 20; m++) await runOnce(env, at(m))
+    school.reg = 200
+    school.cls = 200
+    school.club = 502
+    await runOnce(env, at(21))
+    school.club = 200
+    for (let m = 22; m <= 40; m++) await runOnce(env, at(m))
+    expect(status(kv)).toBe('ok')
+    expect(ctl.sent).toEqual(['【机器人网校】连不上学校了', '【机器人网校】学校已恢复'])
   })
 })

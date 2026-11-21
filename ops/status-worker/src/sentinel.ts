@@ -129,9 +129,10 @@ export interface ClubState {
 
 /**
  * Whether to mail about the club service, which status.json leaves out. `clubOk` is null when the probe says nothing
- * about it (the school could not be reached at all: the school's own mail covers that). A club service that keeps
- * failing for `downAfterMs` is mailed, and again every `repeatMs` while it stays down; a recovery is mailed only after a
- * down was. Maintenance mails nothing and restarts a count that has not been mailed yet.
+ * about it (the school cannot be reached, or counts as down: the school's own mail covers that). A club service that
+ * keeps failing for `downAfterMs` is mailed, and again every `repeatMs` while it stays down; a recovery is mailed only
+ * after a down was. Maintenance and a null `clubOk` mail nothing, and drop a count that has not been mailed yet: a club
+ * service still starting right after the school is back must not count the time the school was away.
  */
 export function decideClub(
   prev: ClubState | null,
@@ -144,9 +145,8 @@ export function decideClub(
   const cur: ClubState = prev ?? { badSince: null, notifiedAt: null }
   const keep = { next: cur, write: false, mail: null } as const
   const clear = { badSince: null, notifiedAt: null }
-  if (clubOk === null) return keep
-  if (inMaintenance) {
-    // A service stopped for the maintenance is not an outage; one already mailed is told when it is back.
+  if (clubOk === null || inMaintenance) {
+    // Not an outage of the club service on its own; one already mailed is told when it is back.
     if (cur.badSince !== null && cur.notifiedAt === null) return { next: clear, write: true, mail: null }
     return keep
   }
