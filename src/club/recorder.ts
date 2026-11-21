@@ -127,7 +127,8 @@ export function createRecorder(deps: RecorderDeps): Recorder {
   const delays = deps.retryDelaysMs ?? RETRY_DELAYS_MS
   // The games handed over and neither written nor given up, each with the promise of its writing.
   const writing = new Map<DoudizhuGameEntry, Promise<void>>()
-  const givenUp = new Set<DoudizhuGameEntry>()
+  // Weak: an entry given up is forgotten once nothing holds it any more (its retry loop has ended).
+  const givenUp = new WeakSet<DoudizhuGameEntry>()
 
   function giveUp(entry: DoudizhuGameEntry, err: unknown, why: 'failed' | 'drain_timeout'): void {
     if (givenUp.has(entry)) return
@@ -135,7 +136,13 @@ export function createRecorder(deps: RecorderDeps): Recorder {
     writing.delete(entry)
     try {
       log.error(
-        { ...(err === null ? {} : { err: errorSummary(err) }), why, game: loggedEntry(entry) },
+        {
+          ...(err === null ? {} : { err: errorSummary(err) }),
+          why,
+          // Past the drain's timeout a write may still be in flight, and may still commit.
+          ...(why === 'drain_timeout' ? { mayStillLand: true } : {}),
+          game: loggedEntry(entry),
+        },
         'doudizhu game not stored',
       )
     } catch {

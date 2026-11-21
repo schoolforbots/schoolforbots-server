@@ -76,8 +76,10 @@ test('0014 creates doudizhu_games and doudizhu_game_players', async () => {
     'doudizhu_game_players_pkey',
     'doudizhu_game_players_ranked_ended_at',
     'doudizhu_game_players_student_id_ended_at',
+    'doudizhu_game_players_student_id_game_id',
   ])
   expect(indexes.rows[2]?.indexdef).toMatch(/\(student_id, ended_at DESC\)/)
+  expect(indexes.rows[3]?.indexdef).toMatch(/\(student_id, game_id DESC\)/)
 })
 
 test('a game and its players round-trip, the record kept as it was given', async () => {
