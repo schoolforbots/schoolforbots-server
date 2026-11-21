@@ -537,6 +537,8 @@ npm run typecheck   # 类型检查
 
 社团服务管 `/v1/club`：大厅、房间、邀请、互动消息、观战和牌局，插件用 WebSocket 连接，用 `Authorization: Bearer <钥匙>` 认证，消息见[接口文档](docs/api.md#社团的-websocket)。
 
+斗地主每打完一局，社团服务在后台把它写进库：`doudizhu_games` 表一局一行，带整份牌谱；`doudizhu_game_players` 表每局每个学生一行（陪练不记），记着身份、输赢、得分、倍数和超时、托管、出错的次数，还有这个学生打这一局时连接的网络地址（中途重连过的是最后一次的；任何接口都不给出）。牌局编号接着表里最大的往下发。写库失败会重试几次，还不行就算一次意外错误，并把整份牌谱写进错误日志。战绩和排行榜不另存，查询时从这两张表现算；查战绩、排行榜、自己的牌局和牌谱的接口在报名服务上（`GET /v1/me/clubs/doudizhu/...`，见[接口文档](docs/api.md#get-v1meclubsdoudizhustats)）。
+
 ```bash
 npm run dev:registration   # 先启动报名服务：建表和升级表结构由它负责
 npm run dev:club           # 再启动社团服务，改代码会自动重启
@@ -548,7 +550,7 @@ npm run dev:club           # 再启动社团服务，改代码会自动重启
 - 服务默认监听 `8082` 端口，用 `CLUB_PORT` 修改。它只读 `DATABASE_URL`、`DATABASE_STATEMENT_TIMEOUT_MS`、`DATABASE_LOCK_TIMEOUT_MS`、`SCHOOL_CONFIG`、`TRUST_PROXY`、`CLUB_PORT` 和 `LOG_LEVEL`，不需要邮件和大模型的设置。
 - `club.wordLists` 指的词表文件不存在时，服务改用旁边的示例文件（`*.example.json`），并在启动时打印警告；词表格式不对时拒绝启动。
 - `hello` 的期限、ping 和 `connection` 的限额和上课服务一样。它也有 `GET /healthz`，和上课服务一样要求时钟在走。
-- 社团服务只运行一个实例。房间、邀请、观战和房间事件都只存在内存里：服务停止或重启时，所有连接以 `service_stopping` 断开，房间全部消失，打到一半的牌局也一样。
+- 社团服务只运行一个实例。房间、邀请、观战和房间事件都只存在内存里：服务停止或重启时，打到一半的牌局先由托管替所有人打完、照常记录，等这些牌局写进库（最多 `club.recordDrainSeconds` 秒），然后所有连接以 `service_stopping` 断开，房间全部消失。
 
 学校配置里可选的 `club` 一段管社团（`/v1/club`）。整段和其中每一项都可以省，省了就用示例配置里的值，所以没有这一段的旧配置照样能启动。
 
@@ -562,6 +564,8 @@ npm run dev:club           # 再启动社团服务，改代码会自动重启
 - `maxSpectators`：一桌最多几个人观战。
 - `reactMinIntervalSeconds`、`reactsPerGame`：互动消息两条至少隔几秒，每局最多几条。
 - `timeBankSeconds`：每局的时间银行，一步超时以后从这里扣。
+- `trusteeDelaySeconds`：托管中的座位每一步等多久再由托管出；在这之前学生交一个合法的动作就收回托管。要比规则里叫分和出牌的时限都短。
+- `recordDrainSeconds`：服务停止时，最多等多久让还没写进库的牌局写完。
 - `roomEventBuffer`：每个房间在内存里留最近多少条房间事件，供重连补发。
 - `lobbyMaxRooms`：大厅最多列出几个房间。
 - `botNames`：陪练的名字，按坐进房间的顺序用。至少两个（三人桌最多补两个陪练）。不能重复，首尾不能有空白，不能带 `#`（全角 `＃` 等变体也不行；学生的名字才带 `#学号`）。
