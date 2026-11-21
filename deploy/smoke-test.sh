@@ -141,11 +141,22 @@ expect_refused_upgrade() {
 expect_refused_upgrade /v1/class class
 expect_refused_upgrade /v1/club club
 
-step "running deploy.sh on the local files"
+step "running deploy.sh on the local files, with a new Caddyfile put in place of the old one"
+# As a deployment that unpacks new files does it: a new file with an extra route, not the old one edited in place.
+expect_status 404 /smoke-caddyfile
+awk '/# Everything else/ { print "\thandle /smoke-caddyfile {\n\t\trespond \"new\" 200\n\t}\n" } { print }' \
+  "$work/Caddyfile" > "$work/Caddyfile.new"
+mv "$work/Caddyfile.new" "$work/Caddyfile"
 (cd "$work" && COMPOSE_FILES="compose.yml compose.local.yml" SKIP_PULL=1 COMPOSE_PROJECT_NAME="$project" ./deploy.sh local --now)
 expect_status 200 /healthz
 expect_status 200 /healthz/class
 expect_status 200 /healthz/club
+expect_status 200 /smoke-caddyfile
+echo "smoke: the proxy took the new Caddyfile"
+
+step "running deploy.sh again with the same files: the proxy keeps its config"
+(cd "$work" && COMPOSE_FILES="compose.yml compose.local.yml" SKIP_PULL=1 COMPOSE_PROJECT_NAME="$project" ./deploy.sh local --now)
+expect_status 200 /smoke-caddyfile
 
 step "4/5 the watchdog restarts an unhealthy container, and leaves a stopped one alone"
 started_at() { docker inspect --format '{{.State.StartedAt}}' "$1"; }

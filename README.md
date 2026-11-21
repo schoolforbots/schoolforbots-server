@@ -277,12 +277,12 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 
 把 `deploy/env.example` 复制成 `deploy/.env`，把 `deploy/backup.env.example` 复制成 `deploy/backup.env`，都填好。`env.example` 列的是 compose 自己要的变量，和正式运行的学校要设的服务变量；其余的变量见根目录的 `.env.example` 和上面的“环境变量”。`backup.env` 放备份的设置（见下面的“备份”），只有 `backup` 服务读它，所以能删备份的存储密钥到不了面向互联网的那些服务。真实的 `school.json`、`prompts/`、`moderation/` 和社团的词表放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。这两个环境变量文件和这个文件夹都不提交。
 
-更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 和 `backup.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；重建 `club` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。社团服务不等空闲：停止时打到一半的牌局由托管替所有人打完、写进库，再断开连接。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。退回到还没有社团服务的版本时，服务器上的 `deploy/` 也要换回那一版的：新版的 `deploy.sh` 会在重建 `club` 那一步失败。
+更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 和 `backup.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；重建 `club` 并等到健康；把其余服务拉起来；最后让 Caddy 用上 `deploy/` 里的 `Caddyfile`。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。社团服务不等空闲：停止时打到一半的牌局由托管替所有人打完、写进库，再断开连接。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。退回到还没有社团服务的版本时，服务器上的 `deploy/` 也要换回那一版的：新版的 `deploy.sh` 会在重建 `club` 那一步失败。
 
 部署时还要注意：
 
 - 服务器上 `deploy/` 里的文件，要和部署的镜像标签出自同一个提交（`sha-abc1234` 就是提交 `abc1234`）：compose 文件、脚本和镜像是配套的。
-- `deploy.sh` 不重启 Caddy。改了 `Caddyfile` 之后，在 `deploy/` 里运行 `docker compose restart caddy`。
+- `deploy.sh` 的最后一步让 Caddy 用上 `deploy/` 里的 `Caddyfile`：`Caddyfile` 是按单个文件挂进容器的，换成一个新文件（解压新版本、`git` 检出、有的编辑器保存时都是这样）以后，正在跑的容器看不到它，这时重建 Caddy；否则让 Caddy 重新读一次，文件没变时什么也不改，连接也不断。不跑 `deploy.sh`、只改了 `Caddyfile` 时，在 `deploy/` 里运行 `docker compose up -d --force-recreate caddy`。
 - `SCHOOL_PRIVATE_DIR` 这个文件夹和里面的所有文件，都要让 uid 1000（镜像里的 `node` 用户）读得到。
 - 第一次启动时用 `--now` 没有关系：还没有课要等。
 - 服务只在启动时读 `school.json`。改了之后，要重启用到改动部分的服务：比如 `alerts`（像 `backupExpected`）是报名服务读的（在 `deploy/` 里运行 `docker compose restart registration`）。要几个服务都重启、又不打断正在上的课，就用现在跑着的标签再运行一次 `deploy/deploy.sh`。
@@ -303,7 +303,7 @@ SystemMaxUse=2G
 
 然后运行 `systemctl restart systemd-journald`。`SystemMaxUse` 限制日志占用的空间。要加 `MaxFileSec=1day`，是因为 journald 删日志是整个文件整个文件地删，文件里最老的一条超过 `MaxRetentionSec` 就删掉整个文件，而它默认一个月才换一个新文件，这样一删就是一个月的日志，其中大多远不到 30 天；一天一个文件，日志就一天一天地删，删的时候差不多 30 天。Debian 和 Ubuntu 上，journald 默认还会把日志都转发给 syslog（`ForwardToSyslog=yes`）；装了 rsyslog 的话（Ubuntu 默认就装了），`/var/log/syslog` 里还有一份，按 `/etc/logrotate.d/rsyslog` 的规则保存（较新的版本是每周轮转、留 4 份旧的，约 5 周）。要做到日志只留 30 天，这一份也要管：改那里的轮转规则，或者在上面的文件里加一行 `ForwardToSyslog=no`，这样 `/var/log/syslog` 里就不再有 journald 转来的日志。
 
-`deploy/smoke-test.sh` 会构建镜像，用 `deploy/compose.local.yml`（本地镜像、示例配置、写死回复的大模型、`https://localhost`）起全套，检查健康检查、只有 `backup` 服务看得到 `backup.env`、代理、`deploy.sh` 和看门狗，最后把起的东西全部删掉。它需要 Docker，80 和 443 端口空闲（或设置 `HTTP_PORT` 和 `HTTPS_PORT`）。
+`deploy/smoke-test.sh` 会构建镜像，用 `deploy/compose.local.yml`（本地镜像、示例配置、写死回复的大模型、`https://localhost`）起全套，检查健康检查、只有 `backup` 服务看得到 `backup.env`、代理、`deploy.sh`（包括换了新 `Caddyfile` 以后 Caddy 用上新的）和看门狗，最后把起的东西全部删掉。它需要 Docker，80 和 443 端口空闲（或设置 `HTTP_PORT` 和 `HTTPS_PORT`）。
 
 ### 发信
 
