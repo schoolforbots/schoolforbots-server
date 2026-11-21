@@ -149,6 +149,8 @@ export class Rooms {
   /** The room each seated student sits in. */
   private readonly seated = new Map<number, Room>()
   private opened = 0
+  /** Set by `finishAll`, for good: no game starts any more (the service is stopping). */
+  private gamesStopped = false
   private readonly onError: (roomId: string, err: unknown) => void
   private readonly findNextClose: (now: Date) => Date
   /** The last next close found, and the moment it was found from. */
@@ -436,6 +438,23 @@ export class Rooms {
     }
   }
 
+  /**
+   * The service is stopping: every game being played is played out at once by the trustee, as when the club closes
+   * (`auto: "closing"`), and its room events are sent as usual; from then on no game starts. The rooms stay as they
+   * are: none closes, nobody is put out. One room's game failing as it is played out goes to `onError`, and the others
+   * are still finished.
+   */
+  finishAll(now: Date): void {
+    this.gamesStopped = true
+    for (const room of [...this.rooms.values()]) {
+      try {
+        if (!room.closed && this.playing(room)) this.dispatch(room, room.session!.finish(now), now)
+      } catch (err) {
+        this.onError(room.id, err)
+      }
+    }
+  }
+
   // ---- For the rest of the club ----
 
   /** The room the student sits in, or null. */
@@ -563,7 +582,7 @@ export class Rooms {
 
   /** Starts a game when every seat is taken and ready and none is being played. */
   private startIfReady(room: Room, now: Date): void {
-    if (room.closed || this.playing(room)) return
+    if (room.closed || this.playing(room) || this.gamesStopped) return
     if (!room.seats.every((occupant) => occupant !== null && occupant.ready)) return
     room.prompt = null
     for (const occupant of room.seats) occupant!.graceUntil = null

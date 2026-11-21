@@ -14,6 +14,7 @@ import * as m0010 from '../../src/shared/migrations/0010_call_on_checks.js'
 import * as m0011 from '../../src/shared/migrations/0011_maintenance.js'
 import * as m0012 from '../../src/shared/migrations/0012_ops.js'
 import * as m0013 from '../../src/shared/migrations/0013_club_members.js'
+import * as m0014 from '../../src/shared/migrations/0014_doudizhu_games.js'
 import type { Database } from '../../src/shared/schema.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
@@ -406,6 +407,7 @@ describe('undoing and redoing 0004', () => {
       '0011_maintenance': m0011,
       '0012_ops': m0012,
       '0013_club_members': m0013,
+      '0014_doudizhu_games': m0014,
       }
     },
   }

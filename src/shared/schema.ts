@@ -292,6 +292,43 @@ export interface ClubMembersTable {
   joinedAt: Date
 }
 
+/**
+ * One game of doudizhu the club service played. `gameId` is the club service's own number, not generated. `record` is
+ * the game's record without `gameId`, `startedAt` and `endedAt`, with the rules (`StoredDoudizhuRecord` in
+ * src/club/doudizhu-record.ts).
+ */
+export interface DoudizhuGamesTable {
+  gameId: number
+  roomId: string
+  startedAt: Date
+  endedAt: Date
+  ranked: boolean
+  record: Json<Record<string, unknown>>
+}
+
+/** One student seat of one game of doudizhu (bots have none); see `DoudizhuPlayerRow` in src/club/doudizhu-record.ts. */
+export interface DoudizhuGamePlayersTable {
+  gameId: number
+  seat: number
+  studentId: number
+  /** Null in a game with no landlord. */
+  role: 'landlord' | 'farmer' | null
+  won: boolean
+  score: number
+  multiplier: number
+  ranked: boolean
+  endedAt: Date
+  bombs: number
+  rockets: number
+  spring: boolean
+  antiSpring: boolean
+  timeouts: number
+  trusteeMoves: number
+  illegalMoves: number
+  /** Where the seat played from; stored only, never shown. */
+  ip: string | null
+}
+
 export interface ModerationExclusionsTable {
   id: Generated<number>
   kind: 'word' | 'pattern'
@@ -480,4 +517,6 @@ export interface Database {
   adminSessions: AdminSessionsTable
   teacherLineBlocks: TeacherLineBlocksTable
   clubMembers: ClubMembersTable
+  doudizhuGames: DoudizhuGamesTable
+  doudizhuGamePlayers: DoudizhuGamePlayersTable
 }

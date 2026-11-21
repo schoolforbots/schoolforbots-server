@@ -38,11 +38,12 @@ import { bankLeftAt, deadlineOf, dueAt, shownSeconds, stepLimitMs } from './doud
 import { type DoudizhuGameEntry, gameEntry, isRanked } from './doudizhu-record.js'
 
 // Doudizhu as a `GameModule`, played by the rules engine (src/club/doudizhu/), with the clock of each step, the time
-// bank and the trustee after timeouts. What it does not do yet: store the games (a finished game's record is only
-// handed to `onGameOver`, so `drain` has nothing to wait for), and no stats (`stats` gives 0 for everyone). A session
-// keeps what a record needs that the engine does not: the reactions at the table (`reactions`), the address of each
-// student seat (`addresses`), and how often each seat timed out, was played by the trustee or made an illegal step
-// (`seatCounts`).
+// bank and the trustee after timeouts. Storing the games and reading the stats are not done here: a finished game's
+// record is handed to `onGameOver` (the club service's recorder, src/club/recorder.ts), `drain` is the recorder's,
+// and `stats` reads what it stored (src/club/doudizhu-stats.ts); without them nothing is stored and the stats are 0.
+// A session keeps what a record needs that the engine does not: the reactions at the table (`reactions`), the
+// address of each student seat (`addresses`), and how often each seat timed out, was played by the trustee or made an
+// illegal step (`seatCounts`).
 //
 // The record (doudizhu-record.ts): at the moment a game is over, whichever call ends it (`start` for a game of bots
 // that never asks anyone, `handle`, `tick`, `trusteeOff`, `finish`), the session puts its record together and hands
@@ -84,6 +85,7 @@ import { type DoudizhuGameEntry, gameEntry, isRanked } from './doudizhu-record.j
 // nothing. A seat in trusteeship (only a test puts one there) is not asked: the trustee plays its steps at once.
 
 type YourTurn = Static<typeof YourTurnMessage>
+type StatsSummary = Static<typeof ClubStatsSummary>
 
 export interface DoudizhuGameOptions {
   /**
@@ -111,7 +113,14 @@ export interface DoudizhuGameOptions {
   /** Without the clock: how long after a `your_turn` its deadline is; 60 seconds by default. */
   readonly turnSeconds?: number
   /** `welcome.stats`; all 0 by default. */
-  readonly stats?: (studentId: number) => Static<typeof ClubStatsSummary>
+  readonly stats?: (studentId: number) => StatsSummary | Promise<StatsSummary>
+  /**
+   * The number of the first game this module starts; each next game has the next number. 1 by default. The club
+   * service gives one more than the largest stored, so numbers go on across restarts.
+   */
+  readonly firstGameId?: number
+  /** `GameModule.drain`: waits for the records handed to `onGameOver` to be stored. Resolves at once by default. */
+  readonly drain?: (timeoutMs: number) => Promise<void>
   /**
    * Given each game's record once, at the moment the game is over (see the top of this file); nothing is recorded when
    * absent. Called synchronously, inside the call that ended the game: it should queue the entry and return.
@@ -179,8 +188,7 @@ export function doudizhuGame(options: DoudizhuGameOptions = {}, make?: MakeDoudi
   }
   const sessionOptions: DoudizhuSessionOptions = { ...options, rules }
   const makeSession: MakeDoudizhuSession = make ?? ((start, o, gameId) => new DoudizhuSession(start, o, gameId))
-  // Numbered within this process only: nothing is stored yet that a number would have to be unique against.
-  let nextGameId = 1
+  let nextGameId = options.firstGameId ?? 1
   return {
     club: 'doudizhu',
     name: '斗地主社',
@@ -189,7 +197,13 @@ export function doudizhuGame(options: DoudizhuGameOptions = {}, make?: MakeDoudi
     rules: () => ({ ...rules }),
     stats: async (studentId) => options.stats?.(studentId) ?? NO_STATS,
     newSession: (start) => makeSession(start, sessionOptions, nextGameId++),
-    drain: async () => {},
+    drain: async (timeoutMs) => {
+      try {
+        await options.drain?.(timeoutMs)
+      } catch {
+        // Never rejects (see `GameModule.drain`).
+      }
+    },
   }
 }
 
