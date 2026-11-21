@@ -74,7 +74,7 @@ step "1/5 building the image and starting everything"
 compose build
 compose up -d
 
-step "2/5 waiting for both services to be healthy"
+step "2/5 waiting for the three services to be healthy"
 wait_healthy() {
   local service="$1" id state
   for _ in $(seq 1 60); do
@@ -88,6 +88,7 @@ wait_healthy() {
 }
 wait_healthy registration
 wait_healthy class
+wait_healthy club
 
 step "a long migration has time: the registration service's start period, and how long deploy.sh waits for it"
 # In nanoseconds (json); the plain format would print 10m0s.
@@ -102,7 +103,7 @@ step "the backup settings reach the backup service, and not the services that fa
 env_in() { compose exec -T "$1" sh -c "printf %s \"\${$2:-}\""; }
 [ "$(env_in backup BACKUP_S3_SECRET_ACCESS_KEY)" = smoke-test-canary ] || fail "the backup service did not get backup.env"
 [ -n "$(env_in backup DATABASE_URL)" ] || fail "the backup service has no DATABASE_URL"
-for service in registration class; do
+for service in registration class club; do
   [ -z "$(env_in "$service" BACKUP_S3_SECRET_ACCESS_KEY)" ] || fail "$service can see the backup storage key"
 done
 echo "smoke: only the backup service sees backup.env"
@@ -120,22 +121,31 @@ expect_status() {
 }
 expect_status 200 /healthz
 expect_status 200 /healthz/class
+expect_status 200 /healthz/club
 expect_status 200 /healthz/mail
 expect_status 200 /v1/school-calendar
 
-# A WebSocket upgrade without a key is turned away by the class service itself (401 with its own error), not by the
-# proxy (502 or 404). HTTP/1.1 is forced: over HTTP/2 curl sends no Upgrade header at all.
-ws_reply="$(curl -ksS -i --http1.1 --max-time 10 "$base/v1/class" \
-  -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
-  -H 'Sec-WebSocket-Key: c21va2UtdGVzdC1rZXktMTY=' || true)"
-echo "$ws_reply" | head -1
-echo "$ws_reply" | head -1 | grep -q '^HTTP/1.1 401' || fail "the upgrade without a key was not refused with HTTP/1.1 401"
-echo "$ws_reply" | grep -q 'unauthorized' || fail "the refusal does not come from the class service"
+# A WebSocket upgrade without a key is turned away by the class or club service itself (401 with its own error), not
+# by the proxy (502 or 404), nor by the registration service behind it (404 for a path it does not serve). HTTP/1.1 is
+# forced: over HTTP/2 curl sends no Upgrade header at all.
+expect_refused_upgrade() {
+  local path="$1" service="$2" reply
+  reply="$(curl -ksS -i --http1.1 --max-time 10 "$base$path" \
+    -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+    -H 'Sec-WebSocket-Key: c21va2UtdGVzdC1rZXktMTY=' || true)"
+  echo "smoke: upgrade of $path -> $(echo "$reply" | head -1)"
+  echo "$reply" | head -1 | grep -q '^HTTP/1.1 401' \
+    || fail "the upgrade of $path without a key was not refused with HTTP/1.1 401"
+  echo "$reply" | grep -q 'unauthorized' || fail "the refusal of $path does not come from the $service service"
+}
+expect_refused_upgrade /v1/class class
+expect_refused_upgrade /v1/club club
 
 step "running deploy.sh on the local files"
 (cd "$work" && COMPOSE_FILES="compose.yml compose.local.yml" SKIP_PULL=1 COMPOSE_PROJECT_NAME="$project" ./deploy.sh local --now)
 expect_status 200 /healthz
 expect_status 200 /healthz/class
+expect_status 200 /healthz/club
 
 step "4/5 the watchdog restarts an unhealthy container, and leaves a stopped one alone"
 started_at() { docker inspect --format '{{.State.StartedAt}}' "$1"; }

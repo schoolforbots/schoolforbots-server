@@ -1,4 +1,4 @@
-# The proxy in front of both services. SCHOOL_DOMAIN is the school's domain; Caddy gets and renews its certificate.
+# The proxy in front of the three services. SCHOOL_DOMAIN is the school's domain; Caddy gets and renews its certificate.
 # CADDY_TLS_LINE is empty in production (the line stays blank); the local override sets it to `tls internal`.
 
 {$SCHOOL_DOMAIN} {
@@ -24,6 +24,17 @@
 	handle /healthz/class {
 		rewrite * /healthz
 		reverse_proxy class:8081
+	}
+
+	# The club connection (WebSocket).
+	handle /v1/club {
+		reverse_proxy club:8082
+	}
+
+	# What an outside check asks the club service.
+	handle /healthz/club {
+		rewrite * /healthz
+		reverse_proxy club:8082
 	}
 
 	# Everything else. Rewriting a lesson in the admin waits up to 180 seconds for the model, so the read timeout is longer.

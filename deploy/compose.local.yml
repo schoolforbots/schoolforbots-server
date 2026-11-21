@@ -22,7 +22,7 @@ services:
       driver: json-file
   registration:
     <<: *local
-    # Built once, here; class uses the same image.
+    # Built once, here; class and club use the same image.
     build:
       context: ${BUILD_CONTEXT:-..}
     environment:
@@ -33,6 +33,11 @@ services:
     environment:
       <<: *local-environment
       CLASS_PORT: '8081'
+  club:
+    <<: *local
+    environment:
+      <<: *local-environment
+      CLUB_PORT: '8082'
   caddy:
     logging:
       driver: json-file
