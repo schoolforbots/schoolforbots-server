@@ -161,8 +161,8 @@ export async function runOnce(env: Env, now: Date): Promise<void> {
   const mail = decideMail(prevMail, mailOk, state.next.status === 'maintenance', now)
   if (mail.write && (await put(env, 'mail', mail.next)) && mail.mail) queue.push(mail.mail)
 
-  // Mails only: status.json leaves the club service out. While the whole school is down its own mail says enough, so
-  // the club's count waits.
+  // Mails only: status.json leaves the club service out. While the whole school is down its own mail says enough: a
+  // club count not yet mailed is dropped, and starts again once the school is back.
   const club = decideClub(
     prevClub,
     state.next.status === 'down' ? null : clubOk,

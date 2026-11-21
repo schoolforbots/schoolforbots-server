@@ -352,13 +352,31 @@ describe('decideClub', () => {
     expect(s.mails.length).toBe(2)
   })
 
-  it('does nothing when the probe says nothing', () => {
+  it('drops a count not yet mailed when the probe says nothing, and mails nothing', () => {
     const { s, step } = stepper()
     step(0, false)
-    const w = s.writes
     step(10, null)
-    expect(s.writes).toBe(w)
+    expect(s.state).toEqual({ badSince: null, notifiedAt: null })
     expect(s.mails).toEqual([])
+    const w = s.writes
+    step(11, null)
+    expect(s.writes).toBe(w)
+    step(12, false)
+    step(16, false)
+    expect(s.mails).toEqual([])
+    step(17, false)
+    expect(s.mails).toEqual(['club_down'])
+  })
+
+  it('keeps a mailed down while the probe says nothing', () => {
+    const { s, step } = stepper()
+    step(0, false)
+    step(5, false)
+    const w = s.writes
+    step(100, null)
+    expect(s.writes).toBe(w)
+    step(101, true)
+    expect(s.mails).toEqual(['club_down', 'club_up'])
   })
 
   it('mails nothing in maintenance, and restarts a count not yet mailed', () => {
