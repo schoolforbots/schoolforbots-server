@@ -82,7 +82,10 @@ export interface ClubSimTiming {
   awayMs: readonly [number, number]
   /** How long a bot waits to connect again after being sent away (maintenance, the service stopping) or failing. */
   retryMs: number
-  /** How long after `reopensAt` a bot comes back at most, at random, so that they do not all come at once. */
+  /**
+   * How much later than `reopensAt`, or than `retryMs` after being sent away for maintenance or the service stopping, a
+   * bot comes back at most, at random: sent away all at once, they do not all come back in the same moment.
+   */
   reopenSpreadMs: number
   /** How long a bot waits for a club whose `reopensAt` is not known. */
   closedRetryMs: number
@@ -940,7 +943,7 @@ export function createClubBot(
       }
       case 'maintenance':
       case 'service_stopping':
-        closingRetry = timing.retryMs
+        closingRetry = timing.retryMs + random() * timing.reopenSpreadMs
         return
       default:
         end({ replaced: '学号在别处连上了', suspended: '停课', expelled: '开除', not_member: '不是社员' }[msg.reason])
