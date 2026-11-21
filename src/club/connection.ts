@@ -344,7 +344,7 @@ export function serveConnection(
     }
   }
 
-  /** Handles a frame; one that came past the connection's rate (`withinRate` was false) is only answered so. */
+  /** Handles a frame; one that came past the student's rate (`withinRate` was false) is only answered so. */
   async function onFrame(data: RawData, withinRate: boolean): Promise<void> {
     if (socket.readyState !== socket.OPEN) return
     const reply = (id: string, r: AckResult) => write(ackMessage(id, r))
