@@ -10,6 +10,8 @@ export type SecondLayerSource = 'teacher' | 'chat'
 export type SecondVerdict = 'pass' | 'blocked'
 
 export interface SecondLayer {
+  /** Whether lines of `source` are judged now: with it off, `check` passes every line at once. */
+  enabled(source: SecondLayerSource): boolean
   check(source: SecondLayerSource, text: string): Promise<SecondVerdict>
 }
 
@@ -144,11 +146,14 @@ export function createSecondLayer(deps: SecondLayerDeps): SecondLayer {
     )
   }
 
+  const enabled = (source: SecondLayerSource) =>
+    llm !== null && config.secondLayer.implementation === 'llm' && switches.isOn(SOURCES[source].switch)
+
   return {
+    enabled,
+
     check(source, text) {
-      if (llm === null || config.secondLayer.implementation !== 'llm' || !switches.isOn(SOURCES[source].switch)) {
-        return Promise.resolve('pass')
-      }
+      if (!enabled(source)) return Promise.resolve('pass')
       return new Promise<SecondVerdict>((resolve) => {
         const existing = open[source]
         if (existing) {

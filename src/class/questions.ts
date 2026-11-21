@@ -295,8 +295,9 @@ export async function answer(deps: QuestionsDeps, p: Participant, callId: number
   const verdict = moderator.check(text)
   if (verdict.verdict === 'blocked') return block(deps, line, verdict)
   if (deps.secondLayer !== undefined) {
-    // Past the student's limit the answer is answered as stopped, without asking the second layer or keeping it.
-    if (deps.secondLayerCap?.reached(p) === true) return fail('blocked', { category: 'sensitive' })
+    // Past the student's limit the answer is answered as stopped, without asking the second layer or keeping it (only
+    // while the second layer for the teacher's lines is on: off, it would pass the answer anyway).
+    if (deps.secondLayer.enabled('teacher') && deps.secondLayerCap?.reached(p) === true) return fail('blocked', { category: 'sensitive' })
     if ((await deps.secondLayer.check('teacher', text)) === 'blocked') return blockBySecondLayer(deps, line)
   }
 
