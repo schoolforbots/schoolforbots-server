@@ -35,12 +35,20 @@ import type {
 } from './game.js'
 import type { ClubStatsSummary, YourTurnMessage } from '../protocol/club.js'
 import { bankLeftAt, deadlineOf, dueAt, shownSeconds, stepLimitMs } from './doudizhu-clock.js'
+import { type DoudizhuGameEntry, gameEntry, isRanked } from './doudizhu-record.js'
 
 // Doudizhu as a `GameModule`, played by the rules engine (src/club/doudizhu/), with the clock of each step, the time
-// bank and the trustee after timeouts. What it does not do yet: no game records (nothing is stored, so `drain` has
-// nothing to wait for), and no stats (`stats` gives 0 for everyone). A session keeps what a record will need that the
-// engine does not: the reactions at the table (`reactions`), the address of each student seat (`addresses`), and how
-// often each seat timed out, was played by the trustee or made an illegal step (`seatCounts`).
+// bank and the trustee after timeouts. What it does not do yet: store the games (a finished game's record is only
+// handed to `onGameOver`, so `drain` has nothing to wait for), and no stats (`stats` gives 0 for everyone). A session
+// keeps what a record needs that the engine does not: the reactions at the table (`reactions`), the address of each
+// student seat (`addresses`), and how often each seat timed out, was played by the trustee or made an illegal step
+// (`seatCounts`).
+//
+// The record (doudizhu-record.ts): at the moment a game is over, whichever call ends it (`start` for a game of bots
+// that never asks anyone, `handle`, `tick`, `trusteeOff`, `finish`), the session puts its record together and hands
+// it to `onGameOver`, once, before the call returns. Never before the game is over: the record holds every hand. The
+// callback is the recorder's: it must not make the club layer wait, and if it throws, the game goes on as if it had
+// not (the error goes to `onGameOverError`, or nowhere).
 //
 // The clock (`clock: true`, the default; the pure arithmetic is in doudizhu-clock.ts):
 // - A student asked to act gets a `your_turn` whose `deadline` is the rules' `bidSeconds` (a bid) or `playSeconds` (a
@@ -104,6 +112,13 @@ export interface DoudizhuGameOptions {
   readonly turnSeconds?: number
   /** `welcome.stats`; all 0 by default. */
   readonly stats?: (studentId: number) => Static<typeof ClubStatsSummary>
+  /**
+   * Given each game's record once, at the moment the game is over (see the top of this file); nothing is recorded when
+   * absent. Called synchronously, inside the call that ended the game: it should queue the entry and return.
+   */
+  readonly onGameOver?: (entry: DoudizhuGameEntry) => void
+  /** Given what `onGameOver` threw (or what putting the record together threw), with the game's number. */
+  readonly onGameOverError?: (error: unknown, gameId: number) => void
 }
 
 /** The options a session is made with: the game's, with the rules in force. */
@@ -197,6 +212,11 @@ export class DoudizhuSession implements GameSession {
   private readonly closesAt: (now: Date) => Date
   private readonly rules: Rules
   private readonly clocked: boolean
+  private readonly onGameOver: DoudizhuGameOptions['onGameOver']
+  private readonly onGameOverError: DoudizhuGameOptions['onGameOverError']
+  /** When the game started (`start`), and when it was over; null until then. */
+  private startedAt: Date | null = null
+  private endedAt: Date | null = null
   private readonly turnMillis: number
   private readonly trusteeDelayMillis: number
   protected readonly trustees: boolean[]
@@ -232,6 +252,8 @@ export class DoudizhuSession implements GameSession {
     this.closesAt = start.closesAt
     this.rules = options.rules
     this.clocked = options.clock ?? true
+    this.onGameOver = options.onGameOver
+    this.onGameOverError = options.onGameOverError
     this.turnMillis = (options.turnSeconds ?? 60) * 1000
     this.trusteeDelayMillis = (options.trusteeDelaySeconds ?? 2) * 1000
     const bank = this.clocked ? (options.timeBankSeconds ?? 120) * 1000 : 0
@@ -267,6 +289,7 @@ export class DoudizhuSession implements GameSession {
   start(now: Date): GameOutput {
     if (this.started) throw new Error('a session starts once')
     this.started = true
+    this.startedAt = now
     const emits: GameEmit[] = []
     // `newGame` dealt already; its `dealt` event is told here.
     this.tell(emits, [{ kind: 'dealt', gameId: 0, firstBidder: this.current.firstBidder }], true)
@@ -442,6 +465,8 @@ export class DoudizhuSession implements GameSession {
   }
 
   private output(emits: GameEmit[], now: Date): GameOutput {
+    // Every call that changes the game gives its output here: the first to give one over is the one that ended it.
+    if (this.over && this.endedAt === null) this.recordGame(now)
     const output: GameOutput = { emits, over: this.over }
     this.checkOutput(output, now)
     return output
@@ -453,6 +478,34 @@ export class DoudizhuSession implements GameSession {
    */
   private catchUp(emits: GameEmit[], now: Date, ask = true): void {
     if (!this.over && this.due !== null && this.due <= now.getTime()) this.run(emits, now, null, ask)
+  }
+
+  /** Hands the record of the game, just over at `now`, to `onGameOver`; once. Whatever it throws stays here. */
+  private recordGame(now: Date): void {
+    this.endedAt = now
+    const record = this.onGameOver
+    if (record === undefined) return
+    try {
+      record(
+        gameEntry({
+          gameId: this.gameId,
+          roomId: this.roomId,
+          startedAt: this.startedAt!,
+          endedAt: now,
+          players: this.players,
+          state: this.current,
+          reactions: this.tableReactions,
+          addresses: this.seatAddresses,
+          seatCounts: this.seatCounts,
+        }),
+      )
+    } catch (error) {
+      try {
+        this.onGameOverError?.(error, this.gameId)
+      } catch {
+        // Nothing more can be done here; the game goes on.
+      }
+    }
   }
 
   private run(emits: GameEmit[], now: Date, closing: 'closing' | null, ask = true): void {
@@ -549,7 +602,7 @@ export class DoudizhuSession implements GameSession {
   private protocolEvent(event: GameEvent): Extract<GameRoomEvent, { kind: 'game' }>['event'] {
     if (event.kind === 'dealt') return { ...event, gameId: this.gameId, seats: [...this.players] }
     if (event.kind === 'over') {
-      return { kind: 'over', result: { gameId: this.gameId, ...event.result, ranked: this.players.every((p) => !p.bot) } }
+      return { kind: 'over', result: { gameId: this.gameId, ...event.result, ranked: isRanked(this.players) } }
     }
     return event
   }
