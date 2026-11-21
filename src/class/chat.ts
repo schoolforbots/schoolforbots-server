@@ -483,8 +483,9 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
         return block({ from, kind: 'chat', conversationId: null, recipientId: to, text, at }, verdict)
       }
       if (secondLayer !== undefined) {
-        // Past the student's limit the line is answered as stopped, without asking the second layer or keeping it.
-        if (secondLayerCap.reached(from)) return fail('blocked', { category: 'sensitive' })
+        // Past the student's limit the line is answered as stopped, without asking the second layer or keeping it (only
+        // while the second layer for chat is on: off, it would pass the line anyway).
+        if (secondLayer.enabled('chat') && secondLayerCap.reached(from)) return fail('blocked', { category: 'sensitive' })
         // Nothing is reserved while the line waits: whatever changed by then decides, so every check is made again.
         const line: Line = { from, kind: 'chat', conversationId: null, recipientId: to, text, at }
         if ((await secondLayer.check('chat', text)) === 'blocked') return blockBySecondLayer(line)
@@ -564,7 +565,7 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
       if (verdict.verdict === 'blocked') return block(lineOf(c), verdict)
       if (secondLayer !== undefined) {
         // Past the student's limit: as for a first line, and the turn stays with the same side.
-        if (secondLayerCap.reached(from)) return fail('blocked', { category: 'sensitive' })
+        if (secondLayer.enabled('chat') && secondLayerCap.reached(from)) return fail('blocked', { category: 'sensitive' })
         // Nothing is reserved while the line waits: the turn stays where it is, and every check is made again.
         if ((await secondLayer.check('chat', text)) === 'blocked') return blockBySecondLayer(lineOf(c))
         at = clock.now()

@@ -10,6 +10,7 @@ import {
   askQuestion,
   callOnCloseStep,
   callOnStep,
+  callsOf,
   resumeCall,
   type QuestionsDeps,
 } from '../../src/class/questions.js'
@@ -1313,5 +1314,82 @@ describe('questions and the call-on over the WebSocket', () => {
     ca.send({ id: 'q4', type: 'question', text: '还有一个问题' })
     expect(await ca.next('ack')).toEqual({ type: 'ack', id: 'q4', ok: false, error: { code: 'question_cap', message: WS_ERROR_MESSAGES.question_cap } })
     expect(await cb.rest()).toEqual([])
+  })
+})
+
+// ---- The class service: one count of the second layer's stops for chat lines and answers ----
+
+describe('the second layer limit in the class service', () => {
+  test('chat lines and answers count toward the same limit per student', async () => {
+    const checked: string[] = []
+    const stopsAll: SecondLayer = {
+      enabled: () => true,
+      async check(_source, text) {
+        checked.push(text)
+        return 'blocked'
+      },
+    }
+    const service = await buildTestClassApp({
+      now: at('20:15'),
+      model: () => ({ llm: scripted().llm, prompts, secondLayer: stopsAll, switches: switches() }),
+    })
+    try {
+      const { db, hub, chat, questions } = service
+      const classId = await insertClass(db, { classNo: 1 })
+      const lessonId = await insertLesson(db, {
+        date: MON,
+        segments: SEGMENTS,
+        callOnQuestions: { review: QUESTION.text, extension: EXTENSION.text },
+      })
+      const sessionId = await insertSession(db, { classId, date: MON, lessonId, startsAt: at('20:00'), endsAt: at('20:30') })
+      const session: ActiveSession = {
+        sessionId,
+        classId,
+        division: 'junior',
+        slot: 'evening',
+        kind: 'lesson',
+        startsAt: at('20:00'),
+        endsAt: at('20:30'),
+        closeAt: CLOSE_AT,
+      }
+      const participant = async (n: number): Promise<Participant> => {
+        const { id } = await insertStudent(db, { classId, status: 'active', ownerName: `阿${n}`, aiName: `小鱼${n}` })
+        hub.add({ studentId: id, classId, send: () => {}, close: () => {} })
+        return {
+          studentId: id,
+          displayName: `阿${n}家的小鱼${n}`,
+          classId,
+          sessionId,
+          maxRounds: 5,
+          ip: '127.0.0.1',
+          pluginType: 'openclaw',
+          pluginVersion: '1.2.3',
+          lessonsAttended: 5,
+          closeAt: CLOSE_AT,
+        }
+      }
+      const a = await participant(1)
+      const b = await participant(2)
+      await chat.join(a)
+      await chat.join(b)
+
+      // a's chat lines use up the limit…
+      for (let i = 1; i <= config.secondLayer.blocksPerStudentPerLesson; i++) {
+        expect(await chat.start(a, b.studentId, `不合适的话${i}`)).toEqual(failure('blocked', { category: 'sensitive' }))
+      }
+      expect(checked).toHaveLength(config.secondLayer.blocksPerStudentPerLesson)
+
+      // …so a's answer to the call-on is not asked about, nor kept.
+      await callOnStep(questions, session, 1, QUESTION)
+      const [call] = await callsOf(db, sessionId)
+      expect(call?.studentId).toBe(a.studentId)
+      expect(await answer(questions, a, call!.callId, '一个回答')).toEqual(failure('blocked', { category: 'sensitive' }))
+      expect(checked).toHaveLength(config.secondLayer.blocksPerStudentPerLesson)
+      const answers = await db.selectFrom('messages').select('id').where('kind', '=', 'answer').execute()
+      expect(answers).toEqual([])
+    } finally {
+      await service.teacherAi?.idle()
+      await service.destroy()
+    }
   })
 })

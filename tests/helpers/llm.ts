@@ -50,6 +50,7 @@ export function scripted(replies: (Reply | ((call: ModelCall) => Reply))[] = [])
 export function layer(verdicts: SecondVerdict[] = []) {
   const checked: { source: string; text: string }[] = []
   const secondLayer: SecondLayer = {
+    enabled: () => true,
     async check(source, text) {
       checked.push({ source, text })
       return verdicts.shift() ?? 'pass'

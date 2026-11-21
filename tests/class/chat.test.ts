@@ -6,6 +6,7 @@ import { createChatEngine, type ChatEngine } from '../../src/class/chat.js'
 import type { AckResult, Participant } from '../../src/class/connection.js'
 import { disciplineRecorder } from '../../src/class/discipline.js'
 import { RecordingHub } from '../../src/class/hub.js'
+import { createSecondLayerCap, type SecondLayerCap } from '../../src/class/second-layer-cap.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from '../../src/class/ws-errors.js'
 import { createSecondLayer, type SecondLayer } from '../../src/moderation/second-layer.js'
 import { ServerMessage } from '../../src/protocol/ws.js'
@@ -76,7 +77,9 @@ describe('the chat engine', () => {
   })
 
   /** An engine on the test database (or `p.db`) and hub; a new one is what the service has after a restart. */
-  function newEngine(p: { speed?: number; db?: Kysely<Database>; secondLayer?: SecondLayer } = {}): ChatEngine {
+  function newEngine(
+    p: { speed?: number; db?: Kysely<Database>; secondLayer?: SecondLayer; secondLayerCap?: SecondLayerCap } = {},
+  ): ChatEngine {
     return createChatEngine({
       db: p.db ?? db,
       config,
@@ -84,6 +87,7 @@ describe('the chat engine', () => {
       hub,
       moderator: exampleModerator(),
       secondLayer: p.secondLayer,
+      ...(p.secondLayerCap === undefined ? {} : { secondLayerCap: p.secondLayerCap }),
       discipline: disciplineRecorder,
       speed: p.speed ?? 1,
       log: (obj, msg) => void logged.push({ ...obj, msg }),
@@ -823,6 +827,7 @@ describe('the chat engine', () => {
     function held() {
       const waiting: { text: string; verdict: (v: 'pass' | 'blocked') => void }[] = []
       const secondLayer: SecondLayer = {
+        enabled: () => true,
         async check(_source, text) {
           const d = deferred<'pass' | 'blocked'>()
           waiting.push({ text, verdict: d.resolve })
@@ -977,6 +982,7 @@ describe('the chat engine', () => {
       const gate = { open: true }
       const waiting: { verdict: (v: 'pass' | 'blocked') => void }[] = []
       const secondLayer: SecondLayer = {
+        enabled: () => true,
         async check() {
           if (gate.open) return 'pass'
           const d = deferred<'pass' | 'blocked'>()
@@ -1100,16 +1106,22 @@ describe('the chat engine', () => {
 
     describe('a student it keeps stopping', () => {
       const LIMIT = config.secondLayer.blocksPerStudentPerLesson
-      /** A second layer that stops every line but those starting with 好, counting the lines it is asked about. */
+      /**
+       * A second layer that stops every line but those starting with 好, counting the lines it is asked about. Each
+       * source is on until `on` says otherwise; off, it passes the line at once, as the real one does.
+       */
       function stopping() {
         const checked: string[] = []
+        const on = { chat: true, teacher: true }
         const secondLayer: SecondLayer = {
-          async check(_source, text) {
+          enabled: (source) => on[source],
+          async check(source, text) {
+            if (!on[source]) return 'pass'
             checked.push(text)
             return text.startsWith('好') ? 'pass' : 'blocked'
           },
         }
-        return { secondLayer, checked }
+        return { secondLayer, checked, on }
       }
       const capLogs = () => logged.filter((e) => (e as { msg: string }).msg.startsWith('second layer limit reached'))
 
@@ -1166,6 +1178,41 @@ describe('the chat engine', () => {
           row(a, b, PHONE, { delivered: false, moderation: 'privacy' }),
         ])
         expect((await records()).map((r) => r.kind)).toEqual(['school_rule', 'privacy_block'])
+      })
+
+      test('with the second layer for chat off, a student at the limit (by answers) chats as before', async () => {
+        const { secondLayer, checked, on } = stopping()
+        on.chat = false
+        const cap = createSecondLayerCap(LIMIT)
+        engine = newEngine({ secondLayer, secondLayerCap: cap })
+        const a = await joined()
+        const b = await joined()
+        // The answers to call-ons, judged by the second layer for the teacher's lines, used up a's limit.
+        for (let i = 0; i < LIMIT; i++) cap.count(a)
+        expect(cap.reached(a)).toBe(true)
+        const c = await open(a, b, '不经第二层的话')
+        expect(await engine.reply(b, c, '回一句')).toEqual({ ok: true })
+        expect(await engine.reply(a, c, '再说一句')).toEqual({ ok: true })
+        expect(checked).toEqual([])
+        expect(sent()).toHaveLength(3)
+      })
+
+      test('the switch turned off in the lesson: a student at the limit is no longer stopped by it', async () => {
+        const { secondLayer, checked, on } = stopping()
+        engine = newEngine({ secondLayer })
+        const a = await joined()
+        const b = await joined()
+        for (let i = 1; i <= LIMIT; i++) await engine.start(a, b.studentId, `不合适的话${i}`)
+        expect(await engine.start(a, b.studentId, '再来一句')).toEqual(failure('blocked', { category: 'sensitive' }))
+        on.chat = false
+        const c = await open(a, b, '再来一句')
+        expect(sent()).toEqual([to(b, incoming(c, a, '再来一句', 1))])
+        expect(checked).toHaveLength(LIMIT)
+        // Turned on again, the limit holds again.
+        on.chat = true
+        expect(await engine.reply(b, c, '好的')).toEqual({ ok: true })
+        expect(await engine.reply(a, c, '又是一句')).toEqual(failure('blocked', { category: 'sensitive' }))
+        expect(checked).toHaveLength(LIMIT + 1)
       })
 
       test('another student, and the student in the next lesson, start from 0', async () => {
