@@ -61,7 +61,8 @@ export async function standingsOf(
   const rows = await db
     .selectFrom('students')
     .select(['id', 'status', 'suspendedUntil', 'classId'])
-    .where('id', 'in', [...studentIds])
+    // One array parameter, not a list of them: the same statement however many are online.
+    .where((eb) => eb('id', '=', eb.fn.any(eb.val([...studentIds]))))
     .execute()
   return new Map(rows.map((r) => [r.id, { status: r.status, suspendedUntil: r.suspendedUntil, classId: r.classId }]))
 }

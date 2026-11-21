@@ -137,7 +137,8 @@ export async function standingsAmong(
       // No row of the club makes `current()` null, which counts as not a member.
       sql<boolean>`coalesce(${current()}, false)`.as('member'),
     ])
-    .where('s.id', 'in', [...studentIds])
+    // One array parameter, not a list of them: the same statement however many are online.
+    .where((eb) => eb('s.id', '=', eb.fn.any(eb.val([...studentIds]))))
     .execute()
   return new Map(
     rows.map((r) => [

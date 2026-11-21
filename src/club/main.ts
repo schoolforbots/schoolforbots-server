@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import type { FastifyBaseLogger } from 'fastify'
 import { recordOpsEvent, recordStart } from '../ops/events.js'
 import { systemClock } from '../shared/clock.js'
@@ -71,7 +72,9 @@ async function main(): Promise<void> {
       app.log.info({ signal }, 'shutting down')
       maintenance.stop()
       await ticker.stop() // waits for a tick still running
-      await service.roundsDone()
+      // A round of the students online still going gets half the usual time to stop; past it the stop goes on (a round
+      // that ends after it sends nobody out).
+      await Promise.race([service.roundsDone(), delay(SHUTDOWN_DEADLINE_MS / 2)])
       // Nobody comes in from now on; the games being played are played out, their records stored (at most drainMs),
       // and then everyone is disconnected.
       await service.stop(drainMs)
