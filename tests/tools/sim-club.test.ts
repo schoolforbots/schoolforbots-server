@@ -22,6 +22,7 @@ import {
   createClubBot,
   createClubBots,
   createClubSampler,
+  GROUP_STOPPED,
   seededRandom,
   splitByMix,
   type TableMode,
@@ -291,35 +292,117 @@ const welcome = {
   room: null,
 }
 
-describe('against a fake school', () => {
+/**
+ * A school of its own on a real port: `onHello` answers the hello of the student with key `key`; `verify` may turn the
+ * upgrade away with an HTTP status.
+ */
+async function fakeSchool(
+  onHello: (ws: WebSocket, hello: { id: string }, key: string) => void,
+  verify?: (key: string) => number | null,
+): Promise<string> {
+  const keyOf = (header: string | undefined) => (header ?? '').replace(/^Bearer /, '')
+  const server = new WebSocketServer({
+    port: 0,
+    host: '127.0.0.1',
+    verifyClient: (info, done) => {
+      const status = verify?.(keyOf(info.req.headers.authorization)) ?? null
+      if (status === null) done(true)
+      else done(false, status)
+    },
+  })
+  cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  server.on('connection', (ws, req) => {
+    const key = keyOf(req.headers.authorization)
+    ws.on('message', (data) => {
+      const msg = JSON.parse(String(data)) as { id: string; type: string }
+      if (msg.type === 'hello') onHello(ws, msg, key)
+    })
+  })
+  await new Promise((resolve) => server.once('listening', resolve))
+  return `ws://127.0.0.1:${(server.address() as AddressInfo).port}`
+}
 
+/** A bot of the fake school's that never forms a table nor comes back while a test looks. */
+function slowBot(url: string, mode: TableMode = 'quick', studentId = 1): ClubBot {
+  const bot = createClubBot({ studentId, key: `k${studentId}`, displayName: `小鱼${studentId}` }, mode, { ...QUIET, url }, {
+    clock: { now: () => new Date() },
+    random: seededRandom(studentId),
+    timing: { retryMs: 60_000, reformMs: [60_000, 60_000] },
+    print: () => {},
+  })
+  cleanups.push(() => bot.stop())
+  return bot
+}
+
+const welcomed = (ws: WebSocket, hello: { id: string }) => {
+  ws.send(JSON.stringify({ type: 'ack', id: hello.id, ok: true }))
+  ws.send(JSON.stringify(welcome))
+}
+
+describe('against a fake school', () => {
   test('a connection closed with no closing is an unexpected disconnect, and a message off the protocol is invalid', async () => {
     expect(Value.Check(ClubServerMessage, welcome)).toBe(true)
-    const server = new WebSocketServer({ port: 0, host: '127.0.0.1' })
-    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())))
-    server.on('connection', (ws) => {
-      ws.on('message', (data) => {
-        const msg = JSON.parse(String(data)) as { id: string; type: string }
-        if (msg.type !== 'hello') return
-        ws.send(JSON.stringify({ type: 'ack', id: msg.id, ok: true }))
-        ws.send(JSON.stringify(welcome))
-        ws.send(JSON.stringify({ type: 'room.event', roomId: 'r1', seq: 1 }))
-        setTimeout(() => ws.terminate(), 50)
-      })
+    const url = await fakeSchool((ws, hello) => {
+      welcomed(ws, hello)
+      ws.send(JSON.stringify({ type: 'room.event', roomId: 'r1', seq: 1 }))
+      setTimeout(() => ws.terminate(), 50)
     })
-    await new Promise((resolve) => server.once('listening', resolve))
-    const { port } = server.address() as AddressInfo
-    const bot = createClubBot({ studentId: 1, key: 'k', displayName: '小鱼' }, 'quick', { ...QUIET, url: `ws://127.0.0.1:${port}` }, {
-      clock: { now: () => new Date() },
-      random: seededRandom(1),
-      // Never forms a table nor comes back while the test looks.
-      timing: { retryMs: 60_000, reformMs: [60_000, 60_000] },
-      print: () => {},
-    })
-    cleanups.push(() => bot.stop())
+    const bot = slowBot(url)
     bot.start()
     await waitUntil(() => bot.tally.unexpectedDisconnects === 1, 'the disconnect')
     expect(bot.tally).toMatchObject({ connects: 1, welcomes: 1, invalid: 1, unexpectedDisconnects: 1, connectFailures: 0 })
+  })
+
+  test('replaced ends a bot, and is no unexpected disconnect', async () => {
+    const url = await fakeSchool((ws, hello) => {
+      welcomed(ws, hello)
+      ws.send(JSON.stringify({ type: 'closing', reason: 'replaced', message: '你的学号在别处连上了。' }))
+      ws.close(1000)
+    })
+    const bot = slowBot(url)
+    bot.start()
+    await waitUntil(() => bot.tally.ended !== null, 'the end')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(bot.tally).toMatchObject({ ended: '学号在别处连上了', closings: { replaced: 1 }, unexpectedDisconnects: 0, connectFailures: 0, connects: 1 })
+  })
+
+  test('turned away at the door with an HTTP status, a bot counts a failure to connect and nothing else', async () => {
+    const url = await fakeSchool(() => {}, () => 503)
+    const bot = slowBot(url)
+    bot.start()
+    await waitUntil(() => bot.tally.connectFailures > 0, 'the refusal')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(bot.tally).toMatchObject({ connectFailures: 1, connects: 0, unexpectedDisconnects: 0, ended: null })
+  })
+
+  test('a bot stopped while it connects counts no failure', async () => {
+    const url = await fakeSchool(welcomed)
+    const bot = slowBot(url)
+    bot.start()
+    bot.stop()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(bot.tally).toMatchObject({ connectFailures: 0, connects: 0, unexpectedDisconnects: 0 })
+  })
+
+  test('when one of an invitation group stops, the others stop too instead of waiting for it', async () => {
+    // The second of the group is replaced as soon as it comes in; the first and the third are welcomed.
+    const url = await fakeSchool((ws, hello, key) => {
+      if (key !== 'k2') return welcomed(ws, hello)
+      ws.send(JSON.stringify({ type: 'closing', reason: 'replaced', message: '你的学号在别处连上了。' }))
+      ws.close(1000)
+    })
+    const students = [1, 2, 3].map((n) => ({ studentId: n, key: `k${n}`, displayName: `小鱼${n}` }))
+    const bots = createClubBots(students, { ...QUIET, url, mix: { invite: 100, quick: 0, bots: 0 } }, {
+      seed: 1,
+      clock: { now: () => new Date() },
+      timing: { retryMs: 60_000, reformMs: [10, 20], groupWaitMs: 10 },
+      print: () => {},
+    })
+    cleanups.push(() => bots.forEach((b) => b.stop()))
+    bots.forEach((b) => b.start())
+    await waitUntil(() => bots.every((b) => b.tally.ended !== null), 'the group to stop')
+    expect(bots.map((b) => b.tally.ended)).toEqual([GROUP_STOPPED, '学号在别处连上了', GROUP_STOPPED])
+    for (const b of bots) expect(b.tally).toMatchObject({ unexpectedDisconnects: 0, connectFailures: 0, seated: { invite: 0 } })
   })
 })
 
@@ -585,6 +668,11 @@ describe('the choices of a bot', () => {
     const { sent, counts } = scriptedRun(5, 8)
     expect(counts.framesHeld).toBeGreaterThan(0)
     for (let i = 8; i < sent.length; i++) expect(sent[i]!.at - sent[i - 8]!.at).toBeGreaterThanOrEqual(60_000)
+    // A step held back past its deadline is dropped, not sent late: none is refused as stale, and none is counted.
+    expect(counts.framesDropped).toBeGreaterThan(0)
+    expect(counts.refusals.stale_turn).toBeUndefined()
+    const steps = sent.filter((m) => ['bid', 'play', 'pass'].includes(m.type) && m.cards === undefined).length
+    expect(counts.steps).toBe(steps)
   })
 
   test('a play the bot cannot make is one card more of a rank than it holds', () => {
