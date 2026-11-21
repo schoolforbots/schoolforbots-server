@@ -25,7 +25,8 @@ import {
 // operator trying a server. One bot per key in the file `npm run dev:seed -- --club` wrote plays at the club for
 // `--duration` seconds (or until Ctrl-C); then the records of `--verify` of them, picked at random, are looked up on the
 // registration service, and a report says what the bots counted, the delays they measured, and whether the run is
-// within the pass line (`--report` writes it as JSON; a run that is not exits with 1).
+// within the pass line (`--report` writes it as JSON; a run that is not exits with 1). The README ("压测社团服务")
+// describes the options, the report and the pass line.
 //
 // The club simulator's bots: each one a seeded student who connects to the club service, gets a seat at a table, plays
 // a few games there, leaves and finds another table, again and again, the way a careless but honest plugin would. It
@@ -34,17 +35,20 @@ import {
 // - Tables are formed three ways (`TableMode`): a group of three bots of this process, the first of which opens a room
 //   by invitation and invites the other two, who accept; quick join (`room.quick`); or a public room with bots in the
 //   free seats (`bots: true`). After `games` games at a table a bot leaves it and forms another a few seconds later;
-//   so does it when it is asked out of the room, when the room closes, when the invitations of its group expire, and
-//   at an idle prompt (where a bot that plays with bots asks for bots instead).
+//   so does it when it is asked out of the room, when the room closes, when the invitations of its group expire, when
+//   no game starts at its table for a while, and at an idle prompt (where a bot that plays with bots asks for bots
+//   instead). When one of an invitation group stops, the others stop too: they could only wait for it.
 // - At every `your_turn` it thinks for a while and answers; now and then, on purpose, it takes the paths a real plugin
 //   takes by mistake: it lets the step time out (`timeoutRate`), first sends cards it does not hold and then a legal
 //   step with the `retry` of the refusal (`illegalRate`), drops its connection after a live room event and comes back
 //   one to four seconds later with `roomId` and `lastSeq` (`dropRate`), and sends a reaction at the table, from the
 //   emoji and phrases of `welcome`, within its limits (`reactRate`). Once in trusteeship it takes its seat back at its
-//   next `your_turn`, half of the time with a legal step and half with `trustee.off`.
+//   next `your_turn`, half of the time with a legal step and half with `trustee.off`. It keeps within the frames a
+//   minute of `welcome`, holding a frame back when it must, and drops a step held back past its deadline.
 // - `closing`: when the club is closed it comes back at `reopensAt`; maintenance and the service stopping are expected
-//   (it comes back a few seconds later, until it is stopped); `replaced` is expected and ends it. A connection closed
-//   with no `closing` and not by the bot is an unexpected disconnect. Every message received is checked against the
+//   (it comes back a few seconds later, until it is stopped); both at a random moment within a spread, so that bots
+//   sent away together do not all come back together. `replaced` is expected and ends it, as do the other reasons and
+//   a key refused at the door. A connection closed with no `closing` and not by the bot is an unexpected disconnect. Every message received is checked against the
 //   protocol's `ClubServerMessage`; one that does not follow it counts as invalid and is otherwise ignored.
 // - What it sees and does is counted in its `tally`; the delays go to a `ClubSampler`: the ack of each game action
 //   (sent to acked), and each hand-off (the `at` of the live game event that came before a `your_turn`, to the moment

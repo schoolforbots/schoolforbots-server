@@ -482,6 +482,66 @@ npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class \
 
 **For the real test** (thousands of bots against a school as it will be deployed): run `sim` from another machine, not the one that serves the school, or the bots compete with it for CPU, and with `--quiet`. Watch the server's CPU and memory while it runs (`docker stats`). Use the fake model (`LLM_FAKE=1`), so that the test costs nothing and the model's own speed is not what is measured. Seed with `DEV_SEED_ALLOWED_HOSTS` on a copy of the school, and when it is over empty the database before going live: the seeded classes and students are not real ones.
 
+## Load testing the club service
+
+The club service has a simulator of its own, `sim:club`: one bot per key connects to the club, opens rooms, forms tables, plays a few games, moves to another table and plays again, and, at set rates, lets steps time out on purpose, plays cards it does not hold, drops and reconnects, and sends reactions. When the time is up it looks up the game records of some of the bots on the registration service, to check that every game they finished was recorded, and prints a report and a verdict. The bots use only what the protocol gives them: a bid is picked from the `bids` of a `your_turn`, a play from its `moves`; they never read the service's internal state or the database.
+
+Getting ready:
+
+1. Set up the database and `.env` as in "Local development", and seed students with `dev:seed --club`, which also puts them in the doudizhu club:
+
+   ```bash
+   # 9 classes of 100: 900 bots, 300 tables
+   npm run dev:seed -- --division junior --slot evening --students 100 --classes 9 --club --out .sim/club-keys.json
+   ```
+
+2. Start the registration service and the club service (`npm run dev:registration`, then `npm run dev:club`). On school days the club is closed during each slot (see "Clubs"), so run outside those times, or use a local config with the slots moved (`SCHOOL_CONFIG`, for both services).
+3. Let the bots loose:
+
+   ```bash
+   npm run sim:club -- --keys .sim/club-keys.json --url ws://localhost:8082/v1/club \
+     --api http://localhost:8080 --healthz http://localhost:8082/healthz \
+     --ramp 30 --quiet --report .sim/club-report.json --expect-ack-ms 1000 --expect-turn-ms 1000
+   ```
+
+Options:
+
+- `--keys`, `--url`: the keys file (refused when a student number appears twice) and the club service's WebSocket address; both required.
+- `--duration 600`: how many seconds to run. When the time is up every bot stops, then the records are checked and the report printed. Ctrl-C ends the run early the same way, with exit code 130.
+- `--games 3`: how many games a bot plays at one table before it leaves and, a few seconds later, forms another.
+- `--mix invite:80,quick:15,bots:5`: the shares of the three ways of forming a table. `invite`: groups of three bots (all in this process), the first of which opens a room by invitation and invites the other two, who accept; `quick`: quick join (`room.quick`); `bots`: a public room with bots, one student and two bots. The invitation groups take a multiple of three bots; the rest go to the other two ways. Invitations count against `club.invitesPerDay`, which a very long run may use up.
+- `--think 1-5`: how many seconds a bot "thinks" before each step, at random within the range; never more than half the time left for the step.
+- `--pass-rate 0.3`: the chance of passing when passing is allowed.
+- `--timeout-rate 0.02`: the chance of not answering a step and letting the trustee make it. Two timeouts in a row put the seat in trusteeship; once in it, the bot takes its seat back at the next `your_turn`, with a legal step or with `trustee.off` (half each). With the example config the first timeout of a game takes the step's limit plus the whole time bank (60 + 120 seconds), and the whole table waits, so a higher rate means noticeably fewer games finished.
+- `--illegal-rate 0.02`: the chance of first playing cards not in hand, then a legal step with the `retry` of the `illegal_move` refusal.
+- `--drop-rate 0.01`: the chance of dropping the connection after a live room event, coming back 1 to 4 seconds later with `roomId` and `lastSeq`.
+- `--react-rate 0.05`: the chance of sending a reaction after a live room event, from the emoji list and phrases of `welcome`, within the interval and the count per game.
+- `--ramp <seconds>`: spreads the bots' first connections at random over that many seconds (0 by default; must be shorter than `--duration`). Give it with hundreds of bots: hundreds of connections in the same moment fill the listening queue, and some are refused before the service sees them, counted as failures to connect.
+- `--seed <integer>`: the seed of the bots' random choices. Without it one is picked at random and printed at the start; with the same seed, and the same timing of the school, the bots make the same choices.
+- `--verify 30`, `--api <registration service address>`: how many bots' records to check at the end, `0` for none; above 0, `--api` is required.
+- `--healthz <address>`: looks at this address every 5 seconds; anything but 200, or no answer within 4 seconds, is a failure.
+- `--report <file>`: writes the report as JSON (one is always printed). `--quiet`: no line per event, a progress line every 10 seconds; use it with hundreds of bots, for the same reason as with `sim`.
+- `--expect-ack-ms`, `--expect-turn-ms`: the pass line (see below); 1000 suits a local run.
+
+When the school sends a bot away, it acts on the reason of the `closing`: the club closed (`club_closed`), it comes back at `reopensAt`; maintenance (`maintenance`) and the service stopping (`service_stopping`) are expected, and it comes back 3 to 8 seconds later, until the run ends; `replaced` (the same key connected elsewhere) is expected too, but the bot stops there, and when one of an invitation group stops, the other two stop as well. A bot whose key is refused (HTTP 401) stops too.
+
+**Checking the records.** At the end, `--verify` bots are picked at random (following the seed) among those that finished at least one game, and each one's key is used to read `GET /v1/me/clubs/doudizhu/games` on the registration service (page after page), to see that every game it received an `over` for is there. Records are written in the background after a game, so games not found are looked for again every 5 seconds, up to 3 more times. The registration service lets each address make only `httpRateLimitPerMinute` requests a minute (60 in the example config), so requests are at least 1.2 seconds apart, and a request turned away for the rate (429) waits as long as its `Retry-After` says, or a whole minute without it: 30 bots take half a minute or more, and an estimate is printed before the check starts. Ctrl-C during the check stops it and still prints the report, which says the check was not finished, and fails.
+
+**The moment the club closes or the service stops.** The simulator neither turns maintenance on nor stops the service. To test that moment, an operator does it by hand in the middle of a run: turns maintenance on in the admin pages (the club service reads it within `switchRefreshSeconds`) and off again a little later; or stops the club service (Ctrl-C, the normal stop) and starts it again. The bots come back by the rules above and play on. The report lists apart the games being played at that moment, played out by the trustee; the games still without their `over` when the school sent the bots away (there should be none); and how many records of those games the check found missing.
+
+**What the report holds.** Each delay has `count`, `p50`, `p90`, `p99` and `max` in milliseconds, with the percentiles worked out as in `sim`:
+
+- `ack`: from sending a game action (a bid, a play, a pass) to receiving its `ack`.
+- `turn` (hand-off delay): from the `at` of the last game event received live before a `your_turn` (the step of the seat before, or the `dealt` or `landlord` that starts the bidding or the play) to receiving that `your_turn`. What is replayed after a reconnect does not count. `at` is the school's clock and the receipt the local one: run against another machine, the difference between the two clocks is in the number.
+- `totals`: the bots; connections, welcomes, failures to connect and unexpected disconnects; the `closing` messages by reason; the seats taken by each way of forming a table and why tables were left; the `your_turn` messages received and the steps made; steps let time out, made on a timeout, made in trusteeship and made as the club closed; trusteeship on and off, and the two ways of taking the seat back; cards not in hand sent, refused and followed by a legal step; drops and reconnects; reactions sent and refused; frames held back to stay within the frames a minute, and those dropped because their step's time was over; messages off the protocol; refusals by error code; the games finished (each counted once) and, of those, the ones played out as the club closed or the service stopped.
+- `healthz`: how many looks and how many failed (with `--healthz`).
+- `verification`: how many bots and games were checked, which games are missing (student number and game number, marked when played out as the club closed or the service stopped), how many bots' records could not be read, and whether the check was finished.
+- `pass`, `failures`, `expect`: whether the run passed, why not, and the pass line used (`null` for a line not given).
+
+**The pass line:** with `--expect-ack-ms` and `--expect-turn-ms`, the p99 of each delay is within it (exactly on it passes; a line with no samples fails). Whether or not they are given, these always count: at least one bot got into the club and at least one game was finished; no unexpected disconnect (the connection closed with no `closing`, and not by the bot); no message off the protocol; no game left without its `over` when the school sent the bots away; with `--healthz`, not a single failure; and when records are checked, some bots could be picked, the check was finished, every bot's records could be read, and no game is missing. A run that does not pass exits with 1, as does one whose report cannot be written.
+
+A load test of a server goes as with `sim`: run it from another machine, with `--quiet`, and watch the server's CPU and memory; count the clock difference between the two machines into the hand-off delays.
+
 ## Tests
 
 ```bash
