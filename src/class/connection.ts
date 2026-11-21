@@ -19,6 +19,7 @@ import { calendarStatus, nextSchoolDay, undecidedBreakAhead, type CalendarStatus
 import { className, displayName } from '../shared/identity.js'
 import { addDaysToDate, atLocalTime, localDate, localMoment, monthDay } from '../shared/local-time.js'
 import type { Maintenance } from '../shared/maintenance.js'
+import type { RateWindow } from '../shared/rate-window.js'
 import type { Database } from '../shared/schema.js'
 import type { ClassDeps } from './app.js'
 import { lessonsAttendedBefore, markAttendance } from './attendance.js'
@@ -33,9 +34,9 @@ import { WS_ERROR_MESSAGES, type WsErrorCode } from './ws-errors.js'
 // open call-on), presence, handing each later message to its handler, and the pings that find a client gone.
 // Frames of one connection are handled one at a time, in the order they came.
 //
-// What a connection may cost is bounded both ways (see `classConnection` in the school config): the frames it may send
-// in any minute, every one counted, and the frames it may have waiting to be handled; and what may wait to go out to
-// it, so a client that stops reading is dropped rather than held in memory.
+// What a connection may cost is bounded both ways (see `classConnection` in the school config): the frames its student
+// may send in any minute, every one counted, over all their connections; the frames it may have waiting to be handled;
+// and what may wait to go out to it, so a client that stops reading is dropped rather than held in memory.
 
 export type StudentRow = Selectable<Database['students']>
 
@@ -91,6 +92,11 @@ export interface ConnectionContext {
    * connection replaced one that had been. A student whose connection is replaced never left, so nobody is told.
    */
   announced: WeakSet<HubConnection>
+  /**
+   * The frames of each student let through in the last window, over all their connections: a student who reconnects
+   * goes on with the window their earlier connections filled. At most `classConnection.framesPerMinute` of them.
+   */
+  frames: RateWindow<number>
 }
 
 type Closing = Static<typeof ClosingMessage>
@@ -169,7 +175,7 @@ export function serveConnection(
   socket: WebSocket,
   p: { student: StudentRow; ip: string | null; log: FastifyBaseLogger },
 ): void {
-  const { deps, announced } = ctx
+  const { deps, announced, frames } = ctx
   const { db, config, clock, runtime, hub } = deps
   const { student, ip, log } = p
   const studentId = student.id
@@ -566,17 +572,10 @@ export function serveConnection(
     reply(msg.id, await dispatch(me, msg))
   }
 
-  // The moments (real time, in ms) the frames of the last window came that were let through, oldest first: at most
-  // `framesPerMinute` of them. A frame past them is answered `rate_limited`, and does not count.
-  const rateWindowMs = deps.rateWindowMs ?? RATE_WINDOW_MS
-  const counted: number[] = []
-  const withinRate = (): boolean => {
-    const now = performance.now()
-    while (counted.length > 0 && now - (counted[0] ?? now) >= rateWindowMs) counted.shift()
-    if (counted.length >= limits.framesPerMinute) return false
-    counted.push(now)
-    return true
-  }
+  // Counted for the student, from the upgrade on (their key says who they are), whatever connection the frames come on:
+  // at most `framesPerMinute` in any window, on real time. A frame past them is answered `rate_limited`, and does not
+  // count.
+  const withinRate = (): boolean => frames.allow(studentId, performance.now())
 
   // Attached before anything is awaited, so no frame is missed. Whether a frame is within the rate is decided when it
   // comes, not when its turn does; its answer still comes in order.

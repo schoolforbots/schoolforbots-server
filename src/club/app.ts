@@ -6,10 +6,11 @@ import type { SchoolConfig } from '../shared/config.js'
 import { databaseAlive, registerHealthz } from '../shared/healthz.js'
 import type { Maintenance } from '../shared/maintenance.js'
 import { inetAddress } from '../shared/net.js'
+import { RateWindow } from '../shared/rate-window.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
 import type { Club } from './club.js'
-import { MAX_FRAME_BYTES, serveConnection } from './connection.js'
+import { MAX_FRAME_BYTES, RATE_WINDOW_MS, serveConnection } from './connection.js'
 import type { ClubClosed } from './hours.js'
 
 export interface ClubDeps {
@@ -25,7 +26,7 @@ export interface ClubDeps {
   helloTimeoutMs?: number
   /** How often every connection is pinged, in real milliseconds. Default `PING_INTERVAL_MS`, as in the class. */
   pingIntervalMs?: number
-  /** The window `club.connection.framesPerMinute` counts a connection's frames in. Default a minute. */
+  /** The window `club.connection.framesPerMinute` counts a student's frames in. Default a minute. */
   rateWindowMs?: number
   /**
    * Whether the service is stopping: from then on nobody comes in, and a hello still going is answered with
@@ -79,6 +80,11 @@ export function buildClubApp(deps: ClubDeps): FastifyInstance {
   }
   // The student each upgrade's key belongs to, from the auth hook to the WebSocket handler.
   const students = new WeakMap<FastifyRequest, number>()
+  // The frames of each student let through in the last window, over all their connections.
+  const frames = new RateWindow<number>({
+    limit: deps.config.club.connection.framesPerMinute,
+    windowMs: deps.rateWindowMs ?? RATE_WINDOW_MS,
+  })
 
   registerHealthz(app, deps.healthCheck ?? (() => databaseAlive(deps.db)))
 
@@ -119,7 +125,7 @@ export function buildClubApp(deps: ClubDeps): FastifyInstance {
         try {
           if (studentId === undefined) throw new Error('The upgrade reached the handler without a student')
           // The peer's address, or behind a trusted proxy the client's it names (see `ClubDeps.trustProxy`).
-          serveConnection(deps, socket, { studentId, ip: inetAddress(request.ip), log: request.log })
+          serveConnection(deps, socket, { studentId, ip: inetAddress(request.ip), log: request.log, frames })
         } catch (err) {
           request.log.error({ err }, 'club connection failed')
           noteInternalError()
