@@ -352,21 +352,27 @@ describe('POST /v1/key-resets: the mail goes out after the reply', () => {
     }
   })
 
-  test('a mail that cannot be sent still gets 202 and is logged, and the reset stays like a decoy', async () => {
+  test('a mail that cannot be sent still gets 202 and is logged by its code only, and the reset stays like a decoy', async () => {
     const logs = captureLogs()
     await t.destroy()
     t = await buildTestApp({ logger: { level: 'info', stream: logs.stream } })
     const student = await insertStudent(t.db, owner)
     const body = { studentId: student.id, ...owner }
-    vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(new Error('smtp down'))
+    vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(
+      Object.assign(new Error('connect ECONNREFUSED 192.0.2.1:465 while sending to owner@example.com'), {
+        code: 'ECONNECTION',
+        command: 'CONN',
+      }),
+    )
 
     const res = await requestReset(body)
     expect(res.statusCode).toBe(202)
     expect(Value.Check(KeyResetAccepted, res.json())).toBe(true)
-    expect(res.body).not.toContain('smtp down')
+    expect(res.body).not.toContain('ECONNREFUSED')
 
     await vi.waitFor(() => expect(logs.entries().filter((e) => e.level >= 50)).toHaveLength(1))
-    expect(logs.entries().filter((e) => e.level >= 50)[0]).toMatchObject({ err: { message: 'smtp down' } })
+    expect(logs.entries().filter((e) => e.level >= 50)[0]).toMatchObject({ code: 'ECONNECTION' })
+    expect(JSON.stringify(logs.entries())).not.toContain('owner@example.com')
 
     // A repeat gets the answer a decoy would get; only after the window can the owner ask again.
     expect(seen(await requestReset(body))).toEqual([429, 'resend_too_soon'])
@@ -378,6 +384,31 @@ describe('POST /v1/key-resets: the mail goes out after the reply', () => {
     await t.app.close()
     expect(await resetRow(resetIdOf(res))).toMatchObject({ studentId: student.id, attempts: 0, usedAt: null })
     expect(await resetRows()).toHaveLength(2)
+  })
+
+  test('a refused recipient gets the same 202, and the log has no address', async () => {
+    const logs = captureLogs()
+    await t.destroy()
+    t = await buildTestApp({ logger: { level: 'info', stream: logs.stream } })
+    const student = await insertStudent(t.db, owner)
+    const send = vi.spyOn(t.mailer, 'sendCode').mockRejectedValueOnce(
+      Object.assign(new Error('Recipient command failed: 550 5.1.1 <owner@example.com>: no such user'), {
+        code: 'EENVELOPE',
+        command: 'RCPT TO',
+        responseCode: 550,
+        rejected: ['owner@example.com'],
+      }),
+    )
+
+    const res = await requestReset({ studentId: student.id, ...owner })
+    expect(res.statusCode).toBe(202)
+    expect(Value.Check(KeyResetAccepted, res.json())).toBe(true)
+    expect(send).toHaveBeenCalledOnce()
+
+    // Closing waits for the mail to be over, and with it any log line about it.
+    await t.app.close()
+    expect(logs.entries().filter((e) => e.level >= 50)).toEqual([])
+    expect(JSON.stringify(logs.entries())).not.toContain('owner@example.com')
   })
 
   test('closing the app waits for a mail that is still being sent', async () => {

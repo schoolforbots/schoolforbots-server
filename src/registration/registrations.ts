@@ -1,4 +1,5 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
+import type { FastifyBaseLogger } from 'fastify'
 import type { Kysely } from 'kysely'
 import { Type, type Static } from 'typebox'
 import { IsEmail } from 'typebox/format'
@@ -16,6 +17,7 @@ import type { RegistrationDeps } from './app.js'
 import { isAiSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy, suspensionOfAi } from './capacity.js'
 import { assignQueuedNow } from './daily-job.js'
 import { ApiError, invalidNameError } from './errors.js'
+import { isMailServiceFault, mailErrorKind } from './mail-errors.js'
 import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
 const MINUTE_MS = 60_000
@@ -29,7 +31,7 @@ export function registrationRoutes(deps: RegistrationDeps): FastifyPluginAsyncTy
       '/v1/registrations',
       { config: codeRouteConfig(deps.config), schema: { body: RegistrationRequest, response: { 202: RegistrationAccepted } } },
       async (request, reply) => {
-        const accepted = await createRegistration(deps, request.body, request.ip)
+        const accepted = await createRegistration(deps, request.body, request.ip, request.log)
         return reply.status(202).send(accepted)
       },
     )
@@ -76,6 +78,7 @@ async function createRegistration(
   deps: RegistrationDeps,
   body: Static<typeof RegistrationRequest>,
   rawIp: string,
+  log: FastifyBaseLogger,
 ): Promise<Static<typeof RegistrationAccepted>> {
   const { db, config, moderator, mailer, clock } = deps
 
@@ -187,7 +190,12 @@ async function createRegistration(
     await mailer.sendCode(email, 'register', code)
   } catch (err) {
     await db.deleteFrom('registrations').where('id', '=', registrationId).execute()
-    throw err
+    // Neither is an internal error: a refused address is the owner's to fix, and a fault of the mail service already
+    // counts for the mail_failed alert. The error itself is never logged, as it can carry the address; a refused
+    // address is logged by the mailer (`withMailFailures`), a fault only here, by its code.
+    if (!isMailServiceFault(err)) throw new ApiError(400, 'email_undeliverable')
+    log.warn({ code: mailErrorKind(err) }, 'could not send the registration code')
+    throw new ApiError(503, 'mail_unavailable')
   }
 
   return { registrationId, expiresAt: expiresAt.toISOString() }
