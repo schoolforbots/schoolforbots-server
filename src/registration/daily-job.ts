@@ -3,7 +3,7 @@ import { dropStaleMemberships } from '../club/members.js'
 import { inactivityCutoffDay } from '../shared/calendar.js'
 import type { Clock } from '../shared/clock.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
-import { MEMBER_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
+import { MEMBER_STATUSES, lastSeenAt, lock, slotLockKey, type Database } from '../shared/db.js'
 import { allMaintenanceDays } from '../shared/maintenance.js'
 import { displayName, nameKey } from '../shared/identity.js'
 import { atLocalTime, localDate, startOfLocalDay } from '../shared/local-time.js'
@@ -102,16 +102,15 @@ export async function assignQueuedNow(
 
 /**
  * Active students not seen since before `cutoff`, the start of the local day that the last inactivityDropDays days
- * that are not a holiday began on, are dropped; a student who never came counts from assignment. A student let back
- * after a suspension counts from then, if later: while suspended there was no lesson to come to. (`greatest` leaves
- * out a null `reinstated_at`.)
+ * that are not a holiday began on, are dropped; a student who never came counts from assignment, and one let back after
+ * a suspension from then, if later (see `lastSeenAt`).
  */
 async function dropInactive(trx: Trx, cutoff: Date): Promise<number> {
   const result = await trx
     .updateTable('students')
     .set({ status: 'dropped', classId: null })
     .where('status', '=', 'active')
-    .where((eb) => eb.fn('greatest', [eb.fn.coalesce('lastAttendedAt', 'assignedAt'), eb.ref('reinstatedAt')]), '<', cutoff)
+    .where(lastSeenAt, '<', cutoff)
     .executeTakeFirstOrThrow()
   return Number(result.numUpdatedRows)
 }
