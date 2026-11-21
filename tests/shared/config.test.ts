@@ -140,7 +140,7 @@ test('loadEnv requires DATABASE_URL and fills defaults', () => {
     mailFrom: '机器人网校 <no-reply@example.com>', moderationDataDir: 'data/moderation',
     configPath: 'config/school.json', schoolRulesDir: 'school-rules', registrationPort: 8080, trustProxy: false,
     classPort: 8081, classTimelineSpeed: 1,
-    promptsDir: 'data/prompts', operatorEmail: null, admin: null, llmFake: false,
+    promptsDir: 'data/prompts', operatorEmail: null, admin: null, llmFake: false, devAssignOnVerify: false,
   })
 })
 
@@ -170,7 +170,7 @@ test('loadEnv reads overrides', () => {
     mail: { transport: 'smtp', smtpUrl: 'smtp://mail:25' }, mailFrom: 'a <a@b.c>',
     moderationDataDir: '/m', configPath: '/c.json', schoolRulesDir: '/r', registrationPort: 9090, trustProxy: true,
     classPort: 9091, classTimelineSpeed: 60,
-    promptsDir: 'data/prompts', operatorEmail: null, admin: null, llmFake: false,
+    promptsDir: 'data/prompts', operatorEmail: null, admin: null, llmFake: false, devAssignOnVerify: false,
   })
   expect(loadEnv({ DATABASE_URL: 'postgres://x', SMTP_URL: 'smtp://mail:25', TRUST_PROXY: '0' }).trustProxy).toBe(false)
 })
@@ -927,6 +927,13 @@ describe('the admin and model variables of loadEnv', () => {
     expect(loadEnv({ ...base, LLM_FAKE: '0' }).llmFake).toBe(false)
     expect(() => loadEnv({ ...base, LLM_FAKE: '1', NODE_ENV: 'production' })).toThrow(/LLM_FAKE.*NODE_ENV=production/)
     expect(loadEnv({ ...base, NODE_ENV: 'production' }).llmFake).toBe(false)
+  })
+
+  test('DEV_ASSIGN_ON_VERIFY=1 assigns at once, but never with NODE_ENV=production', () => {
+    expect(loadEnv(base).devAssignOnVerify).toBe(false)
+    expect(loadEnv({ ...base, DEV_ASSIGN_ON_VERIFY: '1' }).devAssignOnVerify).toBe(true)
+    expect(loadEnv({ ...base, DEV_ASSIGN_ON_VERIFY: '0' }).devAssignOnVerify).toBe(false)
+    expect(() => loadEnv({ ...base, DEV_ASSIGN_ON_VERIFY: '1', NODE_ENV: 'production' })).toThrow(/DEV_ASSIGN_ON_VERIFY.*NODE_ENV=production/)
   })
 })
 

@@ -19,6 +19,7 @@ import type { StudentStatus } from '../shared/schema.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf, type StudentRow } from './auth.js'
 import { isAiSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
+import { assignQueuedNow } from './daily-job.js'
 import { ApiError, invalidNameError } from './errors.js'
 
 const DAY_MS = 24 * 60 * 60_000
@@ -313,6 +314,8 @@ async function reEnrollStudent(
         })
         .where('id', '=', student.id)
         .execute()
+      // Local development only: a class now, not at midnight (the slot lock is held, as for verify).
+      if (deps.assignOnVerify && status === 'pending') await assignQueuedNow(trx, config, now, student.division, student.slot)
       return { status }
     })
   } catch (err) {

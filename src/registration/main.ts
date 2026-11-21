@@ -29,6 +29,7 @@ async function main(): Promise<void> {
   // The model's prompts and providers are read before anything starts: a missing prompt file or key stops the start.
   const prompts = loadPrompts(env.promptsDir)
   const providers = env.llmFake ? {} : buildProviders(config, process.env)
+  if (env.devAssignOnVerify) console.warn('[registration] DEV_ASSIGN_ON_VERIFY=1：验证通过、重新入学的学生马上分班，不等夜里（仅限本地开发和自动化测试使用）')
   if (env.llmFake) console.warn('[registration] LLM_FAKE=1：大模型的每次调用都只拿写死的回复，不联网也不花钱（仅限本地开发使用）')
 
   const db = createDb(env.databaseUrl, env.databaseTimeouts)
@@ -104,6 +105,7 @@ async function main(): Promise<void> {
     maintenance,
     schoolRules,
     trustProxy: env.trustProxy,
+    assignOnVerify: env.devAssignOnVerify,
     onInternalError: () => noteEvent('internal_error'),
     mailHealth,
     logger: { level: process.env.LOG_LEVEL ?? 'info' },

@@ -187,6 +187,25 @@ describe('GET /v1/me', () => {
   })
 })
 
+describe('re-enroll with DEV_ASSIGN_ON_VERIFY', () => {
+  test('a returner is put into a class at once', async () => {
+    await t.destroy()
+    t = await buildTestApp({ assignOnVerify: true })
+    const { key } = await insertStudent(t.db, { status: 'dropped', classId: null })
+    const res = await t.app.inject({
+      method: 'POST',
+      url: '/v1/me/re-enroll',
+      headers: { authorization: `Bearer ${key}` },
+      payload: { schoolRulesVersion: t.schoolRules.current.version },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ status: 'pending' })
+    const me = await getMe(`Bearer ${key}`)
+    expect(me.json()).toMatchObject({ status: 'active' })
+    expect(me.json<{ className: string | null }>().className).not.toBeNull()
+  })
+})
+
 describe('POST /v1/me/withdraw', () => {
   const bearer = (key: string) => ({ authorization: `Bearer ${key}` })
 

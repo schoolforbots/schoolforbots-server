@@ -643,6 +643,11 @@ export interface Env {
   admin: { path: string; passwordHash: string; totpSecret: string } | null
   /** Answers every model call with a canned reply. Only for local development; with `NODE_ENV=production` it is refused. */
   llmFake: boolean
+  /**
+   * Puts a student into a class as soon as they verify (or re-enroll), instead of at the next midnight. Only for local
+   * development and automated tests (`DEV_ASSIGN_ON_VERIFY=1`); with `NODE_ENV=production` it is refused.
+   */
+  devAssignOnVerify: boolean
 }
 
 /** What the class service reads from the environment: what it uses, and no mail settings, which it never does. */
@@ -781,6 +786,15 @@ function parseAdmin(get: Get, warn: (message: string) => void): Env['admin'] {
     return null
   }
   return { path, passwordHash, totpSecret }
+}
+
+function parseDevAssignOnVerify(get: Get): boolean {
+  const on = get('DEV_ASSIGN_ON_VERIFY') === '1'
+  // In production a newcomer would land in a class the same day, which the nightly assignment is there to avoid.
+  if (on && get('NODE_ENV') === 'production') {
+    throw new Error('DEV_ASSIGN_ON_VERIFY=1 is for local development only: with NODE_ENV=production it must not be set')
+  }
+  return on
 }
 
 function parseLlmFake(get: Get): boolean {
@@ -933,5 +947,6 @@ export function loadEnv(env: NodeJS.ProcessEnv, warn: (message: string) => void 
     operatorEmail: get('OPERATOR_EMAIL') ?? null,
     admin,
     llmFake,
+    devAssignOnVerify: parseDevAssignOnVerify(get),
   }
 }

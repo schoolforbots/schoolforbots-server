@@ -86,6 +86,21 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
 }
 
 /**
+ * Local development only (`DEV_ASSIGN_ON_VERIFY=1`): put the pending students of one division and slot into a class
+ * now, the newly queued ones included, instead of at the next midnight. The caller holds the slot's lock, as verify
+ * and re-enroll do, the same lock the nightly job takes.
+ */
+export async function assignQueuedNow(
+  trx: Trx,
+  config: SchoolConfig,
+  now: Date,
+  division: Division,
+  slot: Slot,
+): Promise<{ assigned: number; classesCreated: number }> {
+  return assignPending(trx, config, now, new Date(now.getTime() + 1), { division, slot })
+}
+
+/**
  * Active students not seen since before `cutoff`, the start of the local day that the last inactivityDropDays days
  * that are not a holiday began on, are dropped; a student who never came counts from assignment.
  */
@@ -138,7 +153,8 @@ async function assignPending(
   trx: Trx,
   config: SchoolConfig,
   now: Date,
-  today: Date,
+  queuedBefore: Date,
+  only?: { division: Division; slot: Slot },
 ): Promise<{ assigned: number; classesCreated: number }> {
   const { count } = await trx
     .selectFrom('classes')
@@ -148,15 +164,15 @@ async function assignPending(
 
   let assigned = 0
   let classesCreated = 0
-  for (const division of DIVISIONS) {
-    for (const slot of SLOTS) {
+  for (const division of only ? [only.division] : DIVISIONS) {
+    for (const slot of only ? [only.slot] : SLOTS) {
       const pending = await trx
         .selectFrom('students')
         .select(['id', 'ownerName', 'aiName'])
         .where('division', '=', division)
         .where('slot', '=', slot)
         .where('status', '=', 'pending')
-        .where('queuedAt', '<', today)
+        .where('queuedAt', '<', queuedBefore)
         .orderBy('queuedAt')
         .orderBy('id')
         .execute()

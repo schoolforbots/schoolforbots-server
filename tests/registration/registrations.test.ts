@@ -548,6 +548,26 @@ describe('POST /v1/registrations', () => {
 })
 
 describe('POST /v1/registrations/:id/verify', () => {
+  test('with DEV_ASSIGN_ON_VERIFY the student is in a class right after verifying, and is still told pending', async () => {
+    await t.destroy()
+    t = await buildTestApp({ assignOnVerify: true })
+    const { registrationId, code } = await registerOk()
+    const res = await verify(registrationId, code)
+    expect(res.statusCode).toBe(201)
+    const { key, status } = res.json<{ key: string; status: string }>()
+    expect(status).toBe('pending')
+    const me = await t.app.inject({ method: 'GET', url: '/v1/me', headers: { authorization: `Bearer ${key}` } })
+    expect(me.json()).toMatchObject({ status: 'active' })
+    expect(me.json<{ className: string | null }>().className).not.toBeNull()
+  })
+
+  test('without DEV_ASSIGN_ON_VERIFY a new student waits for the nightly assignment', async () => {
+    const { registrationId, code } = await registerOk()
+    const { key } = (await verify(registrationId, code)).json<{ key: string }>()
+    const me = await t.app.inject({ method: 'GET', url: '/v1/me', headers: { authorization: `Bearer ${key}` } })
+    expect(me.json()).toMatchObject({ status: 'pending', className: null })
+  })
+
   test('verify with the right code returns key and pending status', async () => {
     const aiId = randomUUID()
     const { registrationId, code } = await registerOk({ aiId })
