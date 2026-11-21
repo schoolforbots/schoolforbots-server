@@ -156,7 +156,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
   - `direction`：课程的方向，一条一项，放进写课的提示词里。
 - `teacherAi`：`questionSampleSize` 是一段的提问最多交给大模型几个（多了就随机抽）；`answerLeadSeconds` 是老师在下一段开始前多久开始答疑（必须比最短的一段短）；`commentTimeoutSeconds` 是点评最多等多久。
 - `secondLayer` 是词库之后的第二层自动审核：`implementation` 是 `off` 或 `llm`（用大模型，走 `secondLayerTeacher` 和 `secondLayerChat` 两种用途），`batchMillis` 和 `timeoutSeconds` 管它的时间。改了要重启；运行时用开关打开或关掉它的两部分。
-- `switchDefaults` 是每个开关的初始值，在后台第一次切换这个开关之前用它；`switchRefreshSeconds` 是报名和上课两个服务隔多久读一次开关，也是社团服务隔多久读一次“维护中”（见“维护”）。
+- `switchDefaults` 是每个开关的初始值，在后台第一次切换这个开关之前用它；`switchRefreshSeconds` 是报名和上课两个服务隔多久读一次开关，也是社团服务隔多久读一次“维护中”（见“维护”）；上课和社团两个服务也按这个间隔查一次在线学生的状态（见下面“准备后台”里的查学生）。
 - `alerts` 决定报名服务什么时候给 `OPERATOR_EMAIL` 发出了问题的邮件（整块和其中每一项都可以省，省了就用示例配置里的值）。它每分钟检查一次，每一类问题发一封，同一类一小时最多一封（`repeatAfterMinutes`；上次发信的时间存在数据库里，所以重启不会重发）。各类和它们的条件：
   - `internalErrors`：`minutes` 分钟里意外错误至少 `count` 次（报名服务回 HTTP 500，上课服务的节拍失败或连接里出了意外，社团服务的节拍失败、房间出错或连接里出了意外，三个服务合计）。
   - `llmDownMinutes`：最近这么多分钟里，大模型至少失败 3 次、一次成功也没有。
@@ -205,6 +205,8 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 改后台页面时，`npm run admin:dev` 在 `http://localhost:5173/` 提供页面，把页面调用的接口转给正在运行的报名服务（它从 `.env` 读 `ADMIN_PATH`）；`npm run admin:test` 跑页面的测试。
 
 后台有五个标签：学校数据（今天截至现在的数字和上周同一天同一时刻之前比，下了课就能看；昨天的数字和上周同一天比；各种提醒、大模型花费和预算；最近 7、30、90 天的折线图，画到昨天为止）、审课（以后几天的课，见下面）、每周复盘（每周一 0 点的任务跑完后生成）、查学生（一个同学的资料、消息和记录；可以手动停课、退学或解除处罚）和开关。
+
+在查学生页停课或退学、学生自己退学（`POST /v1/me/withdraw`）、学生被开除，都在几秒内对连着的学生生效，正在上的课也一样：上课服务和社团服务每隔 `switchRefreshSeconds` 查一次在线学生的状态，不能再留下的发对应的 `closing` 后断开（停课是 `suspended`，开除是 `expelled`；退学的，上课是 `session_over`，社团是 `not_member`）。
 
 ### 维护
 
@@ -579,7 +581,7 @@ npm run typecheck   # 类型检查
 
 - `calendar.openingDay`（`YYYY-MM-DD`）是开学第一天。在这之前学校算放假。不写的话，学校从一开始就算开学。开学以后也要一直在配置里留着 `openingDay`，已经放完的假期也要留着：算 `inactivityDropDays` 的天数时要读它们。删掉以后，开学前的日子、放完的假期都会算成上学的日子，当天夜里的任务就可能一下子让很多学生自动退学，比如开学前分好班、开学后还没来上过课的学生。
 - `calendar.breaks` 是一个列表，每项是 `{ "from", "reopensOn", "name", "speech" }`。一段假期从 `from` 那天起，到 `reopensOn`（学校开学的那天）的前一天为止。`reopensOn` 可以是 `null`，表示开学日还没定；只有最后一段假期可以这样。`name`（比如 `寒假`）可以不写，老师的通知、`closing` 消息和接口里都会用到它。日期必须是真实存在的日期，假期之间不能重叠，也不能早于开学日，否则服务拒绝启动。接口和 `closing` 消息里给出的开学日，是 `reopensOn` 当天或之后的第一个上学日：`lesson.weekendStudy` 为 `false` 时，`reopensOn` 落在周末，给出的就是下周一。
-- 放假期间不开课。报名和每天夜里的分班照常进行，所以放假期间分好班的学生，开学前就能看到入学通知书和同学名单。放假的日子和开学日之前的日子，都不算进 `inactivityDropDays`。
+- 放假期间不开课。报名和每天夜里的分班照常进行，所以放假期间分好班的学生，开学前就能看到入学通知书和同学名单。放假的日子和开学日之前的日子，都不算进 `inactivityDropDays`。停课结束（到期，或者在后台解除、撤销处罚）的学生，从恢复上课那天起重新算。
 - `calendar.openingSpeech` 是开学日（`openingDay` 当天或之后的第一个上学日）老师代替平时的问候讲的话；每段假期的 `speech` 是假期结束后第一个上学日老师讲的话。它们都是一组句子；没有写 `speech` 的假期，开学日用平时的问候；讲完话之后，照常介绍当天的课。只有写了 `openingDay`，开学讲话才会讲：示例配置里有 `openingSpeech`，但没有 `openingDay`，所以加上 `openingDay` 之前没有人会听到它。
 - 讲话的句子里可以用四个占位符，写在大括号里：`{teacher}`（老师的名字）、`{className}`（班级名）、`{division}`（学部的名称）、`{classSize}`（开门时班里的学生人数）。写了别的名字，配置就算无效。
 - 假期前最后一节课下课时，老师会宣布放假：从哪天开始，哪天开学，开学日还没定就说另行通知。
@@ -623,8 +625,8 @@ npm run dev:club           # 再启动社团服务，改代码会自动重启
 - 社团在上学日（包括周末自习的日子）的每个时段关门：从开门（开课前 `lesson.doorsOpenMinutesBefore` 分钟）起，到下课后的收尾（`lesson.closingGraceSeconds`）和各班错开下课的时间（`lesson.staggerMillis`）结束为止，连在一起的时段算一段。其余时间都开，包括半夜、放假和周末放假的日子。维护期间社团也关门。
 - `connection`：一条社团连接的 `framesPerMinute`、`maxQueuedFrames`、`maxSendBufferKiB`，和 `classConnection` 的意思一样。
 - `inviteSeconds`：邀请等多久回答。`invitesPerDay`：每个学生每天（学校时区）最多发几个邀请。
-- `idleMinutes`：房间开了以后，或者一局打完以后，这么多分钟还没开局，就提示房间里的人；`idleDecideSeconds` 是给他们决定要不要陪练的时间，到时间没人选，房间关掉。
-- `disconnectGraceSeconds`：没在打牌时掉线，座位留多久。
+- `idleMinutes`：房间开了以后，或者一局打完以后，这么多分钟还没开局，就提示房间里的人；`idleDecideSeconds` 是给他们决定要不要陪练的时间，到时间没人选，房间关掉。桌子坐满、都准备好了、只等掉线的学生回来时，不提示，也不因为闲置关门，最多等到这个学生的座位到期（`disconnectGraceSeconds`）；座位空出来时已经闲置了 `idleMinutes` 分钟的，马上提示。
+- `disconnectGraceSeconds`：没在打牌时掉线，座位留多久。桌上的学生都在线才开局：有人掉线时，坐满、准备好了也不开，掉线的学生回来、凑齐了就开，到时间没回来就被请出房间。快速加入不进有学生掉线的房间。
 - `maxSpectators`：一桌最多几个人观战。
 - `reactMinIntervalSeconds`、`reactsPerGame`：互动消息两条至少隔几秒，每局最多几条。
 - `timeBankSeconds`：每局的时间银行，一步超时以后从这里扣。
