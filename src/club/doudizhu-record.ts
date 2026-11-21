@@ -1,6 +1,7 @@
 import type { Static } from 'typebox'
 import { ranksOf } from './doudizhu/cards.js'
 import { deal } from './doudizhu/deal.js'
+import { springOf } from './doudizhu/scoring.js'
 import type { GameState, Rules } from './doudizhu/index.js'
 import type { DoudizhuGameRecord } from '../protocol/club-http.js'
 import type { DoudizhuResult } from '../protocol/club.js'
@@ -66,7 +67,10 @@ export interface DoudizhuPlayerRow {
   /** The bombs and rockets the seat played. */
   readonly bombs: number
   readonly rockets: number
-  /** Whether the seat won with a spring (it was the landlord) or an anti-spring (a farmer). */
+  /**
+   * Whether the seat won with a spring (it was the landlord) or an anti-spring (a farmer), whether or not the rules
+   * double it.
+   */
   readonly spring: boolean
   readonly antiSpring: boolean
   /** As the session counted them (see `SeatCounts`). */
@@ -138,17 +142,24 @@ export function gameRecord(game: FinishedDoudizhuGame): GameRecord {
   }
 }
 
-/** The record as it is stored with the game: without `gameId`, `startedAt` and `endedAt`, with the rules. */
+/**
+ * The record as it is stored with the game: without `gameId`, `startedAt` and `endedAt`, with the rules. A deep copy:
+ * it shares nothing with `record`. Its `result` is the protocol's `DoudizhuResult` as it is, so it still carries
+ * `gameId` and `ranked` (the same as the game's own columns).
+ */
 export function storedRecord(record: GameRecord, rules: Rules): StoredDoudizhuRecord {
   const { gameId: _gameId, startedAt: _startedAt, endedAt: _endedAt, ...rest } = record
-  return { ...rest, rules: { ...rules } }
+  return structuredClone({ ...rest, rules: { ...rules } })
 }
 
 /** One row for each student seat of a finished game, by seat; none for the bots. Throws unless the game is over. */
 export function playerRows(game: FinishedDoudizhuGame): DoudizhuPlayerRow[] {
   const result = resultOf(game)
-  const springWon = result.doublings.some((d) => d.kind === 'spring')
-  const antiSpringWon = result.doublings.some((d) => d.kind === 'anti_spring')
+  // A spring or anti-spring counts whether or not the rules double it (`springDoubles`), so it is worked out from the
+  // moves each seat played, not from the doublings. `movesBy` counts every deal, but only the last deal is ever played
+  // (a redeal comes before any play), so it is the last deal's.
+  const spring =
+    result.landlord === null ? null : springOf(result.landlord, result.outcome === 'landlord_won', game.state.movesBy)
   return game.players.flatMap((player, seat) => {
     if (player.bot) return []
     const role = result.landlord === null ? null : seat === result.landlord ? 'landlord' : 'farmer'
@@ -168,8 +179,8 @@ export function playerRows(game: FinishedDoudizhuGame): DoudizhuPlayerRow[] {
       endedAt: game.endedAt,
       bombs: result.doublings.filter((d) => d.kind === 'bomb' && d.seat === seat).length,
       rockets: result.doublings.filter((d) => d.kind === 'rocket' && d.seat === seat).length,
-      spring: won && role === 'landlord' && springWon,
-      antiSpring: won && role === 'farmer' && antiSpringWon,
+      spring: won && role === 'landlord' && spring === 'spring',
+      antiSpring: won && role === 'farmer' && spring === 'anti_spring',
       timeouts: counts.timeouts,
       trusteeMoves: counts.trusteeMoves,
       illegalMoves: counts.illegalMoves,

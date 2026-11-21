@@ -3,6 +3,7 @@ import Value from 'typebox/value'
 import { describe, expect, test } from 'vitest'
 import { type Card, ranksOf } from '../../src/club/doudizhu/cards.js'
 import { deal } from '../../src/club/doudizhu/deal.js'
+import { springOf } from '../../src/club/doudizhu/scoring.js'
 import { DEFAULT_DOUDIZHU_RULES, type RandomInt, replay, type Rules } from '../../src/club/doudizhu/index.js'
 import type { DoudizhuGameEntry } from '../../src/club/doudizhu-record.js'
 import { gameRecord, playerRows } from '../../src/club/doudizhu-record.js'
@@ -190,6 +191,8 @@ function checkEntry(entry: DoudizhuGameEntry, players: readonly SeatPlayer[], ru
   const { gameId: _g, startedAt: _s, endedAt: _e, ...rest } = record
   expect(entry.stored).toEqual({ ...rest, rules })
   expect(entry.stored).not.toHaveProperty('gameId')
+  expect(entry.stored.result).not.toBe(record.result)
+  expect(entry.stored.actions).not.toBe(record.actions)
   expect(entry.players.map((r) => r.seat)).toEqual([0, 1, 2].filter((seat) => !players[seat]!.bot))
   for (const row of entry.players) {
     const player = players[row.seat]!
@@ -206,6 +209,15 @@ function checkEntry(entry: DoudizhuGameEntry, players: readonly SeatPlayer[], ru
       expect(row.won).toBe(row.score > 0)
     }
     if (row.spring || row.antiSpring) expect(row.won).toBe(true)
+    // A spring is the engine's verdict on the moves played, whatever the rules double.
+    const { landlord, outcome } = record.result
+    const plays = (seat: number) => record.actions.filter((a) => a.action === 'play' && a.seat === seat)
+    const verdict = landlord === null ? null : springOf(landlord, outcome === 'landlord_won', [0, 1, 2].map((s) => plays(s).length))
+    expect(row.spring).toBe(row.won && row.role === 'landlord' && verdict === 'spring')
+    expect(row.antiSpring).toBe(row.won && row.role === 'farmer' && verdict === 'anti_spring')
+    const played = (type: string) => plays(row.seat).filter((a) => a.action === 'play' && a.move.type === type).length
+    expect(row.bombs).toBe(played('bomb'))
+    expect(row.rockets).toBe(played('rocket'))
   }
   // Nothing in the record says where anyone played from.
   expect(JSON.stringify(record)).not.toMatch(/10\.0\.0\./)
@@ -289,6 +301,32 @@ describe('the record of a game', () => {
       expect(row).toMatchObject({ role: 'farmer', won: false, bombs: 0, rockets: 0, spring: false, antiSpring: false })
     }
     expect(g.entry.stored.rules.cap).toBe(4)
+  })
+
+  test('a spring counts when the rules do not double it', () => {
+    const rules: Rules = { ...DEFAULT_DOUDIZHU_RULES, springDoubles: false }
+    const g = new Game(students, { decks: [QUICK_DECK], rules })
+    g.start(0)
+    g.bid(0, 1, 3)
+    g.play(0, 2, '3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 10 J J Q Q', 'pair_straight')
+    checkEntry(g.entry, students, rules)
+    expect(g.entry.record.result).toMatchObject({ doublings: [], multiplier: 1 })
+    expect(g.entry.players[0]).toMatchObject({ role: 'landlord', won: true, spring: true, antiSpring: false })
+  })
+
+  test('an anti-spring counts when the rules do not double it', () => {
+    const rules: Rules = { ...DEFAULT_DOUDIZHU_RULES, springDoubles: false }
+    const g = new Game(students, { decks: [ANTI_SPRING_DECK], rules })
+    g.start(0)
+    g.bid(0, 1, 3)
+    g.play(0, 2, '3', 'single')
+    g.play(1, 3, '小王 大王', 'rocket')
+    g.pass(2, 4)
+    g.pass(0, 5)
+    g.play(1, 6, '4 4 4 5 5 5 6 6 6 7 7 7 8 8 8', 'trio_straight')
+    checkEntry(g.entry, students, rules)
+    expect(g.entry.record.result.doublings).toEqual([{ kind: 'rocket', seat: 1 }])
+    expect(g.entry.players.map((r) => r.antiSpring)).toEqual([false, true, true])
   })
 
   test('an anti-spring, the rocket a farmer’s', () => {
