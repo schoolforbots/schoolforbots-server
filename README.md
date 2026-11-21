@@ -259,7 +259,7 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 
 ## 部署
 
-学校打包成一个 Docker 镜像（`ghcr.io/schoolforbots/server`，由 `Dockerfile` 构建）：编译好的服务器（`npm run build` 把产物写进 `dist/`）、生产依赖、后台页面、校规，以及示例提示词、示例词库和示例配置。镜像以 `node` 用户运行，启动命令决定跑哪个程序：`node dist/registration/main.js`、`node dist/class/main.js`，或者某个工具 `node dist/tools/<名字>.js`。
+学校打包成一个 Docker 镜像（`ghcr.io/schoolforbots/server`，由 `Dockerfile` 构建）：编译好的服务器（`npm run build` 把产物写进 `dist/`）、生产依赖、后台页面、校规，以及示例提示词、示例词库和示例配置。镜像以 `node` 用户运行，启动命令决定跑哪个程序：`node dist/registration/main.js`、`node dist/class/main.js`、`node dist/club/main.js`，或者某个工具 `node dist/tools/<名字>.js`。
 
 `deploy/compose.yml` 把它跑起来：
 
@@ -268,15 +268,16 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 | `postgres` | `postgres:17-alpine`，带数据卷，不开端口。 |
 | `registration` | 报名服务。启动时升级数据库。 |
 | `class` | 上课服务。等 `registration` 健康之后才启动。 |
-| `caddy` | 开 80 和 443 的代理，证书对应 `SCHOOL_DOMAIN`。`/v1/class` 和 `/healthz/class` 转给上课服务，其余都转给报名服务（读超时 200 秒：重写一节课最多等 180 秒）。访问日志是卷里的文件，按天滚动（到 100 MiB 也会提前滚动），滚出来的文件超过 30 天就删掉。 |
+| `club` | 社团服务。等 `registration` 健康之后才启动。停止时先让托管打完打到一半的牌局、写进库，所以停止宽限给了 30 秒（Docker 默认 10 秒，超时就强行结束）。 |
+| `caddy` | 开 80 和 443 的代理，证书对应 `SCHOOL_DOMAIN`。`/v1/class` 和 `/healthz/class` 转给上课服务，`/v1/club` 和 `/healthz/club` 转给社团服务，其余都转给报名服务（读超时 200 秒：重写一节课最多等 180 秒）。访问日志是卷里的文件，按天滚动（到 100 MiB 也会提前滚动），滚出来的文件超过 30 天就删掉。 |
 | `watchdog` | 每 30 秒把带 `school.watchdog=true`、正在运行、健康检查说不健康的容器逐个重启。手动停掉的容器不会被拉起来。 |
 | `backup` | 在服务器上用 `deploy/backup/Dockerfile` 构建（`postgres:17-alpine` 加装 `age` 和 `rclone`）。每天夜里把数据库加密备份出去（见下面的"备份"）。 |
 
 镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每次合进 `main` 都会构建它、跑 `deploy/smoke-test.sh` 和恢复演练（`deploy/backup/drill.sh`），再推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。拉取请求改到了进镜像的东西或 `deploy/` 里的文件时，也会跑这两项检查。部署请用 `sha-…` 标签，这样知道跑的是哪一版；`main` 每次合并都会移动。要退回上一版，用同样的方法部署之前的 `sha-…` 标签（见下面）。GitHub 新建的包不是公开的：第一次推送之后，要在 GitHub 上这个包的设置里（“Change visibility”）把它设为公开；在此之前不登录就拉不下这个镜像。
 
-把 `deploy/env.example` 复制成 `deploy/.env`，把 `deploy/backup.env.example` 复制成 `deploy/backup.env`，都填好。`env.example` 列的是 compose 自己要的变量，和正式运行的学校要设的服务变量；其余的变量见根目录的 `.env.example` 和上面的“环境变量”。`backup.env` 放备份的设置（见下面的“备份”），只有 `backup` 服务读它，所以能删备份的存储密钥到不了面向互联网的那些服务。真实的 `school.json`、`prompts/` 和 `moderation/` 放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。这两个环境变量文件和这个文件夹都不提交。
+把 `deploy/env.example` 复制成 `deploy/.env`，把 `deploy/backup.env.example` 复制成 `deploy/backup.env`，都填好。`env.example` 列的是 compose 自己要的变量，和正式运行的学校要设的服务变量；其余的变量见根目录的 `.env.example` 和上面的“环境变量”。`backup.env` 放备份的设置（见下面的“备份”），只有 `backup` 服务读它，所以能删备份的存储密钥到不了面向互联网的那些服务。真实的 `school.json`、`prompts/`、`moderation/` 和社团的词表放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。这两个环境变量文件和这个文件夹都不提交。
 
-更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 和 `backup.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。
+更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 和 `backup.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；重建 `club` 并等到健康；再把其余服务拉起来。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。社团服务不等空闲：停止时打到一半的牌局由托管替所有人打完、写进库，再断开连接。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。
 
 部署时还要注意：
 
@@ -284,9 +285,12 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 - `deploy.sh` 不重启 Caddy。改了 `Caddyfile` 之后，在 `deploy/` 里运行 `docker compose restart caddy`。
 - `SCHOOL_PRIVATE_DIR` 这个文件夹和里面的所有文件，都要让 uid 1000（镜像里的 `node` 用户）读得到。
 - 第一次启动时用 `--now` 没有关系：还没有课要等。
-- 服务只在启动时读 `school.json`。改了之后，要重启用到改动部分的服务：比如 `alerts`（像 `backupExpected`）是报名服务读的（在 `deploy/` 里运行 `docker compose restart registration`）。要两个服务都重启、又不打断正在上的课，就用现在跑着的标签再运行一次 `deploy/deploy.sh`。
+- 服务只在启动时读 `school.json`。改了之后，要重启用到改动部分的服务：比如 `alerts`（像 `backupExpected`）是报名服务读的（在 `deploy/` 里运行 `docker compose restart registration`）。要几个服务都重启、又不打断正在上的课，就用现在跑着的标签再运行一次 `deploy/deploy.sh`。
+- 社团默认是开的（`club.enabled` 默认是 `true`）。正式开放社团之前，运营者可以在 `school.json` 里写 `"club": { "enabled": false }`：社团服务照常运行，但谁也进不去。要开放时改成 `true`，再重启社团服务和报名服务（`GET /v1/school-calendar` 里的 `clubs` 由报名服务给出）：在 `deploy/` 里运行 `docker compose restart club registration`。
+- 社团的短语表和 emoji 白名单要放真实的版本：放进 `SCHOOL_PRIVATE_DIR` 这个文件夹（比如 `club/` 下），`school.json` 的 `club.wordLists` 指过去（比如 `/app/private/club/doudizhu-phrases.json`）。没放时社团服务改用镜像里的示例文件，并在日志里提醒（见“社团”）。
+- 社团服务停止时最多等 `club.recordDrainSeconds` 秒（默认 10 秒）让牌局写进库，加上每个服务都有的 10 秒停止时间。把它调大时，`compose.yml` 里 `club` 的 `stop_grace_period` 也要跟着调大，否则 Docker 会在牌局写完之前强行结束它。
 
-报名服务和上课服务都有 `GET /healthz`（见上文），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康。启动后有一段宽限期，期间失败不算：报名服务是 10 分钟，因为它跑完迁移才应答，这样迁移跑得久也不会被中途重启（`deploy.sh` 也等它这么久）；上课服务是 60 秒。有一次检查通过，宽限期就结束。看门狗就看这个状态。
+报名、上课和社团三个服务都有 `GET /healthz`（见上文和“社团”），Docker 每 30 秒用 `node dist/tools/healthcheck.js <端口>` 查一次：连续 3 次失败算不健康。启动后有一段宽限期，期间失败不算：报名服务是 10 分钟，因为它跑完迁移才应答，这样迁移跑得久也不会被中途重启（`deploy.sh` 也等它这么久）；上课服务和社团服务是 60 秒。有一次检查通过，宽限期就结束。看门狗就看这个状态。
 
 服务的日志走 Docker 的 `journald` 驱动，所以这些日志（包括请求日志）保留多久，由服务器上的 journald 决定。journald 不另外设置的话，只按大小删、不按时间删，而校规说请求日志保存一段时间后会自动删除。在服务器的 `/etc/systemd/journald.conf.d/` 下单独放一个文件设好保留期限（它会盖过 `/etc/systemd/journald.conf`，原文件保持不动），比如 `/etc/systemd/journald.conf.d/60-retention.conf`：
 
