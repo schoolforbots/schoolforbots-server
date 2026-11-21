@@ -98,7 +98,7 @@
     ]
   },
   "teacherAi": { "questionSampleSize": 30, "answerLeadSeconds": 60, "commentTimeoutSeconds": 20 },
-  "secondLayer": { "implementation": "llm", "batchMillis": 1500, "timeoutSeconds": 10 },
+  "secondLayer": { "implementation": "llm", "batchMillis": 1500, "timeoutSeconds": 10, "blocksPerStudentPerLesson": 5 },
   "switchDefaults": { "teacherLlm": true, "secondLayerTeacher": true, "secondLayerChat": false },
   "switchRefreshSeconds": 5,
   "revocationWindowDays": 30,

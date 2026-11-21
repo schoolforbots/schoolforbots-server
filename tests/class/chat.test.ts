@@ -1098,6 +1098,106 @@ describe('the chat engine', () => {
       })
     })
 
+    describe('a student it keeps stopping', () => {
+      const LIMIT = config.secondLayer.blocksPerStudentPerLesson
+      /** A second layer that stops every line but those starting with 好, counting the lines it is asked about. */
+      function stopping() {
+        const checked: string[] = []
+        const secondLayer: SecondLayer = {
+          async check(_source, text) {
+            checked.push(text)
+            return text.startsWith('好') ? 'pass' : 'blocked'
+          },
+        }
+        return { secondLayer, checked }
+      }
+      const capLogs = () => logged.filter((e) => (e as { msg: string }).msg.startsWith('second layer limit reached'))
+
+      test('the default limit is 5', () => {
+        expect(LIMIT).toBe(5)
+      })
+
+      test('past the limit of lines stopped, its lines are answered as stopped without asking it, and are not kept', async () => {
+        const { secondLayer, checked } = stopping()
+        engine = newEngine({ secondLayer })
+        const a = await joined()
+        const b = await joined()
+        const c3 = await joined()
+        // First lines and replies count together.
+        expect(await engine.start(a, c3.studentId, '不合适的话1')).toEqual(failure('blocked', { category: 'sensitive' }))
+        const c = await open(b, a, '好，聊聊吗')
+        sent()
+        for (let i = 2; i <= LIMIT; i++) {
+          expect(await engine.reply(a, c, `不合适的话${i}`)).toEqual(failure('blocked', { category: 'sensitive' }))
+        }
+        expect(checked).toHaveLength(1 + LIMIT)
+        expect(await messageRows()).toHaveLength(1 + LIMIT)
+        expect(capLogs()).toEqual([
+          { studentId: a.studentId, sessionId, limit: LIMIT, msg: expect.any(String) },
+        ])
+
+        // From here a's lines never reach the second layer and are not written, whatever they say.
+        expect(await engine.reply(a, c, '又一句')).toEqual(failure('blocked', { category: 'sensitive' }))
+        expect(await engine.reply(a, c, '好的好的')).toEqual(failure('blocked', { category: 'sensitive' }))
+        expect(checked).toHaveLength(1 + LIMIT)
+        expect(await messageRows()).toHaveLength(1 + LIMIT)
+        expect(sent()).toEqual([])
+        expect(await records()).toEqual([])
+        // Nothing is opened or used up by them: the turn is still a's, and no start was taken.
+        expect(await engine.initiationsLeft(a)).toBe(3)
+        expect(await engine.reply(b, c, '轮不到我')).toEqual(failure('not_your_turn'))
+        // Logged once only.
+        expect(capLogs()).toHaveLength(1)
+        expect(JSON.stringify(logged)).not.toContain('不合适')
+        expect(JSON.stringify(logged)).not.toContain('又一句')
+      })
+
+      test('past the limit, the word list still goes first: what it stops is a violation and is kept', async () => {
+        const { secondLayer, checked } = stopping()
+        engine = newEngine({ secondLayer })
+        const a = await joined()
+        const b = await joined()
+        for (let i = 1; i <= LIMIT; i++) await engine.start(a, b.studentId, `不合适的话${i}`)
+        expect(await engine.start(a, b.studentId, BANNED)).toEqual(failure('blocked', { category: 'sensitive' }))
+        expect(await engine.start(a, b.studentId, PHONE)).toEqual(failure('blocked', { category: 'privacy' }))
+        expect(checked).toHaveLength(LIMIT)
+        expect((await messageRows()).slice(LIMIT)).toEqual([
+          row(a, b, BANNED, { delivered: false, moderation: 'sensitive', matchedTerm: BANNED }),
+          row(a, b, PHONE, { delivered: false, moderation: 'privacy' }),
+        ])
+        expect((await records()).map((r) => r.kind)).toEqual(['school_rule', 'privacy_block'])
+      })
+
+      test('another student, and the student in the next lesson, start from 0', async () => {
+        const { secondLayer, checked } = stopping()
+        engine = newEngine({ secondLayer })
+        const a = await joined()
+        const b = await joined()
+        for (let i = 1; i <= LIMIT + 2; i++) {
+          expect(await engine.start(a, b.studentId, `不合适的话${i}`)).toEqual(failure('blocked', { category: 'sensitive' }))
+        }
+        expect(checked).toHaveLength(LIMIT)
+        expect(await messageRows()).toHaveLength(LIMIT)
+
+        // b is asked about as before.
+        expect(await engine.start(b, a.studentId, '另一句不合适的')).toEqual(failure('blocked', { category: 'sensitive' }))
+        expect(checked).toHaveLength(LIMIT + 1)
+        expect((await open(b, a, '好，你好')).length).toBeGreaterThan(0)
+
+        // The lesson ends; in the class's next session a is asked about again.
+        clock.set(CLOSE_AT)
+        engine.endAll(classId)
+        const next = await insertSession(db, { classId, date: '2026-11-03', startsAt: at('20:00', '2026-11-03'), endsAt: at('20:30', '2026-11-03') })
+        clock.set(at('20:05', '2026-11-03'))
+        const a2 = { ...a, sessionId: next, closeAt: at('20:31', '2026-11-03') }
+        const b2 = { ...b, sessionId: next, closeAt: at('20:31', '2026-11-03') }
+        await join(a2, b2)
+        expect(await engine.start(a2, b2.studentId, '新的一节')).toEqual(failure('blocked', { category: 'sensitive' }))
+        expect(checked).toHaveLength(LIMIT + 3)
+        expect(checked.at(-1)).toBe('新的一节')
+      })
+    })
+
     test('the program log names ids and the category, never the line', async () => {
       const { secondLayer } = layer(['blocked'])
       engine = newEngine({ secondLayer })

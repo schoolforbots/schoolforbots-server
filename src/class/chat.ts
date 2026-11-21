@@ -11,6 +11,7 @@ import type { Database, MessageKind } from '../shared/schema.js'
 import type { AckResult, MessageHandlers, Participant } from './connection.js'
 import type { DisciplineRecorder } from './discipline.js'
 import type { Hub } from './hub.js'
+import { createSecondLayerCap, type SecondLayerCap } from './second-layer-cap.js'
 import type { WsErrorCode } from './ws-errors.js'
 
 // Classmates talking one to one during class, under the school's limits: who may start a conversation and how often,
@@ -76,6 +77,11 @@ export interface ChatEngineDeps {
   moderator: Moderator
   /** The second layer; absent (or with its chat switch off) a line goes on as soon as the word list lets it. */
   secondLayer?: SecondLayer
+  /**
+   * The lines of each student the second layer has stopped this lesson, shared with the answers to call-ons; without
+   * it the engine counts its own, to `secondLayer.blocksPerStudentPerLesson`. The engine forgets a session at its close.
+   */
+  secondLayerCap?: SecondLayerCap
   discipline: DisciplineRecorder
   /** Timeline speed (1 is real time): it divides the reply timeout as it does every lesson duration. */
   speed: number
@@ -243,6 +249,7 @@ export function chatHandlers(
 export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
   const { db, config, clock, hub, moderator, secondLayer, discipline } = deps
   const log = deps.log ?? (() => {})
+  const secondLayerCap = deps.secondLayerCap ?? createSecondLayerCap(config.secondLayer.blocksPerStudentPerLesson, log)
   const limits = config.chat
   const replyTimeoutMs = (limits.replyTimeoutSeconds * 1000) / deps.speed
   const closingGraceMs = (config.lesson.closingGraceSeconds * 1000) / deps.speed
@@ -322,6 +329,7 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
     for (const [classId, until] of closing) if (now >= until) closing.delete(classId)
     for (const [sessionId, s] of starts) if (now >= s.closeAt) starts.delete(sessionId)
     for (const [studentId, p] of participants) if (now >= p.closeAt.getTime()) participants.delete(studentId)
+    secondLayerCap.expire(now)
   }
 
   /** The rounds the conversation lasts: the smaller plugin limit, or the school's. */
@@ -374,8 +382,12 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
     return fail('blocked', { category: blocked.category })
   }
 
-  /** A line the second layer stopped: kept undelivered, with no violation and no count, and told as `sensitive`. */
+  /**
+   * A line the second layer stopped: kept undelivered, with no violation and no count toward the student's records,
+   * and told as `sensitive`. It counts toward the student's limit of lines stopped (see second-layer-cap.ts).
+   */
   async function blockBySecondLayer(line: Line): Promise<AckResult> {
+    secondLayerCap.count(line.from)
     await writeLine(db, line, 'second_layer')
     const { studentId, sessionId } = line.from
     log({ studentId, sessionId, conversationId: line.conversationId, layer: 'second_layer' }, 'chat line blocked')
@@ -471,6 +483,8 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
         return block({ from, kind: 'chat', conversationId: null, recipientId: to, text, at }, verdict)
       }
       if (secondLayer !== undefined) {
+        // Past the student's limit the line is answered as stopped, without asking the second layer or keeping it.
+        if (secondLayerCap.reached(from)) return fail('blocked', { category: 'sensitive' })
         // Nothing is reserved while the line waits: whatever changed by then decides, so every check is made again.
         const line: Line = { from, kind: 'chat', conversationId: null, recipientId: to, text, at }
         if ((await secondLayer.check('chat', text)) === 'blocked') return blockBySecondLayer(line)
@@ -549,6 +563,8 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
       // A stopped line changes nothing in the conversation: it is not a round, and the same side may try again.
       if (verdict.verdict === 'blocked') return block(lineOf(c), verdict)
       if (secondLayer !== undefined) {
+        // Past the student's limit: as for a first line, and the turn stays with the same side.
+        if (secondLayerCap.reached(from)) return fail('blocked', { category: 'sensitive' })
         // Nothing is reserved while the line waits: the turn stays where it is, and every check is made again.
         if ((await secondLayer.check('chat', text)) === 'blocked') return blockBySecondLayer(lineOf(c))
         at = clock.now()
@@ -616,6 +632,7 @@ export function createChatEngine(deps: ChatEngineDeps): ChatEngine {
       closing.delete(classId)
       for (const [sessionId, s] of starts) if (s.classId === classId) starts.delete(sessionId)
       for (const [studentId, p] of participants) if (p.classId === classId) participants.delete(studentId)
+      secondLayerCap.endClass(classId)
     },
 
     tick() {

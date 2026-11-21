@@ -18,6 +18,7 @@ import { createLessonHooks, type LessonHooks } from './hooks.js'
 import { createHub, type MemoryHub } from './hub.js'
 import { questionHandlers, type QuestionsDeps } from './questions.js'
 import { createClassRuntime, LIVE_TOLERANCE_MS, onlyClassStepsFailed, type ClassRuntime } from './runtime.js'
+import { createSecondLayerCap } from './second-layer-cap.js'
 import { GONE_STANDING, standingRefusal, standingsOf } from './standing.js'
 import { createTeacherAi, type TeacherAi } from './teacher-ai.js'
 import { startTicker, type Ticker } from './ticker.js'
@@ -153,6 +154,8 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     log({}, 'maintenance on, every connection closed')
     hub.disconnectAll(maintenanceClosing(now))
   })
+  // One count for chat lines and answers alike; the chat engine forgets each session's at its close.
+  const secondLayerCap = createSecondLayerCap(config.secondLayer.blocksPerStudentPerLesson, log)
   const chat = createChatEngine({
     db,
     config,
@@ -160,6 +163,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     hub,
     moderator,
     secondLayer: deps.model?.secondLayer,
+    secondLayerCap,
     discipline: disciplineRecorder,
     speed,
     log,
@@ -185,6 +189,7 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     hub,
     moderator,
     secondLayer: deps.model?.secondLayer,
+    secondLayerCap,
     discipline: disciplineRecorder,
     teacherAi: teacherAi ?? undefined,
     random: deps.random,

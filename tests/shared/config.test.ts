@@ -148,6 +148,26 @@ test.each([
   expect(() => loadSchoolConfig(tmpPath)).toThrow(new RegExp(`wsHandshake.*${name}`))
 })
 
+test('the example config writes out the second layer limit per student', () => {
+  expect(loadSchoolConfig('config/school.example.json').secondLayer.blocksPerStudentPerLesson).toBe(5)
+})
+
+test('a config without secondLayer.blocksPerStudentPerLesson gets 5', () => {
+  const tmpPath = writeTmpConfig((c) => {
+    delete (c.secondLayer as Record<string, unknown>).blocksPerStudentPerLesson
+  })
+  const loaded = loadSchoolConfig(tmpPath)
+  expect(loaded.secondLayer.blocksPerStudentPerLesson).toBe(5)
+  expect(loaded.secondLayer.batchMillis).toBe(1500)
+})
+
+test.each([0, -1, 2.5, 'many'])('a secondLayer.blocksPerStudentPerLesson of %s stops the start and names it', (n) => {
+  const tmpPath = writeTmpConfig((c) => {
+    ;(c.secondLayer as Record<string, unknown>).blocksPerStudentPerLesson = n
+  })
+  expect(() => loadSchoolConfig(tmpPath)).toThrow(/secondLayer.*blocksPerStudentPerLesson/)
+})
+
 test('classSize.max below standard is rejected with the field path', () => {
   const tmpPath = writeTmpConfig((c) => {
     c.classSize = { standard: 100, max: 90 }
@@ -863,7 +883,7 @@ test('the example config has the model, lesson generation, switch and revocation
   })
   expect(c.lessonGeneration.direction).toHaveLength(3)
   expect(c.teacherAi).toEqual({ questionSampleSize: 30, answerLeadSeconds: 60, commentTimeoutSeconds: 20 })
-  expect(c.secondLayer).toEqual({ implementation: 'llm', batchMillis: 1500, timeoutSeconds: 10 })
+  expect(c.secondLayer).toEqual({ implementation: 'llm', batchMillis: 1500, timeoutSeconds: 10, blocksPerStudentPerLesson: 5 })
   expect(c.switchDefaults).toEqual({ teacherLlm: true, secondLayerTeacher: true, secondLayerChat: false })
   expect(c.switchRefreshSeconds).toBe(5)
   expect(c.revocationWindowDays).toBe(30)
