@@ -393,7 +393,10 @@ First set up the database and `.env` as in "Local development". `dev:seed` write
    mkdir -p .sim
    cp config/school.example.json .sim/school.json
    # Edit .sim/school.json: set slots.evening.start to a few minutes from now, e.g. "14:06" if it is 14:02 now
+   # Then raise both wsHandshake values: "wsHandshake": { "upgradesPerIpPerMinute": 100000, "authFailuresPerIpPerMinute": 100000 }
    ```
+
+   The simulated bots all connect from the same address and retry every few seconds until the doors open, so under the default `wsHandshake` limits (60 upgrade requests per address per minute) they are soon refused at the door with HTTP 429 and miss the start of the lesson. Hence raising both values (see "Load testing").
 
 2. In every terminal used below, set these two variables first (variables set on the command line take precedence over those in `.env`):
 
