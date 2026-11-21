@@ -393,7 +393,10 @@ rclone cat bk:<BACKUP_S3_BUCKET>/backups/<对象名> | age -d -i backup-key.txt 
    mkdir -p .sim
    cp config/school.example.json .sim/school.json
    # 编辑 .sim/school.json：把 slots.evening.start 改成几分钟以后，比如现在是 14:02，就改成 "14:06"
+   # 再把 wsHandshake 的两个值调大："wsHandshake": { "upgradesPerIpPerMinute": 100000, "authFailuresPerIpPerMinute": 100000 }
    ```
+
+   模拟机器人都从同一个地址连进来，开门前每隔几秒重试一次，按默认的 `wsHandshake` 限额（每个地址每分钟 60 次升级请求）很快就会被 HTTP 429 挡在门口、错过开课，所以要把两个值调大（见“压测”）。
 
 2. 下面用到的每个终端里都先设好这两个变量（命令行上设的变量优先于 `.env` 里的）：
 
