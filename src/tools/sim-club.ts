@@ -159,6 +159,11 @@ export interface ClubBotTally {
   framesDropped: number
   /** Reconnects to learn the room the service says the bot sits in, after an `in_room` it did not expect. */
   resyncs: number
+  /**
+   * Games the bot was playing when the club closed or the service stopped (`closing`) and saw no `over` of before it:
+   * there should be none, as every game is played out before anyone is sent away.
+   */
+  closingWithoutOver: number
   /** Games seen to the end (`over`), and how many of them were played out as the club closed or the service stopped. */
   gamesOver: number
   gamesClosing: number
@@ -331,6 +336,7 @@ export function emptyTally(): ClubBotTally {
     resyncs: 0,
     gamesOver: 0,
     gamesClosing: 0,
+    closingWithoutOver: 0,
     gameIds: new Set(),
     closingGameIds: new Set(),
     ended: null,
@@ -920,6 +926,11 @@ export function createClubBot(
     closingSeen = true
     bump(tally.closings, msg.reason)
     say(`closing ${msg.reason}`)
+    const sentAway = msg.reason === 'club_closed' || msg.reason === 'maintenance' || msg.reason === 'service_stopping'
+    if (sentAway && gameOn) {
+      tally.closingWithoutOver++
+      say('学校请走时这一局还没收到 over')
+    }
     switch (msg.reason) {
       case 'club_closed': {
         const reopensAt = msg.reopensAt === undefined ? null : Date.parse(msg.reopensAt)
@@ -1074,6 +1085,8 @@ export function sampleBots<T extends { tally: { gameIds: Set<number> } }>(
 export interface VerifyDeps {
   fetch: typeof fetch
   sleep: (ms: number) => Promise<void>
+  /** Stops the check where it is (Ctrl-C): what is not checked by then is not, and the check is incomplete. */
+  signal?: AbortSignal
   /** The least time between two requests (ms): the registration service limits the requests of an address a minute. */
   paceMs: number
   /** How long to wait before looking again for games not listed yet (ms): records are written after the game. */
@@ -1088,11 +1101,20 @@ export const DEFAULT_VERIFY: Omit<VerifyDeps, 'fetch' | 'sleep'> = { paceMs: 120
 /** A request that failed every time. */
 class RecordsUnreadable extends Error {}
 
+/** The check was stopped. */
+class VerifyStopped extends Error {}
+
+/** How long a request for records may take (ms). */
+const RECORDS_TIMEOUT_MS = 10_000
+/** How long to wait on a 429 that does not say (ms): the registration service counts its limit a minute at a time. */
+const RATE_WINDOW_MS = 60_000
+
 /**
  * Looks up the records of each bot with its key (`GET /v1/me/clubs/doudizhu/games`, a page at a time, until every game
  * it saw to the end is found or the pages run out). Games not listed are looked for again `retries` times,
  * `retryWaitMs` apart, since a record is written a moment after its game. Requests are spaced `paceMs` apart; one
- * turned away for the rate (429) or failing is tried again after a wait, a few times.
+ * turned away for the rate (429) is tried again after its `retry-after` (or a whole minute), one failing after
+ * `retryWaitMs`, a few times. The games are counted once each, however many of the bots saw them.
  */
 export async function verifyRecords(
   api: string,
@@ -1101,24 +1123,42 @@ export async function verifyRecords(
 ): Promise<Verification> {
   let first = true
   const base = api.replace(/\/+$/, '')
+  const stopped = () => {
+    if (deps.signal?.aborted === true) throw new VerifyStopped()
+  }
+  const pause = async (ms: number) => {
+    stopped()
+    await deps.sleep(ms)
+    stopped()
+  }
 
   async function page(key: string, before: number | null): Promise<{ ids: number[]; nextBefore: number | null }> {
     for (let attempt = 0; attempt < 4; attempt++) {
-      if (!first) await deps.sleep(deps.paceMs)
+      if (!first) await pause(deps.paceMs)
       first = false
       const url = `${base}/v1/me/clubs/doudizhu/games${before === null ? '' : `?before=${before}`}`
+      let wait = deps.retryWaitMs
       try {
-        const res = await deps.fetch(url, { headers: { authorization: `Bearer ${key}` } })
+        const timeout = AbortSignal.timeout(RECORDS_TIMEOUT_MS)
+        const signal = deps.signal === undefined ? timeout : AbortSignal.any([timeout, deps.signal])
+        const res = await deps.fetch(url, { headers: { authorization: `Bearer ${key}` }, signal })
         if (res.ok) {
           const body = (await res.json()) as { games?: { gameId: number }[]; nextBefore?: number | null }
           return { ids: (body.games ?? []).map((g) => g.gameId), nextBefore: body.nextBefore ?? null }
         }
-        if (res.status !== 429 && res.status < 500) break
+        await res.body?.cancel()
+        if (res.status === 429) {
+          const after = Number(res.headers.get('retry-after'))
+          wait = after > 0 ? after * 1000 : RATE_WINDOW_MS
+        } else if (res.status < 500) {
+          break
+        }
       } catch {
-        // A failure on the way: tried again below.
+        // A failure on the way (or the check stopped): tried again below.
       }
-      await deps.sleep(deps.retryWaitMs)
+      await pause(wait)
     }
+    stopped()
     throw new RecordsUnreadable()
   }
 
@@ -1136,11 +1176,11 @@ export async function verifyRecords(
 
   let missing = new Map<number, { key: string; studentId: number; ids: Set<number>; closing: Set<number> }>()
   let failedBots = 0
-  let games = 0
-  let closingGames = 0
+  const games = new Set<number>()
+  const closingGames = new Set<number>()
   for (const { student, tally } of bots) {
-    games += tally.gameIds.size
-    closingGames += tally.closingGameIds.size
+    for (const id of tally.gameIds) games.add(id)
+    for (const id of tally.closingGameIds) closingGames.add(id)
     missing.set(student.studentId, {
       key: student.key,
       studentId: student.studentId,
@@ -1148,19 +1188,26 @@ export async function verifyRecords(
       closing: tally.closingGameIds,
     })
   }
-  for (let round = 0; round <= deps.retries && missing.size > 0; round++) {
-    if (round > 0) await deps.sleep(deps.retryWaitMs)
-    const next: typeof missing = new Map()
-    for (const entry of missing.values()) {
-      try {
-        const ids = await notListed(entry.key, entry.ids)
-        if (ids.length > 0) next.set(entry.studentId, { ...entry, ids: new Set(ids) })
-      } catch (err) {
-        if (!(err instanceof RecordsUnreadable)) throw err
-        failedBots++
+  const counts = { bots: bots.length, games: games.size, closingGames: closingGames.size }
+  try {
+    for (let round = 0; round <= deps.retries && missing.size > 0; round++) {
+      if (round > 0) await pause(deps.retryWaitMs)
+      const next: typeof missing = new Map()
+      for (const entry of missing.values()) {
+        try {
+          const ids = await notListed(entry.key, entry.ids)
+          if (ids.length > 0) next.set(entry.studentId, { ...entry, ids: new Set(ids) })
+        } catch (err) {
+          if (!(err instanceof RecordsUnreadable)) throw err
+          failedBots++
+        }
       }
+      missing = next
     }
-    missing = next
+  } catch (err) {
+    if (!(err instanceof VerifyStopped)) throw err
+    // Nothing found missing so far is sure to be: the check is only incomplete.
+    return { ...counts, missing: [], failedBots, complete: false }
   }
   const list: MissingGame[] = []
   for (const entry of missing.values()) {
@@ -1168,7 +1215,7 @@ export async function verifyRecords(
       list.push({ studentId: entry.studentId, gameId, closing: entry.closing.has(gameId) })
     }
   }
-  return { bots: bots.length, games, closingGames, missing: list, failedBots }
+  return { ...counts, missing: list, failedBots, complete: true }
 }
 
 // ---- The command line ----
@@ -1177,7 +1224,8 @@ const USAGE =
   '用法：npm run sim:club -- --keys .sim/keys.json --url ws://localhost:8082/v1/club [--duration 600] [--games 3] ' +
   '[--mix invite:80,quick:15,bots:5] [--think 1-5] [--pass-rate 0.3] [--timeout-rate 0.02] [--illegal-rate 0.02] ' +
   '[--drop-rate 0.01] [--react-rate 0.05] [--ramp <秒>] [--seed <整数>] [--verify 30 --api http://localhost:8080] ' +
-  '[--healthz <地址>] [--report <文件.json>] [--quiet] [--expect-ack-ms 1000] [--expect-turn-ms 1000]'
+  '[--healthz <地址>] [--report <文件.json>] [--quiet] [--expect-ack-ms 1000] [--expect-turn-ms 1000]\n' +
+  '（核对牌谱时每个地址每分钟最多查 60 次，所以请求会放慢：30 个机器人大约要半分钟以上）'
 
 export interface ClubSimArgs extends ClubSimOptions {
   keys: string
@@ -1286,7 +1334,7 @@ export function parseClubSimArgs(argv: string[]): ClubSimArgs | null {
   const expectTurnMs = limit('expect-turn-ms')
   if (keys === undefined || keys === '' || url === undefined || !/^wss?:\/\//.test(url)) return null
   if (!(duration > 0) || !Number.isFinite(duration) || !Number.isInteger(games) || games < 1) return null
-  if (!(ramp >= 0) || !Number.isFinite(ramp) || !Number.isInteger(verify) || verify < 0) return null
+  if (!(ramp >= 0) || ramp >= duration || !Number.isInteger(verify) || verify < 0) return null
   if (seed !== undefined && !(Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff)) return null
   if (verify > 0 && (api === undefined || !/^https?:\/\//.test(api))) return null
   if (healthz !== undefined && !/^https?:\/\//.test(healthz)) return null
@@ -1332,6 +1380,7 @@ export interface ClubSimDeps {
 }
 
 const HEALTHZ_EVERY_MS = 5000
+const HEALTHZ_TIMEOUT_MS = 4000
 const PROGRESS_EVERY_MS = 10_000
 
 /**
@@ -1363,6 +1412,11 @@ export async function runClubSim(argv: string[], given: Partial<ClubSimDeps> = {
     students = readKeysFile(args.keys)
   } catch (err) {
     deps.error(`模拟失败：${err instanceof SimError ? err.message : String(err)}`)
+    return 1
+  }
+  const ids = new Set(students.map((s) => s.studentId))
+  if (ids.size < students.length) {
+    deps.error(`模拟失败：${args.keys} 里有重复的学号，同一个学生只能有一个机器人`)
     return 1
   }
   const { clock, timers } = deps
@@ -1398,8 +1452,9 @@ export async function runClubSim(argv: string[], given: Partial<ClubSimDeps> = {
     interrupted = true
     finish()
   })
+  const rampRandom = seededRandom((seed ^ 0x2545f491) >>> 0)
   for (const bot of bots) {
-    if (args.ramp > 0) handles.push(timers.set(() => bot.start(), Math.random() * args.ramp * 1000))
+    if (args.ramp > 0) handles.push(timers.set(() => bot.start(), rampRandom() * args.ramp * 1000))
     else bot.start()
   }
   const every = (ms: number, fn: () => void) => {
@@ -1412,9 +1467,10 @@ export async function runClubSim(argv: string[], given: Partial<ClubSimDeps> = {
   if (healthz !== null) {
     every(HEALTHZ_EVERY_MS, () => {
       healthz.checks++
-      deps.fetch(args.healthz!).then(
+      deps.fetch(args.healthz!, { signal: AbortSignal.timeout(HEALTHZ_TIMEOUT_MS) }).then(
         (res) => {
           if (res.status !== 200) healthz.failures++
+          void res.body?.cancel().catch(() => {})
         },
         () => healthz.failures++,
       )
@@ -1440,14 +1496,39 @@ export async function runClubSim(argv: string[], given: Partial<ClubSimDeps> = {
   let verification: Verification | null = null
   if (args.verify > 0 && args.api !== undefined) {
     const sample = sampleBots(bots, args.verify, seededRandom((seed ^ 0x5bd1e995) >>> 0))
-    deps.log(`核对牌谱：${sample.length} 个机器人`)
-    const sleep = (ms: number) => new Promise<void>((resolve) => timers.set(resolve, ms))
-    verification = await verifyRecords(args.api, sample, { ...deps.verify, fetch: deps.fetch, sleep })
+    const pages = sample.reduce((n, b) => n + Math.max(1, Math.ceil(b.tally.gameIds.size / 20)), 0)
+    deps.log(
+      `核对牌谱：${sample.length} 个机器人，至少 ${pages} 次请求，大约 ${Math.ceil((pages * deps.verify.paceMs) / 1000)} 秒起` +
+        '（按 Ctrl-C 可以不等核对完，直接出报告）',
+    )
+    const abort = new AbortController()
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const handle = timers.set(resolve, ms)
+        abort.signal.addEventListener(
+          'abort',
+          () => {
+            timers.clear(handle)
+            resolve()
+          },
+          { once: true },
+        )
+      })
+    const stopVerifying = deps.onInterrupt(() => {
+      interrupted = true
+      deps.log('收到 Ctrl-C，不再核对牌谱')
+      abort.abort()
+    })
+    try {
+      verification = await verifyRecords(args.api, sample, { ...deps.verify, fetch: deps.fetch, sleep, signal: abort.signal })
+    } finally {
+      stopVerifying()
+    }
   }
 
   const results: BotResult[] = bots.map((b) => ({ studentId: b.student.studentId, tally: b.tally }))
   const report = summarizeClub(results, sampler, healthz, verification)
-  const expect: ClubExpect = { ackMs: args.expectAckMs, turnMs: args.expectTurnMs }
+  const expect: ClubExpect = { ackMs: args.expectAckMs ?? null, turnMs: args.expectTurnMs ?? null }
   const verdict = clubVerdict(report, expect)
   for (const line of clubReportLines(report, verdict)) deps.log(line)
   let code = interrupted ? 130 : 0

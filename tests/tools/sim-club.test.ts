@@ -120,9 +120,11 @@ async function startClub(n: number, options: { start?: Date; maintenance?: Maint
       trusteeDelaySeconds: 1,
     },
   }
-  const log = { error: () => {} }
+  const recorderErrors: unknown[] = []
+  const log = { error: (...args: unknown[]) => void recorderErrors.push(args) }
   const recorder = createRecorder({ db, clock, log })
-  // Every record written before the database goes.
+  // Every record written, and none failed, before the database goes.
+  cleanups.push(() => expect(recorderErrors).toEqual([]))
   cleanups.push(() => recorder.drain(5000))
   const firstGameId = await nextGameId(db)
   const service = createClubService({
@@ -173,7 +175,7 @@ const sum = (bots: readonly ClubBot[], count: (t: ClubBotTally) => number) =>
 
 function expectNothingWrong(bots: readonly ClubBot[]): void {
   for (const { tally } of bots) {
-    expect(tally).toMatchObject({ unexpectedDisconnects: 0, connectFailures: 0, invalid: 0, ended: null })
+    expect(tally).toMatchObject({ unexpectedDisconnects: 0, connectFailures: 0, invalid: 0, closingWithoutOver: 0, ended: null })
   }
 }
 
@@ -785,6 +787,7 @@ describe('the command line', () => {
       [...base, '--pass-rate', '1.1'],
       [...base, '--drop-rate', ''],
       [...base, '--ramp', '-1'],
+      [...base, '--duration', '30', '--ramp', '30'],
       [...base, '--seed', '-1'],
       [...base, '--seed', '1.5'],
       [...base, '--verify', '-1'],
@@ -818,13 +821,14 @@ function fakeRecords(written: Record<string, { gameId: number; at: number }[]>) 
   let t = 0
   const requests: string[] = []
   let refuseNext = 0
+  let retryAfter: string | null = null
   const fetchFake = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     const key = String((init?.headers as Record<string, string>).authorization).replace('Bearer ', '')
     requests.push(`${t} ${key} ${url.search}`)
     if (refuseNext > 0) {
       refuseNext--
-      return new Response('{}', { status: 429 })
+      return new Response('{}', { status: 429, headers: retryAfter === null ? {} : { 'retry-after': retryAfter } })
     }
     const before = url.searchParams.get('before')
     const ids = (written[key] ?? [])
@@ -842,8 +846,9 @@ function fakeRecords(written: Record<string, { gameId: number; at: number }[]>) 
     },
     requests,
     now: () => t,
-    refuse: (n: number) => {
+    refuse: (n: number, after: string | null = null) => {
       refuseNext = n
+      retryAfter = after
     },
   }
 }
@@ -860,7 +865,7 @@ describe('checking the records', () => {
     const many = Array.from({ length: 45 }, (_, i) => ({ gameId: i + 1, at: 0 }))
     const records = fakeRecords({ k1: [...many, { gameId: 50, at: 9000 }], k2: [{ gameId: 60, at: 0 }] })
     const result = await verifyRecords('http://school/', [checked(1, [1, 30, 45, 50], [50]), checked(2, [60])], { ...records, ...pace })
-    expect(result).toEqual({ bots: 2, games: 5, closingGames: 1, missing: [], failedBots: 0 })
+    expect(result).toEqual({ bots: 2, games: 5, closingGames: 1, missing: [], failedBots: 0, complete: true })
     // k1: three pages, k2: one; five seconds later k1 again, whose newest page now has the late game.
     expect(records.requests.map((r) => r.split(' ').slice(1).join(' '))).toEqual(['k1 ', 'k1 ?before=26', 'k1 ?before=6', 'k2 ', 'k1 '])
     // Never two requests less than the pace apart.
@@ -879,12 +884,34 @@ describe('checking the records', () => {
     expect(records.now()).toBeGreaterThanOrEqual(15_000)
   })
 
-  test('a request turned away for the rate is tried again; records never readable are counted', async () => {
+  test('a request turned away for the rate is tried again after retry-after, or a whole minute; records never readable are counted', async () => {
     const records = fakeRecords({ k1: [{ gameId: 1, at: 0 }] })
-    records.refuse(2)
+    records.refuse(1, '7')
     expect(await verifyRecords('http://school', [checked(1, [1])], { ...records, ...pace })).toMatchObject({ missing: [], failedBots: 0 })
+    expect(records.requests.map((r) => Number(r.split(' ')[0]))).toEqual([0, 7000 + 1200])
+    records.refuse(2)
+    const before = records.now()
+    expect(await verifyRecords('http://school', [checked(1, [1])], { ...records, ...pace })).toMatchObject({ missing: [], failedBots: 0 })
+    expect(records.now() - before).toBeGreaterThanOrEqual(2 * 60_000)
     records.refuse(100)
     expect(await verifyRecords('http://school', [checked(1, [1])], { ...records, ...pace, retries: 0 })).toMatchObject({ failedBots: 1 })
+  })
+
+  test('stopped on the way (Ctrl-C), the check is incomplete and finds nothing missing', async () => {
+    const records = fakeRecords({ k1: [{ gameId: 1, at: 0 }], k2: [] })
+    const abort = new AbortController()
+    const sleep = async (ms: number) => {
+      await records.sleep(ms)
+      if (records.requests.length >= 2) abort.abort()
+    }
+    const result = await verifyRecords('http://school', [checked(1, [1]), checked(2, [2]), checked(3, [3])], {
+      ...records,
+      ...pace,
+      sleep,
+      signal: abort.signal,
+    })
+    expect(result).toEqual({ bots: 3, games: 3, closingGames: 0, missing: [], failedBots: 0, complete: false })
+    expect(records.requests).toHaveLength(2)
   })
 
   test('the sample is of bots that saw a game end, the same for the same seed', () => {
@@ -898,6 +925,38 @@ describe('checking the records', () => {
 })
 
 describe('a whole run', () => {
+  /** A keys file of its own, in a directory removed after the test. */
+  function keysFile(students: unknown[]): { keys: string; dir: string } {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-club-'))
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    const keys = join(dir, 'keys.json')
+    writeFileSync(keys, JSON.stringify(students))
+    return { keys, dir }
+  }
+
+  test('a run where no bot gets in fails, and a report that cannot be written is said so', async () => {
+    const { keys, dir } = keysFile([{ studentId: 1, key: 'k', displayName: '小鱼' }])
+    const lines: string[] = []
+    const code = await runClubSim(
+      ['--keys', keys, '--url', 'ws://127.0.0.1:9/v1/club', '--duration', '1', '--verify', '0', '--quiet', '--report', join(dir, 'no', 'r.json')],
+      { log: (l) => void lines.push(l), error: (l) => void lines.push(l), timing: { retryMs: 60_000 } },
+    )
+    expect(code).toBe(1)
+    expect(lines).toContain('没过：没有一个机器人进得了社团')
+    expect(lines).toContain('结论：不及格')
+    expect(lines.some((l) => l.startsWith('写不了报告'))).toBe(true)
+  })
+
+  test('a keys file with a student twice is refused', async () => {
+    const { keys } = keysFile([
+      { studentId: 1, key: 'a', displayName: '小鱼' },
+      { studentId: 1, key: 'b', displayName: '小鱼' },
+    ])
+    const errors: string[] = []
+    expect(await runClubSim(['--keys', keys, '--url', 'ws://127.0.0.1:9/v1/club', '--verify', '0'], { log: () => {}, error: (l) => void errors.push(l) })).toBe(1)
+    expect(errors[0]).toContain('重复的学号')
+  })
+
   test('Ctrl-C ends a run with 130', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sim-club-'))
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
