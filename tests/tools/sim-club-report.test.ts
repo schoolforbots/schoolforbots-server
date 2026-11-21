@@ -115,7 +115,7 @@ describe('the verdict', () => {
   test('a game left without its over as the club closed, a failed /healthz, or a check not finished fail', () => {
     const report = summarizeClub([bot(1, { closingWithoutOver: 1 })], samples, { checks: 3, failures: 1 }, { ...verified(), complete: false })
     expect(clubVerdict(report, line()).failures).toEqual([
-      '学校请走时有 1 局没收到 over',
+      '学校请走时有 1 机器人次没收到这一局的 over',
       '/healthz 失败了 1 次',
       '牌谱核对没做完',
     ])

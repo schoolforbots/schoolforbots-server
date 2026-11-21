@@ -729,6 +729,80 @@ function scriptedRun(seed: number, framesPerMinute = 600) {
   return { counts, gameIds: [...gameIds], sent, out }
 }
 
+describe('sent away in the middle of a game', () => {
+  /** A bot on a socket the test drives, its waits fired by hand, and a welcome back into a room with a game on. */
+  function drivenBot() {
+    const sockets: (EventEmitter & { readyState: number })[] = []
+    const waiting: (() => void)[] = []
+    const bot = createClubBot({ studentId: 1, key: 'k', displayName: '小鱼' }, 'quick', { ...QUIET, url: 'ws://school' }, {
+      clock: { now: () => new Date('2026-11-20T03:00:00.000Z') },
+      random: seededRandom(1),
+      timers: {
+        set: (fn) => waiting.push(fn),
+        clear: () => {},
+      },
+      print: () => {},
+      connect: () => {
+        const ws = Object.assign(new EventEmitter(), { readyState: WebSocket.OPEN as number, send: () => {}, terminate: () => {} })
+        sockets.push(ws)
+        return ws as unknown as WebSocket
+      },
+    })
+    const person = (seat: number) =>
+      seat === 0 ? { studentId: 1, displayName: '小鱼 #0001', bot: false } : { studentId: null, displayName: `陪练小${seat}`, bot: true }
+    const room = {
+      roomId: 'rabcd', club: 'doudizhu', visibility: 'public', host: 1,
+      seats: [0, 1, 2].map((seat) => ({ seat, player: person(seat), ready: true, online: true, trustee: false })),
+      spectators: 0, gamesPlayed: 0, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: 3,
+      game: {
+        game: 'doudizhu', gameId: 7, phase: 'bidding', firstBidder: 0, bids: [], landlord: null, base: null, bottom: null,
+        cardsLeft: [17, 17, 17], multiplier: 1, trick: null, history: [], trustee: [false, false, false], toAct: 1,
+        deadline: '2026-11-20T03:01:00.000Z',
+      },
+    }
+    const closing = { type: 'closing', reason: 'maintenance', message: '维护', expectedBackAt: null }
+    expect(Value.Check(ClubServerMessage, { ...welcome, room })).toBe(true)
+    expect(Value.Check(ClubServerMessage, closing)).toBe(true)
+    /** Connects again (the wait after a close) and opens the new socket. */
+    const reconnect = () => {
+      waiting.splice(0).forEach((fn) => fn())
+      sockets.at(-1)!.emit('open')
+    }
+    const close = () => {
+      sockets.at(-1)!.readyState = WebSocket.CLOSED
+      sockets.at(-1)!.emit('close')
+    }
+    return { bot, welcomeInGame: { ...welcome, room }, closing, reconnect, close }
+  }
+
+  test('a bot in the game when the school sends it away without the over counts it once', () => {
+    const d = drivenBot()
+    d.bot.start()
+    d.reconnect()
+    d.bot.receive(d.welcomeInGame)
+    d.bot.receive(d.closing)
+    d.close()
+    d.reconnect()
+    d.bot.receive(d.closing)
+    expect(d.bot.tally).toMatchObject({ closingWithoutOver: 1, closingMissedAway: 0, closings: { maintenance: 2 } })
+  })
+
+  test('a bot away from its game when the school closed, turned away at the door, counts it apart, once', () => {
+    const d = drivenBot()
+    d.bot.start()
+    d.reconnect()
+    d.bot.receive(d.welcomeInGame)
+    // It drops (the connection closes under it), and every try to come back meets the closed door.
+    d.close()
+    for (let i = 0; i < 3; i++) {
+      d.reconnect()
+      d.bot.receive(d.closing)
+      d.close()
+    }
+    expect(d.bot.tally).toMatchObject({ closingWithoutOver: 0, closingMissedAway: 1, closings: { maintenance: 3 } })
+  })
+})
+
 describe('the choices of a bot', () => {
   test('the same seed makes the same choices; another seed other ones', () => {
     const a = scriptedRun(42)
