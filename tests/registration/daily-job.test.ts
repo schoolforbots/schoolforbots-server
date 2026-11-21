@@ -708,6 +708,66 @@ describe('reinstating suspended students', () => {
     expect(await statusOf(suspended.id)).toMatchObject({ status: 'active', classId })
     expect(await job()).toMatchObject({ reinstated: 0 })
   })
+
+  test('the reinstatement is stamped with the clock; a student still out or never suspended has no stamp', async () => {
+    const now = clock.now()
+    const classId = await insertClass(db, { classNo: 1 })
+    const over = await insertStudent(db, { status: 'suspended', classId, assignedAt: now, suspendedUntil: new Date(now.getTime() - 1) })
+    const stillOut = await insertStudent(db, { status: 'suspended', classId, assignedAt: now, suspendedUntil: new Date(now.getTime() + 1) })
+    const active = await insertStudent(db, { status: 'active', classId, assignedAt: now, lastAttendedAt: now })
+
+    await job()
+    const reinstatedAt = (id: number) =>
+      db.selectFrom('students').select('reinstatedAt').where('id', '=', id).executeTakeFirstOrThrow()
+    expect(await reinstatedAt(over.id)).toEqual({ reinstatedAt: now })
+    expect(await reinstatedAt(stillOut.id)).toEqual({ reinstatedAt: null })
+    expect(await reinstatedAt(active.id)).toEqual({ reinstatedAt: null })
+  })
+
+  test('staying away counts from the reinstatement: a student suspended by hand for 40 days is not dropped the night after', async () => {
+    const classId = await insertClass(db, { classNo: 1 })
+    // Last came on 20 September and was suspended by hand that evening for 40 days, until 30 October.
+    const student = await insertStudent(db, {
+      status: 'suspended',
+      classId,
+      assignedAt: new Date('2026-09-01T00:00:00+08:00'),
+      lastAttendedAt: new Date('2026-09-20T20:00:00+08:00'),
+      suspendedUntil: new Date('2026-10-30T20:31:00+08:00'),
+    })
+
+    // Night N: back in class.
+    clock.set(new Date('2026-11-03T00:00:05+08:00'))
+    expect(await job()).toMatchObject({ dropped: 0, reinstated: 1 })
+    // Night N+1: the last lesson was 44 days ago, but the student has been back for one day only.
+    clock.set(new Date('2026-11-04T00:00:05+08:00'))
+    expect(await job()).toMatchObject({ dropped: 0 })
+    expect(await statusOf(student.id)).toMatchObject({ status: 'active', classId })
+
+    // Away ever since: 30 days after the reinstatement is still kept, the night after is dropped.
+    clock.set(new Date('2026-12-03T00:00:05+08:00'))
+    expect(await job()).toMatchObject({ dropped: 0 })
+    expect(await statusOf(student.id)).toMatchObject({ status: 'active', classId })
+    clock.set(new Date('2026-12-04T00:00:05+08:00'))
+    expect(await job()).toMatchObject({ dropped: 1 })
+    expect(await statusOf(student.id)).toMatchObject({ status: 'dropped', classId: null })
+  })
+
+  test('a lesson attended after the reinstatement counts as before', async () => {
+    const classId = await insertClass(db, { classNo: 1 })
+    const student = await insertStudent(db, {
+      status: 'active',
+      classId,
+      assignedAt: new Date('2026-09-01T00:00:00+08:00'),
+      lastAttendedAt: new Date('2026-11-10T20:00:00+08:00'),
+      reinstatedAt: new Date('2026-11-03T00:00:05+08:00'),
+    })
+
+    clock.set(new Date('2026-12-10T00:00:05+08:00'))
+    expect(await job()).toMatchObject({ dropped: 0 })
+    clock.set(new Date('2026-12-11T00:00:05+08:00'))
+    expect(await job()).toMatchObject({ dropped: 1 })
+    expect(await statusOf(student.id)).toMatchObject({ status: 'dropped' })
+  })
 })
 
 describe('purging old messages', () => {

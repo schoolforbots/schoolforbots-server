@@ -133,14 +133,15 @@ async function removeBans(trx: Kysely<Database>, p: Penalty, offender: LockedStu
 
 /**
  * Gives the student back what a penalty took: an expelled student goes back to dropped (no seat, and free to re-enroll
- * at once), a suspended one back to class, and a dropped one loses the date they could not re-enroll before.
+ * at once), a suspended one back to class, stamped with `at` so that staying away counts from then, and a dropped one
+ * loses the date they could not re-enroll before.
  */
-async function restore(trx: Kysely<Database>, s: LockedStudent): Promise<void> {
+async function restore(trx: Kysely<Database>, s: LockedStudent, at: Date): Promise<void> {
   const change: Updateable<StudentsTable> =
     s.status === 'expelled'
       ? { status: 'dropped', classId: null, suspendedUntil: null }
       : s.status === 'suspended'
-        ? { status: 'active', suspendedUntil: null }
+        ? { status: 'active', suspendedUntil: null, reinstatedAt: at }
         : { suspendedUntil: null }
   await trx.updateTable('students').set(change).where('id', '=', s.id).execute()
   if (s.status === 'expelled') s.status = 'dropped'
@@ -189,7 +190,7 @@ async function lift(
   for (const s of students.values()) {
     if (!lifting.some((p) => holds(p, s, at)) || standing.some((p) => holds(p, s, at))) continue
     const still = latestSuspension(standing, s, at)
-    if (still === null) await restore(trx, s)
+    if (still === null) await restore(trx, s, at)
     else await suspendInstead(trx, s, still)
     freed.push(s.id)
   }
@@ -358,6 +359,6 @@ export async function liftPenalty(
     status === 'suspended' ||
     (status === 'dropped' && suspendedUntil !== null && suspendedUntil.getTime() > at.getTime())
   if (!penalised) return 'none'
-  await restore(trx, student)
+  await restore(trx, student, at)
   return outcome
 }

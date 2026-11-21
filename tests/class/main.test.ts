@@ -47,11 +47,11 @@ describe('the startup check of the migrations', () => {
     const db = await migratedDb()
     await sql`
       delete from kysely_migration
-      where name in ('0003_student_queue_time', '0004_class_service', '0005_school_rules_agreement', '0006_ai_id', '0007_llm', '0008_admin_discipline', '0009_llm_cached_tokens', '0010_call_on_checks', '0011_maintenance', '0012_ops', '0013_club_members', '0014_doudizhu_games')`.execute(db)
+      where name in ('0003_student_queue_time', '0004_class_service', '0005_school_rules_agreement', '0006_ai_id', '0007_llm', '0008_admin_discipline', '0009_llm_cached_tokens', '0010_call_on_checks', '0011_maintenance', '0012_ops', '0013_club_members', '0014_doudizhu_games', '0015_reinstated_at')`.execute(db)
 
     await expect(assertMigrationsUpToDate(db)).rejects.toThrow(
       'The database is not migrated to the latest version ' +
-        '(pending: 0003_student_queue_time, 0004_class_service, 0005_school_rules_agreement, 0006_ai_id, 0007_llm, 0008_admin_discipline, 0009_llm_cached_tokens, 0010_call_on_checks, 0011_maintenance, 0012_ops, 0013_club_members, 0014_doudizhu_games)',
+        '(pending: 0003_student_queue_time, 0004_class_service, 0005_school_rules_agreement, 0006_ai_id, 0007_llm, 0008_admin_discipline, 0009_llm_cached_tokens, 0010_call_on_checks, 0011_maintenance, 0012_ops, 0013_club_members, 0014_doudizhu_games, 0015_reinstated_at)',
     )
     // The class service never migrates: that is the registration service's job.
     expect(await executed(db)).toEqual(['0001_init', '0002_key_reset_decoys'])
@@ -63,7 +63,7 @@ describe('the startup check of the migrations', () => {
 
     await expect(assertMigrationsUpToDate(db)).rejects.toThrow(
       'pending: 0001_init, 0002_key_reset_decoys, 0003_student_queue_time, 0004_class_service, ' +
-        '0005_school_rules_agreement, 0006_ai_id, 0007_llm, 0008_admin_discipline, 0009_llm_cached_tokens, 0010_call_on_checks, 0011_maintenance, 0012_ops, 0013_club_members, 0014_doudizhu_games',
+        '0005_school_rules_agreement, 0006_ai_id, 0007_llm, 0008_admin_discipline, 0009_llm_cached_tokens, 0010_call_on_checks, 0011_maintenance, 0012_ops, 0013_club_members, 0014_doudizhu_games, 0015_reinstated_at',
     )
   })
 })

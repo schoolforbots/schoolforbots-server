@@ -87,6 +87,11 @@ export interface StudentsTable {
   lessonsAttended: Generated<number>
   /** Until when a suspended student stays out of class; null when not suspended. */
   suspendedUntil: Date | null
+  /**
+   * When the student was last let back into class after a suspension (it ran out, or was lifted); null when never.
+   * Staying away is counted from here when it is later than the last lesson attended.
+   */
+  reinstatedAt: Date | null
   /** The school rules version the student last agreed to, at registration or re-enrolling; null before the school asked. */
   schoolRulesVersion: string | null
   /** When the student agreed to it. */

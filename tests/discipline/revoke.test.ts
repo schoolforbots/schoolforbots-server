@@ -391,6 +391,10 @@ describe('excludeRule', () => {
     expect(await studentRow(a.id)).toEqual({ status: 'active', classId, suspendedUntil: null })
     expect(await studentRow(earlier.id)).toEqual({ status: 'dropped', classId: null, suspendedUntil: null })
     expect((await recordsOf(a.id, 'suspension')).map((r) => r.revokedAt)).toEqual([t.clock.now()])
+    // Staying away counts from now: the student had no lesson to come to while suspended.
+    expect(await t.db.selectFrom('students').select('reinstatedAt').where('id', '=', a.id).executeTakeFirstOrThrow()).toEqual({
+      reinstatedAt: t.clock.now(),
+    })
   })
 
   test('a penalty the breaks left still earn stays', async () => {
@@ -497,5 +501,32 @@ describe('liftPenalty', () => {
     expect(await lift(a.id)).toBe('suspension_lifted')
     expect(await studentRow(a.id)).toEqual({ status: 'active', classId, suspendedUntil: null })
     expect(await lift(a.id)).toBe('none')
+  })
+
+  test('a student back in class is stamped with the time of the lifting; one left dropped is not', async () => {
+    const classId = await newClass()
+    const a = await newStudent(classId)
+    const earlier = await newStudent(null, { aiId: a.aiId })
+    const all = await lessons(classId, 3, () => [[a, WORD]])
+    // A suspension written by hand, with no record.
+    const byHand = await newStudent(classId)
+    await t.db
+      .updateTable('students')
+      .set({ status: 'suspended', suspendedUntil: new Date(all[2]!.closeAt.getTime() + 30 * DAY) })
+      .where('id', '=', byHand.id)
+      .execute()
+    const reinstatedAt = (id: number) =>
+      t.db.selectFrom('students').select('reinstatedAt').where('id', '=', id).executeTakeFirstOrThrow()
+
+    t.clock.set(new Date(all[2]!.closeAt.getTime() + DAY))
+    expect(await lift(a.id)).toBe('suspension_lifted')
+    expect(await lift(byHand.id)).toBe('suspension_lifted')
+
+    expect(await studentRow(a.id)).toMatchObject({ status: 'active' })
+    expect(await reinstatedAt(a.id)).toEqual({ reinstatedAt: t.clock.now() })
+    expect(await studentRow(byHand.id)).toMatchObject({ status: 'active' })
+    expect(await reinstatedAt(byHand.id)).toEqual({ reinstatedAt: t.clock.now() })
+    expect(await studentRow(earlier.id)).toMatchObject({ status: 'dropped' })
+    expect(await reinstatedAt(earlier.id)).toEqual({ reinstatedAt: null })
   })
 })
