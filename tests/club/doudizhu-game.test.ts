@@ -13,7 +13,7 @@ import type {
 import { botPerson, studentPerson } from '../../src/club/people.js'
 import type { YourTurnMessage } from '../../src/protocol/club.js'
 import { seededRandomInt } from './doudizhu/helpers.js'
-import { ackFrame, answer, checkProtocol, fakeGame, type FakeGameOptions, type FakeSession } from './helpers/fake-game.js'
+import { ackFrame, answer, checkProtocol, fakeGame, type FakeGameOptions, FakeSession } from './helpers/fake-game.js'
 
 // The doudizhu game with the clock (src/club/doudizhu-game.ts, src/club/doudizhu-clock.ts), on a fake clock: every
 // time is given to the session, nothing sleeps. The sessions are the tests' fake game's, so every message they send is
@@ -175,10 +175,10 @@ describe('the deadline and the time bank', () => {
     const t = new Table()
     t.start()
     expect(t.tick(39.999).emits).toEqual([])
-    // The tick comes 1.5 seconds after the step was due: the next seat is asked from when it was due.
+    // The tick comes 1.5 seconds after the step was due: the next seat has its whole time from when it is asked.
     const out = t.tick(41.5)
     expect(shape(out)).toEqual(['bid 0:timeout', '1:your_turn'])
-    t.expectAsked(1, 2, 50, 30)
+    t.expectAsked(1, 2, 51.5, 30)
     expect(t.s.bankAt(0, at(41.5))).toBe(0)
     expect(t.s.seatCounts[0]).toEqual({ timeouts: 1, trusteeMoves: 0, illegalMoves: 0 })
     // One timeout is not trusteeship.
@@ -369,6 +369,19 @@ describe('a seat in trusteeship', () => {
     expect(t.trusteeOff(0, 4).ack).toEqual({ ok: false, code: 'not_trustee' })
   })
 
+  test('trustee.off never gives a deadline sooner than the short deadline from now', () => {
+    // Out of what doudizhuGame allows (the short deadline is less than every step's own), so made directly: asked at 1
+    // with 8 seconds, the bid's own deadline would be 11, but taken back at 8 the seat has at least until 16.
+    const start = { roomId: ROOM, players: students, addresses: [null, null, null], carry: null, closesAt: () => CLOSES, now: T0 }
+    const options = { rules: RULES, clock: true, timeBankSeconds: 30, trusteeDelaySeconds: 8, firstBidder: 0, random: seededRandomInt(7) }
+    const s = new FakeSession(start, options, 1)
+    s.start(T0)
+    s.trusteeOn(0, at(1))
+    const reply = s.trusteeOff(0, at(8))
+    expect(yourTurns(reply.output).map(({ turn }) => turn.deadline)).toEqual([iso(16)])
+    expect(s.table().deadline).toBe(iso(16))
+  })
+
   test('trustee.off while another seat is to act only gives the seat back', () => {
     const t = new Table()
     t.start()
@@ -410,27 +423,32 @@ describe('refused steps and reconnects', () => {
 })
 
 describe('a late tick', () => {
-  test('makes every step due by then, each as at the moment it was due', () => {
+  test('makes the step that was due and only delays the next: every seat asked has its whole time from then', () => {
     const t = new Table()
     t.start()
     t.trusteeOn(1, 0)
-    // Seat 0 times out at 40, seat 1 is asked then and the trustee bids for it at 42, seat 2 is asked at 42.
-    const first = t.tick(45)
-    expect(shape(first)).toEqual(['bid 0:timeout', 'bid 1:trustee', '2:your_turn'])
-    t.expectAsked(2, 3, 52, 30)
-    // Seat 2 times out at 82: nobody bid, a redeal. Seat 1 bids first: asked at 82, the trustee bids at 84. Seat 2,
-    // asked at 84 with no bank, times out at 94 and goes to the trustee. Seat 0, asked at 94, has until 104.
-    const second = t.tick(100)
-    expect(shape(second)).toEqual([
-      'bid 2:timeout', 'redeal', 'dealt', '0:hand', '1:hand', '2:hand',
-      'bid 1:trustee', 'bid 2:timeout', 'trustee 2 on timeouts', '0:your_turn',
-    ])
-    t.expectAsked(0, 6, 104, 0)
+    // Seat 0's step was due at 40; seat 1, in trusteeship, is asked at 45 with its whole short deadline.
+    expect(shape(t.tick(45))).toEqual(['bid 0:timeout', '1:your_turn'])
+    t.expectAsked(1, 2, 47, 30)
+    // Very late: the trustee bids for seat 1 (due at 47), and seat 2 is asked at 60.
+    expect(shape(t.tick(60))).toEqual(['bid 1:trustee', '2:your_turn'])
+    t.expectAsked(2, 3, 70, 30)
+    // Seat 2's step was due at 100; at 200 it times out, nobody bid, and the new deal's first bidder (seat 1) is asked.
+    expect(shape(t.tick(200))).toEqual(['bid 2:timeout', 'redeal', 'dealt', '0:hand', '1:hand', '2:hand', '1:your_turn'])
+    t.expectAsked(1, 4, 202, 30)
     expect(t.s.seatCounts).toEqual([
       { timeouts: 1, trusteeMoves: 0, illegalMoves: 0 },
-      { timeouts: 0, trusteeMoves: 2, illegalMoves: 0 },
-      { timeouts: 2, trusteeMoves: 0, illegalMoves: 0 },
+      { timeouts: 0, trusteeMoves: 1, illegalMoves: 0 },
+      { timeouts: 1, trusteeMoves: 0, illegalMoves: 0 },
     ])
+  })
+
+  test('a reconnect after the step was due gets no your_turn for it; the next call makes the step', () => {
+    const t = new Table()
+    t.start()
+    expect(t.s.resend(0, at(39.999)).map((m) => m.type)).toEqual(['hand', 'your_turn'])
+    expect(t.s.resend(0, at(40)).map((m) => m.type)).toEqual(['hand'])
+    expect(shape(t.tick(41))).toEqual(['bid 0:timeout', '1:your_turn'])
   })
 })
 
@@ -450,6 +468,32 @@ describe('the club closing', () => {
     expect(new Set(steps(out).map((s) => s.split(':')[1]))).toEqual(new Set(['closing']))
     expect(t.s.table().deadline).toBeNull()
     expect(t.tick(1000)).toEqual({ emits: [], over: true })
+  })
+
+  test('a step already due when the club closes is a timeout, and counted; the rest is played out', () => {
+    const t = new Table()
+    t.start()
+    const out = t.take(t.s.finish(at(45)))
+    expect(shape(out).slice(0, 4)).toEqual([
+      'bid 0:timeout',
+      'trustee 0 on closing',
+      'trustee 1 on closing',
+      'trustee 2 on closing',
+    ])
+    expect(steps(out).slice(1).every((step) => step.endsWith(':closing'))).toBe(true)
+    expect(out.over).toBe(true)
+    expect(privates(out)).toEqual([])
+    expect(t.s.seatCounts[0]).toEqual({ timeouts: 1, trusteeMoves: 0, illegalMoves: 0 })
+  })
+})
+
+describe('the short deadline', () => {
+  test('must be at least a second and shorter than every step', () => {
+    expect(() => fakeGame({ clock: true, rules: RULES, trusteeDelaySeconds: 10 })).toThrow(/trusteeDelaySeconds \(10\)/)
+    expect(() => fakeGame({ clock: true, rules: RULES, trusteeDelaySeconds: 0 })).toThrow(RangeError)
+    expect(() => fakeGame({ clock: true, rules: RULES, trusteeDelaySeconds: 9 })).not.toThrow()
+    // Without the clock there is no short deadline.
+    expect(() => fakeGame({ clock: false, rules: RULES, trusteeDelaySeconds: 10 })).not.toThrow()
   })
 })
 
@@ -475,14 +519,14 @@ interface Tally {
   steps: number
   own: number
   late: number
-  timeoutsAsked: number
-  timeoutsChained: number
+  timeouts: number
   trusteeOn: number
   trusteeMoves: number
   takenBack: number
   illegal: number
   stale: number
   finished: number
+  closedLate: number
   redeals: number
 }
 
@@ -516,7 +560,7 @@ function randomGame(random: RandomInt, tally: Tally): void {
   const turnBy = random(3)
   const seated = [0, 1, 2].map((i) => players[(i + turnBy) % 3]!)
   const bankSeconds = [0, 3, 30][random(3)]!
-  const rules: Rules = { ...DEFAULT_DOUDIZHU_RULES, bidSeconds: 3 + random(8), playSeconds: 3 + random(13) }
+  const rules: Rules = { ...DEFAULT_DOUDIZHU_RULES, bidSeconds: 4 + random(7), playSeconds: 4 + random(12) }
   const delay = 1 + random(3)
   const game = fakeGame({
     clock: true,
@@ -545,8 +589,11 @@ function randomGame(random: RandomInt, tally: Tally): void {
     a.inTrusteeship ? bank[seat]! : Math.max(0, bank[seat]! - Math.max(0, t - a.deadline))
   const dueOf = (seat: number, a: Asked) => (a.inTrusteeship ? a.deadline : a.deadline + bank[seat]!)
 
-  /** Checks what a call at `t` gave; `own` is the seat whose own step it was, if any. */
-  function check(output: GameOutput, t: number, own: number | null): void {
+  /**
+   * Checks what a call at `t` gave; `own` is the seat whose own step it was, if any, and `takenBack` whether the call
+   * was a `trustee.off` (which asks again with the step's own deadline).
+   */
+  function check(output: GameOutput, t: number, own: number | null, takenBack = false): void {
     for (const emit of output.emits) {
       if (emit.to === 'seat') {
         expect(seated[emit.seat]!.bot).toBe(false)
@@ -559,9 +606,13 @@ function randomGame(random: RandomInt, tally: Tally): void {
         const a: Asked = { message: m, deadline: Date.parse(m.deadline), inTrusteeship: trustee[emit.seat]! }
         expect(m.timeBankSeconds).toBe(Math.floor(bankShown(emit.seat, a, t) / 1000))
         expect(m.timeBankSeconds).toBeGreaterThanOrEqual(0)
-        // Never asked for a step already due; in trusteeship, for no longer than the delay.
-        expect(dueOf(emit.seat, a)).toBeGreaterThan(t)
-        if (a.inTrusteeship) expect(a.deadline).toBeLessThanOrEqual(t + delay * 1000)
+        // Every seat asked has its whole time from now: the short deadline in trusteeship, else the step's own (or,
+        // taken back, the step's own from when it was asked, and at least the short deadline from now).
+        expect(a.deadline).toBeGreaterThan(t)
+        const limit = (m.phase === 'bid' ? rules.bidSeconds : rules.playSeconds) * 1000
+        if (a.inTrusteeship) expect(a.deadline).toBe(t + delay * 1000)
+        else if (takenBack) expect(a.deadline).toBeGreaterThanOrEqual(t + delay * 1000)
+        else expect(a.deadline).toBe(t + limit)
         asked[emit.seat] = a
         continue
       }
@@ -622,21 +673,21 @@ function randomGame(random: RandomInt, tally: Tally): void {
         own = null
         tally.own++
       } else if (e.auto === 'timeout') {
+        // Only a step the seat was sent a `your_turn` for times out, and only once its bank is gone.
         expect(trustee[seat]).toBe(false)
-        if (a !== null) {
-          expect(a.inTrusteeship).toBe(false)
-          expect(t).toBeGreaterThanOrEqual(a.deadline + bank[seat]!)
-          tally.timeoutsAsked++
-        } else {
-          tally.timeoutsChained++
-        }
+        expect(a).not.toBeNull()
+        expect(a!.inTrusteeship).toBe(false)
+        expect(t).toBeGreaterThanOrEqual(a!.deadline + bank[seat]!)
+        tally.timeouts++
         bank[seat] = 0
         counts[seat]!.timeouts++
         if (++inRow[seat]! >= 2) pendingTrustee = seat
       } else {
         expect(e.auto).toBe('trustee')
         expect(trustee[seat]).toBe(true)
-        if (a !== null) expect(t).toBeGreaterThanOrEqual(a.deadline)
+        expect(a).not.toBeNull()
+        expect(a!.inTrusteeship).toBe(true)
+        expect(t).toBeGreaterThanOrEqual(a!.deadline)
         counts[seat]!.trusteeMoves++
         tally.trusteeMoves++
       }
@@ -707,11 +758,18 @@ function randomGame(random: RandomInt, tally: Tally): void {
       const t = now + random(Math.max(1, due - now))
       const reply = s.trusteeOff(who, new Date(t))
       expect(reply.ack).toEqual(trustee[who] ? { ok: true } : { ok: false, code: 'not_trustee' })
-      check(reply.output, t, null)
+      check(reply.output, t, null, true)
       now = t
     } else if (r < 70) {
-      // A reconnect: the same turn and deadline, the bank as it is now.
-      const t = now + random(Math.max(1, due - now))
+      // A reconnect: the same turn and deadline, the bank as it is now; no turn once its step is due.
+      const t = now + random(Math.max(1, due - now + 1000))
+      if (t >= due) {
+        expect(s.resend(seat, new Date(t)).map((m) => m.type)).toEqual(['hand'])
+        // The tick then (the clock never goes back) makes the step.
+        check(s.tick(new Date(t)), t, null)
+        now = t
+        continue
+      }
       const messages = s.resend(seat, new Date(t))
       expect(messages.map((m) => m.type)).toEqual(['hand', 'your_turn'])
       const again = messages[1] as YourTurn
@@ -721,8 +779,27 @@ function randomGame(random: RandomInt, tally: Tally): void {
     } else if (r < 71) {
       finished = true
       tally.finished++
-      const t = now + random(5000)
+      // The club closes; a step due by then is made as it was due (a timeout, or the trustee's), the rest closing.
+      const t = now + random(Math.max(1, due - now + 3000))
       const output = s.finish(new Date(t))
+      if (t >= due) {
+        expect(steps(output)[0]).toBe(`${seat}:${trustee[seat] ? 'trustee' : 'timeout'}`)
+        tally.closedLate++
+        // Checked in two parts: the step that was due (and the bots after it), then what closing played out.
+        const closing = (e: GameEmit) =>
+          e.to === 'room' &&
+          ((e.event.kind === 'trustee' && e.event.reason === 'closing') ||
+            (e.event.kind === 'game' && 'auto' in e.event.event && e.event.event.auto === 'closing'))
+        const cut = output.emits.findIndex(closing)
+        finished = false
+        check({ emits: output.emits.slice(0, cut === -1 ? output.emits.length : cut), over: s.over }, t, null)
+        finished = true
+        if (cut !== -1) check({ emits: output.emits.slice(cut), over: s.over }, t, null)
+        expect(output.over).toBe(true)
+        expect(privates(output)).toEqual([])
+        now = t
+        continue
+      }
       expect(output.over).toBe(true)
       expect(privates(output)).toEqual([])
       check(output, t, null)
@@ -742,8 +819,8 @@ describe('random games against the clock', () => {
   test(`${GAMES} games all end, and every step, bank and timeout is as the clock says`, () => {
     const random = seededRandomInt(20261121)
     const tally: Tally = {
-      steps: 0, own: 0, late: 0, timeoutsAsked: 0, timeoutsChained: 0, trusteeOn: 0, trusteeMoves: 0, takenBack: 0,
-      illegal: 0, stale: 0, finished: 0, redeals: 0,
+      steps: 0, own: 0, late: 0, timeouts: 0, trusteeOn: 0, trusteeMoves: 0, takenBack: 0,
+      illegal: 0, stale: 0, finished: 0, closedLate: 0, redeals: 0,
     }
     for (let g = 0; g < GAMES; g++) randomGame(random, tally)
     // Every path was taken, many times.

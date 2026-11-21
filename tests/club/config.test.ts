@@ -88,6 +88,7 @@ describe('the club block', () => {
     ['inviteSeconds', 1.5],
     ['disconnectGraceSeconds', -1],
     ['roomEventBuffer', 0],
+    ['trusteeDelaySeconds', 0],
     ['trusteeDelaySeconds', -1],
     ['trusteeDelaySeconds', 0.5],
     ['botNames', []],
