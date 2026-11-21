@@ -23,6 +23,7 @@
     "admin:build": "npm --prefix admin run build",
     "admin:test": "npm --prefix admin test",
     "sim": "tsx src/tools/sim-bots.ts",
+    "sim:club": "tsx src/tools/sim-club.ts",
     "protocol:export": "tsx scripts/export-protocol.ts"
   },
   "dependencies": {
