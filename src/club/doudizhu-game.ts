@@ -154,7 +154,10 @@ function carriedFirstBidder(carry: unknown): number | null {
     : null
 }
 
-/** How often a seat's steps were not its own, or were refused, in one game: for its record. */
+/**
+ * How often a seat's steps were not its own, or were refused, in one game: for its record. The counts are of the
+ * whole game, the bids of the deals before a redeal included, while the record's `actions` hold the last deal only.
+ */
 export interface SeatCounts {
   /** Steps that timed out (`auto: "timeout"`): each one a step the seat was sent a `your_turn` for. */
   timeouts: number

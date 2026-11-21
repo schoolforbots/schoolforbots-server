@@ -73,7 +73,10 @@ export interface DoudizhuPlayerRow {
    */
   readonly spring: boolean
   readonly antiSpring: boolean
-  /** As the session counted them (see `SeatCounts`). */
+  /**
+   * As the session counted them (see `SeatCounts`): over the whole game, the deals before a redeal included, so they
+   * may count steps that are not in the record's `actions` (the last deal only).
+   */
   readonly timeouts: number
   readonly trusteeMoves: number
   readonly illegalMoves: number
