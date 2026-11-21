@@ -255,3 +255,21 @@ describe('what the game is told', () => {
     expect(session.reactions).toHaveLength(2)
   })
 })
+
+describe('a game failing to take a reaction', () => {
+  test('is reported; the reaction is out and acked all the same', () => {
+    const errors: [string, unknown][] = []
+    const h = partsHarness({}, undefined, undefined, (roomId, err) => errors.push([roomId, err]))
+    const roomId = room(h)
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    const failure = new Error('reacted failed')
+    vi.spyOn(h.game.sessions[0]!, 'reacted').mockImplementation(() => {
+      throw failure
+    })
+    h.outbox.clear()
+    expect(checkAck(h.reactions.react(A, SMILE, h.now))).toEqual({ ok: true })
+    expect(h.outbox.roomEvents.map((r) => r.frame.event.kind)).toEqual(['react'])
+    expect(errors).toEqual([[roomId, failure]])
+    expect(h.rooms.state(roomId, h.now)!.game!.phase).not.toBe('over')
+  })
+})

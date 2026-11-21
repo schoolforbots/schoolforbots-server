@@ -808,3 +808,50 @@ describe('what the game is told', () => {
     expect(h.game.sessions[0]!.addresses).toEqual(['203.0.113.1', null, null])
   })
 })
+
+describe('a game hook that fails', () => {
+  test('addressChanged throwing is reported, and the student is back all the same', () => {
+    const errors: [string, unknown][] = []
+    const h = harness({ onError: (roomId, err) => errors.push([roomId, err]) })
+    const roomId = fullRoom(h)
+    const failure = new Error('addressChanged failed')
+    vi.spyOn(h.game.sessions[0]!, 'addressChanged').mockImplementation(() => {
+      throw failure
+    })
+    h.rooms.disconnected(2, h.now)
+    h.rooms.reconnected(2, h.now, '203.0.113.2')
+    expect(errors).toEqual([[roomId, failure]])
+    expect(h.rooms.state(roomId, h.now)!.seats[1]!.online).toBe(true)
+    expect(h.rooms.resend(2, h.now).map((m) => m.type)).toEqual(['hand'])
+  })
+
+  test('carry throwing is reported; the game ends as any other and the next one starts with no carry', () => {
+    const errors: [string, unknown][] = []
+    const h = harness({ onError: (roomId, err) => errors.push([roomId, err]) })
+    const roomId = fullRoom(h)
+    const failure = new Error('carry failed')
+    vi.spyOn(h.game.sessions[0]!, 'carry').mockImplementation(() => {
+      throw failure
+    })
+    h.rooms.disconnected(3, h.now)
+    playOut(h, roomId)
+    expect(errors).toEqual([[roomId, failure]])
+    const state = h.rooms.state(roomId, h.now)!
+    expect(state.gamesPlayed).toBe(1)
+    expect(state.seats.map((s) => s.ready)).toEqual([false, false, false])
+    // The grace of the absent student started.
+    h.advance(h.config.club.disconnectGraceSeconds)
+    expect(h.rooms.roomOf(3)).toBeNull()
+
+    const starts: SessionStart[] = []
+    const newSession = h.game.newSession.bind(h.game)
+    h.game.newSession = (start) => {
+      starts.push(start)
+      return newSession(start)
+    }
+    checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult')
+    for (const id of [1, 2]) checkAck(h.rooms.ready(id, h.now))
+    expect(starts).toHaveLength(1)
+    expect(starts[0]!.carry).toBeNull()
+  })
+})

@@ -305,7 +305,8 @@ export class Rooms {
 
   /**
    * The student is connected again, from `address` (null when not known): their seat is theirs for good again. The
-   * game being played is told the address.
+   * game being played is told the address; a game failing to take it goes to `onError`, and the student is back all
+   * the same.
    */
   reconnected(studentId: number, now: Date, address: string | null = null): void {
     const room = this.seated.get(studentId)
@@ -315,12 +316,18 @@ export class Rooms {
     occupant.online = true
     occupant.graceUntil = null
     occupant.address = address
-    if (this.playing(room)) room.session!.addressChanged(seat, address, now)
+    if (!this.playing(room)) return
+    try {
+      room.session!.addressChanged(seat, address, now)
+    } catch (err) {
+      this.onError(room.id, err)
+    }
   }
 
   /**
    * A reaction of the student `from` (to the student `to`, or nobody) has been sent to the whole table of their room:
-   * the game being played there, if any, is told of it (see `GameReaction`).
+   * the game being played there, if any, is told of it (see `GameReaction`). A game failing to take it goes to
+   * `onError`: the reaction is out already.
    */
   reacted(
     roomId: string,
@@ -332,7 +339,12 @@ export class Rooms {
     const room = this.rooms.get(roomId)
     if (room === undefined || !this.playing(room)) return
     const toSeat = to === null ? null : this.seatOf(room, to)
-    room.session!.reacted({ ...reaction, from: this.seatOf(room, from), to: toSeat }, now)
+    const told = { ...reaction, from: this.seatOf(room, from), to: toSeat }
+    try {
+      room.session!.reacted(told, now)
+    } catch (err) {
+      this.onError(room.id, err)
+    }
   }
 
   /**
@@ -586,7 +598,6 @@ export class Rooms {
   /** A game has ended: every student is to get ready again, the idle clock and the grace of the absent start. */
   private gameOver(room: Room, now: Date): void {
     room.inGame = false
-    room.carry = room.session!.carry()
     room.gamesPlayed++
     room.waitingSince = now
     room.prompt = null
@@ -594,6 +605,13 @@ export class Rooms {
       if (occupant?.student == null) continue
       occupant.ready = false
       if (!occupant.online) occupant.graceUntil = this.graceFrom(now)
+    }
+    // Last, so a game failing to give it leaves the room as after any game end, with no carry.
+    try {
+      room.carry = room.session!.carry()
+    } catch (err) {
+      room.carry = null
+      this.onError(room.id, err)
     }
   }
 

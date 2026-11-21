@@ -112,7 +112,8 @@ export function clubDoor(deps: ClubDeps, now: Date): ClubClosing | null {
 
 /**
  * Serves one connection whose key belongs to the student `studentId` (the upgrade checked it), from `ip` (null when
- * not known), which only the game is told (see `SessionStart.addresses`): it is never sent, nor logged.
+ * not known), which only the game is told (see `SessionStart.addresses`): it is never sent to anyone, nor logged by
+ * the club code.
  */
 export function serveConnection(
   deps: ClubDeps,

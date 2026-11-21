@@ -206,8 +206,9 @@ export interface GameSession {
    */
   addressChanged(seat: number, address: string | null, now: Date): void
   /**
-   * What this game hands on to the room's next game (`SessionStart.carry`); called once, once the game is over. Small,
-   * and anything the game likes: the club layer keeps it as it is and never looks inside.
+   * What this game hands on to the room's next game (`SessionStart.carry`); called once, once the game is over (a game
+   * may answer before that too; the club layer does not ask). Small, and anything the game likes: the club layer
+   * keeps it as it is and never looks inside.
    */
   carry(): unknown
   readonly over: boolean
