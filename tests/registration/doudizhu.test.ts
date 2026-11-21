@@ -1,17 +1,19 @@
-import type { TSchema } from 'typebox'
+import type { Static, TSchema } from 'typebox'
 import { Value } from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { DoudizhuGameEntry } from '../../src/club/doudizhu-record.js'
-import type { GameClientMessage, SeatPlayer } from '../../src/club/game.js'
+import type { GameClientMessage, GameOutput, SeatPlayer } from '../../src/club/game.js'
 import { join, leave } from '../../src/club/members.js'
-import { studentPerson } from '../../src/club/people.js'
+import { botPerson, studentPerson } from '../../src/club/people.js'
 import { writeGame } from '../../src/club/recorder.js'
 import { ClubGameList, ClubLeaderboard, DoudizhuGameRecord, DoudizhuStats } from '../../src/protocol/club-http.js'
+import type { YourTurnMessage } from '../../src/protocol/club.js'
 import { ErrorBody } from '../../src/protocol/http.js'
 import { ERROR_MESSAGES } from '../../src/registration/errors.js'
 import type { StudentStatus } from '../../src/shared/schema.js'
 import { buildTestApp } from '../helpers/app.js'
 import { insertClass, insertStudent } from '../helpers/factories.js'
+import { seededRandomInt } from '../club/doudizhu/helpers.js'
 import { fakeGame, type FakeSession, QUICK_DECK } from '../club/helpers/fake-game.js'
 
 // The four doudizhu lookups of the registration service (src/registration/doudizhu.ts): who may ask for what, the
@@ -119,6 +121,70 @@ async function playedGame(seats: SeatPlayer[]): Promise<DoudizhuGameEntry> {
 }
 
 const person = (id: number) => studentPerson({ id, ownerName: '主人', aiName: '小鱼' })
+
+const at = (seconds: number) => new Date(THIS_WEEK.getTime() + seconds * 1000)
+/** Text that JSON has to escape, as a reaction may carry. */
+const AWKWARD = 'say "hi" \\ back\nnext line'
+
+/**
+ * Plays a longer game on a shuffled deck and stores it: seats 0 and 1 are students who bid the highest and then pass
+ * whenever they may (playing the first move offered otherwise), seat 2 a bot. Reactions go to the table along the way,
+ * and seat 1 is put in trusteeship after a few steps, so the record has passes, `auto: "bot"` and `auto: "trustee"`.
+ */
+async function longerGame(players: SeatPlayer[]): Promise<DoudizhuGameEntry> {
+  const entries: DoudizhuGameEntry[] = []
+  const turns = new Map<number, Static<typeof YourTurnMessage>>()
+  const take = (o: GameOutput) => {
+    for (const e of o.emits) if (e.to === 'seat' && e.message.type === 'your_turn') turns.set(e.seat, e.message)
+  }
+  const g = fakeGame({ random: seededRandomInt(20261102), firstBidder: 0, firstGameId: 7, onGameOver: (e) => entries.push(e) })
+  const start = { roomId: 'rhttp2', players, addresses: ['10.0.0.1', '10.0.0.2', null], carry: null, closesAt: () => at(99_999), now: THIS_WEEK }
+  const s = g.newSession(start) as FakeSession
+  take(s.start(THIS_WEEK))
+  s.reacted({ from: 0, to: null, kind: 'text', content: AWKWARD, text: AWKWARD }, at(1))
+  s.reacted({ from: 1, to: 2, kind: 'emoji', content: '👍', text: '👍' }, at(2))
+  for (let step = 0; !s.over; step++) {
+    if (step > 500) throw new Error('the game does not end')
+    if (step === 6) take(s.trusteeOn(1, at(3 + step)))
+    if (s.over) break
+    const seat = s.state.toAct!
+    const turn = turns.get(seat)!
+    expect(turn.turn).toBe(s.state.turn)
+    const base = { id: `m${step}`, game: 'doudizhu' as const, turn: turn.turn }
+    const message: GameClientMessage =
+      turn.phase === 'bid'
+        ? { ...base, type: 'bid', bid: turn.bids![turn.bids!.length - 1]! }
+        : turn.canPass
+          ? { ...base, type: 'pass' }
+          : { ...base, type: 'play', moveId: turn.moves![0]!.id }
+    const reply = s.handle(seat, message, at(3 + step))
+    expect(reply.ack.ok, JSON.stringify(reply.ack)).toBe(true)
+    take(reply.output)
+    if (step === 2) s.reacted({ from: 0, to: 1, kind: 'phrase', content: 'nice', text: '打得好' }, at(3 + step))
+  }
+  expect(entries).toHaveLength(1)
+  await writeGame(t.db, entries[0]!)
+  return entries[0]!
+}
+
+/** Three students who bid nothing on any of the three deals: a game with no landlord. Stored. */
+async function noLandlordGame(players: SeatPlayer[]): Promise<DoudizhuGameEntry> {
+  const entries: DoudizhuGameEntry[] = []
+  const g = fakeGame({ random: seededRandomInt(7), firstBidder: 1, firstGameId: 8, onGameOver: (e) => entries.push(e) })
+  const start = { roomId: 'rhttp3', players, addresses: [null, null, null], carry: null, closesAt: () => at(99_999), now: THIS_WEEK }
+  const s = g.newSession(start) as FakeSession
+  s.start(THIS_WEEK)
+  s.reacted({ from: 2, to: null, kind: 'text', content: AWKWARD, text: AWKWARD }, at(1))
+  for (let i = 0; i < 9; i++) {
+    const bid = { id: `b${i}`, type: 'bid', game: 'doudizhu', turn: s.state.turn, bid: 0 } as const
+    const reply = s.handle(s.state.toAct!, bid, at(2 + i))
+    expect(reply.ack.ok, JSON.stringify(reply.ack)).toBe(true)
+  }
+  expect(s.over).toBe(true)
+  expect(entries).toHaveLength(1)
+  await writeGame(t.db, entries[0]!)
+  return entries[0]!
+}
 
 describe('the stats', () => {
   test('the student’s own record, this week’s points from Monday 00:00', async () => {
@@ -261,6 +327,40 @@ describe('the record of a game', () => {
     // One who left the club since still has it.
     await leave(t.db, players[0]!.id, 'doudizhu')
     expect(await ok(DoudizhuGameRecord, `${BASE}/games/${entry.gameId}`, players[0]!.key)).toEqual(entry.record)
+  })
+
+  test('a longer game with a bot comes back as recorded: passes, reactions, the bot and the trustee', async () => {
+    const players = [await student(), await student()]
+    const entry = await longerGame([person(players[0]!.id), person(players[1]!.id), botPerson('陪练小一')])
+    const { record } = entry
+    // What the round trip is to carry.
+    expect(record.actions.some((a) => a.action === 'pass')).toBe(true)
+    expect(record.actions.some((a) => a.auto === 'bot')).toBe(true)
+    expect(record.actions.some((a) => a.auto === 'trustee')).toBe(true)
+    expect(record.reacts.map((r) => r.to)).toContain(null)
+    expect(record.reacts.map((r) => r.text)).toContain(AWKWARD)
+    for (const p of players) {
+      const res = await get(`${BASE}/games/${entry.gameId}`, p.key)
+      expect(res.statusCode, res.body).toBe(200)
+      expect(Value.Check(DoudizhuGameRecord, res.json())).toBe(true)
+      expect(res.json()).toEqual(record)
+      expect(res.body).not.toMatch(/10\.0\.0|"ip"|"rules"/)
+    }
+  })
+
+  test('a game with no landlord comes back as recorded', async () => {
+    const players = [await student(), await student(), await student()]
+    const entry = await noLandlordGame(players.map((p) => person(p.id)))
+    expect(entry.record.result.outcome).toBe('no_landlord')
+    expect(entry.record.actions).toHaveLength(3)
+    expect(entry.record.actions.every((a) => a.action === 'bid' && a.bid === 0)).toBe(true)
+    expect(entry.record.reacts.map((r) => r.text)).toContain(AWKWARD)
+    for (const p of players) {
+      const res = await get(`${BASE}/games/${entry.gameId}`, p.key)
+      expect(res.statusCode, res.body).toBe(200)
+      expect(Value.Check(DoudizhuGameRecord, res.json())).toBe(true)
+      expect(res.json()).toEqual(entry.record)
+    }
   })
 
   test('404 not_found for anyone else, as for a game that does not exist', async () => {
