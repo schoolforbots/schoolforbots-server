@@ -11,20 +11,27 @@ export async function recordStart(db: Kysely<Database>, service: OpsService, at:
 
 /**
  * Notes something that went wrong, for the alert mails. Does not wait for the write and never throws: when the write
- * fails (the database is the very thing that is down, say) one log line says so, with the kind of error only.
+ * fails (the database is the very thing that is down, say) one log line says so, with the kind of error only. The
+ * promise it returns settles when the write has ended, either way, and never rejects: a caller that is about to close
+ * the database can wait for it; the others need not.
  */
 export function recordOpsEvent(
   db: Kysely<Database>,
   event: { service: OpsService; kind: OpsEventKind; at: Date },
   log?: { error(obj: unknown, msg?: string): void },
-): void {
+): Promise<void> {
   try {
-    db.insertInto('opsEvents')
+    return db
+      .insertInto('opsEvents')
       .values(event)
       .execute()
-      .catch((err: unknown) => logFailure(log, event.kind, err))
+      .then(
+        () => {},
+        (err: unknown) => logFailure(log, event.kind, err),
+      )
   } catch (err) {
     logFailure(log, event.kind, err)
+    return Promise.resolve()
   }
 }
 

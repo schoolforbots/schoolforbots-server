@@ -22,7 +22,9 @@ import { doudizhuStatsSummary } from './doudizhu-stats.js'
 // - `drain(timeoutMs)` (the service stopping, after the games being played have been finished) waits for every game
 //   handed over to be written, its retries too, but no longer than `timeoutMs`. What is still not written then is
 //   given up at once, as after the last failure (noted and logged in full), and its retries stop: the process is
-//   about to exit, and a record that only waits for a retry would be lost without a word.
+//   about to exit, and a record that only waits for a retry would be lost without a word. Before it resolves, it
+//   waits for the notes of the games given up (these and any before) to be written, at most `ALERT_WAIT_MS` more of
+//   real time: the service closes the database right after, and a note not written by then would never be.
 //
 // A game's number comes from the club service (`DoudizhuGameOptions.firstGameId`): it goes on from the largest stored
 // (`nextGameId`), so a number is never taken twice across restarts. A game lost when the process crashes leaves a gap.
@@ -52,6 +54,9 @@ export interface Recorder {
 }
 
 export const RETRY_DELAYS_MS: readonly number[] = [1000, 5000, 30_000]
+
+/** How long `drain` waits, at most, for the `internal_error` notes of the games given up (see the top of this file). */
+export const ALERT_WAIT_MS = 1000
 
 /** The number the club service's next game has: one more than the largest stored, 1 when none is. */
 export async function nextGameId(db: Kysely<Database>): Promise<number> {
@@ -129,6 +134,8 @@ export function createRecorder(deps: RecorderDeps): Recorder {
   const writing = new Map<DoudizhuGameEntry, Promise<void>>()
   // Weak: an entry given up is forgotten once nothing holds it any more (its retry loop has ended).
   const givenUp = new WeakSet<DoudizhuGameEntry>()
+  // The `internal_error` notes of the games given up that are still being written.
+  const alerts = new Set<Promise<void>>()
 
   function giveUp(entry: DoudizhuGameEntry, err: unknown, why: 'failed' | 'drain_timeout'): void {
     if (givenUp.has(entry)) return
@@ -148,7 +155,9 @@ export function createRecorder(deps: RecorderDeps): Recorder {
     } catch {
       // A logger that throws must not take anything else down.
     }
-    recordOpsEvent(db, { service: 'club', kind: 'internal_error', at: clock.now() }, log)
+    const alert = recordOpsEvent(db, { service: 'club', kind: 'internal_error', at: clock.now() }, log)
+    alerts.add(alert)
+    void alert.finally(() => alerts.delete(alert))
   }
 
   async function write(entry: DoudizhuGameEntry): Promise<void> {
@@ -180,16 +189,20 @@ export function createRecorder(deps: RecorderDeps): Recorder {
       }
     },
     async drain(timeoutMs) {
-      if (writing.size === 0) return
-      let timedOut = false
-      const timeout = sleep(timeoutMs).then(() => {
-        timedOut = true
-      })
-      // Games handed over while it waits are waited for too.
-      while (writing.size > 0 && !timedOut) await Promise.race([Promise.all([...writing.values()]), timeout])
-      // Whatever is still not written is given up now; a write in flight that goes through after this is stored all
-      // the same.
-      if (timedOut) for (const entry of [...writing.keys()]) giveUp(entry, null, 'drain_timeout')
+      if (writing.size > 0) {
+        let timedOut = false
+        const timeout = sleep(timeoutMs).then(() => {
+          timedOut = true
+        })
+        // Games handed over while it waits are waited for too.
+        while (writing.size > 0 && !timedOut) await Promise.race([Promise.all([...writing.values()]), timeout])
+        // Whatever is still not written is given up now; a write in flight that goes through after this is stored all
+        // the same.
+        if (timedOut) for (const entry of [...writing.keys()]) giveUp(entry, null, 'drain_timeout')
+      }
+      // The notes of the games given up, so that they are written before the database is closed. On a real timer:
+      // this wait is the last thing before the process exits, whatever clock the retries go by.
+      if (alerts.size > 0) await Promise.race([Promise.all([...alerts]), realSleep(ALERT_WAIT_MS)])
     },
     pending: () => writing.size,
   }
