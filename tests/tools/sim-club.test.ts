@@ -1,17 +1,25 @@
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Value } from 'typebox/value'
 import { afterEach, describe, expect, test } from 'vitest'
 import WebSocket, { WebSocketServer } from 'ws'
 import { DEFAULT_DOUDIZHU_RULES } from '../../src/club/doudizhu/index.js'
 import { doudizhuGame } from '../../src/club/doudizhu-game.js'
 import { clubClosedAt } from '../../src/club/hours.js'
+import { createRecorder, nextGameId, storedDoudizhuOptions } from '../../src/club/recorder.js'
 import { type ClubService, createClubService, startClubService } from '../../src/club/service.js'
 import type { Ticker } from '../../src/class/ticker.js'
 import { ClubClientMessage, ClubServerMessage } from '../../src/protocol/club.js'
+import { buildRegistrationApp } from '../../src/registration/app.js'
+import { MemoryMailer } from '../../src/registration/mailer.js'
 import type { Clock } from '../../src/shared/clock.js'
 import type { SchoolConfig } from '../../src/shared/config.js'
 import type { Maintenance, MaintenanceWatch } from '../../src/shared/maintenance.js'
+import { loadSchoolRules } from '../../src/shared/school-rules.js'
 import { type SeededStudent, seedClass } from '../../src/tools/dev-seed.js'
 import {
   cardsNotInHand,
@@ -23,11 +31,18 @@ import {
   createClubBots,
   createClubSampler,
   GROUP_STOPPED,
+  parseClubSimArgs,
+  parseMix,
+  parseThink,
+  runClubSim,
+  sampleBots,
   seededRandom,
   splitByMix,
+  verifyRecords,
   type TableMode,
   type Timers,
 } from '../../src/tools/sim-club.js'
+import { exampleConfig as registrationConfig, exampleModerator } from '../helpers/app.js'
 import { createTestDb } from '../helpers/db.js'
 import { exampleWordLists } from '../club/helpers/parts.js'
 import { exampleConfig, T0 } from '../club/helpers/rooms.js'
@@ -84,9 +99,13 @@ interface Club {
   url: string
   config: SchoolConfig
   students: SeededStudent[]
+  db: Awaited<ReturnType<typeof createTestDb>>['db']
 }
 
-/** The club service with the real game, `n` seeded club members, and a ticker every 20 ms (half a second of its time). */
+/**
+ * The club service with the real game, whose records are stored as the entry point stores them, `n` seeded club
+ * members, and a ticker every 20 ms (half a second of its time).
+ */
 async function startClub(n: number, options: { start?: Date; maintenance?: MaintenanceWatch } = {}): Promise<Club> {
   const { db, destroy } = await createTestDb()
   cleanups.push(destroy)
@@ -101,6 +120,11 @@ async function startClub(n: number, options: { start?: Date; maintenance?: Maint
       trusteeDelaySeconds: 1,
     },
   }
+  const log = { error: () => {} }
+  const recorder = createRecorder({ db, clock, log })
+  // Every record written before the database goes.
+  cleanups.push(() => recorder.drain(5000))
+  const firstGameId = await nextGameId(db)
   const service = createClubService({
     db,
     config,
@@ -109,16 +133,20 @@ async function startClub(n: number, options: { start?: Date; maintenance?: Maint
       rules: { ...DEFAULT_DOUDIZHU_RULES, bidSeconds: 3, playSeconds: 3 },
       timeBankSeconds: 0,
       trusteeDelaySeconds: 1,
+      ...storedDoudizhuOptions({ db, clock, timeZone: config.timezone, recorder, firstGameId, log }),
     }),
     wordLists: exampleWordLists,
     ...(options.maintenance === undefined ? {} : { maintenance: options.maintenance }),
   })
-  const ticker: Ticker = await startClubService({ app: service.app, tick: service.tick, intervalMs: 20 }, { port: 0, host: '127.0.0.1' })
+  const ticker: Ticker = await startClubService(
+    { app: service.app, tick: service.tick, intervalMs: 20, watchTicker: service.watchTicker },
+    { port: 0, host: '127.0.0.1' },
+  )
   cleanups.push(() => service.app.close())
   cleanups.push(() => ticker.stop())
   const { students } = await seedClass(db, config, { division: 'junior', slot: 'evening', students: n, club: true, clock })
   const url = `ws://127.0.0.1:${(service.app.server.address() as AddressInfo).port}/v1/club`
-  return { service, clock, url, config, students }
+  return { service, clock, url, config, students, db }
 }
 
 function runBots(
@@ -686,5 +714,259 @@ describe('the choices of a bot', () => {
     expect(splitByMix(900, { invite: 80, quick: 15, bots: 5 })).toEqual({ invite: 720, quick: 135, bots: 45 })
     expect(splitByMix(10, { invite: 80, quick: 15, bots: 5 })).toEqual({ invite: 6, quick: 3, bots: 1 })
     expect(splitByMix(4, { invite: 100, quick: 0, bots: 0 })).toEqual({ invite: 3, quick: 1, bots: 0 })
+  })
+})
+
+// ---- The command line, the records, and a whole run ----
+
+describe('the command line', () => {
+  const base = ['--keys', 'k.json', '--url', 'ws://localhost:8082/v1/club', '--api', 'http://localhost:8080']
+
+  test('has the defaults of a load test', () => {
+    expect(parseClubSimArgs(base)).toEqual({
+      keys: 'k.json',
+      url: 'ws://localhost:8082/v1/club',
+      duration: 600,
+      games: 3,
+      mix: { invite: 80, quick: 15, bots: 5 },
+      thinkMs: [1000, 5000],
+      passRate: 0.3,
+      timeoutRate: 0.02,
+      illegalRate: 0.02,
+      dropRate: 0.01,
+      reactRate: 0.05,
+      ramp: 0,
+      seed: undefined,
+      verify: 30,
+      api: 'http://localhost:8080',
+      healthz: undefined,
+      report: undefined,
+      quiet: false,
+      expectAckMs: undefined,
+      expectTurnMs: undefined,
+    })
+  })
+
+  test('reads every option', () => {
+    const args = parseClubSimArgs([
+      ...base,
+      ...['--duration', '30', '--games', '1', '--mix', 'quick:1', '--think', '0.5', '--pass-rate', '0', '--timeout-rate', '1'],
+      ...['--illegal-rate', '0.5', '--drop-rate', '0', '--react-rate', '0.1', '--ramp', '5', '--seed', '42', '--verify', '0'],
+      ...['--healthz', 'http://localhost:8082/healthz', '--report', 'r.json', '--quiet', '--expect-ack-ms', '1000', '--expect-turn-ms', '500'],
+    ])
+    expect(args).toMatchObject({
+      duration: 30,
+      games: 1,
+      mix: { invite: 0, quick: 1, bots: 0 },
+      thinkMs: [500, 500],
+      timeoutRate: 1,
+      seed: 42,
+      verify: 0,
+      healthz: 'http://localhost:8082/healthz',
+      report: 'r.json',
+      quiet: true,
+      expectAckMs: 1000,
+      expectTurnMs: 500,
+    })
+  })
+
+  test('refuses what it cannot run', () => {
+    const bad = [
+      [],
+      ['--keys', 'k.json'],
+      [...base, '--url', 'http://localhost'],
+      [...base, '--duration', '0'],
+      [...base, '--games', '1.5'],
+      [...base, '--mix', 'invite:80,solo:20'],
+      [...base, '--mix', 'invite:0'],
+      [...base, '--mix', 'quick:1,quick:2'],
+      [...base, '--think', '5-1'],
+      [...base, '--think', 'slow'],
+      [...base, '--pass-rate', '1.1'],
+      [...base, '--drop-rate', ''],
+      [...base, '--ramp', '-1'],
+      [...base, '--seed', '-1'],
+      [...base, '--seed', '1.5'],
+      [...base, '--verify', '-1'],
+      ['--keys', 'k.json', '--url', 'ws://localhost:8082/v1/club'],
+      [...base, '--healthz', 'localhost'],
+      [...base, '--report', ''],
+      [...base, '--expect-ack-ms', '0'],
+      [...base, '--unknown'],
+    ]
+    for (const argv of bad) expect(parseClubSimArgs(argv), argv.join(' ')).toBeNull()
+    // Without records to check, no address is needed.
+    expect(parseClubSimArgs(['--keys', 'k.json', '--url', 'ws://localhost:8082/v1/club', '--verify', '0'])).not.toBeNull()
+  })
+
+  test('the mix and the think time on their own', () => {
+    expect(parseMix('invite:80, quick:15 ,bots:5')).toEqual({ invite: 80, quick: 15, bots: 5 })
+    expect(parseMix('bots:2.5')).toEqual({ invite: 0, quick: 0, bots: 2.5 })
+    expect(parseThink('1-5')).toEqual([1000, 5000])
+    expect(parseThink('0.2-0.4')).toEqual([200, 400])
+  })
+
+  test('wrong arguments print the usage in Chinese and exit with 1', async () => {
+    const errors: string[] = []
+    expect(await runClubSim(['--keys'], { error: (l) => void errors.push(l), log: () => {} })).toBe(1)
+    expect(errors[0]).toMatch(/^用法：npm run sim:club/)
+  })
+})
+
+/** A registration service of its own: each key's games, listed as it lists them, from the moment they are written. */
+function fakeRecords(written: Record<string, { gameId: number; at: number }[]>) {
+  let t = 0
+  const requests: string[] = []
+  let refuseNext = 0
+  const fetchFake = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input))
+    const key = String((init?.headers as Record<string, string>).authorization).replace('Bearer ', '')
+    requests.push(`${t} ${key} ${url.search}`)
+    if (refuseNext > 0) {
+      refuseNext--
+      return new Response('{}', { status: 429 })
+    }
+    const before = url.searchParams.get('before')
+    const ids = (written[key] ?? [])
+      .filter((g) => g.at <= t && (before === null || g.gameId < Number(before)))
+      .map((g) => g.gameId)
+      .sort((a, b) => b - a)
+    const page = ids.slice(0, 20)
+    const nextBefore = ids.length > 20 ? page[page.length - 1]! : null
+    return Response.json({ games: page.map((gameId) => ({ gameId })), nextBefore })
+  }) as typeof fetch
+  return {
+    fetch: fetchFake,
+    sleep: async (ms: number) => {
+      t += ms
+    },
+    requests,
+    now: () => t,
+    refuse: (n: number) => {
+      refuseNext = n
+    },
+  }
+}
+
+const checked = (studentId: number, games: number[], closing: number[] = []) => ({
+  student: { studentId, key: `k${studentId}`, displayName: '' },
+  tally: { gameIds: new Set(games), closingGameIds: new Set(closing) },
+})
+
+describe('checking the records', () => {
+  const pace = { paceMs: 1200, retryWaitMs: 5000, retries: 3 }
+
+  test('finds every game over the pages, a request at a time, and waits for a record written a few seconds late', async () => {
+    const many = Array.from({ length: 45 }, (_, i) => ({ gameId: i + 1, at: 0 }))
+    const records = fakeRecords({ k1: [...many, { gameId: 50, at: 9000 }], k2: [{ gameId: 60, at: 0 }] })
+    const result = await verifyRecords('http://school/', [checked(1, [1, 30, 45, 50], [50]), checked(2, [60])], { ...records, ...pace })
+    expect(result).toEqual({ bots: 2, games: 5, closingGames: 1, missing: [], failedBots: 0 })
+    // k1: three pages, k2: one; five seconds later k1 again, whose newest page now has the late game.
+    expect(records.requests.map((r) => r.split(' ').slice(1).join(' '))).toEqual(['k1 ', 'k1 ?before=26', 'k1 ?before=6', 'k2 ', 'k1 '])
+    // Never two requests less than the pace apart.
+    const times = records.requests.map((r) => Number(r.split(' ')[0]))
+    for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(1200)
+  })
+
+  test('a game really missing is reported, after looking again for about 15 seconds', async () => {
+    const records = fakeRecords({ k1: [{ gameId: 1, at: 0 }] })
+    const result = await verifyRecords('http://school', [checked(1, [1, 2, 3], [3])], { ...records, ...pace })
+    expect(result.missing).toEqual([
+      { studentId: 1, gameId: 2, closing: false },
+      { studentId: 1, gameId: 3, closing: true },
+    ])
+    expect(records.requests).toHaveLength(4)
+    expect(records.now()).toBeGreaterThanOrEqual(15_000)
+  })
+
+  test('a request turned away for the rate is tried again; records never readable are counted', async () => {
+    const records = fakeRecords({ k1: [{ gameId: 1, at: 0 }] })
+    records.refuse(2)
+    expect(await verifyRecords('http://school', [checked(1, [1])], { ...records, ...pace })).toMatchObject({ missing: [], failedBots: 0 })
+    records.refuse(100)
+    expect(await verifyRecords('http://school', [checked(1, [1])], { ...records, ...pace, retries: 0 })).toMatchObject({ failedBots: 1 })
+  })
+
+  test('the sample is of bots that saw a game end, the same for the same seed', () => {
+    const bots = [checked(1, [1]), checked(2, []), checked(3, [2]), checked(4, [3]), checked(5, [4])]
+    const a = sampleBots(bots, 3, seededRandom(9)).map((b) => b.student.studentId)
+    expect(a).toHaveLength(3)
+    expect(a).not.toContain(2)
+    expect(sampleBots(bots, 3, seededRandom(9)).map((b) => b.student.studentId)).toEqual(a)
+    expect(sampleBots(bots, 10, seededRandom(9))).toHaveLength(4)
+  })
+})
+
+describe('a whole run', () => {
+  test('Ctrl-C ends a run with 130', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sim-club-'))
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    const keys = join(dir, 'keys.json')
+    writeFileSync(keys, JSON.stringify([{ studentId: 1, key: 'k', displayName: '小鱼' }]))
+    const url = await fakeSchool(welcomed)
+    let interrupt = () => {}
+    const run = runClubSim(['--keys', keys, '--url', url, '--verify', '0', '--quiet'], {
+      log: () => {},
+      onInterrupt: (stop) => {
+        interrupt = stop
+        return () => {}
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    interrupt()
+    expect(await run).toBe(130)
+  })
+
+  test('bots play against the club service for the duration, and their records are all found on the registration service', async () => {
+    const club = await startClub(9)
+    const registration = buildRegistrationApp({
+      db: club.db,
+      config: registrationConfig(),
+      moderator: exampleModerator(),
+      mailer: new MemoryMailer(),
+      clock: club.clock,
+      maintenance: { current: () => null, refresh: async () => {}, onChange: () => {}, stop: () => {} },
+      schoolRules: loadSchoolRules(fileURLToPath(new URL('../../school-rules', import.meta.url))),
+      trustProxy: false,
+    })
+    await registration.listen({ port: 0, host: '127.0.0.1' })
+    cleanups.push(() => registration.close())
+    const api = `http://127.0.0.1:${(registration.server.address() as AddressInfo).port}`
+    const healthz = club.url.replace(/^ws/, 'http').replace('/v1/club', '/healthz')
+
+    const dir = mkdtempSync(join(tmpdir(), 'sim-club-'))
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    const keys = join(dir, 'keys.json')
+    const reportFile = join(dir, 'report.json')
+    writeFileSync(keys, JSON.stringify(club.students))
+    const lines: string[] = []
+    const code = await runClubSim(
+      [
+        ...['--keys', keys, '--url', club.url, '--duration', '60', '--games', '2', '--mix', 'invite:34,quick:33,bots:33'],
+        ...['--think', '0.1-0.3', '--timeout-rate', '0.05', '--illegal-rate', '0.1', '--drop-rate', '0.01', '--react-rate', '0.1'],
+        ...['--seed', '3', '--verify', '9', '--api', api, '--healthz', healthz, '--report', reportFile, '--quiet'],
+        ...['--expect-ack-ms', '100000', '--expect-turn-ms', '100000'],
+      ],
+      {
+        clock: club.clock,
+        timers: scaledTimers,
+        timing: TIMING,
+        log: (line) => void lines.push(line),
+        error: (line) => void lines.push(line),
+        verify: { paceMs: 100, retryWaitMs: 2000, retries: 3 },
+      },
+    )
+    expect(code, lines.join('\n')).toBe(0)
+    expect(lines[0]).toContain('随机种子 3（用 --seed 3 可以重现）')
+    expect(lines).toContain('结论：及格')
+    const report = JSON.parse(readFileSync(reportFile, 'utf8'))
+    expect(report.pass).toBe(true)
+    expect(report.totals.games).toBeGreaterThan(0)
+    expect(report.totals.seated.invite + report.totals.seated.quick + report.totals.seated.bots).toBeGreaterThanOrEqual(9)
+    expect(report.ack.count).toBeGreaterThan(0)
+    expect(report.verification.games).toBeGreaterThan(0)
+    expect(report.verification).toMatchObject({ missing: [], failedBots: 0 })
+    expect(report.healthz.checks).toBeGreaterThan(0)
+    expect(report.healthz.failures).toBe(0)
   })
 })

@@ -1,10 +1,32 @@
+import { writeFileSync } from 'node:fs'
+import { parseArgs } from 'node:util'
 import type { Static } from 'typebox'
 import { Compile } from 'typebox/compile'
 import WebSocket from 'ws'
 import { ClubServerMessage, type Rank } from '../protocol/club.js'
-import type { Clock } from '../shared/clock.js'
+import { type Clock, systemClock } from '../shared/clock.js'
 import { SIM_PLUGIN, type SeededStudent } from './dev-seed.js'
+import { isEntryPoint } from './entry-point.js'
+import { readKeysFile, SimError } from './sim-bots.js'
+import {
+  type BotResult,
+  type ClubExpect,
+  clubReportJson,
+  clubReportLines,
+  clubVerdict,
+  type MissingGame,
+  STOPPED,
+  summarizeClub,
+  type Verification,
+} from './sim-club-report.js'
 
+// `npm run sim:club -- --keys .sim/keys.json --url ws://localhost:8082/v1/club [--duration 600] [--verify 30 --api
+// http://localhost:8080] [...]` (see `USAGE` below): a load test of the club service, for local development and for an
+// operator trying a server. One bot per key in the file `npm run dev:seed -- --club` wrote plays at the club for
+// `--duration` seconds (or until Ctrl-C); then the records of `--verify` of them, picked at random, are looked up on the
+// registration service, and a report says what the bots counted, the delays they measured, and whether the run is
+// within the pass line (`--report` writes it as JSON; a run that is not exits with 1).
+//
 // The club simulator's bots: each one a seeded student who connects to the club service, gets a seat at a table, plays
 // a few games there, leaves and finds another table, again and again, the way a careless but honest plugin would. It
 // only uses what the protocol gives it: a bid is picked from the `bids` of a `your_turn`, a move from its `moves`.
@@ -273,7 +295,8 @@ export function seededRandom(seed: number): () => number {
   }
 }
 
-function newTally(): ClubBotTally {
+/** A tally with nothing counted yet. */
+export function emptyTally(): ClubBotTally {
   return {
     connects: 0,
     welcomes: 0,
@@ -347,7 +370,7 @@ export function createClubBot(
   const connectTo = deps.connect ?? connectSocket
   const timing: ClubSimTiming = { ...DEFAULT_TIMING, ...deps.timing }
   const sampler = deps.sampler ?? createClubSampler()
-  const tally = newTally()
+  const tally = emptyTally()
   const me = student.studentId
   const say = (what: string) => deps.print(`${student.displayName} ${what}`)
   const now = () => clock.now().getTime()
@@ -969,7 +992,7 @@ export function createClubBot(
       connect()
     },
     stop() {
-      tally.ended ??= '中途停止'
+      tally.ended ??= STOPPED
       timers.clear(reconnectTimer)
       timers.clear(formTimer)
       timers.clear(turnTimer)
@@ -1030,4 +1053,427 @@ export function createClubBots(
     bots.push(bot)
   })
   return bots
+}
+
+// ---- Checking the records ----
+
+/** The bots whose records are checked: `count` of those that saw a game to the end, picked at random. */
+export function sampleBots<T extends { tally: { gameIds: Set<number> } }>(
+  bots: readonly T[],
+  count: number,
+  random: () => number,
+): T[] {
+  const candidates = bots.filter((b) => b.tally.gameIds.size > 0)
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.min(Math.floor(random() * (i + 1)), i)
+    ;[candidates[i], candidates[j]] = [candidates[j]!, candidates[i]!]
+  }
+  return candidates.slice(0, count)
+}
+
+export interface VerifyDeps {
+  fetch: typeof fetch
+  sleep: (ms: number) => Promise<void>
+  /** The least time between two requests (ms): the registration service limits the requests of an address a minute. */
+  paceMs: number
+  /** How long to wait before looking again for games not listed yet (ms): records are written after the game. */
+  retryWaitMs: number
+  /** How many times to look again. */
+  retries: number
+}
+
+/** About 50 requests a minute, under the registration service's 60 of an address. */
+export const DEFAULT_VERIFY: Omit<VerifyDeps, 'fetch' | 'sleep'> = { paceMs: 1200, retryWaitMs: 5000, retries: 3 }
+
+/** A request that failed every time. */
+class RecordsUnreadable extends Error {}
+
+/**
+ * Looks up the records of each bot with its key (`GET /v1/me/clubs/doudizhu/games`, a page at a time, until every game
+ * it saw to the end is found or the pages run out). Games not listed are looked for again `retries` times,
+ * `retryWaitMs` apart, since a record is written a moment after its game. Requests are spaced `paceMs` apart; one
+ * turned away for the rate (429) or failing is tried again after a wait, a few times.
+ */
+export async function verifyRecords(
+  api: string,
+  bots: readonly { student: SeededStudent; tally: Pick<ClubBotTally, 'gameIds' | 'closingGameIds'> }[],
+  deps: VerifyDeps,
+): Promise<Verification> {
+  let first = true
+  const base = api.replace(/\/+$/, '')
+
+  async function page(key: string, before: number | null): Promise<{ ids: number[]; nextBefore: number | null }> {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (!first) await deps.sleep(deps.paceMs)
+      first = false
+      const url = `${base}/v1/me/clubs/doudizhu/games${before === null ? '' : `?before=${before}`}`
+      try {
+        const res = await deps.fetch(url, { headers: { authorization: `Bearer ${key}` } })
+        if (res.ok) {
+          const body = (await res.json()) as { games?: { gameId: number }[]; nextBefore?: number | null }
+          return { ids: (body.games ?? []).map((g) => g.gameId), nextBefore: body.nextBefore ?? null }
+        }
+        if (res.status !== 429 && res.status < 500) break
+      } catch {
+        // A failure on the way: tried again below.
+      }
+      await deps.sleep(deps.retryWaitMs)
+    }
+    throw new RecordsUnreadable()
+  }
+
+  /** The games of `wanted` the records of the student with `key` do not list. */
+  async function notListed(key: string, wanted: Set<number>): Promise<number[]> {
+    const left = new Set(wanted)
+    let before: number | null = null
+    do {
+      const result = await page(key, before)
+      for (const id of result.ids) left.delete(id)
+      before = result.nextBefore
+    } while (left.size > 0 && before !== null)
+    return [...left]
+  }
+
+  let missing = new Map<number, { key: string; studentId: number; ids: Set<number>; closing: Set<number> }>()
+  let failedBots = 0
+  let games = 0
+  let closingGames = 0
+  for (const { student, tally } of bots) {
+    games += tally.gameIds.size
+    closingGames += tally.closingGameIds.size
+    missing.set(student.studentId, {
+      key: student.key,
+      studentId: student.studentId,
+      ids: new Set(tally.gameIds),
+      closing: tally.closingGameIds,
+    })
+  }
+  for (let round = 0; round <= deps.retries && missing.size > 0; round++) {
+    if (round > 0) await deps.sleep(deps.retryWaitMs)
+    const next: typeof missing = new Map()
+    for (const entry of missing.values()) {
+      try {
+        const ids = await notListed(entry.key, entry.ids)
+        if (ids.length > 0) next.set(entry.studentId, { ...entry, ids: new Set(ids) })
+      } catch (err) {
+        if (!(err instanceof RecordsUnreadable)) throw err
+        failedBots++
+      }
+    }
+    missing = next
+  }
+  const list: MissingGame[] = []
+  for (const entry of missing.values()) {
+    for (const gameId of [...entry.ids].sort((a, b) => a - b)) {
+      list.push({ studentId: entry.studentId, gameId, closing: entry.closing.has(gameId) })
+    }
+  }
+  return { bots: bots.length, games, closingGames, missing: list, failedBots }
+}
+
+// ---- The command line ----
+
+const USAGE =
+  '用法：npm run sim:club -- --keys .sim/keys.json --url ws://localhost:8082/v1/club [--duration 600] [--games 3] ' +
+  '[--mix invite:80,quick:15,bots:5] [--think 1-5] [--pass-rate 0.3] [--timeout-rate 0.02] [--illegal-rate 0.02] ' +
+  '[--drop-rate 0.01] [--react-rate 0.05] [--ramp <秒>] [--seed <整数>] [--verify 30 --api http://localhost:8080] ' +
+  '[--healthz <地址>] [--report <文件.json>] [--quiet] [--expect-ack-ms 1000] [--expect-turn-ms 1000]'
+
+export interface ClubSimArgs extends ClubSimOptions {
+  keys: string
+  /** How long the run lasts (seconds). */
+  duration: number
+  mix: Record<TableMode, number>
+  /** The seconds over which the bots' first connections are spread at random; 0 connects them all at once. */
+  ramp: number
+  /** The seed of the bots' choices; picked at random when not given. */
+  seed: number | undefined
+  /** How many bots' records to check at the end; 0 checks none. */
+  verify: number
+  /** The registration service's address, for the records (needed when `verify` is above 0). */
+  api: string | undefined
+  /** The `/healthz` address to look at every 5 seconds. */
+  healthz: string | undefined
+  report: string | undefined
+  quiet: boolean
+  expectAckMs: number | undefined
+  expectTurnMs: number | undefined
+}
+
+/** `invite:80,quick:15,bots:5`; a mode not named has no share. Null when it is not that. */
+export function parseMix(text: string): Record<TableMode, number> | null {
+  const mix: Record<TableMode, number> = { invite: 0, quick: 0, bots: 0 }
+  const seen = new Set<string>()
+  for (const part of text.split(',')) {
+    const match = /^\s*(invite|quick|bots)\s*:\s*(\d+(?:\.\d+)?)\s*$/.exec(part)
+    if (match === null || seen.has(match[1]!)) return null
+    seen.add(match[1]!)
+    mix[match[1] as TableMode] = Number(match[2])
+  }
+  return mix.invite + mix.quick + mix.bots > 0 ? mix : null
+}
+
+/** `1-5` or `2` (seconds) as a range in milliseconds; null when it is not that. */
+export function parseThink(text: string): [number, number] | null {
+  const match = /^\s*(\d+(?:\.\d+)?)\s*(?:-\s*(\d+(?:\.\d+)?))?\s*$/.exec(text)
+  if (match === null) return null
+  const lo = Number(match[1])
+  const hi = match[2] === undefined ? lo : Number(match[2])
+  return lo <= hi ? [lo * 1000, hi * 1000] : null
+}
+
+export function parseClubSimArgs(argv: string[]): ClubSimArgs | null {
+  let values: Record<string, string | boolean | undefined>
+  try {
+    values = parseArgs({
+      args: argv,
+      options: {
+        keys: { type: 'string' },
+        url: { type: 'string' },
+        duration: { type: 'string', default: '600' },
+        games: { type: 'string', default: '3' },
+        mix: { type: 'string', default: 'invite:80,quick:15,bots:5' },
+        think: { type: 'string', default: '1-5' },
+        'pass-rate': { type: 'string', default: '0.3' },
+        'timeout-rate': { type: 'string', default: '0.02' },
+        'illegal-rate': { type: 'string', default: '0.02' },
+        'drop-rate': { type: 'string', default: '0.01' },
+        'react-rate': { type: 'string', default: '0.05' },
+        ramp: { type: 'string', default: '0' },
+        seed: { type: 'string' },
+        verify: { type: 'string', default: '30' },
+        api: { type: 'string' },
+        healthz: { type: 'string' },
+        report: { type: 'string' },
+        quiet: { type: 'boolean', default: false },
+        'expect-ack-ms': { type: 'string' },
+        'expect-turn-ms': { type: 'string' },
+      },
+      strict: true,
+      allowPositionals: false,
+    }).values
+  } catch {
+    return null
+  }
+  const text = values as Record<string, string | undefined>
+  const num = (key: string) => {
+    const value = text[key]
+    return value === undefined || value.trim() === '' ? Number.NaN : Number(value)
+  }
+  const rate = (key: string) => {
+    const n = num(key)
+    return n >= 0 && n <= 1 ? n : null
+  }
+  const limit = (key: string): number | undefined | null => {
+    if (text[key] === undefined) return undefined
+    const n = num(key)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+  const { keys, url, api, healthz, report } = text
+  const duration = num('duration')
+  const games = num('games')
+  const ramp = num('ramp')
+  const verify = num('verify')
+  const seed = text.seed === undefined ? undefined : num('seed')
+  const mix = parseMix(text.mix ?? '')
+  const thinkMs = parseThink(text.think ?? '')
+  const passRate = rate('pass-rate')
+  const timeoutRate = rate('timeout-rate')
+  const illegalRate = rate('illegal-rate')
+  const dropRate = rate('drop-rate')
+  const reactRate = rate('react-rate')
+  const expectAckMs = limit('expect-ack-ms')
+  const expectTurnMs = limit('expect-turn-ms')
+  if (keys === undefined || keys === '' || url === undefined || !/^wss?:\/\//.test(url)) return null
+  if (!(duration > 0) || !Number.isFinite(duration) || !Number.isInteger(games) || games < 1) return null
+  if (!(ramp >= 0) || !Number.isFinite(ramp) || !Number.isInteger(verify) || verify < 0) return null
+  if (seed !== undefined && !(Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff)) return null
+  if (verify > 0 && (api === undefined || !/^https?:\/\//.test(api))) return null
+  if (healthz !== undefined && !/^https?:\/\//.test(healthz)) return null
+  if (report === '' || mix === null || thinkMs === null) return null
+  if (passRate === null || timeoutRate === null || illegalRate === null || dropRate === null || reactRate === null) return null
+  if (expectAckMs === null || expectTurnMs === null) return null
+  return {
+    keys,
+    url,
+    duration,
+    games,
+    mix,
+    thinkMs,
+    passRate,
+    timeoutRate,
+    illegalRate,
+    dropRate,
+    reactRate,
+    ramp,
+    seed,
+    verify,
+    api,
+    healthz,
+    report,
+    quiet: values.quiet === true,
+    expectAckMs,
+    expectTurnMs,
+  }
+}
+
+/** What a run takes from outside; the real ones by default, a test's own otherwise. */
+export interface ClubSimDeps {
+  clock: Clock
+  timers: Timers
+  fetch: typeof fetch
+  connect: ConnectSocket
+  log: (line: string) => void
+  error: (line: string) => void
+  /** Calls `stop` on Ctrl-C; gives back a function that stops listening. */
+  onInterrupt: (stop: () => void) => () => void
+  verify: Omit<VerifyDeps, 'fetch' | 'sleep'>
+  timing?: Partial<ClubSimTiming>
+}
+
+const HEALTHZ_EVERY_MS = 5000
+const PROGRESS_EVERY_MS = 10_000
+
+/**
+ * Runs the bots for `--duration` seconds (or until Ctrl-C), then checks the records of a sample of them and reports.
+ * The exit code: 0 within the pass line, 1 when it cannot start or the verdict fails, 130 on Ctrl-C.
+ */
+export async function runClubSim(argv: string[], given: Partial<ClubSimDeps> = {}): Promise<number> {
+  const deps: ClubSimDeps = {
+    clock: systemClock,
+    timers: realTimers,
+    fetch: globalThis.fetch,
+    connect: connectSocket,
+    log: (line) => console.log(line),
+    error: (line) => console.error(line),
+    onInterrupt: (stop) => {
+      process.once('SIGINT', stop)
+      return () => process.off('SIGINT', stop)
+    },
+    verify: DEFAULT_VERIFY,
+    ...given,
+  }
+  const args = parseClubSimArgs(argv)
+  if (args === null) {
+    deps.error(USAGE)
+    return 1
+  }
+  let students: SeededStudent[]
+  try {
+    students = readKeysFile(args.keys)
+  } catch (err) {
+    deps.error(`模拟失败：${err instanceof SimError ? err.message : String(err)}`)
+    return 1
+  }
+  const { clock, timers } = deps
+  const seed = args.seed ?? Math.floor(Math.random() * 0x100000000)
+  const stamp = () => clock.now().toTimeString().slice(0, 8)
+  // Quiet: with hundreds of bots, a console line per event is synchronous work on the event loop being measured.
+  const print = args.quiet ? () => {} : (line: string) => deps.log(`${stamp()} ${line}`)
+  const sampler = createClubSampler()
+  const bots = createClubBots(students, args, {
+    seed,
+    clock,
+    timers,
+    connect: deps.connect,
+    print,
+    sampler,
+    ...(deps.timing === undefined ? {} : { timing: deps.timing }),
+  })
+  const split = splitByMix(students.length, args.mix)
+  deps.log(
+    `${bots.length} 个模拟机器人连向 ${args.url}：邀请组 ${split.invite} 个，快速加入 ${split.quick} 个，带陪练 ${split.bots} 个；` +
+      `跑 ${args.duration} 秒；随机种子 ${seed}（用 --seed ${seed} 可以重现）`,
+  )
+
+  const healthz = args.healthz === undefined ? null : { checks: 0, failures: 0 }
+  const handles: unknown[] = []
+  let interrupted = false
+  let finish = () => {}
+  const ended = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  handles.push(timers.set(finish, args.duration * 1000))
+  const stopListening = deps.onInterrupt(() => {
+    interrupted = true
+    finish()
+  })
+  for (const bot of bots) {
+    if (args.ramp > 0) handles.push(timers.set(() => bot.start(), Math.random() * args.ramp * 1000))
+    else bot.start()
+  }
+  const every = (ms: number, fn: () => void) => {
+    const again = () => {
+      fn()
+      handles.push(timers.set(again, ms))
+    }
+    handles.push(timers.set(again, ms))
+  }
+  if (healthz !== null) {
+    every(HEALTHZ_EVERY_MS, () => {
+      healthz.checks++
+      deps.fetch(args.healthz!).then(
+        (res) => {
+          if (res.status !== 200) healthz.failures++
+        },
+        () => healthz.failures++,
+      )
+    })
+  }
+  if (args.quiet) {
+    every(PROGRESS_EVERY_MS, () => {
+      const t = (key: 'welcomes' | 'gamesOver' | 'unexpectedDisconnects' | 'connectFailures' | 'invalid') =>
+        bots.reduce((n, b) => n + b.tally[key], 0)
+      deps.log(
+        `${stamp()} 进度：进社团 ${t('welcomes')} 次，打完 ${t('gamesOver')} 局（各机器人相加），ack 样本 ${sampler.ackMs.length}，` +
+          `换手样本 ${sampler.turnMs.length}，意外断开 ${t('unexpectedDisconnects')}，连不上 ${t('connectFailures')}，不合协议 ${t('invalid')}`,
+      )
+    })
+  }
+
+  await ended
+  stopListening()
+  for (const handle of handles) timers.clear(handle)
+  for (const bot of bots) bot.stop()
+  if (interrupted) deps.log('收到 Ctrl-C，停下')
+
+  let verification: Verification | null = null
+  if (args.verify > 0 && args.api !== undefined) {
+    const sample = sampleBots(bots, args.verify, seededRandom((seed ^ 0x5bd1e995) >>> 0))
+    deps.log(`核对牌谱：${sample.length} 个机器人`)
+    const sleep = (ms: number) => new Promise<void>((resolve) => timers.set(resolve, ms))
+    verification = await verifyRecords(args.api, sample, { ...deps.verify, fetch: deps.fetch, sleep })
+  }
+
+  const results: BotResult[] = bots.map((b) => ({ studentId: b.student.studentId, tally: b.tally }))
+  const report = summarizeClub(results, sampler, healthz, verification)
+  const expect: ClubExpect = { ackMs: args.expectAckMs, turnMs: args.expectTurnMs }
+  const verdict = clubVerdict(report, expect)
+  for (const line of clubReportLines(report, verdict)) deps.log(line)
+  let code = interrupted ? 130 : 0
+  if (args.report !== undefined) {
+    try {
+      const json = clubReportJson(report, expect, verdict)
+      writeFileSync(args.report, `${JSON.stringify(json, (_key, value: unknown) => (value instanceof Set ? [...value] : value), 2)}\n`)
+      deps.log(`报告写在 ${args.report}`)
+    } catch (err) {
+      deps.error(`写不了报告 ${args.report}：${String(err)}`)
+      code ||= 1
+    }
+  }
+  if (code === 0 && !verdict.pass) {
+    deps.error('压测不及格')
+    return 1
+  }
+  return code
+}
+
+if (isEntryPoint(import.meta.url)) {
+  runClubSim(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err: unknown) => {
+      console.error('模拟失败', err)
+      process.exit(1)
+    },
+  )
 }

@@ -54,7 +54,8 @@ export function percentile(values: number[], p: number): number | null {
   return sorted[rank - 1]!
 }
 
-function statOf(values: number[]): Stat {
+/** The count, the percentiles and the maximum of a list of delays. */
+export function statOf(values: number[]): Stat {
   return {
     count: values.length,
     p50: percentile(values, 50),
