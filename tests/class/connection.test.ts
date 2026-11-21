@@ -267,6 +267,8 @@ describe('the upgrades of an address', () => {
     await refused(upgrade(s, key))
     const res = await s.app.inject({ method: 'GET', url: '/v1/class', remoteAddress: '10.0.0.1' })
     expect(res.statusCode).toBe(429)
+    // The window is a minute: the address may try again in at most that long.
+    expect(res.headers['retry-after']).toBe('60')
     expect(res.json()).toEqual({ error: { code: 'rate_limited', message: '请求太频繁了，请稍后再试。' } })
     expect(looked()).toBe(3)
 
@@ -295,17 +297,17 @@ describe('the upgrades of an address', () => {
   test('once the window has passed, the address comes in again', async () => {
     const s = await start({
       config: { wsHandshake: { upgradesPerIpPerMinute: 2, authFailuresPerIpPerMinute: 1 } },
-      handshakeWindowMs: 200,
+      handshakeWindowMs: 1000,
     })
     const { key } = await addStudent(s, null)
 
     await expect(upgrade(s, 'ais_unknown')).rejects.toThrow('Unexpected server response: 401')
     await refused(upgrade(s, key))
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await new Promise((resolve) => setTimeout(resolve, 1150))
     await upgrade(s, key)
     await upgrade(s, key)
     await refused(upgrade(s, key))
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await new Promise((resolve) => setTimeout(resolve, 1150))
     await upgrade(s, key)
   })
 })

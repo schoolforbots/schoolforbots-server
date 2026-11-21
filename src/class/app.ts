@@ -144,7 +144,12 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
         websocket: true,
         onRequest: async (request, reply) => {
           // The peer's address, or behind a trusted proxy the client's it names; refused before the database is asked.
-          if (!handshakes.admit(request.ip, performance.now())) return reply.code(429).send(HANDSHAKE_RATE_LIMITED)
+          if (!handshakes.admit(request.ip, performance.now())) {
+            return reply
+              .code(429)
+              .header('retry-after', String(handshakes.retryAfterSeconds))
+              .send(HANDSHAKE_RATE_LIMITED)
+          }
           const key = BEARER.exec(request.headers.authorization ?? '')?.[1]
           const student =
             key === undefined

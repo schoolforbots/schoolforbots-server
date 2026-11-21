@@ -21,7 +21,11 @@ export class HandshakeGuard {
   private readonly upgrades: RateWindow<string>
   private readonly failures: RateWindow<string>
 
+  /** What a refused upgrade's `Retry-After` says, in seconds: the window, rounded up. */
+  readonly retryAfterSeconds: number
+
   constructor(limits: WsHandshakeConfig, windowMs: number = HANDSHAKE_WINDOW_MS) {
+    this.retryAfterSeconds = Math.ceil(windowMs / 1000)
     this.upgrades = new RateWindow({ limit: limits.upgradesPerIpPerMinute, windowMs })
     this.failures = new RateWindow({ limit: limits.authFailuresPerIpPerMinute, windowMs })
   }
@@ -36,6 +40,9 @@ export class HandshakeGuard {
    * is not counted, so an address that keeps trying does not keep itself out longer.
    */
   admit(ip: string, now: number): boolean {
+    // A failed key is counted only once its lookup has come back, so the upgrades of one address that arrive together
+    // with unknown keys are all looked up: the lookups such a burst gets are bounded by `upgradesPerIpPerMinute`, not
+    // by `authFailuresPerIpPerMinute`.
     if (this.failures.full(ip, now)) return false
     return this.upgrades.allow(ip, now)
   }
