@@ -527,6 +527,45 @@ test('a bot turned away at the door with an HTTP status counts a connect failure
   await new Promise((resolve) => server.close(resolve))
 })
 
+test('a bot turned away with 429 counts it apart as well as a connect failure, and the report fails on it', async () => {
+  const server = new WebSocketServer({
+    port: 0,
+    host: '127.0.0.1',
+    verifyClient: (_info, done) => done(false, 429, 'Too Many Requests'),
+  })
+  await new Promise((resolve) => server.once('listening', resolve))
+  const { port } = server.address() as AddressInfo
+  const sampler = createSampler()
+  const b = startBot(`ws://127.0.0.1:${port}/v1/class`, sampler)
+  await waitUntil(() => sampler.samples.rateLimited >= 1, 'the 429')
+  // Unlike 401, a 429 does not end the bot: it tries again.
+  expect(b.tally.ended).toBeNull()
+  b.stop()
+  expect(sampler.samples.connectFailures).toBe(sampler.samples.rateLimited)
+  const report = buildReport(sampler.samples, {})
+  expect(report.pass).toBe(false)
+  expect(report.json).toMatchObject({ rateLimited: sampler.samples.rateLimited })
+  expect(report.lines.join('\n')).toContain(`被 HTTP 429 拒绝（按地址限流）：${sampler.samples.rateLimited} 次`)
+  expect(report.lines.join('\n')).toContain('压测配置里要调大 wsHandshake')
+  await new Promise((resolve) => server.close(resolve))
+})
+
+test('a bot turned away with another status counts no 429', async () => {
+  const server = new WebSocketServer({
+    port: 0,
+    host: '127.0.0.1',
+    verifyClient: (_info, done) => done(false, 503, 'Service Unavailable'),
+  })
+  await new Promise((resolve) => server.once('listening', resolve))
+  const { port } = server.address() as AddressInfo
+  const sampler = createSampler()
+  const b = startBot(`ws://127.0.0.1:${port}/v1/class`, sampler)
+  await waitUntil(() => sampler.samples.connectFailures >= 1, 'the failure')
+  b.stop()
+  expect(sampler.samples.rateLimited).toBe(0)
+  await new Promise((resolve) => server.close(resolve))
+})
+
 test('a refused conversation line is taken back, and an unmatched line is reported', async () => {
   const school = await fakeSchool((ws) => {
     ws.on('message', (data) => {

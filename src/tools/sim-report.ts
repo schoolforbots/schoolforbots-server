@@ -11,6 +11,11 @@ export interface Samples {
   chatSent: number
   /** Connection tries that never got in: connection refused, an error on the way, or an HTTP refusal at the door. */
   connectFailures: number
+  /**
+   * Of those, the HTTP refusals with 429: the school's limits per address (`wsHandshake`) turned the upgrade away,
+   * which a load test from one address must raise.
+   */
+  rateLimited: number
   /** Bots that were never welcomed to class during the run. */
   neverWelcomed: number
   /** Connections that were closed that neither the bot nor the school meant to close (no `closing`, no drop). */
@@ -36,6 +41,7 @@ export interface Report {
   chatUnmatched: number
   unexpectedDisconnects: number
   connectFailures: number
+  rateLimited: number
   neverWelcomed: number
   errors: Record<string, number>
 }
@@ -73,16 +79,22 @@ export function summarize(samples: Samples): Report {
     chatUnmatched: Math.max(0, samples.chatSent - samples.chatMs.length),
     unexpectedDisconnects: samples.unexpectedDisconnects,
     connectFailures: samples.connectFailures,
+    rateLimited: samples.rateLimited,
     neverWelcomed: samples.neverWelcomed,
     errors: { ...samples.errors },
   }
 }
 
+/** The failure of a run some of whose connections were turned away with 429; the club simulator's too. */
+export const rateLimitedFailure = (n: number) =>
+  `有 ${n} 次连接被 HTTP 429 拒绝：服务器按地址限流挡住了连接，压测配置里要调大 wsHandshake`
+
 /**
  * Whether the run is within the pass line: the p99 of the segment delays within `segmentMs` and of the conversation
  * line delays within `chatMs` (each only when given; exactly on the line passes), no unexpected disconnect, no
  * connection try that never got in, and no bot that was never welcomed: a bot that cannot connect has no delays to
- * measure, so it must not pass as if it were fast.
+ * measure, so it must not pass as if it were fast. A connection turned away with 429 is a failure of its own, which
+ * says what to change: the school's limits per address, not the school's speed.
  * A limit that is given with no samples to measure fails: a run that measured nothing proves nothing.
  */
 export function verdict(
@@ -99,6 +111,7 @@ export function verdict(
   check('搭话延迟', report.chat, expect.chatMs)
   if (report.unexpectedDisconnects > 0) failures.push(`有 ${report.unexpectedDisconnects} 次意外断开`)
   if (report.connectFailures > 0) failures.push(`有 ${report.connectFailures} 次连接失败（连不上，或在门口被拒）`)
+  if (report.rateLimited > 0) failures.push(rateLimitedFailure(report.rateLimited))
   if (report.neverWelcomed > 0) failures.push(`有 ${report.neverWelcomed} 个机器人一直没进得了教室`)
   return { pass: failures.length === 0, failures }
 }

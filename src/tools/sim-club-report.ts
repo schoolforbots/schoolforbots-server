@@ -1,5 +1,5 @@
 import type { ClubBotTally, ClubSampler, TableMode } from './sim-club.js'
-import { type Stat, statOf } from './sim-report.js'
+import { rateLimitedFailure, type Stat, statOf } from './sim-report.js'
 
 // The pure part of the club simulator's report (see sim-club.ts): the totals of what the bots counted, the percentiles
 // of the delays they measured, the result of checking their game records, and whether the run is within the pass line.
@@ -9,6 +9,7 @@ export const COUNTED = [
   'connects',
   'welcomes',
   'connectFailures',
+  'rateLimited',
   'unexpectedDisconnects',
   'drops',
   'reconnects',
@@ -149,9 +150,10 @@ export interface ClubExpect {
  * Whether the run is within the pass line: the p99 of the ack delays within `ackMs` and of the hand-off delays within
  * `turnMs` (each only when given; exactly on the line passes; a limit with no samples fails), and always: some bot got
  * in and some game was played to the end (a run where nothing happened proves nothing); no unexpected disconnect, no
- * message off the protocol, no game left without its `over` as the club closed or the service stopped; `/healthz`
- * never failed when watched; and when records were to be checked, some were, to the end, every one read and no game
- * missing.
+ * message off the protocol, no connection turned away with 429 (the limits per address, to be raised for the test),
+ * no game left without its `over` as the club closed or the service stopped; `/healthz` never failed when watched; and
+ * when records were to be checked, some were, to the end, every one read and no game missing. Other failures to
+ * connect do not fail a run by themselves.
  */
 export function clubVerdict(report: ClubReport, expect: ClubExpect): { pass: boolean; failures: string[] } {
   const failures: string[] = []
@@ -166,6 +168,7 @@ export function clubVerdict(report: ClubReport, expect: ClubExpect): { pass: boo
   if (totals.welcomes === 0) failures.push('没有一个机器人进得了社团')
   else if (totals.games === 0) failures.push('一局也没打完')
   if (totals.unexpectedDisconnects > 0) failures.push(`有 ${totals.unexpectedDisconnects} 次意外断开`)
+  if (totals.rateLimited > 0) failures.push(rateLimitedFailure(totals.rateLimited))
   if (totals.invalid > 0) failures.push(`收到 ${totals.invalid} 条不合协议的消息`)
   if (totals.closingWithoutOver > 0) failures.push(`学校请走时有 ${totals.closingWithoutOver} 机器人次没收到这一局的 over`)
   if (healthz !== null && healthz.failures > 0) failures.push(`/healthz 失败了 ${healthz.failures} 次`)
@@ -199,6 +202,7 @@ export function clubReportLines(report: ClubReport, verdict: { pass: boolean; fa
     '（换手延迟拿学校时钟的 at 和本机时钟比：对着别的机器跑时，两边的时钟差也在里面）',
     `机器人：${t.bots} 个，一直没进社团的 ${t.neverWelcomed} 个，自己停下的：${countsText(t.ended)}`,
     `连接：连上 ${t.connects} 次，进社团 ${t.welcomes} 次，连不上 ${t.connectFailures} 次，意外断开 ${t.unexpectedDisconnects} 次`,
+    `连接被 HTTP 429 拒绝（按地址限流）：${t.rateLimited} 次`,
     `学校请走：${countsText(t.closings)}`,
     `凑桌：邀请 ${t.seated.invite} 次，快速加入 ${t.seated.quick} 次，带陪练 ${t.seated.bots} 次；换桌：${countsText(t.reforms)}；空闲时叫陪练 ${t.botsAsked} 次`,
     `对局：打完 ${t.games} 局，其中关门或停服时打完的 ${t.closingGames} 局`,

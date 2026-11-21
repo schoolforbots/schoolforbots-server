@@ -469,7 +469,16 @@ describe('against a fake school', () => {
     bot.start()
     await waitUntil(() => bot.tally.connectFailures > 0, 'the refusal')
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(bot.tally).toMatchObject({ connectFailures: 1, connects: 0, unexpectedDisconnects: 0, ended: null })
+    expect(bot.tally).toMatchObject({ connectFailures: 1, rateLimited: 0, connects: 0, unexpectedDisconnects: 0, ended: null })
+  })
+
+  test('turned away with 429, a bot counts it apart as well as a failure to connect, and keeps trying', async () => {
+    const url = await fakeSchool(() => {}, () => 429)
+    const bot = slowBot(url)
+    bot.start()
+    await waitUntil(() => bot.tally.rateLimited > 0, 'the 429')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(bot.tally).toMatchObject({ rateLimited: 1, connectFailures: 1, connects: 0, unexpectedDisconnects: 0, ended: null })
   })
 
   test('a bot stopped while it connects counts no failure', async () => {
