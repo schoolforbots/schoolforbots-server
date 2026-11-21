@@ -202,6 +202,7 @@ describe('a write that fails', () => {
     expect(log.entries).toHaveLength(1)
     const [logged] = log.entries
     expect(logged).toMatchObject({ why: 'failed', err: { name: 'Error', code: 'ECONNREFUSED' } })
+    expect(logged).not.toHaveProperty('mayStillLand')
     expect(logged!.game).toEqual(
       JSON.parse(
         JSON.stringify({
@@ -282,7 +283,9 @@ describe('drain', () => {
     timeUp()
     await drain
     expect(recorder.pending()).toBe(0)
-    expect(log.entries).toEqual([expect.objectContaining({ why: 'drain_timeout', game: expect.objectContaining({ gameId: 1 }) })])
+    expect(log.entries).toEqual([
+      expect.objectContaining({ why: 'drain_timeout', mayStillLand: true, game: expect.objectContaining({ gameId: 1 }) }),
+    ])
     expect(log.entries[0]).not.toHaveProperty('err')
     await vi.waitFor(async () => expect(await opsEvents()).toEqual([{ service: 'club', kind: 'internal_error' }]))
     // The retry's wait ends: it is not tried again, nor logged again.

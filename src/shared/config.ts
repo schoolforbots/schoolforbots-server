@@ -151,7 +151,7 @@ const ClubSchema = Type.Object({
   trusteeDelaySeconds: Type.Optional(PositiveInt),
   // When the service stops, how long it waits for the records of the games still being stored (the games still being
   // played are played out first) before it disconnects everyone.
-  recordDrainSeconds: Type.Optional(NonNegativeInt),
+  recordDrainSeconds: Type.Optional(PositiveInt),
   // The room events kept for a reconnect to catch up on, per room.
   roomEventBuffer: Type.Optional(PositiveInt),
   // The most rooms the lobby lists.

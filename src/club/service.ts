@@ -103,7 +103,7 @@ const errorName = (err: unknown) => (err instanceof Error ? err.name : 'unknown'
 
 export function createClubService(deps: ClubServiceDeps): ClubService {
   const { db, config, clock, game } = deps
-  // Set by `disconnectAll`, for good.
+  // Set by `stop` or `disconnectAll`, for good.
   let stopping = false
   let watched: { ticker: Pick<Ticker, 'lastFinishedAt'>; intervalMs: number } | null = null
 

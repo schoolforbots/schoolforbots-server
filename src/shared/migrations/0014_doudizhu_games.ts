@@ -44,6 +44,12 @@ export async function up(db: Kysely<any>): Promise<void> {
     .on('doudizhu_game_players')
     .columns(['student_id', 'ended_at desc'])
     .execute()
+  // A student's own games, newest first, a page at a time (`before` a game number).
+  await db.schema
+    .createIndex('doudizhu_game_players_student_id_game_id')
+    .on('doudizhu_game_players')
+    .columns(['student_id', 'game_id desc'])
+    .execute()
   // The leaderboards: the ranked games of a period.
   await db.schema
     .createIndex('doudizhu_game_players_ranked_ended_at')

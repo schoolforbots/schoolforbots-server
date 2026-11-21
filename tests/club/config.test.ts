@@ -92,6 +92,7 @@ describe('the club block', () => {
     ['trusteeDelaySeconds', 0],
     ['trusteeDelaySeconds', -1],
     ['trusteeDelaySeconds', 0.5],
+    ['recordDrainSeconds', 0],
     ['recordDrainSeconds', -1],
     ['recordDrainSeconds', 1.5],
     ['botNames', []],
