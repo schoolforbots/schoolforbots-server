@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type ClubState,
   decide,
+  decideClub,
   decideMail,
   type MailState,
   type Manual,
@@ -275,5 +277,112 @@ describe('decideMail', () => {
     step(0, up)
     step(1, up)
     expect(r.state?.status).toBe('ok')
+  })
+})
+
+describe('decideClub', () => {
+  const stepper = () => {
+    const s = { state: null as ClubState | null, writes: 0, mails: [] as string[] }
+    return {
+      s,
+      step(min: number, ok: boolean | null, maint = false) {
+        const out = decideClub(s.state, ok, maint, at(min))
+        if (out.write) {
+          s.writes++
+          s.state = out.next
+        }
+        if (out.mail) s.mails.push(out.mail)
+      },
+    }
+  }
+
+  it('is quiet and writes nothing while healthy', () => {
+    const { s, step } = stepper()
+    for (let m = 0; m < 10; m++) step(m, true)
+    expect(s.writes).toBe(0)
+    expect(s.mails).toEqual([])
+  })
+
+  it('mails only after 5 minutes of failing, once', () => {
+    const { s, step } = stepper()
+    step(0, false)
+    expect(s.state).toEqual({ badSince: at(0).toISOString(), notifiedAt: null })
+    for (let m = 1; m <= 4; m++) step(m, false)
+    expect(s.mails).toEqual([])
+    expect(s.writes).toBe(1)
+    step(5, false)
+    expect(s.mails).toEqual(['club_down'])
+    expect(s.state).toEqual({ badSince: at(0).toISOString(), notifiedAt: at(5).toISOString() })
+    step(6, false)
+    expect(s.mails).toEqual(['club_down'])
+  })
+
+  it('a short failure, such as a restart, mails nothing', () => {
+    const { s, step } = stepper()
+    step(0, false)
+    step(1, false)
+    step(2, true)
+    expect(s.mails).toEqual([])
+    expect(s.state).toEqual({ badSince: null, notifiedAt: null })
+    step(3, false)
+    step(7, false)
+    expect(s.mails).toEqual([])
+    step(8, false)
+    expect(s.mails).toEqual(['club_down'])
+  })
+
+  it('repeats every hour while it stays down, not every minute', () => {
+    const { s, step } = stepper()
+    step(0, false)
+    step(5, false)
+    for (let m = 6; m < 65; m++) step(m, false)
+    expect(s.mails).toEqual(['club_down'])
+    step(65, false)
+    expect(s.mails).toEqual(['club_down', 'club_down'])
+  })
+
+  it('mails the recovery once, only after a down was mailed', () => {
+    const { s, step } = stepper()
+    step(0, false)
+    step(5, false)
+    step(6, true)
+    expect(s.mails).toEqual(['club_down', 'club_up'])
+    expect(s.state).toEqual({ badSince: null, notifiedAt: null })
+    step(7, true)
+    expect(s.mails.length).toBe(2)
+  })
+
+  it('does nothing when the probe says nothing', () => {
+    const { s, step } = stepper()
+    step(0, false)
+    const w = s.writes
+    step(10, null)
+    expect(s.writes).toBe(w)
+    expect(s.mails).toEqual([])
+  })
+
+  it('mails nothing in maintenance, and restarts a count not yet mailed', () => {
+    const { s, step } = stepper()
+    step(0, false)
+    step(3, false, true)
+    expect(s.state).toEqual({ badSince: null, notifiedAt: null })
+    for (let m = 4; m <= 30; m++) step(m, false, true)
+    expect(s.mails).toEqual([])
+    step(31, false)
+    step(35, false)
+    expect(s.mails).toEqual([])
+    step(36, false)
+    expect(s.mails).toEqual(['club_down'])
+  })
+
+  it('keeps a mailed down through maintenance, and mails the recovery after it', () => {
+    const { s, step } = stepper()
+    step(0, false)
+    step(5, false)
+    step(6, true, true)
+    step(200, false, true)
+    expect(s.mails).toEqual(['club_down'])
+    step(201, true)
+    expect(s.mails).toEqual(['club_down', 'club_up'])
   })
 })

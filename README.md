@@ -376,7 +376,7 @@ rclone cat bk:<BACKUP_S3_BUCKET>/backups/<对象名> | age -d -i backup-key.txt 
 
 ### 外面的哨兵
 
-学校自己没法报告自己宕机，所以 [`ops/status-worker/`](ops/status-worker/README.md) 里有一个很小的 Cloudflare Worker，每分钟从外面探测一次：连不上学校，或者邮件发不出去，就给运营者发信；它还提供状态文件（`/status.json`），插件连不上学校时去读。部署方法见它的 README。
+学校自己没法报告自己宕机，所以 [`ops/status-worker/`](ops/status-worker/README.md) 里有一个很小的 Cloudflare Worker，每分钟从外面探测一次：连不上学校，或者邮件发不出去，就给运营者发信；社团服务连续 5 分钟连不上也发信（维护期间不发），恢复了再发一封，但社团服务的好坏不写进状态文件。它还提供状态文件（`/status.json`），插件连不上学校时去读。部署方法见它的 README。
 
 ## 本地完整跑一节课
 
