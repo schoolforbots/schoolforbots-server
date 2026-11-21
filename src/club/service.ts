@@ -82,11 +82,6 @@ export interface ClubService {
    */
   stop(drainTimeoutMs: number): Promise<void>
   /**
-   * Everyone is sent `service_stopping` and disconnected at once, the games left as they are; from then on nobody comes
-   * in. The last step of `stop`.
-   */
-  disconnectAll(): void
-  /**
    * Hands the service the ticker that runs `tick()`, so `/healthz` can tell a stuck clock: until it is handed over,
    * or when its last run ended more than `max(30 s, 3 intervals)` ago, the service is unhealthy.
    */
@@ -103,7 +98,7 @@ const errorName = (err: unknown) => (err instanceof Error ? err.name : 'unknown'
 
 export function createClubService(deps: ClubServiceDeps): ClubService {
   const { db, config, clock, game } = deps
-  // Set by `stop` or `disconnectAll`, for good.
+  // Set by `stop`, for good.
   let stopping = false
   let watched: { ticker: Pick<Ticker, 'lastFinishedAt'>; intervalMs: number } | null = null
 
@@ -241,10 +236,6 @@ export function createClubService(deps: ClubServiceDeps): ClubService {
         noteInternalError()
       }
       await game.drain(drainTimeoutMs).catch(() => {})
-      club.disconnectAll(SERVICE_STOPPING)
-    },
-    disconnectAll() {
-      stopping = true
       club.disconnectAll(SERVICE_STOPPING)
     },
     watchTicker(ticker, intervalMs) {

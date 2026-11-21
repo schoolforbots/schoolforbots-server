@@ -447,7 +447,7 @@ describe('the rounds of the students online', () => {
     await s.service.tick()
     expect(query.calls).toBe(1)
 
-    s.service.disconnectAll()
+    await s.service.stop(1000)
     expect((await untilClosing(a.client)).at(-1)).toEqual(SERVICE_STOPPING)
     const disconnect = vi.spyOn(s.service.club, 'disconnect')
     release()
@@ -498,20 +498,22 @@ describe('stopping', () => {
     const b = await member()
     await exchange(a.client, { type: 'room.create', visibility: 'public', bots: true })
 
-    s.service.disconnectAll()
+    await s.service.stop(1000)
     for (const x of [a, b]) {
       const got = await untilClosing(x.client)
       expect(got.at(-1)).toEqual(SERVICE_STOPPING)
       expect(got.some((m) => m.type === 'room.event' && m.event.kind === 'closed')).toBe(false)
       expect(await x.client.closed()).toBe(1000)
     }
-    expect(s.game.sessions[0]!.over).toBe(false)
+    // The game was played out first.
+    expect(s.game.sessions[0]!.over).toBe(true)
     const late = await connect(a.key)
     expect(await hello(late)).toEqual(SERVICE_STOPPING)
-    // A tick after it changes nothing: no close of the doors on top of it, no round.
+    // A tick after it closes no doors on top of it. (The room itself may go: the game is over and its student gone.)
+    const closeDoors = vi.spyOn(s.service.club, 'closeDoors')
     s.clock.set(CLOSURE.startsAt)
     await s.service.tick()
-    expect(s.service.club.rooms.size).toBe(1)
+    expect(closeDoors).not.toHaveBeenCalled()
   })
 })
 
