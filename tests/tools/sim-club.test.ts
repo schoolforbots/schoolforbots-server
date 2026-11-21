@@ -396,6 +396,73 @@ describe('against a fake school', () => {
     expect(bot.tally).toMatchObject({ ended: '学号在别处连上了', closings: { replaced: 1 }, unexpectedDisconnects: 0, connectFailures: 0, connects: 1 })
   })
 
+  test('closing with a game on counts a game with no over, but not when it turns away a bot coming back from a drop', async () => {
+    // A room with a game being played, as a welcome gives it to a bot coming back to its table.
+    const person = (seat: number) =>
+      seat === 0 ? { studentId: 1, displayName: '小鱼 #0001', bot: false } : { studentId: null, displayName: `陪练小${seat}`, bot: true }
+    const table = {
+      game: 'doudizhu', gameId: 1, phase: 'playing', firstBidder: 0, bids: [], landlord: null, base: null, bottom: null,
+      cardsLeft: [17, 17, 17], multiplier: 1, trick: null, history: [], trustee: [false, false, false], toAct: 1,
+      deadline: '2026-11-20T03:00:03.000Z',
+    }
+    const inGame = {
+      ...welcome,
+      room: {
+        roomId: 'rabcd', club: 'doudizhu', visibility: 'public', host: 1,
+        seats: [0, 1, 2].map((seat) => ({ seat, player: person(seat), ready: true, online: true, trustee: false })),
+        spectators: 0, gamesPlayed: 0, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: 5, game: table,
+      },
+    }
+    expect(Value.Check(ClubServerMessage, inGame)).toBe(true)
+    const pass = {
+      type: 'room.event', roomId: 'rabcd', seq: 6, replayed: false, at: new Date().toISOString(),
+      event: { kind: 'game', game: 'doudizhu', event: { kind: 'pass', turn: 3, seat: 1, auto: 'bot' } },
+    }
+    expect(Value.Check(ClubServerMessage, pass)).toBe(true)
+    const maintenance = { type: 'closing', reason: 'maintenance', message: '维护中。' }
+    const bot = (studentId: number, dropRate: number, url: string) => {
+      const b = createClubBot({ studentId, key: `k${studentId}`, displayName: `小鱼${studentId}` }, 'quick', { ...QUIET, url, dropRate }, {
+        clock: { now: () => new Date() },
+        random: seededRandom(studentId),
+        timing: { retryMs: 60_000, awayMs: [10, 20], reformMs: [60_000, 60_000] },
+        print: () => {},
+      })
+      cleanups.push(() => b.stop())
+      return b
+    }
+
+    // Welcomed into the game, then sent away: the game it was in never ended for it.
+    const sentAway = await fakeSchool((ws, hello) => {
+      ws.send(JSON.stringify({ type: 'ack', id: hello.id, ok: true }))
+      ws.send(JSON.stringify(inGame))
+      ws.send(JSON.stringify(maintenance))
+      ws.close(1000)
+    })
+    const inside = bot(1, 0, sentAway)
+    inside.start()
+    await waitUntil(() => inside.tally.closings.maintenance === 1, 'the closing')
+    expect(inside.tally).toMatchObject({ closingWithoutOver: 1, unexpectedDisconnects: 0 })
+
+    // Drops in the middle of the game, and is turned away at the door when it comes back.
+    let connections = 0
+    const turnedAway = await fakeSchool((ws, hello) => {
+      connections++
+      if (connections === 1) {
+        ws.send(JSON.stringify({ type: 'ack', id: hello.id, ok: true }))
+        ws.send(JSON.stringify(inGame))
+        ws.send(JSON.stringify(pass))
+        return
+      }
+      ws.send(JSON.stringify(maintenance))
+      ws.close(1000)
+    })
+    const dropped = bot(2, 1, turnedAway)
+    dropped.start()
+    await waitUntil(() => dropped.tally.closings.maintenance === 1, 'the closing at the door')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(dropped.tally).toMatchObject({ drops: 1, welcomes: 1, closingWithoutOver: 0, unexpectedDisconnects: 0, connectFailures: 0 })
+  })
+
   test('turned away at the door with an HTTP status, a bot counts a failure to connect and nothing else', async () => {
     const url = await fakeSchool(() => {}, () => 503)
     const bot = slowBot(url)

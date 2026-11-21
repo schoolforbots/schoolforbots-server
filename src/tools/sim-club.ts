@@ -934,7 +934,9 @@ export function createClubBot(
     bump(tally.closings, msg.reason)
     say(`closing ${msg.reason}`)
     const sentAway = msg.reason === 'club_closed' || msg.reason === 'maintenance' || msg.reason === 'service_stopping'
-    if (sentAway && gameOn) {
+    // Only a connection that was welcomed was in the game when the school closed: one turned away at the door (back
+    // from a drop, say) saw nothing of how the game it left went on.
+    if (sentAway && gameOn && welcomed) {
       tally.closingWithoutOver++
       say('学校请走时这一局还没收到 over')
     }
