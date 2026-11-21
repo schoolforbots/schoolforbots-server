@@ -44,6 +44,7 @@ async function student(p: {
   assignedAt?: Date | null
   lastAttendedAt?: Date | null
   suspendedUntil?: Date | null
+  reinstatedAt?: Date | null
 }): Promise<number> {
   const { id } = await insertStudent(db, {
     status: p.status ?? 'active',
@@ -52,6 +53,7 @@ async function student(p: {
     assignedAt: p.assignedAt === undefined ? at('2026-09-02') : p.assignedAt,
     lastAttendedAt: p.lastAttendedAt ?? null,
     suspendedUntil: p.suspendedUntil ?? null,
+    reinstatedAt: p.reinstatedAt ?? null,
   })
   if (p.plugin !== undefined) {
     await db
@@ -392,6 +394,19 @@ test('nobody is counted as dropped before the school has been open the days it t
   const opened = exampleConfig({ calendar: { breaks: [], openingDay: '2026-10-05' } })
   await student({ status: 'dropped', lastAttendedAt: at('2026-09-28') })
   expect((await weeklyStats(db, opened, WEEK)).students.dropped).toBe(0)
+})
+
+test('a student let back after a suspension is counted in the week the nightly job dropped them, as it counts from the reinstatement', async () => {
+  const dropped = async () => (await weeklyStats(db, config, WEEK)).students.dropped
+  // Last came on 28 September, but let back on 20 October: not dropped by this week's jobs.
+  await student({ status: 'dropped', lastAttendedAt: at('2026-09-28'), reinstatedAt: at('2026-10-20', '00:00:05') })
+  expect(await dropped()).toBe(0)
+  // Last came long before, let back on 28 September and away since: dropped this week.
+  await student({ status: 'dropped', lastAttendedAt: at('2026-08-01'), reinstatedAt: at('2026-09-28', '00:00:05') })
+  expect(await dropped()).toBe(1)
+  // Let back before the last lesson: the lesson counts, as before (28 September, this week).
+  await student({ status: 'dropped', lastAttendedAt: at('2026-09-28'), reinstatedAt: at('2026-09-01', '00:00:05') })
+  expect(await dropped()).toBe(2)
 })
 
 test('a week starts on a Monday', async () => {

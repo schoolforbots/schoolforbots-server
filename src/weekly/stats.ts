@@ -4,6 +4,7 @@ import { PRIVACY_FLAG_RULE } from '../lessons/store.js'
 import type { LlmPurpose } from '../llm/client.js'
 import { inactivityCutoffDay, isLessonDay } from '../shared/calendar.js'
 import { LLM_PURPOSES, type Division, type SchoolConfig } from '../shared/config.js'
+import { lastSeenAt } from '../shared/db.js'
 import { addDaysToDate, atLocalTime, isDateText, isoWeekday, localDate } from '../shared/local-time.js'
 import { allMaintenanceDays } from '../shared/maintenance.js'
 import type { Database } from '../shared/schema.js'
@@ -360,14 +361,13 @@ async function studentStats(db: Kysely<Database>, config: SchoolConfig, w: Week)
   const lower = cutoff(addDaysToDate(w.start, -1))
   let dropped = 0
   if (upper !== null) {
-    const lastSeen = sql<Date>`coalesce(last_attended_at, assigned_at)`
     const row = await db
       .selectFrom('students')
       .select(count().as('students'))
       .where('status', '=', 'dropped')
       .where('suspendedUntil', 'is', null)
-      .where(lastSeen, '<', upper)
-      .$if(lower !== null, (q) => q.where(lastSeen, '>=', lower!))
+      .where(lastSeenAt, '<', upper)
+      .$if(lower !== null, (q) => q.where(lastSeenAt, '>=', lower!))
       .executeTakeFirstOrThrow()
     dropped = Number(row.students)
   }

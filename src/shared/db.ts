@@ -1,4 +1,4 @@
-import { CamelCasePlugin, Kysely, PostgresDialect, sql } from 'kysely'
+import { CamelCasePlugin, Kysely, PostgresDialect, sql, type Expression, type ExpressionBuilder } from 'kysely'
 import { Migrator, type MigrationProvider } from 'kysely/migration'
 import pg from 'pg'
 import { DEFAULT_DATABASE_TIMEOUTS, type DatabaseTimeouts, type Division, type Slot } from './config.js'
@@ -163,4 +163,13 @@ export function slotLockKey(slot: Slot): string {
  */
 export function lessonLockKey(date: string, division: Division): string {
   return `lesson:${date}:${division}`
+}
+
+/**
+ * The moment a student's staying away counts from, for dropping (the daily job) and for counting the drops (the weekly
+ * stats): the last lesson attended, or the assignment for a student who never came, or the reinstatement after a
+ * suspension when later, since a suspended student has no lesson to come to. (`greatest` leaves out a null.)
+ */
+export function lastSeenAt(eb: ExpressionBuilder<Database, 'students'>): Expression<Date> {
+  return eb.fn<Date>('greatest', [eb.fn.coalesce('lastAttendedAt', 'assignedAt'), eb.ref('reinstatedAt')])
 }
