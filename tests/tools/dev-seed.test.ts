@@ -3,11 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import type WebSocket from 'ws'
+import { isMember } from '../../src/club/members.js'
 import { hashSecret } from '../../src/shared/secrets.js'
 import {
   databaseRefusal,
   DevSeedError,
   isLocalDatabaseUrl,
+  parseSeedArgs,
   seedClass,
   seedClasses,
   writeKeysFile,
@@ -316,6 +318,51 @@ describe('seedClasses', () => {
       ).rejects.toThrow('--classes')
     }
     expect(await db.selectFrom('classes').select('id').execute()).toEqual([])
+  })
+})
+
+describe('--club', () => {
+  test('puts every seeded student in the doudizhu club, as a current member from the seeding on', async () => {
+    service = await buildTestClassApp()
+    const { db, config, clock } = service
+    const seeded = await seedClasses(db, config, {
+      division: 'junior',
+      slot: 'evening',
+      students: 2,
+      classes: 2,
+      club: true,
+      clock,
+    })
+    const ids = seeded.flatMap((r) => r.students.map((s) => s.studentId))
+    expect(ids).toHaveLength(4)
+    for (const id of ids) expect(await isMember(db, id, 'doudizhu')).toBe(true)
+    const rows = await db.selectFrom('clubMembers').selectAll().orderBy('studentId').execute()
+    expect(rows).toEqual(ids.map((studentId) => ({ studentId, club: 'doudizhu', joinedAt: clock.now() })))
+  })
+
+  test('without it the students are in no club', async () => {
+    service = await buildTestClassApp()
+    const { db, config, clock } = service
+    const { students } = await seedClass(db, config, { division: 'junior', slot: 'evening', students: 2, clock })
+    for (const s of students) expect(await isMember(db, s.studentId, 'doudizhu')).toBe(false)
+    expect(await db.selectFrom('clubMembers').select('studentId').execute()).toEqual([])
+  })
+
+  test('is read from the command line, and is off unless given', () => {
+    const base = ['--division', 'junior', '--slot', 'evening', '--students', '20', '--out', '.sim/keys.json']
+    expect(parseSeedArgs(base)).toEqual({
+      division: 'junior',
+      slot: 'evening',
+      students: 20,
+      classes: 1,
+      club: false,
+      out: '.sim/keys.json',
+    })
+    expect(parseSeedArgs([...base, '--club'])).toMatchObject({ club: true })
+    expect(parseSeedArgs([...base, '--classes', '9', '--club'])).toMatchObject({ classes: 9, club: true })
+    // A switch takes no value.
+    expect(parseSeedArgs([...base, '--club=yes'])).toBeNull()
+    expect(parseSeedArgs(['--club'])).toBeNull()
   })
 })
 

@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { Kysely } from 'kysely'
+import { join } from '../club/members.js'
 import { teacherPersonaFor } from '../registration/daily-job.js'
 import { systemClock, type Clock } from '../shared/clock.js'
 import { loadClassEnv, loadSchoolConfig, type Division, type SchoolConfig, type Slot } from '../shared/config.js'
@@ -15,9 +16,10 @@ import { isEntryPoint } from './entry-point.js'
 // `npm run dev:seed -- --division junior --slot evening --students 20 --out .sim/keys.json`: for local development
 // only. Opens a new class and puts N active students in it straight away, past registration, the nightly class
 // assignment and the probation, then writes their student numbers and keys to the output file (see sim-bots.ts, which
-// reads it). With `--classes K` it opens K such classes at once (for load tests). It refuses any database but one on
-// this machine, plus the hosts named in DEV_SEED_ALLOWED_HOSTS (a load test against a staging database), and refuses
-// everything under NODE_ENV=production.
+// reads it). With `--classes K` it opens K such classes at once (for load tests). With `--club` the students join the
+// doudizhu club too, as they would on the registration service, so that they may play in the club service. It
+// refuses any database but one on this machine, plus the hosts named in DEV_SEED_ALLOWED_HOSTS (a load test against a
+// staging database), and refuses everything under NODE_ENV=production.
 
 /** A seeding that was refused. The message says why, in Chinese, for the person running the command. */
 export class DevSeedError extends Error {
@@ -89,6 +91,8 @@ export interface SeedOptions {
   students: number
   /** How many classes `seedClasses` opens, each with `students` students; defaults to 1. */
   classes?: number
+  /** Whether the students join the doudizhu club too, in the same transaction; defaults to false. */
+  club?: boolean
   /** The source of every timestamp written. */
   clock: Clock
   /**
@@ -118,7 +122,9 @@ export interface SeedResult {
  * Opens a class of the division and slot and fills it with `students` active students, in one transaction. The class
  * is numbered and given a teacher as the nightly job does it: after the highest class number of its division and slot,
  * with the next persona in turn. The students' keys are made and hashed as at registration; they are past the
- * probation (`lessonsAttended` is the config's `probationLessons`), so they may start conversations at once.
+ * probation (`lessonsAttended` is the config's `probationLessons`), so they may start conversations at once. With
+ * `opts.club` each also joins the doudizhu club as `join` makes a member, from the moment they joined the queue, which
+ * makes them current members.
  */
 export async function seedClass(db: Kysely<Database>, config: SchoolConfig, opts: SeedOptions): Promise<SeedResult> {
   checkStudents(config, opts.students)
@@ -220,6 +226,7 @@ async function insertClassWithStudents(
       })
       .returning('id')
       .executeTakeFirstOrThrow()
+    if (opts.club === true) await join(trx, id, 'doudizhu', now)
     seeded.push({ studentId: id, key, displayName: displayName(ownerName, aiName) })
   }
 
@@ -241,22 +248,23 @@ export function writeKeysFile(path: string, students: SeededStudent[]): void {
 }
 
 const USAGE =
-  '用法：npm run dev:seed -- --division <primary|junior|senior> --slot <morning|afternoon|evening> --students <每班人数> [--classes <班数，默认 1>] --out <输出文件.json>'
+  '用法：npm run dev:seed -- --division <primary|junior|senior> --slot <morning|afternoon|evening> --students <每班人数> [--classes <班数，默认 1>] [--club（学生同时加入斗地主社）] --out <输出文件.json>'
 
 const DIVISIONS: readonly Division[] = ['primary', 'junior', 'senior']
 const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
 
-interface SeedArgs {
+export interface SeedArgs {
   division: Division
   slot: Slot
   students: number
   classes: number
+  club: boolean
   out: string
 }
 
 /** The command line, or null when it is not as `USAGE` says. */
-function parseSeedArgs(argv: string[]): SeedArgs | null {
-  let values: Record<string, string | undefined>
+export function parseSeedArgs(argv: string[]): SeedArgs | null {
+  let values: Record<string, string | boolean | undefined>
   try {
     values = parseArgs({
       args: argv,
@@ -265,6 +273,7 @@ function parseSeedArgs(argv: string[]): SeedArgs | null {
         slot: { type: 'string' },
         students: { type: 'string' },
         classes: { type: 'string', default: '1' },
+        club: { type: 'boolean', default: false },
         out: { type: 'string' },
       },
       strict: true,
@@ -273,15 +282,16 @@ function parseSeedArgs(argv: string[]): SeedArgs | null {
   } catch {
     return null
   }
-  const { division, slot, students, classes, out } = values
+  const { division, slot, students, classes, club, out } = values
   if (!DIVISIONS.includes(division as Division) || !SLOTS.includes(slot as Slot)) return null
-  if (students === undefined || !/^[0-9]+$/.test(students) || out === undefined || out === '') return null
-  if (classes === undefined || !/^[0-9]+$/.test(classes)) return null
+  if (typeof students !== 'string' || !/^[0-9]+$/.test(students) || typeof out !== 'string' || out === '') return null
+  if (typeof classes !== 'string' || !/^[0-9]+$/.test(classes)) return null
   return {
     division: division as Division,
     slot: slot as Slot,
     students: Number(students),
     classes: Number(classes),
+    club: club === true,
     out,
   }
 }
@@ -315,6 +325,7 @@ async function main(argv: string[]): Promise<number> {
         )
       }
       console.log(`共 ${results.length} 个班，${results.reduce((n, r) => n + r.students.length, 0)} 个学生`)
+      if (args.club) console.log('学生都已加入斗地主社')
       console.log(`学号和钥匙写在 ${args.out}`)
     } finally {
       await db.destroy()
