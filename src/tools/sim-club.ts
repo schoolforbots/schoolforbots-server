@@ -1,5 +1,5 @@
 import type { Static } from 'typebox'
-import { Value } from 'typebox/value'
+import { Compile } from 'typebox/compile'
 import WebSocket from 'ws'
 import { ClubServerMessage, type Rank } from '../protocol/club.js'
 import type { Clock } from '../shared/clock.js'
@@ -102,7 +102,10 @@ export interface ClubBotTally {
   refusals: Record<string, number>
   /** Seats taken, by how the table was formed. */
   seated: Record<TableMode, number>
-  /** Tables left to form another, by why: `games` played, `left` (asked out or closed), `invite_expired`, `idle`, `waited`. */
+  /**
+   * Tables left to form another, by why: `games` played, `invite_expired`, `idle`, `waited` (no game started within
+   * the wait), and the reasons of a `room.left` the bot did not ask for (`not_ready`, `closed`).
+   */
   reforms: Record<string, number>
   /** Idle prompts answered with `room.bots`. */
   botsAsked: number
@@ -129,8 +132,11 @@ export interface ClubBotTally {
   /** Reactions sent, and refused. */
   reactsSent: number
   reactsRefused: number
-  /** Frames held back for a moment to stay within `framesPerMinute`. */
+  /** Frames held back for a moment to stay within `framesPerMinute`, and steps among them dropped past their deadline. */
   framesHeld: number
+  framesDropped: number
+  /** Reconnects to learn the room the service says the bot sits in, after an `in_room` it did not expect. */
+  resyncs: number
   /** Games seen to the end (`over`), and how many of them were played out as the club closed or the service stopped. */
   gamesOver: number
   gamesClosing: number
@@ -146,7 +152,11 @@ export interface ClubBotTally {
 export interface ClubSampler {
   /** From sending a game action (`bid`, `play`, `pass`) to its ack. */
   ackMs: number[]
-  /** From the `at` of the live game event before a `your_turn` to receiving that `your_turn`. */
+  /**
+   * From the `at` of the live game event before a `your_turn` (the step before it, or the `dealt` or `landlord` that
+   * starts the bidding or the play) to receiving that `your_turn`. `at` is read on the service's clock and the receipt
+   * on the bot's: against a remote service the difference of the two clocks is in it.
+   */
   turnMs: number[]
 }
 
@@ -195,6 +205,8 @@ export interface ClubBot {
   stop(): void
   /** Whether the bot is connected, welcomed and in no room, and so may be invited. */
   isFree(): boolean
+  /** Ends the bot as if it stopped by itself, for `reason` (another of its invitation group has stopped). */
+  endWith(reason: string): void
   /** Handles a message as if it came over the connection (for tests). */
   receive(message: object): void
 }
@@ -230,6 +242,15 @@ const RANK_COUNTS: readonly (readonly [Card, number])[] = [
 ]
 
 const MINUTE_MS = 60_000
+
+/**
+ * The protocol's check of a server message, compiled once: checked by interpreting the schema, a `your_turn` with a
+ * long list of moves takes milliseconds, which with hundreds of bots in one process would show in the delays measured.
+ */
+const checkServerMessage = Compile(ClubServerMessage)
+
+/** How long past `inviteSeconds` a bot at a table it formed by invitation waits before it gives up on it (ms). */
+const INVITE_MARGIN_MS = 5000
 
 /** A play the bot cannot make: one card more of a rank than its hand holds (there is always such a rank). */
 export function cardsNotInHand(hand: readonly Card[]): Card[] {
@@ -283,6 +304,8 @@ function newTally(): ClubBotTally {
     reactsSent: 0,
     reactsRefused: 0,
     framesHeld: 0,
+    framesDropped: 0,
+    resyncs: 0,
     gamesOver: 0,
     gamesClosing: 0,
     gameIds: new Set(),
@@ -303,7 +326,14 @@ interface Pending {
   legal?: Record<string, unknown>
   /** A step or `trustee.off` sent to take the seat back from the trustee. */
   takeBack?: boolean
+  /** A frame held back until this moment is dropped instead: the turn it is for is over. */
+  deadline?: number | undefined
+  /** Counts the frame, once it is written. */
+  counted?: () => void
 }
+
+/** Why a bot ends when another of its invitation group has. */
+export const GROUP_STOPPED = '同组的机器人已停止'
 
 /** A bot for one seeded student. Nothing happens until `start`. */
 export function createClubBot(
@@ -333,6 +363,10 @@ export function createClubBot(
   let botsRoom = false
   /** A room being opened or joined: its ack has not come yet. */
   let joining = false
+  /** A `room.leave` sent and not answered yet. */
+  let leaving = false
+  /** How long the bot waits at a table with no game: longer than an invitation lasts. */
+  let seatWaitMs = timing.seatWaitMs
   /** When the bot sat down or the last game ended, while no game is on: for `seatWaitMs`. */
   let waitingSince: number | null = null
   let gameOn = false
@@ -404,6 +438,8 @@ export function createClubBot(
     timers.clear(formTimer)
     say(`结束：${reason}`)
     deps.onEnded?.()
+    // The others of an invitation group could only wait for it: they end too.
+    for (const other of deps.group?.members ?? []) if (other !== bot) other.endWith(GROUP_STOPPED)
   }
 
   // ---- Sending, within the frames a minute allows ----
@@ -424,12 +460,18 @@ export function createClubBot(
     sentTimes.push(entry.sentAt)
     pending.set(id, entry)
     socket!.send(JSON.stringify(frame))
+    entry.counted?.()
   }
 
   function flush(): void {
     flushTimer = undefined
     while (held.length > 0 && isOpen() && room()) {
       const next = held.shift()!
+      if (next.entry.deadline !== undefined && now() >= next.entry.deadline) {
+        tally.framesDropped++
+        if (next.entry.takeBack === true) takeBackSent = false
+        continue
+      }
       write(next.id, next.frame, next.entry)
     }
     if (held.length > 0 && isOpen()) {
@@ -484,7 +526,8 @@ export function createClubBot(
       ws.terminate()
     })
     ws.on('error', (err: NodeJS.ErrnoException) => {
-      if (!opened) connectFailed()
+      // Stopping a connection still on its way errs too: that is no failure.
+      if (!opened && !ended()) connectFailed()
       if (!ended()) say(`连接出错 ${err.code ?? err.message}`)
     })
     ws.on('close', () => {
@@ -531,6 +574,10 @@ export function createClubBot(
       send('room.create', { visibility: 'public', bots: true })
     } else {
       const group = deps.group?.members ?? []
+      if (group.some((b) => b.tally.ended !== null)) {
+        end(GROUP_STOPPED)
+        return
+      }
       // The others of the group wait for the invitation of the first.
       if (group[0] !== bot) return
       const others = group.slice(1)
@@ -558,13 +605,15 @@ export function createClubBot(
 
   /** Leaves the table to form another; `why` is counted. */
   function leaveTable(why: string): void {
-    if (roomId === null) return
+    if (roomId === null || leaving) return
+    if (send('room.leave') === null) return
+    leaving = true
     bump(tally.reforms, why)
-    send('room.leave')
   }
 
   /** Back in the lobby: forms another table a few seconds later. */
   function outOfRoom(): void {
+    leaving = false
     roomId = null
     lastSeq = 0
     gameOn = false
@@ -579,13 +628,13 @@ export function createClubBot(
     const since = waitingSince
     later(() => {
       if (roomId !== null && !gameOn && waitingSince === since && since !== null) leaveTable('waited')
-    }, timing.seatWaitMs)
+    }, seatWaitMs)
   }
 
   /** After a game: ready for the next one, or off to another table after `games` games. */
   function afterGame(): void {
     later(() => {
-      if (roomId === null || gameOn) return
+      if (roomId === null || gameOn || leaving) return
       if (gamesHere >= opts.games) leaveTable('games')
       else send('room.ready')
     }, between(opts.thinkMs))
@@ -601,9 +650,12 @@ export function createClubBot(
     return { type: 'play', ...base, moveId: pick(moves).id }
   }
 
+  /** The deadline of the turn being answered: a step held back past it is not sent. */
+  let turnDeadline: number | undefined
+
   function sendStep(step: Record<string, unknown>, extra: Partial<Pending> = {}): void {
     const { type, ...body } = step
-    if (send(type as string, body, extra) !== null) tally.steps++
+    send(type as string, body, { deadline: turnDeadline, counted: () => tally.steps++, ...extra })
   }
 
   let turnTimer: unknown
@@ -613,6 +665,7 @@ export function createClubBot(
     if (lastGameEventAt !== null) sampler.turnMs.push(now() - lastGameEventAt)
     lastGameEventAt = null
     mySeat = t.me.seat
+    turnDeadline = Date.parse(t.deadline)
     timers.clear(turnTimer)
     connTimers.delete(turnTimer)
     // Never longer than half the time left, so that a step meant to count does.
@@ -628,7 +681,9 @@ export function createClubBot(
       takeBackSent = true
       const byOff = random() < 0.5
       const step = legalStep(t)
-      act(() => (byOff ? send('trustee.off', {}, { takeBack: true }) : sendStep(step, { takeBack: true })))
+      act(() =>
+        byOff ? send('trustee.off', {}, { takeBack: true, deadline: turnDeadline }) : sendStep(step, { takeBack: true }),
+      )
       return
     }
     if (inTrustee) {
@@ -646,7 +701,8 @@ export function createClubBot(
     if (illegal) {
       const cards = cardsNotInHand(t.me.hand)
       act(() => {
-        if (send('play', { game: 'doudizhu', turn: t.turn, cards }, { legal: step }) !== null) tally.illegalSent++
+        const counted = () => tally.illegalSent++
+        send('play', { game: 'doudizhu', turn: t.turn, cards }, { legal: step, deadline: turnDeadline, counted })
       })
       return
     }
@@ -676,15 +732,24 @@ export function createClubBot(
     bump(tally.refusals, code)
     if (entry.type === 'room.quick' || entry.type === 'room.create' || entry.type === 'room.accept') {
       joining = false
-      // A refused room: try again a little later (unless the refusal came because the bot sits in one already).
-      if (roomId === null && code !== 'in_room') formSoon(between(timing.reformMs))
+      if (roomId === null && code === 'in_room') {
+        // The service has the bot in a room it does not know of: connecting again, the welcome names it.
+        tally.resyncs++
+        dropping = true
+        socket?.terminate()
+      } else if (roomId === null) {
+        // A refused room: try again a little later.
+        formSoon(between(timing.reformMs))
+      }
     }
+    if (entry.type === 'room.leave') leaving = false
     if (entry.type === 'react') tally.reactsRefused++
     if (entry.takeBack === true) takeBackSent = false
     if (error.code === 'illegal_move') {
       tally.illegalRefused++
       if (entry.legal !== undefined) {
         tally.retries++
+        turnDeadline = Date.parse(error.retry.deadline)
         sendStep({ ...entry.legal, turn: error.retry.turn })
       }
     }
@@ -741,6 +806,7 @@ export function createClubBot(
           }
         }
         timers.clear(turnTimer)
+        connTimers.delete(turnTimer)
         inTrustee = false
         // As the club closes or the service stops the room goes too: nothing to get ready for.
         if (!closingInGame) {
@@ -795,6 +861,7 @@ export function createClubBot(
     welcomed = true
     tally.welcomes++
     framesPerMinute = msg.limits.framesPerMinute
+    seatWaitMs = Math.max(timing.seatWaitMs, msg.limits.inviteSeconds * 1000 + INVITE_MARGIN_MS)
     reactInterval = msg.limits.reactMinIntervalSeconds * 1000
     reactsPerGame = msg.limits.reactsPerGame
     const kinds = msg.reactions.kinds
@@ -853,7 +920,7 @@ export function createClubBot(
     } catch {
       msg = undefined
     }
-    if (!Value.Check(ClubServerMessage, msg)) {
+    if (!checkServerMessage.Check(msg)) {
       tally.invalid++
       say('收到一条不合协议的消息')
       return
@@ -912,6 +979,15 @@ export function createClubBot(
       socket?.terminate()
     },
     isFree,
+    endWith(reason) {
+      if (ended()) return
+      end(reason)
+      timers.clear(turnTimer)
+      timers.clear(flushTimer)
+      for (const handle of connTimers) timers.clear(handle)
+      connTimers.clear()
+      socket?.terminate()
+    },
     receive(message) {
       onMessage(JSON.stringify(message))
     },
