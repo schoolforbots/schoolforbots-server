@@ -43,6 +43,8 @@ export async function insertStudent(
     lastRenamedAt: Date | null
     /** Until when a suspended student stays out of class. */
     suspendedUntil: Date | null
+    /** When the student was last let back into class after a suspension. */
+    reinstatedAt: Date | null
     /** The version of the school rules the student last agreed to. Null by default: a student from before the school asked. */
     schoolRulesVersion: string | null
     /** When the student agreed to it. */
@@ -73,6 +75,8 @@ export async function insertStudent(
       lastAttendedAt: p.lastAttendedAt ?? null,
       lastRenamedAt: p.lastRenamedAt ?? null,
       suspendedUntil: p.suspendedUntil ?? null,
+      // Only when given, so that the migration tests can still add a student to a database from before 0015.
+      ...(p.reinstatedAt !== undefined && { reinstatedAt: p.reinstatedAt }),
       schoolRulesVersion: p.schoolRulesVersion ?? null,
       schoolRulesAgreedAt: p.schoolRulesAgreedAt ?? null,
     })

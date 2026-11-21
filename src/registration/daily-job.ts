@@ -102,14 +102,16 @@ export async function assignQueuedNow(
 
 /**
  * Active students not seen since before `cutoff`, the start of the local day that the last inactivityDropDays days
- * that are not a holiday began on, are dropped; a student who never came counts from assignment.
+ * that are not a holiday began on, are dropped; a student who never came counts from assignment. A student let back
+ * after a suspension counts from then, if later: while suspended there was no lesson to come to. (`greatest` leaves
+ * out a null `reinstated_at`.)
  */
 async function dropInactive(trx: Trx, cutoff: Date): Promise<number> {
   const result = await trx
     .updateTable('students')
     .set({ status: 'dropped', classId: null })
     .where('status', '=', 'active')
-    .where((eb) => eb.fn.coalesce('lastAttendedAt', 'assignedAt'), '<', cutoff)
+    .where((eb) => eb.fn('greatest', [eb.fn.coalesce('lastAttendedAt', 'assignedAt'), eb.ref('reinstatedAt')]), '<', cutoff)
     .executeTakeFirstOrThrow()
   return Number(result.numUpdatedRows)
 }
@@ -255,13 +257,13 @@ async function assignPending(
 }
 
 /**
- * Suspended students whose `suspended_until` has come are active again, with no date left over. A suspended student
- * with no date is left as it is.
+ * Suspended students whose `suspended_until` has come are active again, with no date left over, stamped with the time
+ * they came back. A suspended student with no date is left as it is.
  */
 async function reinstateSuspended(trx: Trx, now: Date): Promise<number> {
   const result = await trx
     .updateTable('students')
-    .set({ status: 'active', suspendedUntil: null })
+    .set({ status: 'active', suspendedUntil: null, reinstatedAt: now })
     .where('status', '=', 'suspended')
     .where('suspendedUntil', '<=', now)
     .executeTakeFirstOrThrow()
