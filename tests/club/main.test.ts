@@ -5,12 +5,14 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import WebSocket from 'ws'
 import { doudizhuGame } from '../../src/club/doudizhu-game.js'
 import { join } from '../../src/club/members.js'
+import { createRecorder, nextGameId, storedDoudizhuOptions } from '../../src/club/recorder.js'
 import { CLUB_TICK_MS, type ClubService, createClubService, startClubService } from '../../src/club/service.js'
 import type { Ticker } from '../../src/class/ticker.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertStudent } from '../helpers/factories.js'
 import { HELLO, track } from './helpers/club-app.js'
+import { fakeGame, QUICK_DECK } from './helpers/fake-game.js'
 import { exampleWordLists } from './helpers/parts.js'
 import { exampleConfig, T0 } from './helpers/rooms.js'
 
@@ -76,6 +78,67 @@ describe('starting the club service', () => {
     client.send({ id: 'h', ...HELLO })
     expect(await client.next()).toEqual({ type: 'ack', id: 'h', ok: true })
     expect(await client.next()).toMatchObject({ type: 'welcome', club: { id: 'doudizhu', name: '斗地主社' }, room: null })
+  })
+
+  test('a game played over WebSocket is stored, and the next welcome shows it in the stats', async () => {
+    const t = await createTestDb()
+    destroyDb = t.destroy
+    const clock = createTestClock(T0)
+    const log = { error: vi.fn() }
+    const recorder = createRecorder({ db: t.db, clock, log })
+    const game = fakeGame({
+      decks: [QUICK_DECK],
+      firstBidder: 0,
+      ...storedDoudizhuOptions({ db: t.db, clock, timeZone: exampleConfig.timezone, recorder, firstGameId: await nextGameId(t.db), log }),
+    })
+    service = createClubService({ db: t.db, config: exampleConfig, clock, game, wordLists: exampleWordLists })
+    ticker = await startClubService(service, { port: 0, host: '127.0.0.1' })
+    const { port } = service.app.server.address() as AddressInfo
+    const classId = await insertClass(t.db, { classNo: 1 })
+
+    async function connectAs(key: string) {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/club`, { headers: { authorization: `Bearer ${key}` } })
+      sockets.push(ws)
+      const client = track(ws)
+      await once(ws, 'open')
+      client.send({ id: 'h', ...HELLO })
+      expect(await client.next()).toEqual({ type: 'ack', id: 'h', ok: true })
+      const welcome = await client.next()
+      expect(welcome.type).toBe('welcome')
+      return { ws, client, welcome }
+    }
+    const students = []
+    for (let i = 0; i < 3; i++) {
+      const s = await insertStudent(t.db, { classId, status: 'active', createdAt: new Date(T0.getTime() - 86_400_000) })
+      await join(t.db, s.id, 'doudizhu', new Date(T0.getTime() - 60_000))
+      students.push(s)
+    }
+    const [a, b, c] = await Promise.all(students.map((s) => connectAs(s.key)))
+    for (const x of [a!, b!, c!]) expect(x.welcome.stats).toEqual({ games: 0, wins: 0, points: { total: 0, week: 0 } })
+
+    // Three students at a table: seat 0 (who opened the room) bids 3 and plays out, a landlord's spring.
+    const created = await a!.client.request({ type: 'room.create', visibility: 'public', bots: false })
+    const roomId = created.result.room.roomId as string
+    expect((await b!.client.request({ type: 'room.join', roomId })).ok).toBe(true)
+    expect((await c!.client.request({ type: 'room.join', roomId })).ok).toBe(true)
+    const turnOf = async () => {
+      for (;;) {
+        const m = await a!.client.next()
+        if (m.type === 'your_turn') return m
+      }
+    }
+    expect((await a!.client.request({ type: 'bid', game: 'doudizhu', turn: (await turnOf()).turn, bid: 3 })).ok).toBe(true)
+    const cards = '3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 10 J J Q Q'.split(' ')
+    const play = await a!.client.request({ type: 'play', game: 'doudizhu', turn: (await turnOf()).turn, cards, as: 'pair_straight' })
+    expect(play.ok).toBe(true)
+    await recorder.drain(10_000)
+
+    a!.ws.close()
+    b!.ws.close()
+    await Promise.all([once(a!.ws, 'close'), once(b!.ws, 'close')])
+    expect((await connectAs(students[0]!.key)).welcome.stats).toEqual({ games: 1, wins: 1, points: { total: 12, week: 12 } })
+    expect((await connectAs(students[1]!.key)).welcome.stats).toEqual({ games: 1, wins: 0, points: { total: -6, week: -6 } })
+    expect(log.error).not.toHaveBeenCalled()
   })
 
   test('a first tick that fails fails the start, and nothing listens', async () => {

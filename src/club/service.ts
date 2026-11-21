@@ -28,8 +28,10 @@ import type { WordLists } from './reactions.js'
 //   (suspended, expelled, no longer a member) is sent `closing` saying so and disconnected, their seat then handled as
 //   for any disconnect. The standing is the one read by the query: a student whose standing changes again in the
 //   moment between the query and the disconnect is judged by the one read.
-// - Stopping: everyone is sent `service_stopping` and disconnected, and nobody comes in after; the rooms are not
-//   closed (no `closed` event): they go with the process.
+// - Stopping (`stop`): from that moment nobody comes in; every game being played is played out at once by the trustee
+//   (`auto: "closing"`), its room events sent as usual, and no game starts after; the records of the games are waited
+//   for (`GameModule.drain`, at most the time given); then everyone is sent `service_stopping` and disconnected. The
+//   rooms are not closed (no `closed` event): they go with the process.
 //
 // `club.enabled` is read from the config only: the runtime switches (src/shared/switches.ts) have none for the clubs.
 
@@ -74,7 +76,15 @@ export interface ClubService {
   rounds(): Promise<void>
   /** Resolves when the round going on, if any, has finished. */
   roundsDone(): Promise<void>
-  /** The service is stopping: everyone is sent `service_stopping` and disconnected; from then on nobody comes in. */
+  /**
+   * The service is stopping (see the top of this file): nobody comes in from now on, the games being played are
+   * played out, their records waited for (`drainTimeoutMs` at most), and then everyone is disconnected. Never rejects.
+   */
+  stop(drainTimeoutMs: number): Promise<void>
+  /**
+   * Everyone is sent `service_stopping` and disconnected at once, the games left as they are; from then on nobody comes
+   * in. The last step of `stop`.
+   */
   disconnectAll(): void
   /**
    * Hands the service the ticker that runs `tick()`, so `/healthz` can tell a stuck clock: until it is handed over,
@@ -222,6 +232,17 @@ export function createClubService(deps: ClubServiceDeps): ClubService {
     },
     rounds,
     roundsDone: () => round ?? Promise.resolve(),
+    async stop(drainTimeoutMs) {
+      stopping = true
+      try {
+        club.finishGames(clock.now())
+      } catch (err) {
+        app.log.error({ err }, 'club games could not be finished')
+        noteInternalError()
+      }
+      await game.drain(drainTimeoutMs).catch(() => {})
+      club.disconnectAll(SERVICE_STOPPING)
+    },
     disconnectAll() {
       stopping = true
       club.disconnectAll(SERVICE_STOPPING)

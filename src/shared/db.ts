@@ -15,6 +15,7 @@ import * as m0010 from './migrations/0010_call_on_checks.js'
 import * as m0011 from './migrations/0011_maintenance.js'
 import * as m0012 from './migrations/0012_ops.js'
 import * as m0013 from './migrations/0013_club_members.js'
+import * as m0014 from './migrations/0014_doudizhu_games.js'
 import type { Database } from './schema.js'
 
 export type { Database, StudentStatus } from './schema.js'
@@ -70,6 +71,7 @@ const provider: MigrationProvider = {
       '0011_maintenance': m0011,
       '0012_ops': m0012,
       '0013_club_members': m0013,
+      '0014_doudizhu_games': m0014,
     }
   },
 }

@@ -4,8 +4,9 @@ import { systemClock } from '../shared/clock.js'
 import { loadClubEnv, loadSchoolConfig } from '../shared/config.js'
 import { assertMigrationsUpToDate, createDb } from '../shared/db.js'
 import { startMaintenanceWatch } from '../shared/maintenance.js'
-import { createShutdown } from '../shared/shutdown.js'
+import { createShutdown, SHUTDOWN_DEADLINE_MS } from '../shared/shutdown.js'
 import { doudizhuGame } from './doudizhu-game.js'
+import { createRecorder, nextGameId, storedDoudizhuOptions } from './recorder.js'
 import { createClubService, startClubService } from './service.js'
 import { loadWordLists } from './word-lists.js'
 
@@ -38,6 +39,10 @@ async function main(): Promise<void> {
   // Noted without holding anything up; a failed write is only logged.
   const noteInternalError = () => recordOpsEvent(db, { service: 'club', kind: 'internal_error', at: systemClock.now() }, log)
 
+  // The games are stored in the background; their numbers go on from the largest stored.
+  const recorder = createRecorder({ db, clock: systemClock, log })
+  const firstGameId = await nextGameId(db)
+
   const service = createClubService({
     db,
     config,
@@ -45,6 +50,7 @@ async function main(): Promise<void> {
     game: doudizhuGame({
       timeBankSeconds: config.club.timeBankSeconds,
       trusteeDelaySeconds: config.club.trusteeDelaySeconds,
+      ...storedDoudizhuOptions({ db, clock: systemClock, timeZone: config.timezone, recorder, firstGameId, log }),
     }),
     wordLists,
     maintenance,
@@ -59,15 +65,22 @@ async function main(): Promise<void> {
   // Ticks once before it listens, then on every interval.
   const ticker = await startClubService(service, { port: env.clubPort, onTickFailure: noteInternalError })
 
-  const shutdown = createShutdown(async (signal) => {
-    app.log.info({ signal }, 'shutting down')
-    maintenance.stop()
-    await ticker.stop() // waits for a tick still running
-    await service.roundsDone()
-    service.disconnectAll() // and from now on nobody comes in
-    await app.close()
-    await db.destroy()
-  })
+  const drainMs = config.club.recordDrainSeconds * 1000
+  const shutdown = createShutdown(
+    async (signal) => {
+      app.log.info({ signal }, 'shutting down')
+      maintenance.stop()
+      await ticker.stop() // waits for a tick still running
+      await service.roundsDone()
+      // Nobody comes in from now on; the games being played are played out, their records stored (at most drainMs),
+      // and then everyone is disconnected.
+      await service.stop(drainMs)
+      await app.close()
+      await db.destroy()
+    },
+    // The wait for the records comes on top of the usual time to stop.
+    { deadlineMs: SHUTDOWN_DEADLINE_MS + drainMs },
+  )
   process.on('SIGTERM', shutdown)
   process.on('SIGINT', shutdown)
 }

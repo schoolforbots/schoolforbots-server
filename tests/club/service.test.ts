@@ -1,17 +1,19 @@
+import type { Kysely } from 'kysely'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { SERVICE_STOPPING } from '../../src/club/club.js'
 import { clubClosures } from '../../src/club/hours.js'
 import { join, leave } from '../../src/club/members.js'
+import { createRecorder, type Recorder, storedDoudizhuOptions } from '../../src/club/recorder.js'
 import { createClubService, type ClubService } from '../../src/club/service.js'
 import type { SchoolConfig } from '../../src/shared/config.js'
 import type { Maintenance, MaintenanceWatch } from '../../src/shared/maintenance.js'
-import type { StudentStatus } from '../../src/shared/schema.js'
+import type { Database, StudentStatus } from '../../src/shared/schema.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertStudent } from '../helpers/factories.js'
 import { captureLogs } from '../helpers/logs.js'
 import { type Client, HELLO, type Received, track } from './helpers/club-app.js'
-import { fakeGame, type FakeGame, QUICK_DECK } from './helpers/fake-game.js'
+import { fakeGame, type FakeGame, type FakeGameOptions, QUICK_DECK } from './helpers/fake-game.js'
 import { exampleWordLists } from './helpers/parts.js'
 import { exampleConfig, student, T0 } from './helpers/rooms.js'
 
@@ -93,13 +95,15 @@ afterEach(async () => {
   errorsExpected = false
 })
 
-async function start(p: { club?: Partial<SchoolConfig['club']>; now?: Date } = {}): Promise<Harness> {
+async function start(
+  p: { club?: Partial<SchoolConfig['club']>; now?: Date; game?: (db: Kysely<Database>) => FakeGameOptions } = {},
+): Promise<Harness> {
   const logs = captureLogs()
   const { db, destroy } = await createTestDb()
   dbHandle = db
   const config: SchoolConfig = { ...exampleConfig, club: { ...exampleConfig.club, ...UNLIMITED, ...p.club } }
   const clock = createTestClock(p.now ?? T0)
-  const game = fakeGame({ decks: [QUICK_DECK], firstBidder: 0 })
+  const game = fakeGame({ decks: [QUICK_DECK], firstBidder: 0, ...p.game?.(db) })
   const maintenance = maintenanceSwitch()
   const harness: Harness = {
     service: undefined as never,
@@ -508,6 +512,104 @@ describe('stopping', () => {
     s.clock.set(CLOSURE.startsAt)
     await s.service.tick()
     expect(s.service.club.rooms.size).toBe(1)
+  })
+})
+
+describe('stopping with the games stored', () => {
+  /** A service whose game stores its records with a recorder on the test database (`db` is the one the recorder uses). */
+  async function startStored(p: { db?: (db: Kysely<Database>) => Kysely<Database>; sleep?: (ms: number) => Promise<void> } = {}) {
+    const recorderLog: Record<string, any>[] = []
+    let recorder!: Recorder
+    const s = await start({
+      game: (db) => {
+        const log = { error: (obj: unknown) => void recorderLog.push(obj as Record<string, any>) }
+        const used = p.db?.(db) ?? db
+        recorder = createRecorder({ db: used, clock: createTestClock(T0), log, ...(p.sleep ? { sleep: p.sleep } : {}) })
+        return storedDoudizhuOptions({ db: used, clock: createTestClock(T0), timeZone: exampleConfig.timezone, recorder, firstGameId: 1, log })
+      },
+    })
+    return { s, recorder, recorderLog }
+  }
+
+  test('a game being played is played out, its events sent and its record stored, and only then is everyone sent away', async () => {
+    const { s, recorder } = await startStored()
+    const a = await member()
+    const b = await member()
+    await exchange(a.client, { type: 'room.create', visibility: 'public', bots: true })
+    expect(s.game.sessions[0]!.over).toBe(false)
+    const pendingAtDisconnect: number[] = []
+    const club = s.service.club
+    const real = club.disconnectAll.bind(club)
+    vi.spyOn(club, 'disconnectAll').mockImplementation((closing) => {
+      pendingAtDisconnect.push(recorder.pending())
+      real(closing)
+    })
+
+    await s.service.stop(10_000)
+    expect(pendingAtDisconnect).toEqual([0])
+    expect(s.game.sessions[0]!.over).toBe(true)
+    const got = await untilClosing(a.client)
+    const events = got.filter((m) => m.type === 'room.event').map((m) => m.event)
+    expect(events).toContainEqual({ kind: 'trustee', seat: 0, on: true, reason: 'closing' })
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'game', event: expect.objectContaining({ kind: 'over' }) }))
+    expect(events.some((e) => e.kind === 'closed')).toBe(false)
+    expect(got.at(-1)).toEqual(SERVICE_STOPPING)
+    expect((await untilClosing(b.client)).at(-1)).toEqual(SERVICE_STOPPING)
+
+    const games = await dbHandle!.selectFrom('doudizhuGames').select(['gameId', 'ranked']).execute()
+    expect(games).toEqual([{ gameId: 1, ranked: false }])
+    const rows = await dbHandle!.selectFrom('doudizhuGamePlayers').select(['seat', 'studentId']).execute()
+    expect(rows).toEqual([{ seat: 0, studentId: a.id }])
+    const stored = await dbHandle!.selectFrom('doudizhuGames').select('record').executeTakeFirstOrThrow()
+    expect((stored.record as any).actions.some((step: any) => step.auto === 'closing')).toBe(true)
+    // The rooms stay as they were.
+    expect(s.service.club.rooms.size).toBe(1)
+  })
+
+  test('no game starts while the records are waited for', async () => {
+    let release!: () => void
+    const s = await start({
+      game: () => ({ drain: () => new Promise<void>((resolve) => (release = resolve)) }),
+    })
+    const a = await member()
+    await exchange(a.client, { type: 'room.create', visibility: 'public', bots: true })
+    const stopped = s.service.stop(10_000)
+    await vi.waitFor(() => expect(release).toBeDefined())
+    // The game is over; the student, ready again, still gets no new game.
+    expect(s.game.sessions[0]!.over).toBe(true)
+    const ready = await exchange(a.client, { type: 'room.ready' })
+    expect(ready.ack.ok).toBe(true)
+    expect(s.game.sessions).toHaveLength(1)
+    expect(s.service.club.online()).toEqual([a.id])
+    release()
+    await stopped
+    expect((await untilClosing(a.client)).at(-1)).toEqual(SERVICE_STOPPING)
+  })
+
+  test('a drain that times out still sends everyone away, and logs the record not stored', async () => {
+    // Every write hangs; the drain's timeout passes at once.
+    const { s, recorderLog } = await startStored({
+      db: (db) =>
+        new Proxy(db, {
+          get: (target, key) => {
+            if (key === 'transaction') return () => ({ execute: () => new Promise(() => {}) })
+            const value = Reflect.get(target, key)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        }),
+      sleep: async () => {},
+    })
+    const a = await member()
+    await exchange(a.client, { type: 'room.create', visibility: 'public', bots: true })
+    await s.service.stop(10)
+    expect((await untilClosing(a.client)).at(-1)).toEqual(SERVICE_STOPPING)
+    expect(recorderLog).toEqual([expect.objectContaining({ why: 'drain_timeout', game: expect.objectContaining({ gameId: 1 }) })])
+    expect(await dbHandle!.selectFrom('doudizhuGames').selectAll().execute()).toEqual([])
+    await vi.waitFor(async () =>
+      expect(await dbHandle!.selectFrom('opsEvents').select(['service', 'kind']).execute()).toEqual([
+        { service: 'club', kind: 'internal_error' },
+      ]),
+    )
   })
 })
 

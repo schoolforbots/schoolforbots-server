@@ -192,6 +192,14 @@ export class Club {
     }
   }
 
+  /**
+   * The service is stopping: every game being played is played out at once and its events sent, and no game starts
+   * after; the rooms stay as they are (see `Rooms.finishAll`).
+   */
+  finishGames(now: Date): void {
+    this.rooms.finishAll(now)
+  }
+
   /** Everyone connected is sent `closing` and disconnected; the rooms are left as they are (the service stopping). */
   disconnectAll(closing: ClubClosing): void {
     this.hub.disconnectAll(closing)

@@ -149,6 +149,9 @@ const ClubSchema = Type.Object({
   // How long a seat in trusteeship is given, at each of its steps, to take the seat back with a step of its own before
   // the trustee makes it. Less than the shortest step of the rules (the game checks it as it starts).
   trusteeDelaySeconds: Type.Optional(PositiveInt),
+  // When the service stops, how long it waits for the records of the games still being stored (the games still being
+  // played are played out first) before it disconnects everyone.
+  recordDrainSeconds: Type.Optional(NonNegativeInt),
   // The room events kept for a reconnect to catch up on, per room.
   roomEventBuffer: Type.Optional(PositiveInt),
   // The most rooms the lobby lists.
@@ -179,6 +182,7 @@ export interface ClubConfig {
   reactsPerGame: number
   timeBankSeconds: number
   trusteeDelaySeconds: number
+  recordDrainSeconds: number
   roomEventBuffer: number
   lobbyMaxRooms: number
   botNames: string[]
@@ -199,6 +203,7 @@ export const DEFAULT_CLUB: ClubConfig = {
   reactsPerGame: 20,
   timeBankSeconds: 120,
   trusteeDelaySeconds: 2,
+  recordDrainSeconds: 10,
   roomEventBuffer: 1000,
   lobbyMaxRooms: 50,
   botNames: ['陪练小一', '陪练小二', '陪练小三', '陪练小四', '陪练小五', '陪练小六'],
