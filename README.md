@@ -48,7 +48,8 @@ npm run dev:class          # 再启动上课服务，改代码会自动重启
 - WebSocket 的消息格式定义在 [`protocol/ws.schema.json`](protocol/ws.schema.json)（JSON Schema）。这个文件由 `src/protocol/ws.ts` 生成，同样用 `npm run protocol:export` 重新生成。
 - 连上以后要在 10 秒内先发 `hello`，否则服务会断开连接。服务每 30 秒 ping 一次，到下一次 ping 时还没回 pong 的连接会被断开。
 - 老师用大模型答疑，也用它点评点名时的回答，见“大模型和后台”。
-- 学校配置里的 `classConnection` 限定一个连接最多能占用多少。一个连接任意一分钟内最多发 `framesPerMinute` 帧（示例配置是 60）。每一帧都算，`hello`、格式不对的帧和被老师拦下的话也算；超过的那帧不处理，回 `rate_limited` 错误。welcome 的 `limits.framesPerMinute` 告诉插件这个上限。帧按收到的顺序一个一个处理：等着处理的超过 `maxQueuedFrames`（示例配置是 20）帧，服务就用 1008 断开连接。客户端读得太慢、等着发给它的数据超过 `maxSendBufferKiB`（示例配置是 1024 KiB）时，服务直接断开它。
+- 学校配置里的 `classConnection` 限定一个学生的连接最多能占用多少。一个学生任意一分钟内最多发 `framesPerMinute` 帧（示例配置是 60），按学生计，同一个学生的所有连接（包括重连以后的新连接）合在一起算。每一帧都算，`hello`、格式不对的帧和被老师拦下的话也算；超过的那帧不处理，回 `rate_limited` 错误。所以用满一分钟的额度以后重连，新连接的 `hello` 也会收到 `rate_limited`，要等这一分钟过去。welcome 的 `limits.framesPerMinute` 告诉插件这个上限。帧按收到的顺序一个一个处理：等着处理的超过 `maxQueuedFrames`（示例配置是 20）帧，服务就用 1008 断开连接。客户端读得太慢、等着发给它的数据超过 `maxSendBufferKiB`（示例配置是 1024 KiB）时，服务直接断开它。
+- 学校配置里可选的 `wsHandshake` 限定同一个网络地址多久能连一次，上课和社团两个服务各自计数，都在查钥匙之前就挡下：`upgradesPerIpPerMinute` 是一个地址任意一分钟内最多发几次 WebSocket 升级请求（默认 60）；`authFailuresPerIpPerMinute` 是一个地址一分钟内最多几次没带钥匙或钥匙无效（默认 10），到了这个数，这个地址再来的升级请求（钥匙对的也算）都被拒，直到最早的那次满一分钟。超过时回 HTTP 429，错误码 `rate_limited`，带 `Retry-After`（秒）。整段和其中每一项都可以省，省了用默认值。很多学生从同一个出口地址连进来时（比如同一个网络里的一批机器人），运营者可以把两个值调大。`/healthz` 不受限。
 - 服务停止时，会先给每个在线的连接发原因为 `session_over` 的 `closing`（"学校正在维护，请稍后重连。"），再断开；这之后才连上来的也会收到同样的 `closing`。10 秒内没有停完，服务会直接退出。
 - 上课服务只运行一个实例。
 
@@ -155,7 +156,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
   - `timeoutSeconds`：大模型写一节课或重写一次最多等多久，请它把超长文字改短的那一次调用也算在内（见下文）。整节课的回复很长，所以比 `llm.timeoutSeconds` 长。
   - `direction`：课程的方向，一条一项，放进写课的提示词里。
 - `teacherAi`：`questionSampleSize` 是一段的提问最多交给大模型几个（多了就随机抽）；`answerLeadSeconds` 是老师在下一段开始前多久开始答疑（必须比最短的一段短）；`commentTimeoutSeconds` 是点评最多等多久。
-- `secondLayer` 是词库之后的第二层自动审核：`implementation` 是 `off` 或 `llm`（用大模型，走 `secondLayerTeacher` 和 `secondLayerChat` 两种用途），`batchMillis` 和 `timeoutSeconds` 管它的时间。改了要重启；运行时用开关打开或关掉它的两部分。
+- `secondLayer` 是词库之后的第二层自动审核：`implementation` 是 `off` 或 `llm`（用大模型，走 `secondLayerTeacher` 和 `secondLayerChat` 两种用途），`batchMillis` 和 `timeoutSeconds` 管它的时间。可选的 `blocksPerStudentPerLesson`（默认 5）是一个学生一节课里最多被第二层拦下几句（同学之间的消息和点名时的回答合在一起算）：到了上限，这个学生这节课剩下的话照常过词库，词库放过的不再送第二层，直接按第二层拦下处理（回 `blocked`，`category` 是 `sensitive`），不调大模型，也不存下来。它只在对应的第二层开关开着时起作用：开关关着时，话本来就不过第二层。计数在内存里，服务重启后从 0 开始。改了要重启；运行时用开关打开或关掉它的两部分。
 - `switchDefaults` 是每个开关的初始值，在后台第一次切换这个开关之前用它；`switchRefreshSeconds` 是报名和上课两个服务隔多久读一次开关，也是社团服务隔多久读一次“维护中”（见“维护”）；上课和社团两个服务也按这个间隔查一次在线学生的状态（见下面“准备后台”里的查学生）。
 - `alerts` 决定报名服务什么时候给 `OPERATOR_EMAIL` 发出了问题的邮件（整块和其中每一项都可以省，省了就用示例配置里的值）。它每分钟检查一次，每一类问题发一封，同一类一小时最多一封（`repeatAfterMinutes`；上次发信的时间存在数据库里，所以重启不会重发）。各类和它们的条件：
   - `internalErrors`：`minutes` 分钟里意外错误至少 `count` 次（报名服务回 HTTP 500，上课服务的节拍失败或连接里出了意外，社团服务的节拍失败、房间出错或连接里出了意外，三个服务合计）。
@@ -457,6 +458,8 @@ npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class \
   --ramp 30 --report .sim/report.json --expect-segment-ms 5000 --expect-chat-ms 1000
 ```
 
+机器人都从同一个地址连进来，会碰到 `wsHandshake` 的限额：压测用的学校配置（比如 `.sim/school.json`）里要把 `wsHandshake` 的两个值调大，比如 `"wsHandshake": { "upgradesPerIpPerMinute": 100000, "authFailuresPerIpPerMinute": 100000 }`，否则多出来的连接在门口被 HTTP 429 挡住，记为连接失败。
+
 - `--ramp <秒>`：所有机器人在这么多秒内随机错开第一次连接，不是同时连上（默认 0）。要让机器人早点启动，赶在开门前连完，否则晚连上的会错过开头。
 - `--quiet`：不打印每个事件的那一行，只打印开始、每 10 秒一行进度、汇总和结论。大规模压测要开：几千个机器人在同一个进程里往控制台写字，会拖慢它们自己的事件循环，量到的延迟也跟着变大。
 - `--report <文件>`：把报告写成 JSON（控制台上总会打印一份）。
@@ -491,7 +494,7 @@ npm run sim -- --keys .sim/keys.json --url ws://localhost:8081/v1/class \
    npm run dev:seed -- --division junior --slot evening --students 100 --classes 9 --club --out .sim/club-keys.json
    ```
 
-2. 启动报名服务和社团服务（`npm run dev:registration`，再 `npm run dev:club`）。上学日的各个时段社团关门（见“社团”），所以要避开这些时段跑，或者用一份把时段挪开的本地配置（`SCHOOL_CONFIG`，两个服务都要用它）。
+2. 启动报名服务和社团服务（`npm run dev:registration`，再 `npm run dev:club`）。上学日的各个时段社团关门（见“社团”），所以要避开这些时段跑，或者用一份把时段挪开的本地配置（`SCHOOL_CONFIG`，两个服务都要用它）。机器人都从同一个地址连进来，社团服务用的学校配置里要把 `wsHandshake` 的两个值调大（比如都设成 100000，见“压测”），否则多出来的连接会被 HTTP 429 挡住。
 3. 放出机器人：
 
    ```bash
@@ -623,7 +626,7 @@ npm run dev:club           # 再启动社团服务，改代码会自动重启
 - `enabled`：社团开不开。`false` 时社团一直关着。
 - `openBeforeTerm`：开学日（`calendar.openingDay`）之前的报名期社团开不开，默认开。设成 `false`，开学日之前社团一直关着。
 - 社团在上学日（包括周末自习的日子）的每个时段关门：从开门（开课前 `lesson.doorsOpenMinutesBefore` 分钟）起，到下课后的收尾（`lesson.closingGraceSeconds`）和各班错开下课的时间（`lesson.staggerMillis`）结束为止，连在一起的时段算一段。其余时间都开，包括半夜、放假和周末放假的日子。维护期间社团也关门。
-- `connection`：一条社团连接的 `framesPerMinute`、`maxQueuedFrames`、`maxSendBufferKiB`，和 `classConnection` 的意思一样。
+- `connection`：社团连接的 `framesPerMinute`、`maxQueuedFrames`、`maxSendBufferKiB`，和 `classConnection` 的意思一样：`framesPerMinute` 也按学生计，同一个学生的所有连接合在一起算，用满额度后重连，新连接的 `hello` 也会收到 `rate_limited`，要等这一分钟过去。同一个地址的升级请求和无效钥匙的次数由顶层的 `wsHandshake` 限定（见“上课服务”），社团服务单独计数。
 - `inviteSeconds`：邀请等多久回答。`invitesPerDay`：每个学生每天（学校时区）最多发几个邀请。
 - `idleMinutes`：房间开了以后，或者一局打完以后，这么多分钟还没开局，就提示房间里的人；`idleDecideSeconds` 是给他们决定要不要陪练的时间，到时间没人选，房间关掉。桌子坐满、都准备好了、只等掉线的学生回来时，不提示，也不因为闲置关门，最多等到这个学生的座位到期（`disconnectGraceSeconds`）；座位空出来时已经闲置了 `idleMinutes` 分钟的，马上提示。
 - `disconnectGraceSeconds`：没在打牌时掉线，座位留多久。桌上的学生都在线才开局：有人掉线时，坐满、准备好了也不开，掉线的学生回来、凑齐了就开，到时间没回来就被请出房间。快速加入不进有学生掉线的房间。
