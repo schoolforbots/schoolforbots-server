@@ -22,6 +22,10 @@ export interface HubConnection {
 
 /** The hub of the running service: connections live in memory, one per student. */
 export interface MemoryHub extends Hub {
+  /** The student numbers of everyone connected, of every class. */
+  everyone(): number[]
+  /** As `Hub.disconnect`; says whether the student was connected (false: nothing was sent). */
+  disconnect(studentId: number, message: object): boolean
   /**
    * Registers a connection and returns the one the student had until now, if any. That one is forgotten, not closed:
    * closing it is the caller's job.
@@ -55,12 +59,16 @@ export function createHub(): MemoryHub {
         .map((c) => c.studentId)
         .sort((a, b) => a - b)
     },
+    everyone() {
+      return [...connections.keys()]
+    },
     disconnect(studentId, message) {
       const c = connections.get(studentId)
-      if (c === undefined) return
+      if (c === undefined) return false
       connections.delete(studentId)
       c.send(message)
       c.close()
+      return true
     },
     add(connection) {
       const previous = connections.get(connection.studentId)

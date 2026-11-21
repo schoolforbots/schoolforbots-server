@@ -16,16 +16,16 @@ import {
   type WelcomeMessage,
 } from '../protocol/ws.js'
 import { calendarStatus, nextSchoolDay, undecidedBreakAhead, type CalendarStatus } from '../shared/calendar.js'
-import { MEMBER_STATUSES } from '../shared/db.js'
 import { className, displayName } from '../shared/identity.js'
 import { addDaysToDate, atLocalTime, localDate, localMoment, monthDay } from '../shared/local-time.js'
 import type { Maintenance } from '../shared/maintenance.js'
-import type { Database, StudentStatus } from '../shared/schema.js'
+import type { Database } from '../shared/schema.js'
 import type { ClassDeps } from './app.js'
 import { lessonsAttendedBefore, markAttendance } from './attendance.js'
 import { classEventMessage, eventsAfter } from './events.js'
 import type { HubConnection } from './hub.js'
 import type { ActiveSession } from './runtime.js'
+import { standingRefusal } from './standing.js'
 import { WS_ERROR_MESSAGES, type WsErrorCode } from './ws-errors.js'
 
 // One student's WebSocket connection to the class, from the upgrade to the close: the checks at the door, hello (and
@@ -133,13 +133,6 @@ export function maintenanceClosing(m: Maintenance): Closing {
 const UNDECIDED = { reopensOn: null, firstLessonAt: null }
 /** What everyone is told while the school is on a break whose end is not decided yet. */
 const UNDECIDED_BREAK = { ...closing('on_break', '学校正在放假，开学时间另行通知。'), ...UNDECIDED }
-
-/** What a student with no class is told, by status. */
-function noClassMessage(status: StudentStatus): string {
-  if (status === 'dropped') return '你已经退学，不在任何班级里了，重新报名分班后才能来上课。'
-  if (status === 'expelled') return '你已经被开除，不在任何班级里了。'
-  return '你还没有分班，分到班级后才能来上课。'
-}
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -284,21 +277,18 @@ export function serveConnection(
     return m === null ? null : maintenanceClosing(m)
   }
 
-  /** The student's class, or why the student may not come in now: first the service stopping, then maintenance. */
+  /**
+   * The student's class, or why the student may not come in now: first the service stopping, then maintenance, then
+   * the student's standing (`standingRefusal`, which the service's rounds also send out by), then the time of day.
+   */
   const atTheDoor = (): { classId: number } | { refusal: Closing } => {
     if (deps.stopping?.() === true) return { refusal: SHUTTING_DOWN }
     const maintenance = underMaintenance()
     if (maintenance !== null) return { refusal: maintenance }
-    const until = student.suspendedUntil
-    if (student.status === 'suspended' && (until === null || until.getTime() > clock.now().getTime())) {
-      const message =
-        until === null ? '你正在停课，暂时不能来上课。' : `你正在停课，${localMoment(until, config.timezone)} 以后才能回来上课。`
-      return { refusal: closing('suspended', message) }
-    }
-    if (student.classId === null || !(MEMBER_STATUSES as readonly StudentStatus[]).includes(student.status)) {
-      const reason = student.status === 'expelled' ? 'expelled' : 'session_over'
-      return { refusal: closing(reason, noClassMessage(student.status)) }
-    }
+    const refusal = standingRefusal(student, config, clock.now())
+    if (refusal !== null) return { refusal }
+    // A standing with no refusal has a class.
+    if (student.classId === null) throw new Error('A student in good standing has no class')
     if (runtime.currentSession(student.classId) === null) return { refusal: outsideSession() }
     return { classId: student.classId }
   }

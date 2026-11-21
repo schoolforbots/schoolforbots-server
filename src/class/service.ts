@@ -18,6 +18,7 @@ import { createLessonHooks, type LessonHooks } from './hooks.js'
 import { createHub, type MemoryHub } from './hub.js'
 import { questionHandlers, type QuestionsDeps } from './questions.js'
 import { createClassRuntime, LIVE_TOLERANCE_MS, onlyClassStepsFailed, type ClassRuntime } from './runtime.js'
+import { GONE_STANDING, standingRefusal, standingsOf } from './standing.js'
 import { createTeacherAi, type TeacherAi } from './teacher-ai.js'
 import { startTicker, type Ticker } from './ticker.js'
 
@@ -66,7 +67,10 @@ export interface ClassServiceDeps {
    * going on ends early (see `ClassRuntimeDeps.maintenance`). Unset: never on.
    */
   maintenance?: MaintenanceWatch
-  /** Called for each unexpected error in a connection, to count it for the alert mails (see `ClassDeps`). */
+  /**
+   * Called for each unexpected error in a connection (see `ClassDeps`) and for a round of the students online that
+   * failed, to count it for the alert mails.
+   */
   onInternalError?: () => void
 }
 
@@ -83,8 +87,21 @@ export interface ClassService {
    * being worked on.
    */
   teacherAi: TeacherAi | null
-  /** What the service runs on its interval: the lesson runtime's steps, then the conversations overdue by the clock. */
+  /**
+   * What the service runs on its interval: the lesson runtime's steps, then the conversations overdue by the clock,
+   * then, every `switchRefreshSeconds`, a round of the students online (not waited for).
+   */
   tick(): Promise<void>
+  /**
+   * A round of the students online now: one query for the standing of everyone connected, and whoever may no longer
+   * be in class (suspended, expelled, withdrawn or in no class: `standingRefusal`, as at the door) is sent the
+   * `closing` saying so and disconnected, the rest as after any disconnect. The one going on when there is one already.
+   * The standing is the one the query read: a change in the moment between the query and the disconnect waits for the
+   * next round. Maintenance, the service stopping and the time of day are not the rounds' business.
+   */
+  rounds(): Promise<void>
+  /** Resolves when the round going on, if any, has finished. */
+  roundsDone(): Promise<void>
   /** The interval, in real milliseconds: `tickIntervalMs` for the service's speed and the classes' stagger. */
   intervalMs: number
   /**
@@ -180,6 +197,14 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
   const ticksPerRetry = Math.max(1, Math.round(tickIntervalMs(speed) / intervalMs))
   const runtime = createClassRuntime({ db, config, clock, hub, moderator, speed, hooks, maintenance, ticksPerRetry, log })
 
+  const noteInternalError = () => {
+    try {
+      deps.onInternalError?.()
+    } catch {
+      // Counting an error must not change what happens.
+    }
+  }
+
   const app = buildClassApp({
     db,
     config,
@@ -201,6 +226,40 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
     logger: deps.logger,
   })
 
+  // ---- The rounds of the students online ----
+
+  const roundMs = config.switchRefreshSeconds * 1000
+  let lastRoundAt = clock.now().getTime()
+  let round: Promise<void> | null = null
+
+  async function oneRound(): Promise<void> {
+    const online = hub.everyone()
+    if (online.length === 0) return
+    const standings = await standingsOf(db, online)
+    // The service stopped meanwhile: everyone has been told so already.
+    if (stopping) return
+    const now = clock.now()
+    for (const studentId of online) {
+      const refusal = standingRefusal(standings.get(studentId) ?? GONE_STANDING, config, now)
+      if (refusal === null) continue
+      // False for a student gone meanwhile, by their own close or another's.
+      if (hub.disconnect(studentId, refusal)) log({ studentId, reason: refusal.reason }, 'student sent out of class')
+    }
+  }
+
+  function rounds(): Promise<void> {
+    round ??= oneRound()
+      .catch((err: unknown) => {
+        // Only the error's name: its message can carry connection details.
+        logError({ err: err instanceof Error ? err.name : 'unknown' }, 'class rounds failed')
+        noteInternalError()
+      })
+      .finally(() => {
+        round = null
+      })
+    return round
+  }
+
   return {
     app,
     hub,
@@ -220,8 +279,15 @@ export function createClassService(deps: ClassServiceDeps): ClassService {
         failure = { err }
       }
       chat.tick()
+      const now = clock.now().getTime()
+      if (!stopping && now - lastRoundAt >= roundMs) {
+        lastRoundAt = now
+        void rounds()
+      }
       if (failure !== null) throw failure.err
     },
+    rounds,
+    roundsDone: () => round ?? Promise.resolve(),
     disconnectAll() {
       stopping = true
       hub.disconnectAll(SHUTTING_DOWN)
