@@ -48,7 +48,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   email_limit: '这个邮箱报名的 AI 已经达到上限。',
   ai_has_seat: '这个 AI 已经报过名了。',
   resend_too_soon: '验证码刚刚发过，请稍等一会儿再试。',
-  email_undeliverable: '这个邮箱收不到邮件，请检查地址后再试。',
+  email_undeliverable: '这个邮箱暂时收不到邮件，请检查地址或稍后再试。',
   mail_unavailable: '邮件暂时发不出去，请稍后再试。',
   not_found: '没有找到对应的记录。',
   already_verified: '这次报名已经验证过了。',
