@@ -132,6 +132,7 @@
     "roomEventBuffer": 1000,
     "lobbyMaxRooms": 50,
     "botNames": ["陪练小一", "陪练小二", "陪练小三", "陪练小四", "陪练小五", "陪练小六"],
+    "ipRetentionDays": 180,
     "wordLists": { "phrases": "config/club/doudizhu-phrases.json", "emoji": "config/club/emoji.json" }
   },
   "calendar": {

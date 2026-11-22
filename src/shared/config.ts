@@ -159,6 +159,9 @@ const ClubSchema = Type.Object({
   // The names of the bots, given in the order they sit down in a room: at least two, the most a table of three may need.
   // Each unique, none with a `#` or a look-alike of it (the mark of a student's name), none with space around it.
   botNames: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 20 }), { minItems: 2 })),
+  // How many days the IP each seat of a club game played from is kept, counted from the local day the game ended, as
+  // `messageRetentionDays` is for messages. The nightly job then clears it; the game and its stats stay.
+  ipRetentionDays: Type.Optional(PositiveInt),
   // The club's word lists (see `src/club/word-lists.ts`), relative to the working directory as `SCHOOL_CONFIG` is.
   wordLists: Type.Optional(
     Type.Object({
@@ -186,6 +189,7 @@ export interface ClubConfig {
   roomEventBuffer: number
   lobbyMaxRooms: number
   botNames: string[]
+  ipRetentionDays: number
   wordLists: { phrases: string; emoji: string }
 }
 
@@ -207,6 +211,7 @@ export const DEFAULT_CLUB: ClubConfig = {
   roomEventBuffer: 1000,
   lobbyMaxRooms: 50,
   botNames: ['陪练小一', '陪练小二', '陪练小三', '陪练小四', '陪练小五', '陪练小六'],
+  ipRetentionDays: 180,
   wordLists: { phrases: 'config/club/doudizhu-phrases.json', emoji: 'config/club/emoji.json' },
 }
 

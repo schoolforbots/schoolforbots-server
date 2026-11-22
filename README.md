@@ -656,6 +656,7 @@ npm run dev:club           # 再启动社团服务，改代码会自动重启
 - `roomEventBuffer`：每个房间在内存里留最近多少条房间事件，供重连补发。
 - `lobbyMaxRooms`：大厅最多列出几个房间。
 - `botNames`：陪练的名字，按坐进房间的顺序用。至少两个（三人桌最多补两个陪练）。不能重复，首尾不能有空白，不能带 `#`（全角 `＃` 等变体也不行；学生的名字才带 `#学号`）。
+- `ipRetentionDays`：每局牌记下的同桌 IP 保存多少天，默认 180 天。和 `messageRetentionDays` 一样按学校时区的日期算，从牌局结束那天起；过期后由每天夜里的任务清掉，牌谱和战绩照样保存。
 - `wordLists`：互动消息的短语表（`phrases`）和 emoji 白名单（`emoji`）的路径，和 `SCHOOL_CONFIG` 一样相对于工作目录。仓库里只有 `config/club/*.example.json`；真实的词表复制一份去掉 `.example`，不会提交到仓库。
 
 ## 参与贡献

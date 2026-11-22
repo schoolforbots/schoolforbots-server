@@ -31,6 +31,8 @@ export interface DailyJobReport {
   messagesPurged: number
   /** Club member rows deleted for no longer being current: the student left the school, or re-enrolled since. */
   clubMembersDropped: number
+  /** Seats of club games whose IP was cleared for the game being older than `club.ipRetentionDays`. */
+  clubIpsCleared: number
 }
 
 type Trx = Kysely<Database>
@@ -47,8 +49,9 @@ export function teacherPersonaFor(config: SchoolConfig, classesBefore: number): 
  * The nightly job, in one transaction: drop students who stopped coming, promote the waitlist into the freed
  * seats, put the pending students who joined the queue before today into a class, bring back the suspended
  * students whose suspension is over, delete the chat messages past their retention and the ops records (events,
- * service starts, backup runs) older than 30 days, and delete the club memberships that are no longer current
- * (the student left the school, or re-enrolled since joining).
+ * service starts, backup runs) older than 30 days, delete the club memberships that are no longer current
+ * (the student left the school, or re-enrolled since joining), and clear the IPs of the club games past their
+ * retention (the games and their stats are kept).
  *
  * The rules that count days go by today's date in the school's timezone, not by the time of the run: a run that
  * starts late, or one that makes up for a missed midnight, does what the midnight run would have done, and running
@@ -81,7 +84,8 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
     await purgeOps(trx, new Date(now.getTime() - OPS_RETENTION_DAYS * 24 * 60 * 60_000))
     // After the drops above, so a student dropped tonight leaves the clubs tonight too.
     const clubMembersDropped = await dropStaleMemberships(trx)
-    return { dropped, promoted, assigned, classesCreated, reinstated, messagesPurged, clubMembersDropped }
+    const clubIpsCleared = await clearClubIps(trx, startOfLocalDay(now, config.timezone, config.club.ipRetentionDays))
+    return { dropped, promoted, assigned, classesCreated, reinstated, messagesPurged, clubMembersDropped, clubIpsCleared }
   })
 }
 
@@ -273,6 +277,21 @@ async function reinstateSuspended(trx: Trx, now: Date): Promise<number> {
 async function purgeMessages(trx: Trx, cutoff: Date): Promise<number> {
   const result = await trx.deleteFrom('messages').where('createdAt', '<', cutoff).executeTakeFirstOrThrow()
   return Number(result.numDeletedRows)
+}
+
+/**
+ * Clears the IP of every seat of a club game that ended before `cutoff`, the start of the local day
+ * `club.ipRetentionDays` days ago. The seat keeps everything else, and the game its record. A seat's `ended_at` is its
+ * game's.
+ */
+async function clearClubIps(trx: Trx, cutoff: Date): Promise<number> {
+  const result = await trx
+    .updateTable('doudizhuGamePlayers')
+    .set({ ip: null })
+    .where('endedAt', '<', cutoff)
+    .where('ip', 'is not', null)
+    .executeTakeFirstOrThrow()
+  return Number(result.numUpdatedRows)
 }
 
 /** Deletes the ops records written before `cutoff`. */

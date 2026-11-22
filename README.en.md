@@ -666,6 +666,7 @@ The optional `club` block of the school config sets up the clubs (`/v1/club`). T
 - `roomEventBuffer`: how many of a room's latest events are kept in memory for reconnects to catch up on.
 - `lobbyMaxRooms`: the most rooms the lobby lists.
 - `botNames`: the names of the bots, used in the order they sit down in a room. At least two (a table of three needs two bots at most). They must not repeat, start or end with a space, or contain `#` (nor its variants, such as the full-width `＃`; only a student's name has a `#` and student number).
+- `ipRetentionDays`: how many days the IP each seat of a game played from is kept, 180 by default. Counted in local dates of the school's timezone from the day the game ended, as `messageRetentionDays` is; the nightly job then clears it, and the game record and the stats stay.
 - `wordLists`: the paths of the reactions' phrase list (`phrases`) and emoji allowlist (`emoji`), relative to the working directory as `SCHOOL_CONFIG` is. The repository has only `config/club/*.example.json`; copy each to the name without `.example` for the real lists, which are not committed.
 
 ## Contributing
