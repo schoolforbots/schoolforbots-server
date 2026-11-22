@@ -19,12 +19,16 @@ afterEach(async () => {
   await t.destroy()
 })
 
-async function school(now: string, config: { calendar?: Calendar; weekendStudy?: boolean } = {}): Promise<void> {
+async function school(
+  now: string,
+  config: { calendar?: Calendar; weekendStudy?: boolean; lesson?: Partial<SchoolConfig['lesson']>; timezone?: string } = {},
+): Promise<void> {
   const example = exampleConfig()
   t = await buildTestApp({
     config: {
       calendar: config.calendar ?? example.calendar,
-      lesson: { ...example.lesson, weekendStudy: config.weekendStudy ?? example.lesson.weekendStudy },
+      lesson: { ...example.lesson, weekendStudy: config.weekendStudy ?? example.lesson.weekendStudy, ...config.lesson },
+      timezone: config.timezone ?? example.timezone,
     },
   })
   t.clock.set(new Date(now))
@@ -87,6 +91,40 @@ describe('GET /v1/next-session', () => {
 
     t.clock.set(new Date('2026-11-23T19:44:59+08:00'))
     expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-23'), inProgress: false })
+
+    t.clock.set(new Date('2026-11-23T20:29:59+08:00'))
+    expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-23'), inProgress: true })
+
+    // At the dismissal it is over: the next one is given.
+    t.clock.set(new Date('2026-11-23T20:30:00+08:00'))
+    expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-24'), inProgress: false })
+  })
+
+  test("the times are the class service's: the doors and the dismissal from the lesson config, not the slot's end", async () => {
+    await school('2026-11-23T20:35:00+08:00', { lesson: { doorsOpenMinutesBefore: 10, dismissalMinute: 40 } })
+    await addClass('junior', 'evening')
+
+    expect((await nextSession()).session).toMatchObject({
+      ...times('2026-11-23', '20:00', '20:40', '19:50'),
+      slot: 'evening',
+      inProgress: true,
+    })
+  })
+
+  test("the date and the times are those of the school's time zone", async () => {
+    // 20:10 on Monday in New York is Tuesday in UTC.
+    await school('2026-11-23T20:10:00-05:00', { timezone: 'America/New_York' })
+    await addClass('junior', 'evening')
+
+    expect((await nextSession()).session).toMatchObject({
+      date: '2026-11-23',
+      slot: 'evening',
+      startsAt: '2026-11-24T01:00:00.000Z',
+      endsAt: '2026-11-24T01:30:00.000Z',
+      doorsOpenAt: '2026-11-24T00:45:00.000Z',
+      inProgress: true,
+      kind: 'lesson',
+    })
   })
 
   test('after a slot ends, the next slot that has a class', async () => {
@@ -111,13 +149,18 @@ describe('GET /v1/next-session', () => {
   test('a weekend study hall is a session; a weekend without study halls is not', async () => {
     await school('2026-11-27T21:00:00+08:00')
     await addClass('junior', 'evening')
+    await addClass('primary', 'evening')
     // A lesson on a Saturday is never taught.
     await insertLesson(t.db, { date: '2026-11-28', division: 'junior' })
 
     expect((await nextSession()).session).toMatchObject({
       ...EVENING('2026-11-28'),
+      inProgress: false,
       kind: 'study',
-      divisions: [{ division: 'junior', subject: null, title: null }],
+      divisions: [
+        { division: 'primary', subject: null, title: null },
+        { division: 'junior', subject: null, title: null },
+      ],
     })
     await t.destroy()
 
@@ -137,28 +180,53 @@ describe('GET /v1/next-session', () => {
     expect((await nextSession()).session).toMatchObject(EVENING('2026-12-01'))
   })
 
-  test('under maintenance, the session on now is not in progress: the first one after now is given', async () => {
+  test('under maintenance, no session is in progress: the first one whose doors open after now is given', async () => {
     await school('2026-11-23T20:10:00+08:00')
     await addClass('junior', 'evening')
-    await setMaintenance(t.db, { message: '服务器升级中', expectedBackAt: null }, new Date('2026-11-23T20:05:00+08:00'))
+    await setMaintenance(t.db, { message: '服务器升级中', expectedBackAt: null }, new Date('2026-11-23T19:30:00+08:00'))
     await t.maintenance.refresh()
     expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-24'), inProgress: false })
 
-    // The doors are open, but the session has not started: it is the first one after now, not in progress.
+    // The doors have opened under maintenance, so the class service does not open the slot at all, though it has
+    // not started.
     t.clock.set(new Date('2026-11-23T19:50:00+08:00'))
+    expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-24'), inProgress: false })
+
+    // Before the doors open, it may still be held.
+    t.clock.set(new Date('2026-11-23T19:40:00+08:00'))
     expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-23'), inProgress: false })
   })
 
-  test('under maintenance with an expected end, the first session that starts after it', async () => {
+  test('after maintenance, a session it touched is not held: the next one is given', async () => {
+    await school('2026-11-23T19:50:00+08:00')
+    await addClass('junior', 'evening')
+    await setMaintenance(t.db, { message: '服务器升级中', expectedBackAt: null }, new Date('2026-11-23T19:50:00+08:00'))
+    await setMaintenance(t.db, null, new Date('2026-11-23T20:05:00+08:00'))
+    t.clock.set(new Date('2026-11-23T20:10:00+08:00'))
+    await t.maintenance.refresh()
+
+    expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-24'), inProgress: false })
+  })
+
+  test('under maintenance with an expected end, the first session whose doors open after it', async () => {
     await school('2026-11-23T20:10:00+08:00')
     await addClass('junior', 'evening')
     await setMaintenance(
       t.db,
-      { message: '服务器升级中', expectedBackAt: new Date('2026-11-25T20:00:00+08:00') },
+      { message: '服务器升级中', expectedBackAt: new Date('2026-11-25T19:45:00+08:00') },
       new Date('2026-11-23T20:05:00+08:00'),
     )
     await t.maintenance.refresh()
     expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-25'), inProgress: false })
+
+    // Back after the doors open: the class service does not open that slot.
+    await setMaintenance(
+      t.db,
+      { message: '服务器升级中', expectedBackAt: new Date('2026-11-25T19:46:00+08:00') },
+      new Date('2026-11-23T20:05:00+08:00'),
+    )
+    await t.maintenance.refresh()
+    expect((await nextSession()).session).toMatchObject({ ...EVENING('2026-11-26'), inProgress: false })
 
     // An expected end already past counts from now.
     t.clock.set(new Date('2026-11-25T20:10:00+08:00'))
