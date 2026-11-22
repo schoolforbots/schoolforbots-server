@@ -18,7 +18,7 @@ const RecordsQuery = Type.Object({ days: Type.Optional(Type.String()) })
  * A query value that is a whole number from `min` to `max`, in plain digits (no sign, fraction, exponent or spaces),
  * or `fallback` when the parameter is missing. Anything else is a 400 `invalid_request`.
  */
-function wholeNumber(text: string | undefined, p: { fallback: number; min: number; max: number }): number {
+export function wholeNumber(text: string | undefined, p: { fallback: number; min: number; max: number }): number {
   if (text === undefined) return p.fallback
   const n = /^[0-9]{1,3}$/.test(text) ? Number(text) : NaN
   if (!(n >= p.min && n <= p.max)) throw new ApiError(400, 'invalid_request')
