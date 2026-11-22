@@ -440,9 +440,10 @@ export const NoticeResult = Type.Object({ notice: Notice })
  * `GET /v1/next-session`, no key needed: the session going on now, or the next one, for every class of the school.
  * `session` is null when there is none in the next 30 days (the school is on a break, say).
  * `date` is its school day (`YYYY-MM-DD` in the school's time zone) and `slot` its slot; `startsAt` and `endsAt` are
- * when its lesson starts and ends, and `doorsOpenAt` when the classes' doors open, before it. `inProgress` is true from
- * the doors opening to the end. Under maintenance no session is in progress: the one given is the first to start after
- * the maintenance is expected to end, or after now when that is not known.
+ * when it starts and when the classes are dismissed, and `doorsOpenAt` when their doors open, before it. `inProgress`
+ * is true from the doors opening to the dismissal. A slot the school is under maintenance for at any moment from its
+ * doors to its close is not held, so under maintenance no session is in progress: the one given is the first whose
+ * doors open once the maintenance is expected to end, or after now when that is not known.
  * `kind` is `lesson` on a weekday and `study` for a study hall (自习), at the weekend, or on a weekday the classes have
  * already made one. `divisions` are the divisions with a class in the slot that has students in it, primary, junior,
  * senior: `subject` and `title` are those of the division's lesson once it is approved, null before (it is being

@@ -1,12 +1,12 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import type { Kysely } from 'kysely'
 import type { Static } from 'typebox'
-import { planSession } from '../class/planning.js'
+import { lessonSteps, type StepName } from '../class/timeline.js'
 import { NextSessionResult } from '../protocol/http.js'
 import { isLessonDay, isSchoolDay } from '../shared/calendar.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { addDaysToDate, atLocalTime, localDate } from '../shared/local-time.js'
-import type { Maintenance } from '../shared/maintenance.js'
+import { maintenanceBetween, type Maintenance } from '../shared/maintenance.js'
 import { MEMBER_STATUSES, type Database } from '../shared/schema.js'
 import type { RegistrationDeps } from './app.js'
 
@@ -39,10 +39,12 @@ export function nextSessionRoutes(deps: RegistrationDeps): FastifyPluginAsyncTyp
 }
 
 /**
- * The session going on at `now` (from its doors opening to its end), or else the first one after it, within the
- * `DAYS_AHEAD` days from today: on a school day, in a slot with a class that has students in it. Under maintenance
- * none is going on: the first session to start once the maintenance is expected to end (or from now, when that is not
- * known, or past) is given instead.
+ * The session going on at `now` (from its doors opening to its dismissal), or else the first one after it, within the
+ * `DAYS_AHEAD` days from today: on a school day, in a slot with a class that has students in it. The class service
+ * does not hold a slot the school was under maintenance for at any moment from its doors to its close (see
+ * `openDueSlots`), so under maintenance none is going on: the first session whose doors open once the maintenance is
+ * expected to end (or after now, when that is not known, or past) is given. A session whose doors have opened is
+ * skipped too when a maintenance since over touched it.
  */
 async function nextSession(
   db: Kysely<Database>,
@@ -51,8 +53,6 @@ async function nextSession(
   maintenance: Maintenance | null,
 ): Promise<NextSession | null> {
   const divisionsBySlot = await memberDivisions(db)
-  const back =
-    maintenance === null ? null : new Date(Math.max(now.getTime(), maintenance.expectedBackAt?.getTime() ?? 0))
   const today = localDate(now, config.timezone)
 
   for (let ahead = 0; ahead < DAYS_AHEAD; ahead++) {
@@ -62,22 +62,41 @@ async function nextSession(
       const divisions = divisionsBySlot.get(slot) ?? []
       if (divisions.length === 0) continue
       const startsAt = atLocalTime(date, config.slots[slot].start, config.timezone)
-      // The session's end is its slot's: the classes are dismissed then (the closing grace after it is not counted).
-      const endsAt = atLocalTime(date, config.slots[slot].end, config.timezone)
-      const doorsOpenAt = new Date(startsAt.getTime() - config.lesson.doorsOpenMinutesBefore * 60_000)
-      if (back !== null ? startsAt < back : endsAt <= now) continue
+      const { doorsAt, endsAt, closeAt } = timesOf(startsAt, config)
+      if (maintenance !== null) {
+        const back = maintenance.expectedBackAt
+        if (doorsAt <= now || (back !== null && doorsAt < back)) continue
+      } else {
+        if (endsAt <= now) continue
+        // Only a slot whose doors have opened can have met a maintenance that is over.
+        if (doorsAt <= now && (await maintenanceBetween(db, doorsAt, closeAt))) continue
+      }
       return {
         date,
         slot,
         startsAt: startsAt.toISOString(),
         endsAt: endsAt.toISOString(),
-        doorsOpenAt: doorsOpenAt.toISOString(),
-        inProgress: back === null && doorsOpenAt <= now,
+        doorsOpenAt: doorsAt.toISOString(),
+        inProgress: maintenance === null && doorsAt <= now,
         ...(await whatIsTaught(db, config, date, divisions)),
       }
     }
   }
   return null
+}
+
+/**
+ * When a session starting at `startsAt` opens its doors, is dismissed and closes, as the class service times it. These
+ * do not depend on the kind of session.
+ */
+function timesOf(startsAt: Date, config: SchoolConfig): { doorsAt: Date; endsAt: Date; closeAt: Date } {
+  const steps = lessonSteps(startsAt, 'lesson', config.lesson, 1, config.teacherAi.answerLeadSeconds)
+  const atOf = (name: StepName): Date => {
+    const found = steps.find((s) => s.step === name)
+    if (found === undefined) throw new Error(`The timeline has no ${name} step`)
+    return found.at
+  }
+  return { doorsAt: atOf('doors'), endsAt: atOf('dismissal'), closeAt: atOf('close') }
 }
 
 /** The divisions of each slot that have a class with a student in it, in the order primary, junior, senior. */
@@ -107,10 +126,11 @@ async function memberDivisions(db: Kysely<Database>): Promise<Map<Slot, Division
 }
 
 /**
- * Whether the divisions have a lesson or a study hall on `date`, and the subject and title of each one's lesson. The
- * class service decides with `planSession` when a class opens; until then a lesson day (a weekday) is a lesson, its
- * subject and title unknown until it is approved, and a study hall when the class service has made it one. The session
- * is a lesson when any division has one.
+ * Whether the divisions have a lesson or a study hall on `date`, and the subject and title of each one's lesson, as
+ * `planSession` decides it. The first session a class of the division has opened that day decides; before any has, a
+ * lesson day (a weekday) is a lesson, its subject and title unknown until it is approved (the class service makes it a
+ * study hall if it is still not approved when the doors open), and any other day a study hall. The session is a
+ * lesson when any division has one.
  */
 async function whatIsTaught(
   db: Kysely<Database>,
@@ -118,30 +138,40 @@ async function whatIsTaught(
   date: string,
   divisions: readonly Division[],
 ): Promise<Pick<NextSession, 'kind' | 'divisions'>> {
-  const plans = await Promise.all(
-    divisions.map(async (division) => {
-      const plan = await planSession(db, config, { date, division })
-      if (plan.kind === 'lesson') return { division, lesson: true, subject: plan.subject, title: plan.title }
-      // No approved lesson: a lesson still being prepared, unless a class has opened the day as a study hall.
-      const lesson = isLessonDay(date, config) && !(await sessionOpened(db, date, division))
-      return { division, lesson, subject: null, title: null }
-    }),
-  )
+  const opened = await db
+    .selectFrom('classSessions as s')
+    .innerJoin('classes as c', 'c.id', 's.classId')
+    .leftJoin('lessons as l', 'l.id', 's.lessonId')
+    .select(['c.division', 's.kind', 'l.subject', 'l.title'])
+    .where('s.date', '=', date)
+    .where('c.division', 'in', divisions)
+    .orderBy('s.startsAt')
+    .orderBy('s.id')
+    .execute()
+  const approved = isLessonDay(date, config)
+    ? await db
+        .selectFrom('lessons')
+        .select(['division', 'subject', 'title'])
+        .where('date', '=', date)
+        .where('division', 'in', divisions)
+        .where('approvedAt', 'is not', null)
+        .execute()
+    : []
+
+  const plans = divisions.map((division) => {
+    // The rows are in the order the sessions began, so the first of the division is the one that decided.
+    const decided = opened.find((r) => r.division === division)
+    if (decided !== undefined) {
+      return decided.kind === 'lesson'
+        ? { division, lesson: true, subject: decided.subject, title: decided.title }
+        : { division, lesson: false, subject: null, title: null }
+    }
+    if (!isLessonDay(date, config)) return { division, lesson: false, subject: null, title: null }
+    const lesson = approved.find((r) => r.division === division)
+    return { division, lesson: true, subject: lesson?.subject ?? null, title: lesson?.title ?? null }
+  })
   return {
     kind: plans.some((p) => p.lesson) ? 'lesson' : 'study',
     divisions: plans.map(({ division, subject, title }) => ({ division, subject, title })),
   }
-}
-
-/** Whether a class of `division` has opened a session on `date`, which decided the day for the division. */
-async function sessionOpened(db: Kysely<Database>, date: string, division: Division): Promise<boolean> {
-  const row = await db
-    .selectFrom('classSessions as s')
-    .innerJoin('classes as c', 'c.id', 's.classId')
-    .select('s.id')
-    .where('s.date', '=', date)
-    .where('c.division', '=', division)
-    .limit(1)
-    .executeTakeFirst()
-  return row !== undefined
 }
