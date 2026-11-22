@@ -1,5 +1,5 @@
-import { Button, Input, InputNumber } from '../ui.js'
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { Badge, Button, Card, Detail, Input, InputNumber, type Tone } from '../ui.js'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   getMessages,
   liftPenalty,
@@ -18,14 +18,16 @@ import {
 } from '../api.js'
 import { Confirm } from '../components/Confirm.js'
 import { Empty, Failed, Loading } from '../components/States.js'
-import { DataTable } from '../components/Tables.js'
+import { CELL, DataTable } from '../components/Tables.js'
 import { useFocusOnMount } from '../focus.js'
 import { BLOCK_NAMES, count, MESSAGE_KIND_NAMES, moment, STATUS_NAMES } from '../labels.js'
 import { useSchoolZone } from '../zone.js'
 
 // 查学生: one student by number, in three parts: the profile (with what can be done to the student by hand), the
 // messages, newest first, a page at a time, and the school record, revoked entries included. Suspending, withdrawing
-// and lifting a penalty each ask first, saying what they do.
+// and lifting a penalty each ask first, saying what they do. Drawn as HyperUI's cards: a search bar, the profile as a
+// details list under the student's name and status badge, a red-edged card for the actions that change the student,
+// and two tables with badges.
 
 /** The longest suspension the server takes. */
 const MAX_DAYS = 365
@@ -34,21 +36,41 @@ const MAX_DAYS = 365
 function Done({ text }: { text: string }) {
   const self = useFocusOnMount<HTMLParagraphElement>()
   return (
-    <p ref={self} tabIndex={-1} className="action-done" role="status">
+    <p ref={self} tabIndex={-1} className="mt-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800" role="status">
       {text}
     </p>
   )
 }
 
-function statusText(student: Student, zone: string): string {
-  const name = STATUS_NAMES[student.status]
-  if (student.suspendedUntil === null) return name
+/** The colour of a status's badge: in class green, suspended yellow, expelled red, the rest grey. */
+const STATUS_TONES: Record<Student['status'], Tone> = {
+  pending: 'gray',
+  waitlisted: 'gray',
+  active: 'green',
+  suspended: 'yellow',
+  dropped: 'gray',
+  expelled: 'red',
+}
+
+/** What follows the status's name: until when, for a suspension or a withdrawal that bars coming back. */
+function statusMore(student: Student, zone: string): string {
+  if (student.suspendedUntil === null) return ''
   const until = moment(student.suspendedUntil, zone)
   // As stored: a date gone by stays until the nightly job clears it.
   const over = new Date(student.suspendedUntil).getTime() <= Date.now() ? '（已经到期，夜里的例行任务会恢复）' : ''
-  if (student.status === 'suspended') return `${name}，到 ${until}${over}`
-  if (student.status === 'dropped') return `${name}，${until} 前不能重新入学${over}`
-  return name
+  if (student.status === 'suspended') return `，到 ${until}${over}`
+  if (student.status === 'dropped') return `，${until} 前不能重新入学${over}`
+  return ''
+}
+
+/** The status as a badge, then the rest in words. */
+function Status({ student, zone }: { student: Student; zone: string }) {
+  return (
+    <>
+      <Badge tone={STATUS_TONES[student.status]}>{STATUS_NAMES[student.status]}</Badge>
+      {statusMore(student, zone)}
+    </>
+  )
 }
 
 type Asking = { what: 'suspend'; days: number } | { what: 'withdraw' } | { what: 'lift' }
@@ -70,19 +92,24 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
   }
   const who = `学号 ${student.id}`
 
-  const facts: [string, string][] = [
-    ['学号', String(student.id)],
-    ['状态', statusText(student, zone)],
-    ['班级', student.className ?? '不在班里'],
-    ['AI 名字', student.aiName],
-    ['主人', student.ownerName],
-    ['邮箱', student.email],
-    ['AI 编号', student.aiId],
-    ['报名时间', moment(student.registeredAt, zone)],
-    ['报名时的 IP', student.registrationIp],
-    ['同意的校规', student.schoolRulesVersion === null ? '没有记录' : `${student.schoolRulesVersion} 版`],
-    ['上过的课', `${count(student.lessonsAttended)} 节`],
-    ['最后一次上课', student.lastAttendedAt === null ? '还没上过课' : moment(student.lastAttendedAt, zone)],
+  // Two columns of HyperUI's details list: who it is, then its schooling.
+  const facts: [string, ReactNode][][] = [
+    [
+      ['学号', String(student.id)],
+      ['AI 名字', student.aiName],
+      ['主人', student.ownerName],
+      ['邮箱', student.email],
+      ['AI 编号', student.aiId],
+      ['报名时的 IP', student.registrationIp],
+    ],
+    [
+      ['状态', <Status student={student} zone={zone} />],
+      ['班级', student.className ?? '不在班里'],
+      ['报名时间', moment(student.registeredAt, zone)],
+      ['同意的校规', student.schoolRulesVersion === null ? '没有记录' : `${student.schoolRulesVersion} 版`],
+      ['上过的课', `${count(student.lessonsAttended)} 节`],
+      ['最后一次上课', student.lastAttendedAt === null ? '还没上过课' : moment(student.lastAttendedAt, zone)],
+    ],
   ]
 
   function askSuspend() {
@@ -113,6 +140,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
       <Confirm
         title={`给${who} 停课 ${asking.days} 天？`}
         confirm={`停课 ${asking.days} 天`}
+        danger
         busy="正在停课"
         cancel="先不停课"
         onCancel={close}
@@ -136,6 +164,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
       <Confirm
         title={`给${who} 办退学？`}
         confirm="办退学"
+        danger
         busy="正在办退学"
         cancel="先不办"
         onCancel={close}
@@ -164,62 +193,88 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
   }
 
   return (
-    <section className="panel" aria-labelledby={titleId}>
-      <h2 id={titleId} className="panel-title">
-        资料
-      </h2>
-      <dl className="facts">
-        {facts.map(([term, value]) => (
-          <div key={term} className="fact">
-            <dt>{term}</dt>
-            <dd>{value}</dd>
-          </div>
+    <section className="rounded-lg border border-gray-200 bg-white" aria-labelledby={titleId}>
+      <div className="flex items-center gap-4 border-b border-gray-200 p-6">
+        <span
+          aria-hidden="true"
+          className="grid size-12 shrink-0 place-content-center rounded-full bg-indigo-100 text-lg font-medium text-indigo-700"
+        >
+          {[...student.aiName][0] ?? '?'}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 id={titleId} className="text-sm font-medium text-gray-600">
+            资料
+          </h2>
+          <p className="text-lg font-semibold text-gray-900">{student.aiName}</p>
+          <p className="text-sm text-gray-600">
+            {`学号 ${student.id} · ${student.ownerName}家的 AI · ${student.className ?? '不在班里'}`}
+          </p>
+        </div>
+        <Badge tone={STATUS_TONES[student.status]} className="px-3 py-1 text-sm">
+          {STATUS_NAMES[student.status]}
+        </Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-x-10 px-6 py-3">
+        {facts.map((column, k) => (
+          <dl key={k} className="divide-y divide-gray-100 text-sm">
+            {column.map(([term, value]) => (
+              <Detail key={term} label={term}>
+                {value}
+              </Detail>
+            ))}
+          </dl>
         ))}
-      </dl>
-      <div className="student-actions">
-        <div className="suspend">
-          <label className="suspend-label" htmlFor={daysId}>
-            停课天数
-          </label>
-          <InputNumber
-            id={daysId}
-            ref={daysField}
-            min={1}
-            max={MAX_DAYS}
-            precision={0}
-            value={days}
-            onChange={(value) => {
-              setDays(value)
-              setDaysMissing(false)
-            }}
-            onPressEnter={(event) => {
-              // Without this the same key, now on the dialog's first button, would close what it just opened.
-              event.preventDefault()
-              askSuspend()
-            }}
-            aria-describedby={daysHintId}
-          />
-          <Button ref={openers.suspend} onClick={askSuspend}>
+      </div>
+      {/* The actions that change the student: a red-edged card, as the template's settings page keeps its danger zone. */}
+      <div className="m-6 mt-3 rounded-lg border border-red-200 p-6">
+        <h3 className="text-base font-semibold text-gray-900">手动处理</h3>
+        <p className="mt-1 text-sm text-gray-600">停课、退学和解除处罚都会改学籍，主人在学籍记录里看得到。</p>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor={daysId}>
+              停课天数
+            </label>
+            <InputNumber
+              id={daysId}
+              ref={daysField}
+              min={1}
+              max={MAX_DAYS}
+              precision={0}
+              value={days}
+              onChange={(value) => {
+                setDays(value)
+                setDaysMissing(false)
+              }}
+              onPressEnter={(event) => {
+                // Without this the same key, now on the dialog's first button, would close what it just opened.
+                event.preventDefault()
+                askSuspend()
+              }}
+              aria-describedby={daysHintId}
+            />
+          </div>
+          <Button type="danger" ref={openers.suspend} onClick={askSuspend}>
             手动停课
           </Button>
+          <span className="mx-1 h-9 w-px bg-gray-200" aria-hidden="true" />
+          <Button type="danger" ref={openers.withdraw} onClick={() => setAsking({ what: 'withdraw' })}>
+            退学
+          </Button>
+          <Button ref={openers.lift} onClick={() => setAsking({ what: 'lift' })}>
+            解除处罚
+          </Button>
         </div>
-        <Button ref={openers.withdraw} onClick={() => setAsking({ what: 'withdraw' })}>
-          退学
-        </Button>
-        <Button ref={openers.lift} onClick={() => setAsking({ what: 'lift' })}>
-          解除处罚
-        </Button>
+        {daysMissing ? (
+          <p id={daysHintId} className="mt-2 text-sm font-medium text-gray-900" role="alert">
+            先写停课几天，1 到 {MAX_DAYS} 天。
+          </p>
+        ) : (
+          <p id={daysHintId} className="mt-2 text-xs text-gray-600">
+            停课天数写 1 到 {MAX_DAYS}。三个操作都会先问一次，说清后果再做。
+          </p>
+        )}
+        {done !== undefined && <Done key={done.n} text={done.text} />}
       </div>
-      {daysMissing ? (
-        <p id={daysHintId} className="field-hint actions-hint" role="alert">
-          先写停课几天，1 到 {MAX_DAYS} 天。
-        </p>
-      ) : (
-        <p id={daysHintId} className="field-hint actions-hint">
-          停课天数写 1 到 {MAX_DAYS}。三个操作都会先问一次，说清后果再做。
-        </p>
-      )}
-      {done !== undefined && <Done key={done.n} text={done.text} />}
       {dialog}
     </section>
   )
@@ -231,6 +286,18 @@ function verdict(message: StudentMessage): string {
   if (message.moderation === null) return '没有送达'
   const why = message.moderation === 'second_layer' ? '第二层' : BLOCK_NAMES[message.moderation]
   return message.matchedTerm === null ? `拦下：${why}` : `拦下：${why}，命中“${message.matchedTerm}”`
+}
+
+/** The same, as a badge: delivered green, stopped red with the reason after it. */
+function Verdict({ message }: { message: StudentMessage }) {
+  if (message.delivered) return <Badge tone="green">送达</Badge>
+  if (message.moderation === null) return <Badge tone="gray">没有送达</Badge>
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5">
+      <Badge tone="red">拦下</Badge>
+      <span>{verdict(message).slice('拦下'.length)}</span>
+    </span>
+  )
 }
 
 function Messages({ studentId }: { studentId: number }) {
@@ -283,26 +350,28 @@ function Messages({ studentId }: { studentId: number }) {
         <>
           <DataTable wide quietCaption caption="消息记录" head={['时间', '类型', '内容', '审核', '插件', 'IP']}>
             {messages.map((message) => (
-              <tr key={message.id}>
-                <td className="nowrap">{moment(message.createdAt, zone)}</td>
-                <td className="nowrap">{MESSAGE_KIND_NAMES[message.kind]}</td>
-                <td className="line">{message.text}</td>
-                <td>{verdict(message)}</td>
-                <td className="nowrap">{`${message.pluginType} ${message.pluginVersion}`}</td>
-                <td className="nowrap">{message.ip ?? '没有记录'}</td>
+              <tr key={message.id} className={message.delivered ? undefined : 'bg-red-50/50'}>
+                <td className={`${CELL} whitespace-nowrap tabular-nums`}>{moment(message.createdAt, zone)}</td>
+                <td className={`${CELL} whitespace-nowrap`}>{MESSAGE_KIND_NAMES[message.kind]}</td>
+                <td className={`${CELL} text-gray-900 [overflow-wrap:anywhere]`}>{message.text}</td>
+                <td className={CELL}>
+                  <Verdict message={message} />
+                </td>
+                <td className={`${CELL} whitespace-nowrap`}>{`${message.pluginType} ${message.pluginVersion}`}</td>
+                <td className={`${CELL} whitespace-nowrap tabular-nums`}>{message.ip ?? '没有记录'}</td>
               </tr>
             ))}
           </DataTable>
-          <div className="table-foot">
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4">
             {next === null ? (
-              <p ref={end} tabIndex={-1} className="field-hint">
+              <p ref={end} tabIndex={-1} className="text-sm text-gray-600">
                 没有更早的消息了。
               </p>
             ) : (
               <Button onClick={readOlder}>{reading ? '正在读取更早的消息' : '再读更早的消息'}</Button>
             )}
             {failure !== undefined && (
-              <p className="action-error" role="alert">
+              <p className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900" role="alert">
                 没能读取更早的消息。{failure}
               </p>
             )}
@@ -312,12 +381,9 @@ function Messages({ studentId }: { studentId: number }) {
   }
 
   return (
-    <section className="panel" aria-labelledby={titleId}>
-      <h2 id={titleId} className="panel-title">
-        消息记录
-      </h2>
-      {body}
-    </section>
+    <Card title="消息记录" titleId={titleId}>
+      <div className="mt-4">{body}</div>
+    </Card>
   )
 }
 
@@ -327,14 +393,19 @@ function Records({ records, zone }: { records: StudentRecord[]; zone: string }) 
     <DataTable wide quietCaption caption="违纪记录" head={['时间', '记录', '命中的词或规则', '谁记的', '现在']}>
       {records.map((record) => (
         <tr key={record.id}>
-          <td className="nowrap">{moment(record.at, zone)}</td>
-          <td className="line">{record.text}</td>
-          <td>{record.matchedTerm ?? ''}</td>
-          <td className="nowrap">{record.by === 'admin' ? '你手动记的' : '学校记的'}</td>
-          <td className="nowrap">
-            {record.revoked
-              ? `已撤销${record.revokedAt === null ? '' : `（${moment(record.revokedAt, zone)}）`}`
-              : '有效'}
+          <td className={`${CELL} whitespace-nowrap tabular-nums`}>{moment(record.at, zone)}</td>
+          <td className={`${CELL} text-gray-900 [overflow-wrap:anywhere]`}>{record.text}</td>
+          <td className={CELL}>{record.matchedTerm ?? ''}</td>
+          <td className={`${CELL} whitespace-nowrap`}>{record.by === 'admin' ? '你手动记的' : '学校记的'}</td>
+          <td className={`${CELL} whitespace-nowrap`}>
+            {record.revoked ? (
+              <>
+                <Badge tone="gray">已撤销</Badge>
+                {record.revokedAt === null ? '' : `（${moment(record.revokedAt, zone)}）`}
+              </>
+            ) : (
+              <Badge tone="red">有效</Badge>
+            )}
           </td>
         </tr>
       ))}
@@ -345,21 +416,14 @@ function Records({ records, zone }: { records: StudentRecord[]; zone: string }) 
 function SchoolRecord({ records }: { records: Loaded<{ records: StudentRecord[] }> }) {
   const zone = useSchoolZone()
   const titleId = useId()
+  let body
+  if (records.data !== undefined) body = <Records records={records.data.records} zone={zone} />
+  else if (records.error !== undefined) body = <Failed what="违纪记录" reason={records.error.message} retry={records.reload} />
+  else body = <Loading what="违纪记录" />
   return (
-    <section className="panel" aria-labelledby={titleId}>
-      <h2 id={titleId} className="panel-title">
-        违纪记录
-      </h2>
-      {records.data === undefined ? (
-        records.error !== undefined ? (
-          <Failed what="违纪记录" reason={records.error.message} retry={records.reload} />
-        ) : (
-          <Loading what="违纪记录" />
-        )
-      ) : (
-        <Records records={records.data.records} zone={zone} />
-      )}
-    </section>
+    <Card title="违纪记录" titleId={titleId}>
+      <div className="mt-4">{body}</div>
+    </Card>
   )
 }
 
@@ -372,7 +436,7 @@ function Found({ studentId }: { studentId: number }) {
     if (profile.error === undefined) state = <Loading what={`学号 ${studentId} 的资料`} />
     else if (profile.error.status === 404) state = <Empty why={`没有这个学号：${studentId}。看看是不是输错了。`} />
     else state = <Failed what={`学号 ${studentId} 的资料`} reason={profile.error.message} retry={profile.reload} />
-    return <div className="panel">{state}</div>
+    return <Card>{state}</Card>
   }
   return <Known student={profile.data} onChanged={profile.set} />
 }
@@ -381,7 +445,7 @@ function Found({ studentId }: { studentId: number }) {
 function Known({ student, onChanged }: { student: Student; onChanged: (student: Student) => void }) {
   const records = useLoad<{ records: StudentRecord[] }>(recordsPath(student.id))
   return (
-    <>
+    <div className="space-y-6">
       <Profile
         student={student}
         onChanged={(next) => {
@@ -392,7 +456,7 @@ function Known({ student, onChanged }: { student: Student; onChanged: (student: 
       />
       <Messages studentId={student.id} />
       <SchoolRecord records={records} />
-    </>
+    </div>
   )
 }
 
@@ -418,43 +482,63 @@ export function Students() {
   }
 
   return (
-    <div className="page">
-      <form className="panel lookup" role="search" aria-label="查学生" onSubmit={lookUp} noValidate>
-        <label className="field-label" htmlFor={fieldId}>
-          学号
-        </label>
-        <div className="lookup-row">
-          <Input
-            id={fieldId}
-            ref={field}
-            className="lookup-field"
-            inputMode="numeric"
-            autoComplete="off"
-            value={text}
-            aria-describedby={hintId}
-            onChange={(event) => {
-              setText(event.target.value)
-              setProblem(undefined)
-            }}
-          />
+    <div className="space-y-6">
+      <form
+        className="rounded-lg border border-gray-200 bg-white p-6"
+        role="search"
+        aria-label="查学生"
+        onSubmit={lookUp}
+        noValidate
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor={fieldId}>
+              学号
+            </label>
+            <div className="relative">
+              <Input
+                id={fieldId}
+                ref={field}
+                className="w-64 pr-9"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="例如 12"
+                value={text}
+                aria-describedby={hintId}
+                onChange={(event) => {
+                  setText(event.target.value)
+                  setProblem(undefined)
+                }}
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-0 grid w-9 place-content-center text-gray-400"
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="size-4">
+                  <circle cx="9" cy="9" r="5.5" />
+                  <path d="m13 13 3.5 3.5" strokeLinecap="round" />
+                </svg>
+              </span>
+            </div>
+          </div>
           <Button type="primary" htmlType="submit">
             查这个学号
           </Button>
         </div>
         {problem !== undefined ? (
-          <p id={hintId} className="field-hint" role="alert">
+          <p id={hintId} className="mt-2 text-sm font-medium text-gray-900" role="alert">
             {problem}
           </p>
         ) : (
-          <p id={hintId} className="field-hint">
+          <p id={hintId} className="mt-2 text-xs text-gray-600">
             学生报名时拿到的数字编号。
           </p>
         )}
       </form>
       {shown === undefined ? (
-        <div className="panel">
+        <Card>
           <Empty why="输入学号，查这个学生的资料、消息记录和违纪记录。" />
-        </div>
+        </Card>
       ) : (
         <Found key={`${shown.id}/${shown.n}`} studentId={shown.id} />
       )}

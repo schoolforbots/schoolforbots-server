@@ -6,33 +6,35 @@ import { Review } from './pages/Review.js'
 import { Students } from './pages/Students.js'
 import { Switches } from './pages/Switches.js'
 import { Weekly } from './pages/Weekly.js'
+import { Button, PAGE_ACTIONS_ID } from './ui.js'
 
-// The frame of the admin pages, after HyperUI's analytics dashboard: the school's name and the pages down a white
-// sidebar, logging out at its foot; on the right, a header naming the page and the page itself on the light grey.
+// The frame of the admin pages, after HyperUI's analytics dashboard template: the school's name and the pages down a
+// white sidebar, the operator and logging out at its foot; on the right, a header with the page's name and its main
+// actions (PageActions), and the page itself on the light grey.
 
 /** The school's name, at the top of the sidebar and over the login card. */
 export function Brand() {
   return (
     <p className="flex items-center gap-3">
-      <span aria-hidden="true" className="grid size-9 place-items-center rounded-lg bg-brand text-base font-semibold text-white">
+      <span aria-hidden="true" className="grid size-10 place-content-center rounded-lg bg-gray-900 text-base font-bold text-white">
         校
       </span>
       <span className="flex flex-col leading-tight">
-        <span className="text-[15px] font-semibold text-gray-900">机器人网校</span>
-        <span className="text-xs text-gray-600">后台</span>
+        <span className="text-sm font-semibold text-gray-900">机器人网校</span>
+        <span className="text-xs text-gray-600">运营后台</span>
       </span>
     </p>
   )
 }
 
-/** The pages, in the order of the sidebar, each with what it is for. */
+/** The pages, in the order of the sidebar. */
 const PAGES = [
-  { key: 'data', name: '学校数据', about: '今天和昨天的数字，要做的事，最近几天的曲线。' },
-  { key: 'review', name: '审课', about: '开门以前审完这几天的课；用红笔标出的地方逐处看过。' },
-  { key: 'weekly', name: '每周复盘', about: '一周的上课、课程、老师、审核、学生和花费，以及要改的词库。' },
-  { key: 'students', name: '查学生', about: '按学号查资料、消息和违纪记录，也在这里停课、退学、解除处罚。' },
-  { key: 'switches', name: '开关', about: '学校运行时的开关和维护。每次切换都先确认。' },
-  { key: 'notices', name: '公告', about: '写公告、发布到网站、撤下或删掉。' },
+  { key: 'data', name: '学校数据' },
+  { key: 'review', name: '审课' },
+  { key: 'weekly', name: '每周复盘' },
+  { key: 'students', name: '查学生' },
+  { key: 'switches', name: '开关' },
+  { key: 'notices', name: '公告' },
 ] as const
 
 type Tab = (typeof PAGES)[number]['key']
@@ -82,15 +84,13 @@ function NavItem({
           onOpen()
         }}
         className={
-          'flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm font-medium ' +
-          (current
-            ? 'bg-brand-tint text-brand shadow-[inset_3px_0_0_var(--color-brand)]'
-            : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900')
+          'flex items-center justify-between gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ' +
+          (current ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900')
         }
       >
         {page.name}
         {badge !== undefined && (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{badge}</span>
+          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">{badge}</span>
         )}
       </a>
     </li>
@@ -137,49 +137,53 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-gray-200 bg-white">
-        <div className="px-5 pt-5 pb-6">
+    <div className="flex min-h-screen bg-gray-50">
+      <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col justify-between overflow-y-auto border-r border-gray-200 bg-white">
+        <div className="p-4">
           <Brand />
+          <nav aria-label="后台页面" className="mt-6">
+            <ul className="space-y-1">
+              {PAGES.map((one) => (
+                <NavItem
+                  key={one.key}
+                  page={one}
+                  current={one.key === tab}
+                  onOpen={() => setTab(one.key)}
+                  badge={one.key === 'review' ? reviewBadge : undefined}
+                />
+              ))}
+            </ul>
+          </nav>
         </div>
-        <nav aria-label="后台页面" className="flex-1 overflow-y-auto px-3">
-          <ul className="flex flex-col gap-1">
-            {PAGES.map((one) => (
-              <NavItem
-                key={one.key}
-                page={one}
-                current={one.key === tab}
-                onOpen={() => setTab(one.key)}
-                badge={one.key === 'review' ? reviewBadge : undefined}
-              />
-            ))}
-          </ul>
-        </nav>
-        <div className="flex flex-col gap-2 border-t border-gray-200 px-5 py-4">
+        <div className="sticky inset-x-0 bottom-0 border-t border-gray-200 bg-white p-4">
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="grid size-10 place-content-center rounded-full bg-gray-100 text-sm font-medium text-gray-700">
+              运
+            </span>
+            <p className="min-w-0 flex-1 text-xs text-gray-900">
+              <strong className="block font-medium">运营者</strong>
+              <span className="text-gray-600">学校只有这一个后台账号</span>
+            </p>
+          </div>
           {leaveFailure !== undefined && (
-            <p className="text-[13px] text-gray-700" role="alert">
+            <p className="mt-3 text-xs text-gray-700" role="alert">
               {leaveFailure}
             </p>
           )}
-          <button
-            type="button"
-            onClick={leave}
-            disabled={leaving}
-            className="ui-button inline-flex h-9 items-center justify-center rounded-md border border-edge bg-white px-4 text-sm font-medium text-gray-900 shadow-xs hover:bg-gray-50 disabled:border-gray-200 disabled:bg-gray-100 disabled:text-disabled"
-          >
+          <Button className="mt-3" block size="small" onClick={leave} disabled={leaving}>
             {leaving ? '正在退出' : '退出登录'}
-          </button>
+          </Button>
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-gray-200 bg-white px-8 py-5">
-          <h1 id={titleId} className="text-xl font-semibold text-gray-900">
+        <header className="flex min-h-[69px] items-center justify-between gap-4 border-b border-gray-200 bg-white px-6 py-4">
+          <h1 id={titleId} className="text-lg font-semibold text-gray-900">
             {page.name}
           </h1>
-          <p className="mt-1 text-sm text-gray-600">{page.about}</p>
+          <div id={PAGE_ACTIONS_ID} className="flex flex-wrap items-center justify-end gap-2" />
         </header>
-        <main aria-labelledby={titleId} className="mx-auto w-full max-w-[1440px] flex-1 px-8 py-6">
-          {content[tab]}
+        <main aria-labelledby={titleId} className="w-full flex-1 p-6">
+          <div key={tab}>{content[tab]}</div>
         </main>
       </div>
     </div>
@@ -189,7 +193,7 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
 /** Before the session is known (checking it, or failing to): the page with nothing in the sidebar. */
 export function Waiting({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col items-center px-6 pt-24">
+    <div className="flex min-h-screen flex-col items-center bg-gray-50 px-6 pt-24">
       <Brand />
       <main className="mt-8 w-full max-w-md">{children}</main>
     </div>

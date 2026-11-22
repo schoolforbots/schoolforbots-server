@@ -2,6 +2,7 @@ import { Button, Modal, TextArea } from '../ui.js'
 import { useId, useRef, useState } from 'react'
 import { paste, type ApiError, type LessonDetail, type PromptTarget } from '../api.js'
 import { useFocusOnMount } from '../focus.js'
+import { LABEL, REFUSAL } from './lesson/look.js'
 
 // 粘贴结果: the reply a model gave to a copied prompt, pasted back in whole. The server finds the lesson in it and checks
 // it; when it will not do, its reason goes right under the box, and what was pasted stays there to fix.
@@ -13,7 +14,7 @@ import { useFocusOnMount } from '../focus.js'
 function Refused({ reason, onRefresh }: { reason: string; onRefresh?: () => void }) {
   const self = useFocusOnMount<HTMLDivElement>()
   return (
-    <div ref={self} tabIndex={-1} className="action-error" role="alert">
+    <div ref={self} tabIndex={-1} className={REFUSAL} role="alert">
       <p>{reason}</p>
       {onRefresh !== undefined && (
         <Button size="small" onClick={onRefresh}>
@@ -70,6 +71,7 @@ export function PasteDialog({
   return (
     <Modal
       open
+      width="max-w-2xl"
       title={title}
       closable={false}
       maskClosable={false}
@@ -86,11 +88,11 @@ export function PasteDialog({
         </>
       }
     >
-      <p id={hintId} className="dialog-hint">
+      <p id={hintId} className="mb-4 text-gray-600">
         把大模型的回复整段贴进来，前后夹着别的话也没关系：系统会从里面找出课程，检查格式、过一遍词库，
         {making ? '然后存成待审的课。' : '然后换下这节课里要重写的部分，再回到待审。'}
       </p>
-      <label className="field-label" htmlFor={boxId}>
+      <label className={`${LABEL} mb-1`} htmlFor={boxId}>
         大模型的回复
       </label>
       <TextArea
@@ -105,7 +107,7 @@ export function PasteDialog({
         autoSize={{ minRows: 10, maxRows: 18 }}
       />
       {blank && (
-        <p className="action-error" role="alert">
+        <p className={REFUSAL} role="alert">
           先把大模型的回复贴进来。
         </p>
       )}

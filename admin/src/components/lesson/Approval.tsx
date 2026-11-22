@@ -1,9 +1,14 @@
-import { Button } from '../../ui.js'
+import { Badge, Button } from '../../ui.js'
 import { useId, useRef } from 'react'
 import { approve, type LessonDetail, type QueueSlot } from '../../api.js'
 import { useFocusOnMount } from '../../focus.js'
 import { sentence } from '../../labels.js'
 import { Refusal, useAction, useEditing } from './Editing.js'
+import { NOTICE, QUIET_NOTICE } from './look.js'
+
+/** Approving stays in reach at the bottom of the window while the lesson is read: a bar on the card's foot. */
+const FOOT =
+  'sticky bottom-0 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-b-lg border-t border-gray-200 bg-gray-50/95 px-6 py-4 backdrop-blur-sm'
 
 // Whether the lesson can still change and be approved: the notices at its top (a day begun, a new topic, a failed
 // remake), and approving at its bottom, with why it is held when it is.
@@ -24,9 +29,11 @@ export function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void
 
   if (lesson.approvedAt !== null) {
     return (
-      <footer className="lesson-foot">
+      <footer className={FOOT}>
         <Button onClick={onNext}>审下一节</Button>
-        <p className="foot-note">这节课已经通过。再改的话，要重新通过。</p>
+        <p className="text-sm text-gray-700">
+          <Badge tone="green">已通过</Badge> 这节课已经通过。再改的话，要重新通过。
+        </p>
       </footer>
     )
   }
@@ -41,7 +48,7 @@ export function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void
     )
   }
   return (
-    <footer className="lesson-foot">
+    <footer className={FOOT}>
       <Button
         ref={button}
         type="primary"
@@ -57,7 +64,7 @@ export function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void
       </Button>
       {reasons.length > 0 && (
         // Takes the focus when the last 这是误伤 leaves 通过 still held for another reason.
-        <p id={reasonId} className="foot-note" tabIndex={-1} data-focus="approval-held">
+        <p id={reasonId} className="text-sm text-gray-700" tabIndex={-1} data-focus="approval-held">
           {reasons.join('')}
         </p>
       )}
@@ -70,7 +77,7 @@ export function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void
 function Arrived({ text }: { text: string }) {
   const self = useFocusOnMount<HTMLParagraphElement>()
   return (
-    <p ref={self} tabIndex={-1} role="alert">
+    <p ref={self} tabIndex={-1} role="alert" className={QUIET_NOTICE}>
       {text}
     </p>
   )
@@ -107,10 +114,12 @@ export function Notices({ slot }: { slot: QueueSlot }) {
   }
   if (locked === undefined && notices.length === 0) return null
   return (
-    <div className="lesson-notices">
-      {locked !== undefined && (lockedFromStart.current ? <p>{locked}</p> : <Arrived text={locked} />)}
+    <div className="mt-4 flex flex-col gap-2">
+      {locked !== undefined && (lockedFromStart.current ? <p className={QUIET_NOTICE}>{locked}</p> : <Arrived text={locked} />)}
       {notices.map((notice) => (
-        <p key={notice}>{notice}</p>
+        <p key={notice} className={NOTICE}>
+          {notice}
+        </p>
       ))}
     </div>
   )

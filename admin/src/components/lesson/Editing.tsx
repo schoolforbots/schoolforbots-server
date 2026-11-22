@@ -1,4 +1,5 @@
 import { Button } from '../../ui.js'
+import { REFUSAL } from './look.js'
 import { createContext, useContext, useEffect, useRef, useState, type RefObject } from 'react'
 import type { ApiError, LessonDetail, LessonPart, LessonQueue, RewriteTarget } from '../../api.js'
 import { useFocusOnMount } from '../../focus.js'
@@ -117,7 +118,7 @@ function Refused({ error, clear, back }: { error: ApiError; clear: () => void; b
   const { onRefresh } = useEditing()
   const self = useFocusOnMount<HTMLDivElement>()
   return (
-    <div ref={self} tabIndex={-1} className="action-error" role="alert">
+    <div ref={self} tabIndex={-1} className={REFUSAL} role="alert">
       <p>{error.message}</p>
       {error.code === 'stale_version' && (
         <Button

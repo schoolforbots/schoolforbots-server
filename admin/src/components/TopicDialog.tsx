@@ -12,6 +12,7 @@ import {
   type QueueSlot,
 } from '../api.js'
 import { useFocusOnMount } from '../focus.js'
+import { HINT, LABEL, NOTICE, REFUSAL } from './lesson/look.js'
 import { addDays, DIVISION_NAMES, shortDayName } from '../labels.js'
 
 // 给某一天指定题目: a topic for one division on any school day after today, however far ahead (a festival months away,
@@ -51,7 +52,7 @@ function GivenTopics({
   let body: ReactNode
   if (given.data === undefined && given.error !== undefined) {
     body = (
-      <div className="topic-list-state" role="alert">
+      <div className={`${REFUSAL} mt-2`} role="alert">
         <p>没能读取已经指定的题目。{given.error.message}</p>
         <Button size="small" onClick={given.reload}>
           重新读取
@@ -60,20 +61,21 @@ function GivenTopics({
     )
   } else if (given.data === undefined) {
     body = (
-      <p className="topic-list-state" role="status">
+      <p className="mt-2 text-sm text-gray-600" role="status">
         正在读取已经指定的题目
       </p>
     )
   } else if (later.length === 0) {
-    body = <p className="topic-list-state">明天以后还没有指定题目。</p>
+    body = <p className="mt-2 text-sm text-gray-600">明天以后还没有指定题目。</p>
   } else {
     body = (
-      <ul className="topic-list" aria-labelledby={titleId}>
+      <ul className="mt-2 max-h-40 divide-y divide-gray-200 overflow-y-auto rounded-md border border-gray-200" aria-labelledby={titleId}>
         {later.map((t) => (
           <li key={`${t.date}/${t.division}`}>
             <Button
               size="small"
               type="text"
+              className="w-full justify-start rounded-none py-2 whitespace-normal aria-pressed:bg-gray-100 aria-pressed:font-semibold aria-pressed:text-gray-900"
               aria-pressed={t.date === chosen.date && t.division === chosen.division}
               onClick={() => onPick(t)}
             >
@@ -85,11 +87,11 @@ function GivenTopics({
     )
   }
   return (
-    <section className="topic-given" aria-labelledby={titleId}>
-      <h3 id={titleId} className="field-label">
+    <section className="border-t border-gray-200 pt-4" aria-labelledby={titleId}>
+      <h3 id={titleId} className="text-sm font-medium text-gray-900">
         已经指定的题目
       </h3>
-      {later.length > 0 && <p className="field-hint">点一个，它会出现在上面，可以改，也可以取消。</p>}
+      {later.length > 0 && <p className={HINT}>点一个，它会出现在上面，可以改，也可以取消。</p>}
       {body}
     </section>
   )
@@ -195,34 +197,38 @@ export function TopicDialog({
   )
 
   return (
-    <Modal open title="给某一天指定题目" closable={false} destroyOnHidden onCancel={onClose} footer={footer}>
-      <div className="topic-form">
-        <p className="dialog-hint">
+    <Modal open title="给某一天指定题目" width="max-w-xl" closable={false} destroyOnHidden onCancel={onClose} footer={footer}>
+      <div className="space-y-4">
+        <p className="text-gray-600">
           只给选中的学部定题目，其余学部照常上那天的科目。今天的课已经定了，可以选明天以后的任何一个上学日，几个月以后的也行。
         </p>
-        <label className="field-label" htmlFor={ids.date}>
-          日期
-        </label>
-        <Input
-          id={ids.date}
-          type="date"
-          className="date-input"
-          value={date}
-          min={tomorrow}
-          onChange={(event) => choose(event.target.value, division)}
-        />
-        <fieldset className="field-set">
-          <legend className="field-label">学部</legend>
+        <div>
+          <label className={LABEL} htmlFor={ids.date}>
+            日期
+          </label>
+          <Input
+            id={ids.date}
+            type="date"
+            className="date-input mt-1"
+            value={date}
+            min={tomorrow}
+            onChange={(event) => choose(event.target.value, division)}
+          />
+        </div>
+        <fieldset className="min-w-0 border-0 p-0">
+          <legend className={`${LABEL} mb-1`}>学部</legend>
           <RadioGroup
             value={division}
             onChange={(event) => choose(date, event.target.value as Division)}
             options={DIVISIONS.map((key) => ({ value: key, label: slotOf(date, key)?.label ?? DIVISION_NAMES[key] }))}
           />
         </fieldset>
-        <label className="field-label" htmlFor={ids.topic}>
+        <div>
+        <label className={LABEL} htmlFor={ids.topic}>
           题目
         </label>
         <Input
+          className="mt-1"
           id={ids.topic}
           value={topic}
           maxLength={60}
@@ -233,7 +239,7 @@ export function TopicDialog({
             setConfirming(false)
           }}
         />
-        <p id={ids.now} className="field-hint">
+        <p id={ids.now} className={HINT}>
           {now !== null ? `现在的题目：《${now}》。` : '这一天这个学部还没有指定题目。'}
           {slot !== undefined &&
             slot.status !== 'missing' &&
@@ -243,14 +249,15 @@ export function TopicDialog({
               : '这节课已经生成了，换了题目会按新题目重新生成。')}
           {now !== null && slot !== undefined && slot.status !== 'missing' && '取消题目不会撤掉已经做好的课。'}
         </p>
+        </div>
         {confirming && (
-          <Said className="topic-confirm">
+          <Said className={`${NOTICE} font-medium`}>
             {shortDayName(date)} {label}的课已经通过了。这节课会按新题目重写，需要重新审。
             {manual && '现在是手动粘贴：它会撤掉，要重新复制提示词、粘贴结果。'}
           </Said>
         )}
         {refusal !== undefined && (
-          <Said key={refusal.n} className="action-error">
+          <Said key={refusal.n} className={REFUSAL}>
             {refusal.reason}
           </Said>
         )}

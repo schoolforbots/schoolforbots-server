@@ -1,6 +1,7 @@
 import { Button, Modal, TextArea } from '../ui.js'
 import { useId, useRef, useState } from 'react'
 import { getPrompt, type ApiError, type PromptTarget } from '../api.js'
+import { LABEL, REFUSAL } from './lesson/look.js'
 
 // 复制提示词: reads the prompt the server builds for a lesson or a rewrite and puts it on the clipboard. A browser that
 // will not let the page write the clipboard gets the text in a read-only box to copy by hand.
@@ -51,18 +52,19 @@ export function CopyPrompt({ target, ready }: { target: PromptTarget; ready?: ()
         复制提示词
       </Button>
       {stage.name === 'copied' && (
-        <span className="copy-done" role="status">
+        <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800" role="status">
           已复制
         </span>
       )}
       {stage.name === 'failed' && (
-        <p className="action-error" role="alert">
+        <p className={REFUSAL} role="alert">
           {stage.reason}
         </p>
       )}
       <Modal
         open={stage.name === 'byHand'}
         title="复制提示词"
+        width="max-w-2xl"
         closable={false}
         destroyOnHidden
         // The text is there to be copied: focus it, selected, so Esc closes the dialog and a copy key copies it all.
@@ -70,8 +72,8 @@ export function CopyPrompt({ target, ready }: { target: PromptTarget; ready?: ()
         onCancel={close}
         footer={<Button onClick={close}>关闭</Button>}
       >
-        <p className="dialog-hint">浏览器没让这一页写剪贴板。点进下面的框，全选以后自己复制。</p>
-        <label className="field-label" htmlFor={boxId}>
+        <p className="mb-4 text-gray-600">浏览器没让这一页写剪贴板。点进下面的框，全选以后自己复制。</p>
+        <label className={`${LABEL} mb-1`} htmlFor={boxId}>
           提示词
         </label>
         <TextArea

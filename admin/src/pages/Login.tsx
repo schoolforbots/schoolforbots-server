@@ -61,13 +61,14 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) =
           )}
           <form className="mt-6 flex flex-col gap-4" onSubmit={send} noValidate>
             <div>
-              <label htmlFor={ids.password} className="mb-1.5 block text-sm font-medium text-gray-900">
+              <label htmlFor={ids.password} className="block text-sm font-medium text-gray-700">
                 密码
               </label>
               <Input
                 id={ids.password}
                 ref={passwordField}
                 type="password"
+                className="mt-1 aria-invalid:border-red-400"
                 autoComplete="current-password"
                 autoFocus
                 value={password}
@@ -79,13 +80,13 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) =
                 }}
               />
               {missing.password && (
-                <p id={ids.passwordProblem} className="mt-1.5 text-[13px] text-gray-700">
+                <p id={ids.passwordProblem} className="mt-1.5 text-xs text-red-700">
                   请输入密码
                 </p>
               )}
             </div>
             <div>
-              <label htmlFor={ids.code} className="mb-1.5 block text-sm font-medium text-gray-900">
+              <label htmlFor={ids.code} className="block text-sm font-medium text-gray-700">
                 动态验证码
               </label>
               <Input
@@ -96,14 +97,14 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) =
                 value={code}
                 aria-describedby={missing.code ? `${ids.codeProblem} ${ids.codeHint}` : ids.codeHint}
                 aria-invalid={missing.code || undefined}
-                className="tabular-nums tracking-widest"
+                className="mt-1 tabular-nums tracking-widest aria-invalid:border-red-400"
                 onChange={(event) => {
                   setCode(event.target.value)
                   setMissing((now) => ({ ...now, code: false }))
                 }}
               />
               {missing.code && (
-                <p id={ids.codeProblem} className="mt-1.5 text-[13px] text-gray-700">
+                <p id={ids.codeProblem} className="mt-1.5 text-xs text-red-700">
                   请输入验证器上的 6 位数字
                 </p>
               )}
@@ -112,10 +113,10 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) =
               </p>
             </div>
             {refusal !== undefined && (
-              <div className="rounded-md border border-gray-300 px-3 py-2 text-sm" role="alert">
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
                 <p>{refusal.message}</p>
                 {refusal.code === 'admin_login_failed' && (
-                  <p className="mt-1 text-gray-600">每组验证码只能成功登录一次。刚用它登录过的话，等验证器换到下一组再试。</p>
+                  <p className="mt-1 text-red-700">每组验证码只能成功登录一次。刚用它登录过的话，等验证器换到下一组再试。</p>
                 )}
               </div>
             )}

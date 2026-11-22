@@ -4,6 +4,7 @@ import { editPart, restore, rewrite, type LessonPart, type PromptTarget, type Re
 import { CopyPrompt } from '../CopyPrompt.js'
 import { PasteDialog } from '../PasteDialog.js'
 import { Refusal, useAction, useEditing } from './Editing.js'
+import { BOX, BOX_ACTIONS, HINT, LABEL, REFUSAL } from './look.js'
 
 // The boxes a change to the lesson is made in, opened under what they change: 改字 for one part, a reason for a
 // rewrite, and after a rewrite, the way back to the version before it.
@@ -28,7 +29,7 @@ export function EditBox({ part, text, labelId }: { part: LessonPart; text: strin
   }
 
   return (
-    <div className="edit-box" onKeyDown={closeOnEscape(writing, () => open(null))}>
+    <div className={BOX} onKeyDown={closeOnEscape(writing, () => open(null))}>
       <TextArea
         ref={field}
         aria-labelledby={labelId}
@@ -37,7 +38,7 @@ export function EditBox({ part, text, labelId }: { part: LessonPart; text: strin
         onChange={(event) => setDraft(event.target.value)}
         autoSize={{ minRows: 2, maxRows: 12 }}
       />
-      <div className="box-actions">
+      <div className={BOX_ACTIONS}>
         <Button type="primary" size="small" onClick={save} disabled={writing}>
           保存改动
         </Button>
@@ -86,11 +87,11 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
   }
 
   return (
-    <div className="reason-box" onKeyDown={closeOnEscape(writing, () => open(null))}>
-      <label className="field-label" htmlFor={fieldId}>
+    <div className={BOX} onKeyDown={closeOnEscape(writing, () => open(null))}>
+      <label className={LABEL} htmlFor={fieldId}>
         重写的理由
       </label>
-      <p id={hintId} className="field-hint">
+      <p id={hintId} className={`${HINT} mb-2`}>
         说清楚哪里不合适、想改成什么样，大模型照着重写。理由会存下来，每周复盘时用。
       </p>
       <TextArea
@@ -109,11 +110,11 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
         autoSize={{ minRows: 3, maxRows: 8 }}
       />
       {unsaid && (
-        <p className="action-error" role="alert">
+        <p className={REFUSAL} role="alert">
           先写重写的理由：哪里不合适，想改成什么样。
         </p>
       )}
-      <div className="box-actions">
+      <div className={BOX_ACTIONS}>
         {mode === 'api' && (
           <Button type="primary" size="small" onClick={send} disabled={writing}>
             {action.busy ? '正在重写' : '请大模型重写'}
@@ -132,7 +133,7 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
         </Button>
       </div>
       {action.busy && (
-        <p className="field-hint" role="status">
+        <p className={HINT} role="status">
           大模型正在重写，可能要一分钟以上，别关这一页。
         </p>
       )}
@@ -173,9 +174,9 @@ export function Restore({ what, target }: { what: string; target: RewriteTarget 
   }
 
   return (
-    <div className="restore">
+    <div className="mt-3 flex flex-col items-start gap-1.5 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
       <p>{what}刚重写过。</p>
-      {latest.reason !== null && <p className="restore-reason">理由：{latest.reason}</p>}
+      {latest.reason !== null && <p className="break-all text-gray-500">理由：{latest.reason}</p>}
       <Button ref={button} size="small" onClick={() => void goBack(before.version)} disabled={writing}>
         换回上一版
       </Button>

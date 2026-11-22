@@ -1,4 +1,4 @@
-import { Button, Segmented } from '../ui.js'
+import { Badge, Button, Card, PageActions, Segmented, Sparkline, type Tone } from '../ui.js'
 import { useId, useState } from 'react'
 import {
   dailyStatsPath,
@@ -32,7 +32,8 @@ import {
 // `api/stats/daily`, and every time is read on the school's clock, in the time zone the answer names.
 
 /** The categorical colours of the charts, in this order; the green and red of the pages never draw a line. */
-const LINE_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6']
+// Tailwind's indigo-600, amber-500, emerald-500, sky-500, pink-500, violet-500, orange-600.
+const LINE_COLORS = ['#4f46e5', '#f59e0b', '#10b981', '#0ea5e9', '#ec4899', '#8b5cf6', '#ea580c']
 const RANGES: StatsDays[] = [7, 30, 90]
 
 const compactCount = (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact' }).format(value)
@@ -40,16 +41,42 @@ const tickYuan = (value: number) => `¥${Number(value.toPrecision(6))}`
 
 type Counted = Exclude<keyof DayNumbers, 'date' | 'dauBySlot' | 'blockedByCategory'>
 
-const TILES: { key: Counted; label: string; format: (value: number) => string }[] = [
-  { key: 'dau', label: '来上课的学生', format: count },
-  { key: 'chat', label: '聊天消息', format: count },
-  { key: 'blocked', label: '拦下的消息', format: count },
-  { key: 'violations', label: '违反校规', format: count },
-  { key: 'suspensions', label: '停课', format: count },
-  { key: 'expulsions', label: '开除', format: count },
-  { key: 'registrations', label: '新报名', format: count },
-  { key: 'costYuan', label: '大模型花费', format: yuan },
+/** `rises`: whether more of it is good news (green) or bad (red); the words say which way it went either way. */
+const TILES: { key: Counted; label: string; format: (value: number) => string; rises: 'good' | 'bad' }[] = [
+  { key: 'dau', label: '来上课的学生', format: count, rises: 'good' },
+  { key: 'chat', label: '聊天消息', format: count, rises: 'good' },
+  { key: 'blocked', label: '拦下的消息', format: count, rises: 'bad' },
+  { key: 'costYuan', label: '大模型花费', format: yuan, rises: 'bad' },
+  { key: 'violations', label: '违反校规', format: count, rises: 'bad' },
+  { key: 'suspensions', label: '停课', format: count, rises: 'bad' },
+  { key: 'expulsions', label: '开除', format: count, rises: 'bad' },
+  { key: 'registrations', label: '新报名', format: count, rises: 'good' },
 ]
+
+/** The daily line under the four numbers that have one, from the curves below (up to yesterday). */
+function trend(series: SeriesDay[], key: Counted): number[] | undefined {
+  const sum = (values: Record<string, number>) => Object.values(values).reduce((a, b) => a + b, 0)
+  switch (key) {
+    case 'dau':
+      return series.map((day) => sum(day.dauBySlot))
+    case 'chat':
+      return series.map((day) => day.chat)
+    case 'blocked':
+      return series.map((day) => sum(day.blockedByCategory) + day.blockedBySecondLayer)
+    case 'costYuan':
+      return series.map((day) => sum(day.costByPurpose))
+    default:
+      return undefined
+  }
+}
+
+function Arrow({ up }: { up: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+      {up ? <path d="M2 11.5 6.5 7l3 3L14 5.5M10 5.5h4v4" /> : <path d="M2 4.5 6.5 9l3-3 4.5 4.5M10 10.5h4v-4" />}
+    </svg>
+  )
+}
 
 /** How a number compares with the same day a week before, in words. */
 function change(now: number, before: number | undefined, weekday: string, format: (value: number) => string) {
@@ -59,26 +86,62 @@ function change(now: number, before: number | undefined, weekday: string, format
   return `比上${weekday}${diff > 0 ? '多' : '少'} ${format(Math.abs(diff))}`
 }
 
-/** A day's numbers in a row of tiles, each with its change; the month's spend goes with the day that has `month`. */
-function Tiles(props: { labelId: string; day: DayNumbers; before: DayNumbers | null; month?: DailyStats['month'] }) {
-  const { labelId, day, before, month } = props
+/**
+ * A day's numbers as the template's stat cards: what it counts, the number, the same day last week beside it, and a
+ * badge with the change in words, green for good news and red for bad. The month's spend goes with the day that has
+ * `month`; `series` draws the daily line under the four numbers that have one.
+ */
+function Tiles(props: {
+  labelId: string
+  day: DayNumbers
+  before: DayNumbers | null
+  month?: DailyStats['month']
+  series?: SeriesDay[]
+}) {
+  const { labelId, day, before, month, series } = props
   const weekday = weekdayOf(day.date)
   return (
-    <div className="tiles">
-      {TILES.map((tile) => (
-        <div key={tile.key} className="tile" role="group" aria-labelledby={`${labelId}-${tile.key}`}>
-          <p id={`${labelId}-${tile.key}`} className="tile-label">
-            {tile.label}
-          </p>
-          <p className="tile-value">{tile.format(day[tile.key])}</p>
-          <p className="tile-change">{change(day[tile.key], before?.[tile.key], weekday, tile.format)}</p>
-          {tile.key === 'costYuan' && month !== undefined && (
-            <p className="tile-month">
-              本月 {yuan(month.costYuan)}，预算 {yuan(month.budgetYuan)}
+    <div className="mt-4 grid grid-cols-4 gap-4">
+      {TILES.map((tile) => {
+        const now = day[tile.key]
+        const then = before?.[tile.key]
+        const diff = then === undefined ? 0 : now - then
+        const better = diff === 0 ? undefined : (diff > 0) === (tile.rises === 'good')
+        const tone: Tone = better === undefined ? 'gray' : better ? 'green' : 'red'
+        const line = series === undefined ? undefined : trend(series, tile.key)
+        return (
+          <article
+            key={tile.key}
+            className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5"
+            role="group"
+            aria-labelledby={`${labelId}-${tile.key}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <strong id={`${labelId}-${tile.key}`} className="block text-sm font-medium text-gray-600">
+                {tile.label}
+              </strong>
+              <Badge tone={tone} className="gap-1 rounded-sm px-1.5">
+                {diff !== 0 && <Arrow up={diff > 0} />}
+                {change(now, then, weekday, tile.format)}
+              </Badge>
+            </div>
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-2xl font-medium text-gray-900 tabular-nums">{tile.format(now)}</span>
+              {then !== undefined && (
+                <span className="text-xs text-gray-600">
+                  上{weekday} {tile.format(then)}
+                </span>
+              )}
             </p>
-          )}
-        </div>
-      ))}
+            {tile.key === 'costYuan' && month !== undefined && (
+              <p className="-mt-2 text-xs text-gray-600">
+                本月 {yuan(month.costYuan)}，预算 {yuan(month.budgetYuan)}
+              </p>
+            )}
+            {line !== undefined && <Sparkline values={line} tone={tile.rises === 'good' ? 'indigo' : 'gray'} />}
+          </article>
+        )
+      })}
     </div>
   )
 }
@@ -105,21 +168,25 @@ function Today({ stats, reading, onUpdate }: { stats: DailyStats; reading: boole
   const against = sameTimeLastWeek === null ? undefined : `和上${weekday}零点到 ${time} 的数字比。`
   const why = noClass(stats.todayStatus, weekday)
   return (
-    <section className="panel" aria-labelledby={titleId}>
-      <div className="panel-head">
-        <h2 id={titleId} className="panel-title">
+    <section aria-labelledby={titleId}>
+      <PageActions>
+        {/* It stays enabled while it reads (a disabled button would lose the focus); a second click waits. */}
+        <Button type="primary" onClick={() => !reading && onUpdate()}>
+          {reading ? '正在更新' : '更新到现在'}
+        </Button>
+      </PageActions>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 id={titleId} className="text-base font-semibold text-gray-900">
           今天（截至 {time}），{dayName(todaySoFar.date)}
         </h2>
-        {/* It stays enabled while it reads (a disabled button would lose the focus); a second click waits. */}
-        <Button onClick={() => !reading && onUpdate()}>{reading ? '正在更新' : '更新到现在'}</Button>
+        {(against !== undefined || why !== undefined) && (
+          <p className="text-sm text-gray-600">
+            {against}
+            {why}
+          </p>
+        )}
       </div>
-      {(against !== undefined || why !== undefined) && (
-        <p className="day-note">
-          {against}
-          {why}
-        </p>
-      )}
-      <Tiles labelId={titleId} day={todaySoFar} before={sameTimeLastWeek} month={month} />
+      <Tiles labelId={titleId} day={todaySoFar} before={sameTimeLastWeek} month={month} series={stats.series} />
     </section>
   )
 }
@@ -128,8 +195,8 @@ function Yesterday({ stats }: { stats: DailyStats }) {
   const titleId = useId()
   const { yesterday, sameDayLastWeek } = stats
   return (
-    <section className="panel" aria-labelledby={titleId}>
-      <h2 id={titleId} className="panel-title">
+    <section aria-labelledby={titleId}>
+      <h2 id={titleId} className="text-base font-semibold text-gray-900">
         昨天，{dayName(yesterday.date)}
       </h2>
       <Tiles labelId={titleId} day={yesterday} before={sameDayLastWeek} />
@@ -150,43 +217,58 @@ function Reminders({ stats, onGoReview }: { stats: DailyStats; onGoReview: () =>
   const nothing = unreviewed.length === 0 && generationFailed.length === 0 && !month.overBudget
 
   return (
-    <section className="panel reminders" aria-label="要处理的事">
+    <Card title="要处理的事" label="要处理的事">
       {/* Only failures that lasted into a new day are listed: a fresh one is still being retried. */}
-      {nothing && <p>现在没有要处理的事：开门前要审的课都审完了，没有一直生成不出来的课，本月花费也没超预算。</p>}
-      {unreviewed.length > 0 && (
-        <div className="reminder reminder-review">
-          <div>
-            <p>{unreviewed.length} 节课要在开门前审完，不然那一天改上自习：</p>
-            <ul className="reminder-days">
-              {[...days].map(([date, day]) => (
-                <li key={date}>
-                  {dayName(date)}
-                  {clockTime(day.deadline, stats.timeZone)} 开门：{day.divisions.join('、')}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <Button type="primary" onClick={onGoReview}>
-            去审课
-          </Button>
-        </div>
-      )}
-      {generationFailed.map((failure) => (
-        <p key={`${failure.date}-${failure.division}`} className="reminder">
-          {`${dayName(failure.date)}${DIVISION_NAMES[failure.division]}的课没生成出来，试了 ${failure.attempts} 次，`}
-          {`最后一次的原因：${sentence(failure.lastError)}`}
-          {failure.date === stats.today
-            ? '今天的课系统不会再生成了：要今天上这节课，到审课页手动粘贴，赶在开门前审过。'
-            : '系统会接着重试；等不及的话，到审课页手动粘贴。'}
-        </p>
-      ))}
-      {month.overBudget && (
-        <p className="reminder reminder-alarm">
-          {`本月大模型花费 ${yuan(month.costYuan)}，超过了预算 ${yuan(month.budgetYuan)}。`}
-          大模型照常在用，不会自动停；要少花钱，到开关页关掉暂时不用的功能。
+      {nothing && (
+        <p className="mt-4 text-sm text-gray-600">
+          现在没有要处理的事：开门前要审的课都审完了，没有一直生成不出来的课，本月花费也没超预算。
         </p>
       )}
-    </section>
+      <ul className="mt-4 divide-y divide-gray-200">
+        {unreviewed.length > 0 && (
+          <li className="flex items-start justify-between gap-6 py-4 first:pt-0 last:pb-0">
+            <div className="flex items-start gap-3">
+              <Badge tone="yellow">待审</Badge>
+              <div>
+                <p className="text-sm font-medium text-gray-900">{unreviewed.length} 节课要在开门前审完，不然那一天改上自习：</p>
+                <ul className="mt-1 space-y-0.5 text-sm text-gray-600">
+                  {[...days].map(([date, day]) => (
+                    <li key={date}>
+                      {dayName(date)}
+                      {clockTime(day.deadline, stats.timeZone)} 开门：{day.divisions.join('、')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <Button type="primary" onClick={onGoReview}>
+              去审课
+            </Button>
+          </li>
+        )}
+        {generationFailed.map((failure) => (
+          <li key={`${failure.date}-${failure.division}`} className="flex items-start gap-3 py-4 first:pt-0 last:pb-0">
+            <Badge tone="red">生成失败</Badge>
+            <p className="text-sm text-gray-700">
+              {`${dayName(failure.date)}${DIVISION_NAMES[failure.division]}的课没生成出来，试了 ${failure.attempts} 次，`}
+              {`最后一次的原因：${sentence(failure.lastError)}`}
+              {failure.date === stats.today
+                ? '今天的课系统不会再生成了：要今天上这节课，到审课页手动粘贴，赶在开门前审过。'
+                : '系统会接着重试；等不及的话，到审课页手动粘贴。'}
+            </p>
+          </li>
+        ))}
+        {month.overBudget && (
+          <li className="flex items-start gap-3 py-4 first:pt-0 last:pb-0">
+            <Badge tone="red">超预算</Badge>
+            <p className="reminder-alarm text-sm">
+              {`本月大模型花费 ${yuan(month.costYuan)}，超过了预算 ${yuan(month.budgetYuan)}。`}
+              大模型照常在用，不会自动停；要少花钱，到开关页关掉暂时不用的功能。
+            </p>
+          </li>
+        )}
+      </ul>
+    </Card>
   )
 }
 
@@ -285,26 +367,26 @@ export function Data({ onGoReview }: { onGoReview: () => void }) {
 
   if (stats.data === undefined) {
     return (
-      <div className="panel">
+      <Card>
         {stats.error !== undefined ? (
           <Failed what="学校数据" reason={stats.error.message} retry={stats.reload} />
         ) : (
           <Loading what="学校数据" />
         )}
-      </div>
+      </Card>
     )
   }
 
   const data = stats.data
   const shown = data.series.length
   return (
-    <div className="page">
+    <div className="space-y-8">
       <Today stats={data} reading={stats.loading} onUpdate={stats.reload} />
       <Yesterday stats={data} />
       <Reminders stats={data} onGoReview={onGoReview} />
-      <section className="range" aria-labelledby={rangeId}>
-        <div className="panel-head">
-          <h2 id={rangeId} className="panel-title">
+      <section aria-labelledby={rangeId}>
+        <div className="flex items-center justify-between gap-4">
+          <h2 id={rangeId} className="text-base font-semibold text-gray-900">
             最近 {shown} 天
           </h2>
           <Segmented<StatsDays>
@@ -317,27 +399,29 @@ export function Data({ onGoReview }: { onGoReview: () => void }) {
           />
         </div>
         {stats.loading && (
-          <p className="range-loading" role="status">
+          <p className="mt-2 text-sm text-gray-600" role="status">
             正在读取最近 {days} 天的数据，下面先留着最近 {shown} 天的。
           </p>
         )}
-        {stats.error !== undefined ? (
-          <div className="panel">
-            <Failed what={`最近 ${days} 天的数据`} reason={stats.error.message} retry={stats.reload} />
-          </div>
-        ) : (
-          // While another range is read, the curves of the last one stay, their lines dimmed (the words keep their
-          // contrast).
-          <div className={stats.loading ? 'stale' : undefined} aria-busy={stats.loading}>
-            {blank(data.series) ? (
-              <div className="panel">
-                <Empty why={`最近 ${shown} 天还没有数据。学校开学后，第二天这里会出现第一组数字。`} />
-              </div>
-            ) : (
-              <Charts stats={data} />
-            )}
-          </div>
-        )}
+        <div className="mt-4">
+          {stats.error !== undefined ? (
+            <Card>
+              <Failed what={`最近 ${days} 天的数据`} reason={stats.error.message} retry={stats.reload} />
+            </Card>
+          ) : (
+            // While another range is read, the curves of the last one stay, their lines dimmed (the words keep their
+            // contrast).
+            <div className={stats.loading ? 'stale' : undefined} aria-busy={stats.loading}>
+              {blank(data.series) ? (
+                <Card>
+                  <Empty why={`最近 ${shown} 天还没有数据。学校开学后，第二天这里会出现第一组数字。`} />
+                </Card>
+              ) : (
+                <Charts stats={data} />
+              )}
+            </div>
+          )}
+        </div>
       </section>
     </div>
   )

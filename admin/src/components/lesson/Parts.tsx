@@ -1,4 +1,4 @@
-import { Button } from '../../ui.js'
+import { Badge, Button } from '../../ui.js'
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import {
   confirmCallOn,
@@ -9,7 +9,8 @@ import {
   type QueueSlot,
   type RewriteTarget,
 } from '../../api.js'
-import { dayName } from '../../labels.js'
+import { dayName, slotStatus } from '../../labels.js'
+import { NOTICE, slotTone } from './look.js'
 import { Margin, Marked } from '../RedPen.js'
 import { Notices } from './Approval.js'
 import { EditBox, ReasonBox, Restore } from './Boxes.js'
@@ -66,9 +67,15 @@ function PartView({
 
   return (
     // The group takes the focus back after 刷新 read the lesson again: its marks may have changed meanwhile.
-    <div ref={group} tabIndex={-1} className="part" role="group" aria-labelledby={labelId}>
-      <div className="part-body">
-        <p id={labelId} className="part-label">
+    <div
+      ref={group}
+      tabIndex={-1}
+      className="grid grid-cols-[minmax(0,1fr)_240px] gap-6 py-3 focus-visible:outline-offset-4"
+      role="group"
+      aria-labelledby={labelId}
+    >
+      <div className="min-w-0">
+        <p id={labelId} className="text-xs font-medium text-gray-500">
           {label}
         </p>
         {editing ? (
@@ -78,16 +85,20 @@ function PartView({
             <Text
               ref={title ? heading : undefined}
               tabIndex={title ? -1 : undefined}
-              className={title ? 'lesson-title' : 'part-text'}
+              className={
+                title
+                  ? 'mt-1 text-xl font-semibold text-gray-900 focus-visible:outline-offset-4'
+                  : 'mt-1 text-[15px] leading-[1.9] text-gray-900'
+              }
             >
               <Marked text={text} flags={flags} />
             </Text>
             {editable && (
               <Button
                 ref={opener}
-                type="link"
+                type="text"
                 size="small"
-                className="part-edit"
+                className="mt-1 -ml-3"
                 disabled={writing}
                 onClick={() => open({ what: 'edit', part })}
               >
@@ -111,12 +122,12 @@ function PartView({
 
 function SectionHead({ id, name, note, children }: { id: string; name: string; note?: string; children?: ReactNode }) {
   return (
-    <div className="section-head">
-      <h3 id={id} className="section-title">
+    <div className="flex items-center gap-3">
+      <h3 id={id} className="text-sm font-semibold text-gray-900">
         {name}
       </h3>
-      {note !== undefined && <span className="section-note">{note}</span>}
-      {children}
+      {note !== undefined && <Badge tone="indigo">{note}</Badge>}
+      {children !== undefined && children !== false && <div className="ml-auto">{children}</div>}
     </div>
   )
 }
@@ -128,7 +139,7 @@ export function Segment({ index, text, gist }: { index: number; text: string; gi
   const opener = useOpener((closedBox) => isRewriteOf(closedBox, target))
   const name = `第 ${index + 1} 段`
   return (
-    <section className="lesson-section" aria-labelledby={id}>
+    <section className="px-6 pt-5 pb-2" aria-labelledby={id}>
       <SectionHead id={id} name={name}>
         {editable && (
           <Button ref={opener} size="small" disabled={writing} onClick={() => open({ what: 'rewrite', target })}>
@@ -162,7 +173,8 @@ export function CallOn({ kind, after, question }: { kind: CallOnKind; after: num
     if (await check.run(() => confirmCallOn(lesson, kind))) refocus({ what: 'rewrite', target })
   }
   return (
-    <section className="lesson-section call-on" aria-labelledby={id}>
+    // The questions the class is called on to answer, set apart from the segments on a faint indigo.
+    <section className="bg-indigo-50/40 px-6 pt-5 pb-2" aria-labelledby={id}>
       <SectionHead id={id} name={CALL_ON_NAMES[kind]} note={`第 ${after} 段讲完后点名问`}>
         {editable && (
           <Button ref={opener} size="small" disabled={writing} onClick={() => open({ what: 'rewrite', target })}>
@@ -174,8 +186,8 @@ export function CallOn({ kind, after, question }: { kind: CallOnKind; after: num
         <ReasonBox target={target} what={`重写${CALL_ON_NAMES[kind]}`} />
       )}
       {lesson.callOnChecks.includes(kind) && (
-        <div className="lesson-notices">
-          <p className="call-on-check">
+        <div className="mt-3">
+          <p className={`${NOTICE} flex flex-wrap items-center justify-between gap-2`}>
             <span>出题范围里的段落改过，请再看一眼</span>
             {editable && (
               <Button size="small" disabled={writing} onClick={() => void confirm()}>
@@ -199,14 +211,17 @@ export function Head({ slot, focused }: { slot: QueueSlot; focused: boolean }) {
   const opener = useOpener((closedBox) => isRewriteOf(closedBox, LESSON_TARGET))
   const { content } = lesson
   return (
-    <header className="lesson-head">
-      <p className="lesson-meta">
-        {dayName(lesson.date)} {slot.label} · {content.subject} · 第 {lesson.version} 版
+    <header className="px-6 pt-5 pb-4">
+      {/* Where and what the lesson is, as the template's badges; the text reads as one line too. */}
+      <p className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+        <span className="font-medium text-gray-900">{dayName(lesson.date)}</span> <Badge>{slot.label}</Badge>{' '}
+        <Badge>{content.subject}</Badge> <Badge tone="indigo">第 {lesson.version} 版</Badge>{' '}
+        <Badge tone={slotTone(slot)}>{slotStatus(slot)}</Badge>
       </p>
       <Notices slot={slot} />
       <PartView part={{ part: 'title' }} label="标题" text={content.title} title focused={focused} />
       {editable && (
-        <div className="lesson-actions">
+        <div className="flex flex-wrap items-start gap-4 pb-1">
           <Button
             ref={opener}
             size="small"

@@ -131,8 +131,8 @@ describe('the layout', () => {
     expect(await within(screen.getByRole('main', { name: '开关' })).findByRole('region', { name: '老师用大模型' }))
       .toBeInTheDocument()
     await user.click(screen.getByRole('link', { name: '公告' }))
-    expect(await within(screen.getByRole('main', { name: '公告' })).findByRole('button', { name: '写新公告' }))
-      .toBeInTheDocument()
+    // The notices' main action sits in the header, beside the page's name.
+    expect(await within(screen.getByRole('banner')).findByRole('button', { name: '写新公告' })).toBeInTheDocument()
     expect(screen.queryByText('这一页还在做。')).not.toBeInTheDocument()
   })
 
