@@ -146,6 +146,8 @@ Errors: `401 unauthorized`.
 
 The doudizhu club's leaderboard: this week's, the only one. Needs a key. Query: `board`, optional, and only `week`; without it the reply is this week's board too. Reply: `200` with `ClubLeaderboard`, whose `board` is always `week`.
 
+> **Deprecated**: `board=all` (the all-time board). The service still accepts it, but only answers `400 invalid_request`, with a `message` saying there is only this week's board, and no data. Plugins should not ask for it.
+
 - The week starts on Monday at 00:00 in the school's timezone, and `weekStartsOn` is the date of this week's Monday.
 - On the board are the students who are members now and played a ranked game this week. Their points (`points`) are the sum of the scores of all their ranked games this week, those from before they left and joined again this week too; `games` is how many games those were.
 - Ranks: students with the same points share a rank, and the ranks after them skip ahead: points of 50, 40, 40 and 30 rank 1, 2, 2 and 4. Students with the same points are listed by student number, lowest first.
