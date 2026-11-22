@@ -1,38 +1,68 @@
-/* The admin pages around Ant Design: a green bar on top (the blackboard), white panels on a paper-coloured page,
-   hairline borders and no shadows except on the one thing that floats (a chart's readout). Desktop only: the page
-   keeps 1200px and scrolls sideways below that. See DESIGN.md. */
+@import 'tailwindcss';
 
-body {
-  margin: 0;
-  min-width: 1200px;
-  background: #f7f6f2;
-  color: #1f1f1f;
-  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif;
-  font-size: 14px;
-  line-height: 1.6;
+/* The admin pages, after HyperUI's application components and its analytics dashboard: a white sidebar with the
+   pages, a header naming the page, white cards with a hairline edge and a faint shadow on a light grey page.
+   The school's own two colours stay: blackboard green for what acts, the red pen for review marks.
+   Desktop only: the page keeps 1200px and scrolls sideways below that. See DESIGN.md. */
+
+@theme {
+  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif;
+  /* Blackboard green: white text on it is 7.49:1. */
+  --color-brand: #2f5d50;
+  --color-brand-dark: #245146;
+  --color-brand-darker: #1c4037;
+  /* The chosen row or choice: the green text on it is 6.42:1. */
+  --color-brand-tint: #e8efec;
+  /* The red pen: review marks, and the one alarm (spend over budget). 5.34:1 on white. */
+  --color-red-pen: #c8312b;
+  /* The edge of a field or a button: 3.2:1 on the page and on white, so a control is found by its outline. */
+  --color-edge: #868d97;
+  /* A disabled control's words (正在登录): 6.1:1 on its grey fill. */
+  --color-disabled: #4b5563;
+  --color-placeholder: #6b7280;
+  /* gray-500 is a shade darker than Tailwind's #6b7280, so quiet words read on a grey note too (4.5:1 or more). */
+  /* Tailwind's greys, written out so the contrast test (palette.test.tsx) reads the same values the page uses. */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #636a75;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+  --color-gray-950: #030712;
 }
 
-/* Every control says it can be clicked; one that cannot be used says that. */
-button:not(:disabled),
-select:not(:disabled),
-[role='tab'],
-[role='radio'],
-label[for],
-summary {
-  cursor: pointer;
-}
-button:disabled {
-  cursor: not-allowed;
-}
-
-/* The focus ring of the pages' own elements matches Ant Design's (theme.ts): 2px of the green. */
-:focus-visible {
-  outline: 2px solid #2f5d50;
-  outline-offset: 2px;
-}
-
-p {
-  margin: 0;
+@layer base {
+  body {
+    min-width: 1200px;
+    background: var(--color-gray-50);
+    color: var(--color-gray-900);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  /* Every control says it can be clicked; one that cannot be used says that. */
+  button:not(:disabled),
+  select:not(:disabled),
+  [role='radio'],
+  label[for],
+  label:has(input),
+  summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  /* The focus ring: 2px of the green. Never removed. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  table {
+    border-collapse: collapse;
+  }
 }
 
 /* Out of sight, still read out: a live region with nothing to say yet. */
@@ -48,59 +78,6 @@ p {
   white-space: nowrap;
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  height: 48px;
-  /* Lined up with the content below, which stops at 1440px. */
-  padding: 0 max(24px, calc((100% - 1392px) / 2));
-  background: #2f5d50;
-  color: #ffffff;
-}
-.topbar-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.topbar-failure {
-  font-size: 13px;
-}
-.topbar-button {
-  padding: 3px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: 6px;
-  background: transparent;
-  color: #ffffff;
-  font: inherit;
-}
-.topbar-button:hover:not(:disabled) {
-  border-color: #ffffff;
-  background: rgba(255, 255, 255, 0.12);
-}
-.topbar-button:active:not(:disabled) {
-  background: rgba(255, 255, 255, 0.22);
-}
-.topbar-button:disabled {
-  opacity: 0.6;
-}
-/* On the green the ring is white (7.49:1). */
-.topbar-button:focus-visible {
-  outline-color: #ffffff;
-}
-
-.content {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 4px 24px 48px;
-}
-
 .page {
   display: flex;
   flex-direction: column;
@@ -108,10 +85,11 @@ p {
 }
 
 .panel {
-  padding: 16px 20px;
-  border: 1px solid #e3e2dc;
-  border-radius: 6px;
-  background: #ffffff;
+  padding: 20px 24px;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  box-shadow: var(--shadow-xs);
 }
 .panel-head {
   display: flex;
@@ -122,6 +100,7 @@ p {
 }
 .panel-title {
   margin: 0 0 12px;
+  color: var(--color-gray-900);
   font-size: 16px;
   font-weight: 600;
 }
@@ -133,38 +112,54 @@ p {
   padding: 8px 0 0;
 }
 
-/* Today's and yesterday's numbers: what the page is meant to be read for first. */
-/* The spend gets more room: it also carries the month and the budget. */
+/* Today's and yesterday's numbers, what the page is read for first: a grid of stat cards (HyperUI's stats), four
+   a row, joined by hairlines. */
 .tiles {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr)) minmax(0, 1.6fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-200);
 }
 .tile {
-  padding: 0 16px;
-  border-left: 1px solid #e3e2dc;
-}
-.tile:first-child {
-  padding-left: 0;
-  border-left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 14px 18px 16px;
+  background: #fff;
 }
 .tile-label {
-  color: #4a4a4a;
+  color: var(--color-gray-600);
   font-size: 13px;
 }
 .tile-value {
-  margin: 2px 0;
-  font-size: 26px;
+  color: var(--color-gray-900);
+  font-size: 28px;
   font-weight: 600;
   line-height: 1.3;
+  font-variant-numeric: tabular-nums;
 }
+/* Against the same day last week: a quiet badge, in words, neither green nor red (the red is the pen's). */
 .tile-change {
-  color: #5c5c5c;
+  margin-top: 4px;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  background: var(--color-gray-100);
+  color: var(--color-gray-700);
+  font-size: 12px;
+}
+.tile-month {
+  margin-top: 4px;
+  color: var(--color-gray-600);
   font-size: 12px;
 }
 /* What today is set against, and why no class is held: above the numbers they explain. */
 .day-note {
-  margin: -4px 0 12px;
-  color: #4a4a4a;
+  margin: -4px 0 16px;
+  color: var(--color-gray-600);
 }
 
 .reminders {
@@ -174,7 +169,7 @@ p {
 .reminder + .reminder {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .reminder-review {
   display: flex;
@@ -188,7 +183,7 @@ p {
 }
 /* The one red on the page: spend over budget. */
 .reminder-alarm {
-  color: #c8312b;
+  color: var(--color-red-pen);
 }
 
 .charts {
@@ -202,15 +197,16 @@ p {
 }
 .range-loading {
   margin-bottom: 8px;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 
 .chart {
   margin: 0;
-  padding: 12px 16px 8px;
-  border: 1px solid #e3e2dc;
-  border-radius: 6px;
-  background: #ffffff;
+  padding: 16px 20px 12px;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  box-shadow: var(--shadow-xs);
 }
 .chart-head {
   display: flex;
@@ -230,7 +226,7 @@ p {
   margin: 4px 0 4px;
   padding: 0;
   list-style: none;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
   font-size: 12px;
 }
 .legend-line {
@@ -246,7 +242,7 @@ p {
   width: 1px;
   height: 12px;
   margin: 0 8px 0 4px;
-  background: #767676;
+  background: var(--color-gray-500);
   vertical-align: middle;
 }
 .chart-plot {
@@ -263,9 +259,9 @@ p {
   top: 8px;
   min-width: 160px;
   padding: 8px 10px;
-  border: 1px solid #c9c8c1;
-  border-radius: 6px;
-  background: #ffffff;
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--radius-lg);
+  background: #fff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   font-size: 12px;
   pointer-events: none;
@@ -294,12 +290,12 @@ p {
   border-radius: 1px;
 }
 .readout-name {
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 .readout-markers {
   margin-top: 4px;
   padding-top: 4px;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .chart-table {
   max-height: 248px;
@@ -323,7 +319,7 @@ p {
   align-items: flex-start;
   gap: 12px;
   padding: 24px 0;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 
 .login {
@@ -338,14 +334,14 @@ p {
 .login-notice {
   margin-bottom: 16px;
   padding: 8px 12px;
-  border-radius: 6px;
-  background: #f0efe9;
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-100);
 }
 .login-refusal {
   margin-bottom: 16px;
   padding: 8px 12px;
-  border: 1px solid #b9b8ae;
-  border-radius: 6px;
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--radius-lg);
 }
 
 /* The review page: the list of the days ahead on the left, kept in view while the lesson on the right scrolls. */
@@ -378,8 +374,8 @@ p {
   gap: 8px;
   margin: 0 8px 12px;
   padding: 8px 12px;
-  border: 1px solid #b9b8ae;
-  border-radius: 6px;
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--radius-lg);
 }
 .queue-days {
   flex: 1;
@@ -395,7 +391,7 @@ p {
 .queue-date {
   margin: 0 0 2px;
   padding: 0 8px;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
   font-size: 13px;
   font-weight: 600;
 }
@@ -411,22 +407,22 @@ p {
   width: 100%;
   padding: 6px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   background: transparent;
-  color: #1f1f1f;
+  color: var(--color-gray-900);
   font: inherit;
   text-align: left;
 }
 .slot-button:hover {
-  background: #f3f2ee;
+  background: var(--color-gray-100);
 }
 .slot-button:active {
-  background: #ebeae4;
+  background: var(--color-gray-200);
 }
 /* The chosen slot: tinted, its name bold, and a green edge on its left, so it is not told by colour alone. */
 .slot-button[aria-current='true'] {
-  background: #e8efec;
-  box-shadow: inset 3px 0 0 #2f5d50;
+  background: var(--color-brand-tint);
+  box-shadow: inset 3px 0 0 var(--color-brand);
   font-weight: 600;
 }
 /* Inside the scrolling list an outer ring would be cut off at its edges. */
@@ -434,17 +430,17 @@ p {
   outline-offset: -2px;
 }
 .slot-status {
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-weight: 400;
 }
 /* Slots that still need something done read darker than the settled ones. */
 .slot-todo .slot-status {
-  color: #1f1f1f;
+  color: var(--color-gray-900);
   font-weight: 600;
 }
 .slot-topic {
   padding: 0 8px 4px;
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-size: 12px;
 }
 .slot-actions {
@@ -455,7 +451,7 @@ p {
   padding: 2px 8px 8px;
 }
 .copy-done {
-  color: #2f5d50;
+  color: var(--color-brand);
   font-size: 13px;
 }
 .queue-foot {
@@ -465,10 +461,10 @@ p {
   gap: 8px;
   margin-top: 12px;
   padding: 12px 8px 0;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .queue-notice {
-  color: #4a4a4a;
+  color: var(--color-gray-600);
   font-size: 13px;
 }
 
@@ -477,7 +473,7 @@ p {
   padding-bottom: 0;
 }
 .lesson-meta {
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-size: 13px;
 }
 .lesson-notices {
@@ -488,8 +484,8 @@ p {
 }
 .lesson-notices p {
   padding: 8px 12px;
-  border-radius: 6px;
-  background: #f0efe9;
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-100);
 }
 .lesson-notices .call-on-check {
   display: flex;
@@ -513,14 +509,14 @@ p {
 }
 .lesson-section {
   padding: 12px 0 4px;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .section-head {
   display: flex;
   align-items: baseline;
   gap: 12px;
 }
-.section-head .ant-btn {
+.section-head .ui-button {
   margin-left: auto;
 }
 .section-title {
@@ -529,7 +525,7 @@ p {
   font-weight: 600;
 }
 .section-note {
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-size: 12px;
 }
 
@@ -540,14 +536,14 @@ p {
   padding: 8px 0;
 }
 .part-label {
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-size: 12px;
 }
 .part-text {
   font-size: 15px;
   line-height: 1.9;
 }
-.part-edit.ant-btn {
+.part-edit.ui-button {
   height: auto;
   padding: 0;
 }
@@ -557,14 +553,14 @@ p {
 .pen-word {
   background: none;
   color: inherit;
-  text-decoration: underline wavy #c8312b;
+  text-decoration: underline wavy var(--color-red-pen);
   text-decoration-skip-ink: none;
   text-decoration-thickness: 1.5px;
   text-underline-offset: 4px;
 }
 .pen-margin {
   padding-left: 16px;
-  border-left: 1px solid #e3e2dc;
+  border-left: 1px solid var(--color-gray-200);
   font-size: 13px;
 }
 .pen-notes {
@@ -582,13 +578,13 @@ p {
   gap: 4px;
 }
 .pen-note p {
-  color: #c8312b;
+  color: var(--color-red-pen);
   font-family: 'Kaiti SC', STKaiti, KaiTi, 'AR PL UKai CN', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC',
     system-ui, sans-serif;
   font-size: 15px;
 }
 .pen-none {
-  color: #767676;
+  color: var(--color-gray-500);
 }
 .pen-margin .restore {
   margin-top: 12px;
@@ -599,11 +595,11 @@ p {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
   font-size: 13px;
 }
 .restore-reason {
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   overflow-wrap: anywhere;
 }
 
@@ -612,14 +608,11 @@ p {
 .reason-box {
   margin: 8px 0 4px;
   padding: 12px;
-  border: 1px solid #e3e2dc;
-  border-radius: 6px;
-  background: #f7f6f2;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-50);
 }
 /* Ant Design hangs a field's count below it: room for it, so it does not sit on what follows. */
-.reason-box .ant-input-textarea-show-count {
-  margin-bottom: 20px;
-}
 .box-actions {
   display: flex;
   flex-wrap: wrap;
@@ -639,14 +632,17 @@ p {
 }
 .field-hint {
   margin: 0 0 6px;
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-size: 12px;
 }
 .field-set {
   min-width: 0;
-  margin: 0;
+  margin: 12px 0 0;
   padding: 0;
   border: 0;
+}
+.field-set > legend.field-label {
+  margin-top: 0;
 }
 /* A refusal, said where the change was asked for: framed, in words, not in red (the red is the pen's). */
 .action-error {
@@ -656,9 +652,9 @@ p {
   gap: 8px 12px;
   margin-top: 8px;
   padding: 8px 12px;
-  border: 1px solid #b9b8ae;
-  border-radius: 6px;
-  background: #ffffff;
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--radius-lg);
+  background: #fff;
 }
 
 /* Approving stays in reach at the bottom of the window while the lesson is read. */
@@ -669,17 +665,17 @@ p {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
-  margin: 8px -20px 0;
-  padding: 12px 20px;
-  border-top: 1px solid #e3e2dc;
+  margin: 8px -24px 0;
+  padding: 12px 24px;
+  border-top: 1px solid var(--color-gray-200);
   border-radius: 0 0 6px 6px;
-  background: #ffffff;
+  background: #fff;
 }
 .lesson-foot .action-error {
   margin-top: 0;
 }
 .foot-note {
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 
 .lesson-missing p + p {
@@ -688,13 +684,13 @@ p {
 
 .dialog-hint {
   margin-bottom: 4px;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 .topic-confirm {
   margin-top: 12px;
   padding: 8px 12px;
-  border-radius: 6px;
-  background: #f0efe9;
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-100);
   font-weight: 600;
 }
 .date-input {
@@ -704,21 +700,21 @@ p {
 .topic-given {
   margin-top: 16px;
   padding-top: 4px;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .topic-list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.topic-list .ant-btn {
+.topic-list .ui-button {
   height: auto;
   padding: 2px 6px;
   white-space: normal;
   text-align: left;
 }
-.topic-list .ant-btn[aria-pressed='true'] {
-  background: #f0efe9;
+.topic-list .ui-button[aria-pressed='true'] {
+  background: var(--color-gray-100);
   font-weight: 600;
 }
 .topic-list-state {
@@ -727,7 +723,7 @@ p {
   align-items: center;
   gap: 8px;
   margin: 0;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 
 /* Tables of numbers (the weekly review, a student's messages and record): the caption names the table, hairlines
@@ -744,7 +740,7 @@ p {
 .numbers th,
 .numbers td {
   padding: 6px 12px;
-  border-bottom: 1px solid #e3e2dc;
+  border-bottom: 1px solid var(--color-gray-200);
   text-align: left;
   vertical-align: top;
 }
@@ -753,8 +749,8 @@ p {
   padding-left: 0;
 }
 .numbers thead th {
-  border-bottom-color: #b9b8ae;
-  color: #4a4a4a;
+  border-bottom-color: var(--color-gray-300);
+  color: var(--color-gray-600);
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
@@ -802,8 +798,8 @@ p {
 .action-done {
   margin-top: 12px;
   padding: 8px 12px;
-  border-radius: 6px;
-  background: #f0efe9;
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-100);
 }
 
 /* The weekly review. */
@@ -825,28 +821,28 @@ p {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 .native-select {
   min-width: 340px;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid #8a8980;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #1f1f1f;
+  border: 1px solid var(--color-edge);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  color: var(--color-gray-900);
   font: inherit;
 }
 .native-select:hover {
-  border-color: #2f5d50;
+  border-color: var(--color-brand);
 }
 .week-note {
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 .listed {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 /* Right under the block's heading, a list needs no rule above it. */
 .panel-title + .listed {
@@ -856,7 +852,7 @@ p {
 }
 .listed + .tables {
   padding-top: 12px;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .scroll-box {
   max-height: 320px;
@@ -894,7 +890,7 @@ p {
   padding: 12px 0;
 }
 .suggestion + .suggestion {
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .suggestion-head {
   display: flex;
@@ -906,7 +902,7 @@ p {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.suggestion-head .ant-btn {
+.suggestion-head .ui-button {
   margin-left: auto;
 }
 /* Students' lines, each with when it was said. */
@@ -924,7 +920,7 @@ p {
   gap: 12px;
 }
 .line-when {
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -952,7 +948,7 @@ p {
   margin: 0;
 }
 .fact dt {
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-size: 12px;
 }
 .fact dd {
@@ -966,7 +962,7 @@ p {
   gap: 12px;
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .suspend {
   display: flex;
@@ -976,6 +972,7 @@ p {
 }
 .suspend-label {
   font-weight: 600;
+  white-space: nowrap;
 }
 .actions-hint {
   margin: 6px 0 0;
@@ -995,7 +992,7 @@ p {
 .switch + .switch {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #e3e2dc;
+  border-top: 1px solid var(--color-gray-200);
 }
 .switch-head {
   display: flex;
@@ -1007,29 +1004,42 @@ p {
   font-size: 16px;
   font-weight: 600;
 }
+/* Its state as a badge (HyperUI's): green while it is on, grey while off, and the words say which. */
 .switch-state {
-  font-weight: 600;
+  padding: 1px 10px;
+  border-radius: 9999px;
+  background: var(--color-gray-100);
+  color: var(--color-gray-700);
+  font-size: 12px;
+  font-weight: 500;
 }
-.switch-head .ant-btn {
+.switch-state:empty {
+  display: none;
+}
+.switch-state.is-on {
+  background: var(--color-brand-tint);
+  color: var(--color-brand);
+}
+.switch-head .ui-button {
   margin-left: auto;
 }
 .switch-effects {
   margin: 6px 0;
   padding: 0;
   list-style: none;
-  color: #5c5c5c;
+  color: var(--color-gray-500);
 }
 .switch-effects .switch-now {
-  color: #1f1f1f;
+  color: var(--color-gray-900);
 }
 .switch-when {
-  color: #5c5c5c;
+  color: var(--color-gray-500);
   font-size: 13px;
 }
 
 /* The notices: the form on the left, the preview beside it as the website will show it. */
 .notice-status {
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 .notice-form {
   display: grid;
@@ -1039,13 +1049,13 @@ p {
 }
 .notice-preview {
   padding: 12px 16px;
-  border: 1px solid #e3e2dc;
-  border-radius: 6px;
-  background: #ffffff;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-lg);
+  background: #fff;
 }
 .notice-preview .field-label {
   margin-top: 0;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
   font-size: 13px;
 }
 .notice-preview-title {
@@ -1055,10 +1065,15 @@ p {
 }
 .notice-window {
   margin-bottom: 8px;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
 }
 .notice-body {
   overflow-wrap: anywhere;
+}
+.notice-body a {
+  color: var(--color-brand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .notice-body p + *,
 .notice-body ul + * {
@@ -1072,7 +1087,7 @@ p {
   margin: 0;
   padding-left: 1.2em;
 }
-.notice-open.ant-btn {
+.notice-open.ui-button {
   height: auto;
   padding: 0;
   white-space: normal;
@@ -1082,9 +1097,17 @@ p {
 .notice-updated {
   margin-left: 8px;
   padding: 0 6px;
-  border: 1px solid #b9b8ae;
+  border: 1px solid var(--color-gray-300);
   border-radius: 4px;
-  color: #4a4a4a;
+  color: var(--color-gray-600);
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* Tailwind's reset takes the bullets off every list; these lists keep them. */
+.reminder-days,
+.plain-list,
+.notice-body ul,
+.notice-problems {
+  list-style: disc;
 }

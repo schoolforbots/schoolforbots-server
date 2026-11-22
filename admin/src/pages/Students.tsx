@@ -1,4 +1,4 @@
-import { Button, Input, InputNumber, type GetRef, type InputRef } from 'antd'
+import { Button, Input, InputNumber } from '../ui.js'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import {
   getMessages,
@@ -62,7 +62,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
   const [daysMissing, setDaysMissing] = useState(false)
   const [asking, setAsking] = useState<Asking>()
   const [done, setDone] = useState<{ text: string; n: number }>()
-  const daysField = useRef<GetRef<typeof InputNumber>>(null)
+  const daysField = useRef<HTMLInputElement>(null)
   const openers = {
     suspend: useRef<HTMLButtonElement>(null),
     withdraw: useRef<HTMLButtonElement>(null),
@@ -399,7 +399,7 @@ function Known({ student, onChanged }: { student: Student; onChanged: (student: 
 export function Students() {
   const fieldId = useId()
   const hintId = useId()
-  const field = useRef<InputRef>(null)
+  const field = useRef<HTMLInputElement>(null)
   const [text, setText] = useState('')
   const [problem, setProblem] = useState<string>()
   // The number looked up, and the lookup it is (the same number again reads it again).

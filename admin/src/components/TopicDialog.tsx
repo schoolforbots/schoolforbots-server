@@ -1,4 +1,4 @@
-import { Button, Input, Modal, Radio } from 'antd'
+import { Button, Input, Modal, RadioGroup } from '../ui.js'
 import { useId, useState, type ReactNode } from 'react'
 import {
   putTopic,
@@ -213,7 +213,7 @@ export function TopicDialog({
         />
         <fieldset className="field-set">
           <legend className="field-label">学部</legend>
-          <Radio.Group
+          <RadioGroup
             value={division}
             onChange={(event) => choose(date, event.target.value as Division)}
             options={DIVISIONS.map((key) => ({ value: key, label: slotOf(date, key)?.label ?? DIVISION_NAMES[key] }))}

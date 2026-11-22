@@ -1,4 +1,4 @@
-import { Button } from 'antd'
+import { Button } from '../../ui.js'
 import { createContext, useContext, useEffect, useRef, useState, type RefObject } from 'react'
 import type { ApiError, LessonDetail, LessonPart, LessonQueue, RewriteTarget } from '../../api.js'
 import { useFocusOnMount } from '../../focus.js'

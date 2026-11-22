@@ -1,4 +1,4 @@
-import { Button } from 'antd'
+import { Button } from '../../ui.js'
 import { useId, useRef } from 'react'
 import { approve, type LessonDetail, type QueueSlot } from '../../api.js'
 import { useFocusOnMount } from '../../focus.js'

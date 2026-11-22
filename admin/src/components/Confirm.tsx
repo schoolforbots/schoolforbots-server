@@ -1,4 +1,4 @@
-import { Button, Modal } from 'antd'
+import { Button, Modal } from '../ui.js'
 import { useId, useState, type ReactNode } from 'react'
 import type { ApiError } from '../api.js'
 import { useFocusOnMount } from '../focus.js'

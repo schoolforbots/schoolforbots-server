@@ -1,4 +1,4 @@
-import { Button, Input, type GetRef } from 'antd'
+import { Button, TextArea } from '../../ui.js'
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { editPart, restore, rewrite, type LessonPart, type PromptTarget, type RewriteTarget } from '../../api.js'
 import { CopyPrompt } from '../CopyPrompt.js'
@@ -8,7 +8,7 @@ import { Refusal, useAction, useEditing } from './Editing.js'
 // The boxes a change to the lesson is made in, opened under what they change: 改字 for one part, a reason for a
 // rewrite, and after a rewrite, the way back to the version before it.
 
-type TextAreaRef = GetRef<typeof Input.TextArea>
+type TextAreaRef = HTMLTextAreaElement
 
 /** Esc closes a box, unless what it sent is still under way. */
 const closeOnEscape = (busy: boolean, close: () => void) => (event: KeyboardEvent) => {
@@ -29,7 +29,7 @@ export function EditBox({ part, text, labelId }: { part: LessonPart; text: strin
 
   return (
     <div className="edit-box" onKeyDown={closeOnEscape(writing, () => open(null))}>
-      <Input.TextArea
+      <TextArea
         ref={field}
         aria-labelledby={labelId}
         autoFocus
@@ -93,7 +93,7 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
       <p id={hintId} className="field-hint">
         说清楚哪里不合适、想改成什么样，大模型照着重写。理由会存下来，每周复盘时用。
       </p>
-      <Input.TextArea
+      <TextArea
         ref={field}
         id={fieldId}
         aria-describedby={hintId}

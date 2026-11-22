@@ -1,4 +1,4 @@
-import { Button } from 'antd'
+import { Button } from '../ui.js'
 import type { ReactNode } from 'react'
 
 // The three states every page has besides its data. Each says what is going on and, where there is one, what to do

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getSession, onSessionEnded, type ApiError } from './api.js'
 import { Failed, Loading } from './components/States.js'
-import { Layout, TopBar } from './Layout.js'
+import { Layout, Waiting } from './Layout.js'
 import { Login } from './pages/Login.js'
 import { SchoolZone } from './zone.js'
 
@@ -42,21 +42,15 @@ export function App() {
   switch (stage.name) {
     case 'checking':
       return (
-        <>
-          <TopBar />
-          <main className="content">
-            <Loading what="登录状态" />
-          </main>
-        </>
+        <Waiting>
+          <Loading what="登录状态" />
+        </Waiting>
       )
     case 'failed':
       return (
-        <>
-          <TopBar />
-          <main className="content">
-            <Failed what="登录状态" reason={stage.reason} retry={check} />
-          </main>
-        </>
+        <Waiting>
+          <Failed what="登录状态" reason={stage.reason} retry={check} />
+        </Waiting>
       )
     case 'login':
       return <Login notice={stage.notice} onLoggedIn={(zone) => setStage({ name: 'in', zone })} />
