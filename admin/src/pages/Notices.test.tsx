@@ -72,10 +72,9 @@ describe('the notices page: the list', () => {
     expect(rows).toEqual([
       ['标题', '类型', '状态', '发布时间'],
       ['新草稿', '普通', '草稿', '还没发布'],
-      ['凌晨维护已更新', '维护', '已发布', '2026 年 11 月 3 日 10:30'],
+      ['凌晨维护已更新（发布以后改过：2026 年 11 月 3 日 12:00）', '维护', '已发布', '2026 年 11 月 3 日 10:30'],
       ['旧公告', '普通', '已撤下', '2026 年 10 月 30 日 20:05'],
     ])
-    expect(within(table).getByText('已更新')).toHaveAttribute('title', '发布以后改过：2026 年 11 月 3 日 12:00')
   })
 
   it('says so when there is no notice', async () => {
@@ -200,29 +199,47 @@ describe('the notices page: writing', () => {
     expect(writeOf(server.calls)[0]?.body).toMatchObject({ startsAt: '2026-11-24T06:00:00.000Z', endsAt: null })
   })
 
+  it('sends back a time not changed as the instant it was, though the clock shows it twice', async () => {
+    // 01:30 on 1 November in New York comes twice; the notice has the second (EST, 06:30 UTC).
+    const second = notice({ kind: 'maintenance', startsAt: '2026-11-01T06:30:00.000Z' })
+    const server = serve([second], { 'PUT api/notices/7': ok(second) })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    show(
+      <SchoolZone value="America/New_York">
+        <Notices />
+      </SchoolZone>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: '期中考试安排' }))
+    expect(editor().getByLabelText('维护开始')).toHaveValue('2026-11-01T01:30')
+    await user.click(editor().getByRole('button', { name: '保存草稿' }))
+    await screen.findByText('草稿已保存。')
+    expect(writeOf(server.calls)[0]?.body).toMatchObject({ startsAt: '2026-11-01T06:30:00.000Z' })
+  })
+
   it('says what is wrong before it sends anything', async () => {
     const server = serve([])
     const user = await openNew()
 
     await user.type(editor().getByRole('textbox', { name: '标题' }), '   ')
     await user.click(editor().getByRole('button', { name: '保存草稿' }))
-    const alert = editor().getByRole('alert')
-    expect(alert).toHaveTextContent('标题不能空着。')
-    expect(alert).toHaveFocus()
+    const checks = editor().getByRole('status')
+    expect(checks).toHaveTextContent('标题不能空着。')
+    expect(checks).toHaveFocus()
 
     fireEvent.change(editor().getByRole('textbox', { name: '标题' }), { target: { value: '长'.repeat(61) } })
     fireEvent.change(editor().getByRole('textbox', { name: '正文' }), { target: { value: '字'.repeat(4001) } })
-    expect(editor().getByRole('alert')).toHaveTextContent('标题最多 60 字，现在 61 字。')
-    expect(editor().getByRole('alert')).toHaveTextContent('正文最多 4000 字，现在 4001 字。')
+    expect(editor().getByRole('status')).toHaveTextContent('标题最多 60 字，现在 61 字。')
+    expect(editor().getByRole('status')).toHaveTextContent('正文最多 4000 字，现在 4001 字。')
 
     fireEvent.change(editor().getByRole('textbox', { name: '标题' }), { target: { value: '维护' } })
     fireEvent.change(editor().getByRole('textbox', { name: '正文' }), { target: { value: '' } })
     await user.click(editor().getByRole('radio', { name: '维护' }))
-    expect(editor().getByRole('alert')).toHaveTextContent('维护公告要写开始时间。')
+    expect(editor().getByRole('status')).toHaveTextContent('维护公告要写开始时间。')
 
     fireEvent.change(editor().getByLabelText('维护开始'), { target: { value: '2026-11-24T02:00' } })
     fireEvent.change(editor().getByLabelText('维护结束（可以不填）'), { target: { value: '2026-11-24T02:00' } })
-    expect(editor().getByRole('alert')).toHaveTextContent('维护结束要晚于开始。')
+    expect(editor().getByRole('status')).toHaveTextContent('维护结束要晚于开始。')
     await user.click(editor().getByRole('button', { name: '发布' }))
 
     expect(writeOf(server.calls)).toEqual([])
@@ -239,11 +256,42 @@ describe('the notices page: writing', () => {
     fireEvent.change(editor().getByLabelText('维护开始'), { target: { value: '2000-01-01T07:00' } })
     await user.click(editor().getByRole('button', { name: '保存草稿' }))
 
-    const alert = editor().getByRole('alert')
+    const alert = editor().getByRole('status')
     expect(alert).toHaveTextContent('标题里有存不了的字符（NUL 或半个字符），删掉再试。')
     expect(alert).toHaveTextContent('正文里有存不了的字符（NUL 或半个字符），删掉再试。')
     expect(alert).toHaveTextContent('维护开始要在 2000 年到 9999 年之间。')
     expect(writeOf(server.calls)).toEqual([])
+  })
+
+  it('takes only years 2000 to 9999', async () => {
+    const server = serve([])
+    const user = await openNew()
+
+    await user.type(editor().getByRole('textbox', { name: '标题' }), '维护')
+    await user.click(editor().getByRole('radio', { name: '维护' }))
+    for (const value of ['0099-01-01T00:00', '1999-06-01T12:00', '10000-01-01T00:00']) {
+      fireEvent.change(editor().getByLabelText('维护开始'), { target: { value } })
+      await user.click(editor().getByRole('button', { name: '保存草稿' }))
+      expect(editor().getByRole('status')).toHaveTextContent('维护开始要在 2000 年到 9999 年之间。')
+    }
+    expect(writeOf(server.calls)).toEqual([])
+  })
+
+  it('does not read each key out: the checks are said when a button is pressed, and gone once saved', async () => {
+    serve([], { 'POST api/notices': ok(notice({ title: '好了' })) })
+    const user = await openNew()
+
+    await user.click(editor().getByRole('button', { name: '保存草稿' }))
+    expect(editor().queryByRole('alert')).not.toBeInTheDocument()
+    expect(editor().getByRole('status')).toHaveTextContent('标题不能空着。')
+    await user.type(editor().getByRole('textbox', { name: '标题' }), '好了')
+    expect(editor().queryByText('标题不能空着。')).not.toBeInTheDocument()
+    await user.click(editor().getByRole('button', { name: '保存草稿' }))
+    await screen.findByText('草稿已保存。')
+
+    // Emptied again after the save, the title is not complained about until the next press.
+    await user.clear(editor().getByRole('textbox', { name: '标题' }))
+    expect(editor().queryByText('标题不能空着。')).not.toBeInTheDocument()
   })
 
   it('counts the title and body in characters, as the server does', async () => {
@@ -318,9 +366,9 @@ describe('the notices page: editing and publishing', () => {
 
     fireEvent.change(editor().getByLabelText('发布时间'), { target: { value: '2026-11-04T10:01' } })
     await user.click(editor().getByRole('button', { name: '保存修改' }))
-    expect(editor().getByRole('alert')).toHaveTextContent('发布时间不能晚于现在。')
+    expect(editor().getByRole('status')).toHaveTextContent('发布时间不能晚于现在。')
     fireEvent.change(editor().getByLabelText('发布时间'), { target: { value: '' } })
-    expect(editor().getByRole('alert')).toHaveTextContent('发布时间不能空着。')
+    expect(editor().getByRole('status')).toHaveTextContent('发布时间不能空着。')
     expect(writeOf(server.calls)).toEqual([])
   })
 
@@ -365,12 +413,54 @@ describe('the notices page: editing and publishing', () => {
   it('says when the draft was saved but not published', async () => {
     serve([notice()], {
       'PUT api/notices/7': ok(notice()),
-      'POST api/notices/7/publish': fail(409, 'wrong_status', '这条公告已经发布了。'),
+      'POST api/notices/7/publish': fail(503, 'unavailable', '服务器正忙。'),
     })
     const user = await open()
 
     await user.click(editor().getByRole('button', { name: '发布' }))
-    expect(await editor().findByRole('alert')).toHaveTextContent('草稿已保存，但没能发布：这条公告已经发布了。')
+    expect(await editor().findByRole('alert')).toHaveTextContent('草稿已保存，但没能发布：服务器正忙。')
+  })
+
+  it('does not publish again a notice that was published meanwhile', async () => {
+    const server = serve([notice()], { 'PUT api/notices/7': ok(published) })
+    const user = await open()
+
+    await user.click(editor().getByRole('button', { name: '发布' }))
+    expect(await screen.findByText('已保存。这条公告已经是发布状态。')).toBeInTheDocument()
+    expect(writeOf(server.calls).map((call) => `${call.method} ${call.path}`)).toEqual(['PUT api/notices/7'])
+    expect(editor().getByText('状态：已发布')).toBeInTheDocument()
+  })
+
+  it('after a refusal, reads the list again and takes the notice as the server has it', async () => {
+    let reads = 0
+    const withdrawn = { ...published, status: 'withdrawn' as const }
+    const server = fakeServer({
+      [READ]: () => ok({ notices: [reads++ === 0 ? published : withdrawn] }),
+      'POST api/notices/7/withdraw': fail(409, 'wrong_status', '只有已发布的公告才能撤下。'),
+    })
+    const user = await open()
+
+    await user.click(editor().getByRole('button', { name: '撤下' }))
+    expect(await editor().findByRole('alert')).toHaveTextContent('没能撤下：只有已发布的公告才能撤下。')
+    expect(await editor().findByText('状态：已撤下')).toBeInTheDocument()
+    expect(editor().getByRole('button', { name: '重新发布' })).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: '公告' })).getByText('已撤下')).toBeInTheDocument()
+    expect(server.calls.filter((call) => call.method === 'GET').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('after a 404, keeps what was written, to be saved as a new draft', async () => {
+    let reads = 0
+    fakeServer({
+      [READ]: () => ok({ notices: reads++ === 0 ? [notice()] : [] }),
+      'PUT api/notices/7': fail(404, 'not_found', '没有找到对应的记录。'),
+    })
+    const user = await open()
+
+    await user.click(editor().getByRole('button', { name: '保存草稿' }))
+    expect(await editor().findByRole('alert')).toHaveTextContent('没能保存：没有找到对应的记录。')
+    expect(await editor().findByText('状态：还没保存')).toBeInTheDocument()
+    expect(editor().getByRole('textbox', { name: '标题' })).toHaveValue('期中考试安排')
+    expect(await screen.findByText('还没有公告。写一条，存成草稿，看过预览再发布。')).toBeInTheDocument()
   })
 
   it('withdraws a published notice, and publishes it again', async () => {
@@ -395,6 +485,26 @@ describe('the notices page: editing and publishing', () => {
       'POST api/notices/7/publish',
     ])
     expect(editor().getByText('状态：已发布')).toBeInTheDocument()
+  })
+
+  it('asks before withdrawing with changes unsaved, and keeps them', async () => {
+    const withdrawn = { ...published, status: 'withdrawn' as const }
+    const server = serve([published], { 'POST api/notices/7/withdraw': ok(withdrawn) })
+    const user = await open()
+
+    fireEvent.change(editor().getByLabelText('发布时间'), { target: { value: '2026-11-02T09:15' } })
+    await user.click(editor().getByRole('button', { name: '撤下' }))
+    let dialog = within(await screen.findByRole('dialog', { name: '有没保存的修改，先撤下吗？' }))
+    expect(dialog.getByText(/撤下不会保存这些修改/)).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: '先不撤' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(writeOf(server.calls)).toEqual([])
+
+    await user.click(editor().getByRole('button', { name: '撤下' }))
+    dialog = within(await screen.findByRole('dialog', { name: '有没保存的修改，先撤下吗？' }))
+    await user.click(dialog.getByRole('button', { name: '撤下' }))
+    expect(await screen.findByText('已撤下。网站上不再显示这条公告。表单里的修改还没保存。')).toBeInTheDocument()
+    expect(editor().getByLabelText('发布时间')).toHaveValue('2026-11-02T09:15')
   })
 
   it('shows a refused withdrawal in the server’s words', async () => {
@@ -437,9 +547,38 @@ describe('the notices page: editing and publishing', () => {
     expect(await dialog.findByRole('alert')).toHaveTextContent('发布过的公告不能删除，只能撤下。')
   })
 
-  it('closes the editor without saving', async () => {
+  it('asks before dropping unsaved changes: on closing, opening another notice, or writing a new one', async () => {
+    const server = serve([notice(), notice({ id: 8, title: '另一条' })])
+    const user = await open()
+
+    await user.type(editor().getByRole('textbox', { name: '正文' }), '补一句')
+    for (const button of [
+      () => editor().getByRole('button', { name: '关闭' }),
+      () => screen.getByRole('button', { name: '另一条' }),
+      () => screen.getByRole('button', { name: '写新公告' }),
+    ]) {
+      await user.click(button())
+      const dialog = within(await screen.findByRole('dialog', { name: '有没保存的修改，关掉就没了' }))
+      expect(dialog.getByRole('button', { name: '回去接着改' })).toHaveFocus()
+      await user.click(dialog.getByRole('button', { name: '回去接着改' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      expect(editor().getByRole('textbox', { name: '正文' })).toHaveValue('下周三期中考试。补一句')
+    }
+
+    await user.click(screen.getByRole('button', { name: '另一条' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '有没保存的修改，关掉就没了' }))
+    await user.click(dialog.getByRole('button', { name: '不保存，关掉' }))
+    await waitFor(() => expect(editor().getByRole('textbox', { name: '标题' })).toHaveValue('另一条'))
+    expect(writeOf(server.calls)).toEqual([])
+  })
+
+  it('closes the editor without asking when nothing was changed', async () => {
     const server = serve([notice()])
     const user = await open()
+
+    await user.click(screen.getByRole('button', { name: '写新公告' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '写新公告' })).toBeInTheDocument()
 
     await user.click(editor().getByRole('button', { name: '关闭' }))
     expect(screen.queryByRole('heading', { name: '编辑公告' })).not.toBeInTheDocument()

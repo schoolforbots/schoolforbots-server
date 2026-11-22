@@ -5,8 +5,9 @@ import { Fragment, type ReactNode } from 'react'
 //
 // 1. Everything is text first: HTML in the body is shown as the characters it is (here React escapes every text
 //    node and attribute; nothing is ever put in as HTML).
-// 2. CRLF and CR read as LF. A line that is empty or only whitespace is blank; blank lines separate blocks, and any
-//    number of them is one break. Nothing is shown for a body of nothing but blank lines.
+// 2. CRLF and CR read as LF. A line that is empty or only whitespace is blank (whitespace as JavaScript's `\s` and
+//    `trim()` take it: U+3000, the full-width space, included); blank lines separate blocks, and any number of them is
+//    one break. Nothing is shown for a body of nothing but blank lines.
 // 3. Within a block, a line whose first two characters are "- " (a hyphen and a space, nothing before them) is a list
 //    item, its text the rest of the line; consecutive items make one list. Every other run of consecutive lines is a
 //    paragraph, the lines kept apart by a line break. So a list and a paragraph may follow each other without a blank
@@ -14,8 +15,9 @@ import { Fragment, type ReactNode } from 'react'
 // 4. In each line (a paragraph's line or an item), from the left:
 //    - `[text](https://address)` is a link: `text` is one or more characters other than `]`; the address starts with
 //      exactly `https://` (lower case) and runs on with one or more characters other than whitespace and `)`, up to
-//      the first `)`. It opens apart from the page, with rel="noopener noreferrer". Any other address (http:,
-//      javascript:, data:, a relative one) is not a link: the whole of it stays text.
+//      the first `)` (so a `)` in an address is written %29). It opens apart from the page, with
+//      rel="noopener noreferrer". Any other address (http:, javascript:, data:, a relative one) is not a link: the
+//      whole of it stays text.
 //    - `**text**` is bold: `text` is one or more characters, up to the nearest `**` on the same line.
 //    The one that starts further left wins; where both start at the same place, the link. Nothing nests: the text of
 //    a link or of bold is plain, `**` and brackets included. Anything else, an unmatched `**` or `[` included, is
