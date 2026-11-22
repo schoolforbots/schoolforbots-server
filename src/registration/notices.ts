@@ -70,17 +70,19 @@ export function noticeRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox 
 
 /** A published notice as the routes give it. */
 function published(row: NoticeRow): Static<typeof Notice> {
-  // A published notice always has its publishing time (the table's check says so).
+  // A published notice always has its publishing time, and a maintenance notice its start (the table's checks say so).
   if (row.publishedAt === null) throw new Error(`Notice ${row.id} is published but has no published_at`)
+  let window: Static<typeof Notice>['window'] = null
+  if (row.kind === 'maintenance') {
+    if (row.startsAt === null) throw new Error(`Notice ${row.id} is a maintenance notice but has no starts_at`)
+    window = { startsAt: row.startsAt.toISOString(), endsAt: row.endsAt?.toISOString() ?? null }
+  }
   return {
     id: row.id,
     title: row.title,
     body: row.body,
     kind: row.kind,
-    window:
-      row.kind === 'general'
-        ? null
-        : { startsAt: row.startsAt?.toISOString() ?? null, endsAt: row.endsAt?.toISOString() ?? null },
+    window,
     publishedAt: row.publishedAt.toISOString(),
     updatedAt: row.updatedAt?.toISOString() ?? null,
   }
