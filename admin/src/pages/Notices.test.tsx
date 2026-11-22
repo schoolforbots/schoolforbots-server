@@ -547,6 +547,23 @@ describe('the notices page: editing and publishing', () => {
     expect(await dialog.findByRole('alert')).toHaveTextContent('发布过的公告不能删除，只能撤下。')
   })
 
+  it('after a refused deletion, reads the list again and takes the notice as the server has it', async () => {
+    let reads = 0
+    const server = fakeServer({
+      [READ]: () => ok({ notices: [reads++ === 0 ? notice() : published] }),
+      'DELETE api/notices/7': fail(409, 'wrong_status', '发布过的公告不能删除，只能撤下。'),
+    })
+    const user = await open()
+
+    await user.click(editor().getByRole('button', { name: '删除草稿' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    await user.click(dialog.getByRole('button', { name: '删除' }))
+    expect(await dialog.findByRole('alert')).toHaveTextContent('发布过的公告不能删除，只能撤下。')
+    expect(await editor().findByText('状态：已发布')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: '公告' })).getByText('已发布')).toBeInTheDocument()
+    expect(server.calls.filter((call) => call.method === 'GET').length).toBeGreaterThanOrEqual(2)
+  })
+
   it('asks before dropping unsaved changes: on closing, opening another notice, or writing a new one', async () => {
     const server = serve([notice(), notice({ id: 8, title: '另一条' })])
     const user = await open()

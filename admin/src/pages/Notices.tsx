@@ -447,7 +447,13 @@ function NoticeEditor({
             deleteButton.current?.focus()
           }}
           onConfirm={async () => {
-            await deleteNotice(notice.id)
+            try {
+              await deleteNotice(notice.id)
+            } catch (error) {
+              // The dialog says the refusal; the list and the editor follow the server meanwhile.
+              void resync(error as ApiError, notice.id)
+              throw error
+            }
             setDeleting(false)
             onDeleted()
           }}
