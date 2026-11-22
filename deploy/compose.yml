@@ -7,8 +7,9 @@ x-logging: &logging
   driver: journald
 
 # Memory limits: one service that leaks is stopped (and restarted) on its own, before the machine runs out and the
-# kernel picks something to kill, the database perhaps. Each is a few times what the service was seen to use at its
-# busiest: 1200 students in class and 900 in the club at once, a lesson with 4000 students. The heap of each Node
+# kernel picks something to kill, the database perhaps. Each is well above what the service was seen to use at its
+# busiest (1200 students in class and 900 in the club at once, a lesson with 4000 students), and no swap is allowed on
+# top of it (memswap_limit), so a leak ends there rather than paging the whole machine slow. The heap of each Node
 # service stays well below its limit, so it collects its garbage harder before the limit is reached.
 x-service: &service
   image: ghcr.io/schoolforbots/server:${IMAGE_TAG:?set IMAGE_TAG in .env}
@@ -16,6 +17,7 @@ x-service: &service
   # PID 1 of its own: a TERM while the service is still starting reaches it, rather than being ignored.
   init: true
   mem_limit: 512m
+  memswap_limit: 512m
   environment: &service-environment
     NODE_ENV: production
     NODE_OPTIONS: --max-old-space-size=320
@@ -34,6 +36,7 @@ services:
   postgres:
     image: postgres:17-alpine
     mem_limit: 512m
+    memswap_limit: 512m
     environment:
       POSTGRES_USER: school
       POSTGRES_DB: school
@@ -113,6 +116,7 @@ services:
     image: caddy:2
     # It holds every WebSocket connection: about 600 MiB with 4000.
     mem_limit: 1g
+    memswap_limit: 1g
     environment:
       SCHOOL_DOMAIN: ${SCHOOL_DOMAIN:?set SCHOOL_DOMAIN in .env}
       CADDY_TLS_LINE: ''
@@ -142,6 +146,7 @@ services:
     # PID 1 of its own: docker stop reaches a running backup as a TERM, not after a silent kill.
     init: true
     mem_limit: 256m
+    memswap_limit: 256m
     env_file: backup.env
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
@@ -156,6 +161,7 @@ services:
   watchdog:
     image: docker:29-cli
     mem_limit: 64m
+    memswap_limit: 64m
     entrypoint: ['sh', '/watchdog.sh']
     environment:
       WATCHDOG_INTERVAL: '30'

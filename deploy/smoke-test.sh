@@ -144,9 +144,13 @@ expect_refused_upgrade /v1/club club
 step "deploy.sh backs the database up before migrating it, and stops there when the backup fails"
 # backup.env here has no storage, so the backup fails: the registration service must not be recreated.
 before="$(compose ps -q registration)"
-if (cd "$work" && COMPOSE_FILES="compose.yml compose.local.yml" SKIP_PULL=1 COMPOSE_PROJECT_NAME="$project" ./deploy.sh local --now); then
+if out="$(cd "$work" && COMPOSE_FILES="compose.yml compose.local.yml" SKIP_PULL=1 COMPOSE_PROJECT_NAME="$project" ./deploy.sh local --now 2>&1)"; then
+  echo "$out"
   fail "deploy.sh went on although the backup failed"
 fi
+echo "$out"
+echo "$out" | grep -q 'deploy: the backup failed' || fail "deploy.sh did not stop at the backup"
+echo "$out" | grep -q 'to go back to the version before' && fail "deploy.sh told how to go back although nothing was changed"
 [ "$(compose ps -q registration)" = "$before" ] || fail "deploy.sh recreated registration although the backup failed"
 echo "smoke: a failed backup stopped the deploy before the migration"
 

@@ -60,12 +60,12 @@ compose up -d --wait --wait-timeout "$wait_timeout" postgres
 echo "deploy: step 3/9: backing up the database before it is migrated"
 # Asked apart, so that a failure to ask stops the script (`set -e`) rather than reading as a new database.
 migrated=f
-[ "${SKIP_BACKUP:-0}" = 1 ] || migrated="$(compose exec -T postgres psql -U school -d school -tAc "select to_regclass('public.backup_runs') is not null")"
+[ "${SKIP_BACKUP:-0}" = 1 ] || migrated="$(compose exec -T postgres psql -U school -d school -tAc "select to_regclass('public.kysely_migration') is not null")"
 if [ "${SKIP_BACKUP:-0}" = 1 ]; then
   echo "deploy: SKIP_BACKUP is set, not backing up"
 elif [ "$migrated" != t ]; then
-  # A new server: the registration service has not made the tables yet, so there is nothing to keep.
-  echo "deploy: the database has no tables yet, nothing to back up"
+  # A new server: the registration service has never migrated it, so there is nothing to keep.
+  echo "deploy: the database has never been migrated, nothing to back up"
 else
   compose run --rm backup backup.sh || {
     echo "deploy: the backup failed; nothing was changed, ${previous:-the old version} is still running" >&2
@@ -73,8 +73,9 @@ else
   }
 fi
 
-# From here on the database may be migrated: a failure says how to go back.
-trap 'echo "deploy: failed; to go back to the version before: deploy/deploy.sh ${previous:-<previous tag>} --now (the backup of step 3 is in the storage)" >&2' ERR
+# From here on the database may be migrated: a failure says how to go back. On exit, as `set -e` stops the script from
+# inside the compose function too, where an ERR trap would not run.
+trap 'code=$?; [ "$code" -eq 0 ] || echo "deploy: failed; to go back to the version before: deploy/deploy.sh ${previous:-<previous tag>} --now (the backup of step 3 is in the storage)" >&2' EXIT
 
 echo "deploy: step 4/9: recreating registration (migrates the database) and waiting until it is healthy"
 compose up -d --no-deps --force-recreate --wait --wait-timeout "$registration_wait_timeout" registration
