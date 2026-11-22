@@ -160,6 +160,33 @@ describe('decide', () => {
     expect(r.state?.failingSince).toBe(at(210).toISOString())
   })
 
+  it('a school that stops answering late in a maintenance still gets half an hour', () => {
+    const { r, step } = runner()
+    // Answering in maintenance for five hours with no expected time, then stopped for the work.
+    for (let i = 0; i <= 300; i += 10) step(i, { healthy: true, maintenance: { message: '升级中' } })
+    step(301, dead)
+    step(330, dead)
+    expect(r.state).toMatchObject({ status: 'maintenance', failingSince: null })
+    step(331, dead)
+    expect(r.state?.failingSince).toBe(at(331).toISOString())
+    step(336, dead)
+    expect(r.state?.status).toBe('down')
+    expect(r.mails).toEqual(['down'])
+  })
+
+  it('a school that answers again in maintenance gets its half hour afresh the next time it stops', () => {
+    const { r, step } = runner()
+    const m: Probe = { healthy: true, maintenance: { message: '升级中' } }
+    step(0, m)
+    step(280, dead)
+    step(290, m)
+    step(300, dead)
+    step(329, dead)
+    expect(r.state).toMatchObject({ status: 'maintenance', failingSince: null })
+    step(330, dead)
+    expect(r.state?.failingSince).toBe(at(330).toISOString())
+  })
+
   it('a school still answering in maintenance past its expected time sends nothing', () => {
     const { r, step } = runner()
     const m: Probe = { healthy: true, maintenance: { message: '升级中', expectedBackAt: at(60).toISOString() } }
