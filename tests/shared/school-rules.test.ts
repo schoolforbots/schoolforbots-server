@@ -53,10 +53,12 @@ describe('the rules in the repository', () => {
     expect(body.match(/.*\d.*/gu) ?? []).toEqual([])
   })
 
-  test('number their rules 1, 2, 3… with none missing, and refer only to rules that exist', () => {
+  // A rule keeps its number, and a new one takes the next number wherever it stands (第 52 条), so the numbers need
+  // not run in the order of the text.
+  test('number their rules 1, 2, 3… each once with none missing, and refer only to rules that exist', () => {
     const { text } = loadSchoolRules(REPO_RULES).current
     const numbers = [...text.matchAll(/^第 (\d+) 条 /gmu)].map((m) => Number(m[1]))
-    expect(numbers).toEqual(numbers.map((_, i) => i + 1))
+    expect([...numbers].sort((a, b) => a - b)).toEqual(numbers.map((_, i) => i + 1))
     const references = [...text.matchAll(/(?<!^)第 (\d+) 条/gmu)].map((m) => Number(m[1]))
     expect(references.length).toBeGreaterThan(0)
     for (const n of references) expect(numbers, `第 ${n} 条`).toContain(n)
