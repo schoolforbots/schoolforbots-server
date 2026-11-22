@@ -7,9 +7,20 @@ Every minute it:
 - reads `GET /healthz` and `GET /healthz/class` (both must answer `200` within 10 seconds for the school to count as healthy) and `GET /v1/school-calendar` (its `maintenance` field);
 - reads the registration service's `GET /healthz/mail`, which says whether mail is going out;
 - reads `GET /healthz/club`, the club service's health check (it does not count towards the school's status);
+- reads `GET /v1/notices?limit=5`, the school's latest notices, to copy them into `status.json` (see below);
 - decides the status (`ok`, `maintenance` or `down`) and mails the operator when it changes in a way that needs attention.
 
 It also serves `GET /status.json` for plugins that cannot reach the school (see "The status file" in [`docs/api.en.md`](../../docs/api.en.md)). Every other path is a 404.
+
+### Notices in `status.json`
+
+Besides `status`, `message`, `since` and `updatedAt`, `status.json` has a `notices` field, so that a page can show the school's latest notices even while the school is down:
+
+```json
+"notices": { "fetchedAt": "2026-11-22T10:20:00.000Z", "items": [ /* as in GET /v1/notices, at most 5 */ ] }
+```
+
+It is `null` until the worker has read the notices once. An answer counts only if it is a `200` with the right shape (every item checked; one bad item rejects the whole answer); only the notice fields are kept, at most 5 items. A failed read (the school cannot be reached, a timeout, another status, a wrong shape) keeps the last good copy as it is. To save KV writes, new items are stored at once, but the same items again only once the copy is an hour old: `fetchedAt` is when the school last gave these items, at most about an hour behind while they stay the same. The notices never change the status or the mails. Readers that do not know the field can ignore it.
 
 ## What it mails
 
@@ -32,10 +43,11 @@ Maintenance (reported by the school, or switched on by hand) never causes a mail
 | `mail` | the worker | When mail started failing and when the operator was last told. |
 | `club` | the worker | When the club service started failing and when the operator was last told. |
 | `pending` | the worker | Mails that could not be sent yet; retried every minute and cleared once sent. |
+| `notices` | the worker | The last good copy of the school's notices (`{ fetchedAt, items }`), served in `status.json`. |
 | `manual` | the operator | The value `maintenance` forces the status to maintenance. Delete the key to go back to automatic. |
 | `note` | the operator | One sentence that replaces the generated message in `status.json`. Delete the key to remove it. |
 
-The worker writes only when something changes (the free plan allows 1,000 KV writes a day).
+The worker writes only when something changes (the free plan allows 1,000 KV writes a day), and `notices` also once an hour while it stays the same.
 
 ## Stopping the school
 
@@ -62,4 +74,4 @@ npm test
 npm run dev   # wrangler dev --test-scheduled; trigger a run with GET /__scheduled
 ```
 
-The decisions are pure functions in `src/sentinel.ts` (`decide`, `decideMail`, `decideClub`), tested in `test/sentinel.test.ts`; `src/index.ts` only reads KV, probes, and sends.
+The decisions are pure functions in `src/sentinel.ts` (`decide`, `decideMail`, `decideClub`, `parseNotices`, `decideNotices`), tested in `test/sentinel.test.ts`; `src/index.ts` only reads KV, probes, and sends.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runOnce, type Env } from '../src/index.js'
+import worker, { runOnce, type Env } from '../src/index.js'
 
 const T0 = Date.parse('2026-11-11T00:00:00Z')
 const at = (min: number) => new Date(T0 + min * 60_000)
@@ -10,18 +10,44 @@ interface School {
   club: number
   mailOk: boolean
   maintenance: { message: string; expectedBackAt?: string | null } | null
+  /** `GET /v1/notices`: the status code (0 throws) and the body. */
+  notices: { status: number; body: unknown }
+}
+
+const NOTICE = {
+  id: 1,
+  title: '周六停课',
+  body: '周六维护，停课一天。',
+  kind: 'maintenance',
+  window: { startsAt: '2026-11-28T01:00:00.000Z', endsAt: '2026-11-28T09:00:00.000Z' },
+  publishedAt: '2026-11-22T08:00:00.000Z',
+  updatedAt: null,
 }
 
 function setup() {
-  const school: School = { reg: 200, cls: 200, club: 200, mailOk: true, maintenance: null }
+  const school: School = {
+    reg: 200,
+    cls: 200,
+    club: 200,
+    mailOk: true,
+    maintenance: null,
+    notices: { status: 200, body: { notices: [], more: false } },
+  }
+  const asked: string[] = []
   vi.stubGlobal('fetch', async (input: string | URL | Request) => {
-    const path = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).pathname
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    const path = url.pathname
+    asked.push(path + url.search)
     const j = (status: number, body: unknown) => new Response(JSON.stringify(body), { status })
     if (path === '/healthz') return school.reg === 0 ? Promise.reject(new Error('x')) : j(school.reg, {})
     if (path === '/healthz/class') return school.cls === 0 ? Promise.reject(new Error('x')) : j(school.cls, {})
     if (path === '/healthz/club') return school.club === 0 ? Promise.reject(new Error('x')) : j(school.club, {})
     if (path === '/healthz/mail') return school.reg === 0 ? Promise.reject(new Error('x')) : j(200, { ok: school.mailOk })
     if (path === '/v1/school-calendar') return j(200, { maintenance: school.maintenance })
+    if (path === '/v1/notices') {
+      const n = school.notices
+      return n.status === 0 ? Promise.reject(new Error('x')) : j(n.status, n.body)
+    }
     return j(404, {})
   })
   const kv = new Map<string, string>()
@@ -46,10 +72,15 @@ function setup() {
     ALERT_TO: 'a@example.com',
     ALERT_FROM: 'b@example.com',
   } as unknown as Env
-  return { school, kv, ctl, env }
+  return { school, kv, ctl, env, asked }
 }
 
 const status = (kv: Map<string, string>) => JSON.parse(kv.get('state') ?? '{}').status
+
+async function statusJson(env: Env): Promise<Record<string, unknown>> {
+  const res = await worker.fetch(new Request('http://status.test/status.json'), env)
+  return (await res.json()) as Record<string, unknown>
+}
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -208,5 +239,87 @@ describe('runOnce', () => {
     for (let m = 22; m <= 40; m++) await runOnce(env, at(m))
     expect(status(kv)).toBe('ok')
     expect(ctl.sent).toEqual(['【机器人网校】连不上学校了', '【机器人网校】学校已恢复'])
+  })
+})
+
+describe('notices in status.json', () => {
+  it('reads the latest 5 notices and serves them', async () => {
+    const { school, env, asked } = setup()
+    school.notices.body = { notices: [NOTICE], more: false }
+    await runOnce(env, at(0))
+    expect(asked).toContain('/v1/notices?limit=5')
+    const body = await statusJson(env)
+    expect(body.notices).toEqual({ fetchedAt: at(0).toISOString(), items: [NOTICE] })
+    expect(body.status).toBe('ok')
+    expect(Object.keys(body)).toEqual(['status', 'message', 'since', 'updatedAt', 'notices'])
+  })
+
+  it('serves null when the notices were never read', async () => {
+    const { school, env, ctl } = setup()
+    school.notices.status = 404
+    await runOnce(env, at(0))
+    expect((await statusJson(env)).notices).toBeNull()
+    expect(ctl.puts).not.toContain('notices')
+  })
+
+  it.each([
+    ['unreachable', 0, { notices: [] }],
+    ['an error answer', 500, { error: 'x' }],
+    ['a malformed answer', 200, { notices: [{ ...NOTICE, kind: 'urgent' }] }],
+  ])('keeps the last copy when the school gives %s', async (_name, code, answer) => {
+    const { school, kv, env } = setup()
+    school.notices.body = { notices: [NOTICE], more: false }
+    await runOnce(env, at(0))
+    const stored = kv.get('notices')
+    school.notices = { status: code, body: answer }
+    await runOnce(env, at(1))
+    expect(kv.get('notices')).toBe(stored)
+    expect((await statusJson(env)).notices).toEqual({ fetchedAt: at(0).toISOString(), items: [NOTICE] })
+  })
+
+  it('keeps the last copy when the body is not JSON', async () => {
+    const { school, env } = setup()
+    school.notices.body = { notices: [NOTICE], more: false }
+    await runOnce(env, at(0))
+    vi.stubGlobal('fetch', async () => new Response('<html>', { status: 200 }))
+    await runOnce(env, at(1))
+    expect((await statusJson(env)).notices).toEqual({ fetchedAt: at(0).toISOString(), items: [NOTICE] })
+  })
+
+  it('does not write KV while the items stay the same, and refreshes fetchedAt hourly', async () => {
+    const { school, env, ctl } = setup()
+    school.notices.body = { notices: [NOTICE], more: false }
+    await runOnce(env, at(0))
+    for (let m = 1; m <= 59; m++) await runOnce(env, at(m))
+    expect(ctl.puts.filter((k) => k === 'notices').length).toBe(1)
+    await runOnce(env, at(60))
+    expect(ctl.puts.filter((k) => k === 'notices').length).toBe(2)
+    school.notices.body = { notices: [{ ...NOTICE, title: '改期' }], more: false }
+    await runOnce(env, at(61))
+    expect(ctl.puts.filter((k) => k === 'notices').length).toBe(3)
+  })
+
+  it('a notices failure changes neither the status nor the mails', async () => {
+    const { school, kv, ctl, env } = setup()
+    school.notices.status = 0
+    school.mailOk = false
+    await runOnce(env, at(0))
+    expect(status(kv)).toBe('ok')
+    expect(ctl.sent).toEqual(['【机器人网校】验证码发不出去了'])
+  })
+
+  it('a failing notices put still lets the other steps run', async () => {
+    const { school, kv, ctl, env } = setup()
+    school.notices.body = { notices: [NOTICE], more: false }
+    school.mailOk = false
+    const realPut = env.STATE.put.bind(env.STATE)
+    env.STATE.put = (async (k: string, v: string) => {
+      if (k === 'notices') throw new Error('boom')
+      return realPut(k, v)
+    }) as typeof env.STATE.put
+    await runOnce(env, at(0))
+    expect(status(kv)).toBe('ok')
+    expect(ctl.sent).toEqual(['【机器人网校】验证码发不出去了'])
+    expect((await statusJson(env)).notices).toBeNull()
   })
 })
