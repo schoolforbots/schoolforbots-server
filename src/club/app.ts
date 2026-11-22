@@ -10,6 +10,7 @@ import { RateWindow } from '../shared/rate-window.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
 import { HANDSHAKE_RATE_LIMITED, HandshakeGuard } from '../shared/ws-handshake.js'
+import { preCloseWebSockets } from '../shared/ws-close.js'
 import type { Club } from './club.js'
 import { MAX_FRAME_BYTES, RATE_WINDOW_MS, serveConnection } from './connection.js'
 import type { ClubClosed } from './hours.js'
@@ -96,6 +97,8 @@ export function buildClubApp(deps: ClubDeps): FastifyInstance {
 
   app.register(websocket, {
     options: { maxPayload: WS_MAX_PAYLOAD },
+    // On a stop, a client that does not answer the close of its connection is cut after a moment (see ws-close.ts).
+    preClose: preCloseWebSockets(),
     errorHandler(error, socket, request) {
       request.log.warn({ err: error }, 'club connection error')
       if (socket.readyState === socket.OPEN) {

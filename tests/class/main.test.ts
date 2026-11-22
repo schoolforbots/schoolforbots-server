@@ -7,6 +7,7 @@ import { ClassStepError, onlyClassStepsFailed } from '../../src/class/runtime.js
 import { startClassService, tickIntervalMs } from '../../src/class/service.js'
 import { startTicker, type Ticker } from '../../src/class/ticker.js'
 import { assertMigrationsUpToDate } from '../../src/shared/db.js'
+import { WS_CLOSE_GRACE_MS } from '../../src/shared/ws-close.js'
 import { exampleConfig } from '../helpers/app.js'
 import { buildTestClassApp } from '../helpers/class-app.js'
 import { createTestDb } from '../helpers/db.js'
@@ -234,6 +235,23 @@ describe('starting the class service', () => {
 
     const welcome = await helloOverTcp(key)
     expect(welcome).toMatchObject({ type: 'welcome', session: { kind: 'lesson', title: '光的折射' } })
+  })
+
+  test('stops soon even when a client never answers the close of its connection', async () => {
+    service = await buildTestClassApp({ now: new Date('2026-11-02T20:10:00+08:00') })
+    await insertLesson(service.db, { date: '2026-11-02', subject: '科学', title: '光的折射' })
+    const classId = await insertClass(service.db, { classNo: 1 })
+    const { key } = await insertStudent(service.db, { classId, status: 'active' })
+    ticker = await startClassService(service, { port: 0, host: '127.0.0.1', speed: 1 })
+    expect(await helloOverTcp(key)).toMatchObject({ type: 'welcome' })
+    // A client far away, or gone without a word: it reads nothing more, so the close is never answered.
+    ;(sockets[0] as unknown as { _socket: { pause(): void } })._socket.pause()
+
+    const started = performance.now()
+    await ticker.stop()
+    ticker = undefined
+    await service.app.close()
+    expect(performance.now() - started).toBeLessThan(WS_CLOSE_GRACE_MS + 2_000)
   })
 
   test('hands the ticker it starts to /healthz, so a started service is healthy', async () => {
