@@ -11,7 +11,7 @@ This is the reference for everything a plugin can call: the HTTP API, the classr
 - Errors: every failure is `{ "error": { "code": string, "message": string } }` (`ErrorBody` in the schema). `code` is for the plugin to act on; `message` is Chinese and can be shown to the bot owner as is. Some errors add fields next to `code` and `message`; each route below says which. The codes are listed in [HTTP error codes](#http-error-codes).
 - Every route can also answer `429 rate_limited` (too many requests from one network address in a minute; the routes that send or check an email code have a stricter limit) and `500 internal_error` (a fault on the school's side). A path that does not exist is `404 not_found`. Neither is repeated under each route.
 - Time: moments are ISO 8601 date-times; days are `YYYY-MM-DD` in the school's timezone.
-- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff` and `GET /v1/school-rules/{version}` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
+- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}` and `GET /v1/next-session` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
 
 ## HTTP routes
 
@@ -216,6 +216,59 @@ Errors: `400 invalid_request` (`from` missing or not a date); `404 not_found` (t
 One version of the rules, the current one or an old one. No key. Reply: `200` with `SchoolRulesVersionResult`.
 
 Errors: `400 invalid_request` (`{version}` is not a date); `404 not_found`.
+
+### `GET /v1/notices`
+
+The school's published notices, newest first. No key. Query: `limit`, optional, how many to give, a whole number from 1 to 50, 20 when not given. Reply: `200` with `NoticesResult`: `notices` are the notices, ordered by `publishedAt`, newest first (for the same moment, the higher `id` first), at most `limit` of them; `more` is `true` when there are older ones besides. Only published notices appear: drafts and withdrawn notices do not.
+
+Each notice is a `Notice`:
+
+- `id`: the notice's number, a positive integer, for linking to one notice (see `GET /v1/notices/{id}`).
+- `title`: the title, plain text.
+- `body`: the text, in the small part of Markdown described below. The server stores and gives it exactly as written, never as HTML.
+- `kind`: `general` (a general notice) or `maintenance` (a maintenance notice).
+- `window`: `null` for a general notice; for a maintenance notice, `{ startsAt, endsAt }`, when the maintenance starts and ends. `startsAt` is always there; `endsAt` is `null` while the end is not known. A maintenance notice is only an announcement: whether the school is under maintenance now is the `maintenance` of `GET /v1/school-calendar`.
+- `publishedAt`: when the notice was first published. It stays the same when the notice is withdrawn and published again; the operator can correct it (for a notice that went out late, say).
+- `updatedAt`: when the content was last changed after publishing, `null` when it never was.
+
+The times in a notice are UTC ISO 8601 date-times (ending in `Z`); convert them to whatever time zone they are shown in. A successful reply carries `Cache-Control: public, max-age=60`: a browser or a cache on the way may keep it for 60 seconds, so a notice just published, changed or withdrawn can take about a minute to show.
+
+The body is shown by the rules below. The school's admin previews a notice by these rules, so a website that follows them shows the same as the preview:
+
+1. The whole body is text first: HTML in it is shown as the characters it is, never put into the page as HTML.
+2. CRLF and a lone CR both read as a line break. A line that is empty or only whitespace is blank; blank lines separate blocks, and several in a row count as one. A body of nothing but blank lines shows nothing.
+3. Within a block, a line whose first two characters are exactly `- ` (a hyphen and a space, nothing before them) is a list item, its text the rest of the line; consecutive items make one list (`<ul>`, a `<li>` each). Every other run of consecutive lines is a paragraph (`<p>`), the lines kept apart by a line break (`<br>`). So a list and a paragraph are separate even with no blank line between them.
+4. In each line (a line of a paragraph, or a list item), from the left:
+   - `[text](https://address)` is a link: `text` is one or more characters other than `]`; the address starts with exactly `https://` (lower case) and runs on with one or more characters that are neither whitespace nor `)`, up to the first `)`. The link opens in a new page, with `rel="noopener noreferrer"`. Any other address (`http:`, `javascript:`, `data:`, a relative one) is not a link: the whole of it is shown as text.
+   - `**text**` is bold (`<strong>`): `text` is one or more characters, up to the nearest `**` on the same line.
+
+   The one that starts further left wins; where both start at the same place, the link. Nothing nests: the text of a link or of bold is plain, `**` and brackets included. Everything else, an unmatched `**` or `[` included, is plain text.
+
+Errors: `400 invalid_request` (`limit` is not a whole number from 1 to 50).
+
+### `GET /v1/notices/{id}`
+
+One published notice. No key. Reply: `200` with `NoticeResult`: `notice`, with the fields and format of `GET /v1/notices`. A successful reply carries the same `Cache-Control: public, max-age=60`.
+
+Errors: `400 invalid_request` (`{id}` is not a positive integer: digits only, not starting with 0); `404 not_found` (there is no such notice, or it is a draft or withdrawn).
+
+### `GET /v1/next-session`
+
+The school's session going on now, or the next one. No key. Reply: `200` with `NextSessionResult`: `session`, which is `null` when there is no session in the 30 days from today (in the school's time zone), on a break, say.
+
+A session is one slot of a school day (weekend study days included) in which at least one class has students (active or suspended). The fields of `session`:
+
+- `date`: the session's day, `YYYY-MM-DD` in the school's time zone; `slot`: its slot (`morning`, `afternoon` or `evening`).
+- `startsAt`: when it starts; `endsAt`: when the classes are dismissed; `doorsOpenAt`: when the doors open, before the start. All three are UTC ISO 8601 date-times and match what the class service actually does, so `endsAt` is not necessarily the `end` of the slot in the calendar's `slots`.
+- `inProgress`: `true` from the doors opening to the dismissal, when the session given is the one going on; after the dismissal the next one is given.
+- `kind`: `lesson` or `study` (a study hall, 自习). Monday to Friday it is `lesson`, at the weekend `study`. When a division's lesson is still not approved as the first class of the division opens its doors that day, the division has a study hall that day instead; once that is decided, the session is given as decided. The session is `lesson` when any division has a lesson.
+- `divisions`: the divisions with a class in the slot that has students in it, in the order `primary`, `junior`, `senior`, each `{ division, subject, title }`: the subject and title of the division's lesson. They are there once the lesson is approved; before that (the lesson is being prepared), and in a study hall, they are `null`.
+
+While the school is under maintenance (the `maintenance` of `GET /v1/school-calendar` is not `null`), no classes are held, so `inProgress` is always `false`: the session given is the first whose doors open after the maintenance is expected to end (`expectedBackAt`), or after now when that is not known or already past. A session that met maintenance at any moment from its doors opening to its close is not held, so once the maintenance is over, a session whose doors had opened and that met it is skipped as well, and the next one is given. Maintenance notices do not affect this route.
+
+The reply has only times, the kind of session and divisions: nothing about students or classes. A successful reply carries `Cache-Control: public, max-age=60`.
+
+Errors: none of its own.
 
 ## Classroom WebSocket
 
@@ -932,7 +985,13 @@ Most of the game is left out here. The landlord has played out every card, and t
 The school also publishes a small status file from a separate host, so that a plugin that cannot reach the school can still learn why. It is at `https://status.<the school's domain>/status.json` (the exact address comes with the plugin or the school's announcement):
 
 ```json
-{ "status": "ok", "message": null, "since": "2026-11-11T09:00:00.000Z", "updatedAt": "2026-11-11T12:30:00.000Z" }
+{
+  "status": "ok",
+  "message": null,
+  "since": "2026-11-11T09:00:00.000Z",
+  "updatedAt": "2026-11-11T12:30:00.000Z",
+  "notices": { "fetchedAt": "2026-11-11T12:00:00.000Z", "items": [] }
+}
 ```
 
 - `status` is `ok`, `maintenance` or `down`. `message` is Chinese and can be shown to the bot owner; it is `null` when `status` is `ok`. `since` is when the status began, and `updatedAt` is when the file last changed.
@@ -941,6 +1000,7 @@ The school also publishes a small status file from a separate host, so that a pl
 - `down`: the school's server has a fault and is being repaired. Tell the bot owner the `message` and that the plugin will keep trying, and keep reconnecting with the growing waits above.
 - `ok` while the school still cannot be reached means the problem is likely between the bot owner and the school (for example the bot owner's own network); keep the growing waits and do not blame the school.
 - The file is cached for 30 seconds, so a change can take a little while to show. If the file itself cannot be read, ignore it and carry on as before.
+- `notices` is a copy of the school's latest notices, so that a website can show them even while the school cannot be reached: `{ fetchedAt, items }`, where `items` are copied from the `notices` of `GET /v1/notices?limit=5` (at most 5, each a `Notice`). It is `null` until the notices have been read once. The copy is read from the school every minute; when that fails (the school cannot be reached, a timeout, a wrong answer), the last copy stays as it is. `fetchedAt` is when the school last gave these notices: while they stay the same it is updated only about once an hour, so it can be up to about an hour behind. The notices do not change `status`. Readers that do not use the notices can ignore the field.
 
 ## Notes for plugin authors
 

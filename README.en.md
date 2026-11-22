@@ -205,7 +205,7 @@ These keys of the school config are about the model and the admin (see `config/s
 
 To work on the pages, `npm run admin:dev` serves them at `http://localhost:5173/` and passes their API calls on to a running registration service (it reads `ADMIN_PATH` from `.env`); `npm run admin:test` runs their tests.
 
-The admin has five tabs: 学校数据 (today's numbers so far, there as soon as a class is over, next to the same day a week before up to the same time; yesterday's next to the same day a week before; the reminders; the model's spend against the budget; and charts of the last 7, 30 or 90 days, up to yesterday), 审课 (the lessons of the days ahead, see below), 每周复盘 (the weekly review, made every Monday after the midnight job), 查学生 (a student's details, messages and records; suspend, withdraw or lift a penalty by hand) and 开关 (the switches).
+The admin has six tabs: 学校数据 (today's numbers so far, there as soon as a class is over, next to the same day a week before up to the same time; yesterday's next to the same day a week before; the reminders; the model's spend against the budget; and charts of the last 7, 30 or 90 days, up to yesterday), 审课 (the lessons of the days ahead, see below), 每周复盘 (the weekly review, made every Monday after the midnight job), 查学生 (a student's details, messages and records; suspend, withdraw or lift a penalty by hand), 开关 (the switches) and 公告 (the notices, see "Notices" below).
 
 A suspension or withdrawal in 查学生, a student withdrawing on their own (`POST /v1/me/withdraw`), or an expulsion reaches a student who is connected within seconds, in a lesson going on too: the class and club services check the standing of the students online every `switchRefreshSeconds`, and send whoever may no longer stay the matching `closing` and disconnect them (`suspended` for a suspension, `expelled` for an expulsion; for a withdrawal, `session_over` in class and `not_member` in the club).
 
@@ -216,6 +216,18 @@ The 开关 tab also has a 维护中 section: a switch with a message for the plu
 A day on which maintenance was on at some time between a class slot's doors opening and its close does not count toward `inactivityDropDays`, like a day on a break: students are not dropped for days they could not come.
 
 Stopping the services for a while (work on the server, a restore) goes in this order. Switch maintenance on, wait until the outside sentinel's `status.json` shows `maintenance` (it looks every minute, so this takes up to about two minutes), and only then stop the services. The sentinel tells maintenance from an outage by what the school said before it stopped answering: a school that stops answering before the sentinel has seen the maintenance counts as down, and after 5 minutes `status.json` tells the plugins so and the operator is mailed. A school in maintenance may stay silent only for so long, too: half an hour past the expected time set in the admin (with none set, four hours after the maintenance began), after which the sentinel treats it as down as well and mails 5 minutes later; once the school stops answering, though, the sentinel always waits half an hour first. So for long work, set the expected time later. After the work, start the services, check that all three are healthy, and only then switch maintenance off: switching it off is what tells the plugins to come back.
+
+### Notices
+
+The admin's 公告 (notices) tab is where the school's notices are written. A published notice can be read by anyone through `GET /v1/notices` and `GET /v1/notices/{id}`: no key is needed, and a web page on any site can read them directly. The outside sentinel also copies the latest 5 into `status.json`, so they can be seen while the school cannot be reached. The routes and the format of the text are in the [plugin API reference](docs/api.en.md).
+
+- A notice is saved as a draft first, and published once its preview has been checked. The title is 1 to 60 characters; the text is at most 4,000 characters, in a small part of Markdown: paragraphs, lists of lines starting with `- `, `**bold**` and `https://` links. The preview and the website show the text by the same rules.
+- A notice is either general or about maintenance. A maintenance notice needs the time the maintenance starts; the end may be left out, and when it is given it must be after the start. A maintenance notice is only an announcement and does not put the school under maintenance: that is still the 维护中 switch on the 开关 tab.
+- A published notice can be withdrawn, after which the routes no longer give it; a withdrawn one can be published again, and keeps the time it was first published. A change to a published notice takes effect at once and is marked with the time of the change (`updatedAt` in the routes).
+- Only a draft can be deleted. A notice that was ever published can only be withdrawn, so it stays on record.
+- The publishing time of a notice that was ever published can be corrected (for a notice that went out late, say), but not to a time after now. Correcting it alone does not count as a change.
+- The times on the tab are entered and shown in the school's time zone (`timezone` in the configuration).
+- Notices are kept in the `notices` table.
 
 ### Runtime switches
 
@@ -381,7 +393,7 @@ If the database is down when a backup runs, no row can be written (the run recor
 
 ### Outside sentinel
 
-The school cannot report its own outage, so a small Cloudflare Worker in [`ops/status-worker/`](ops/status-worker/README.md) checks it from the outside every minute. It mails the operator when the school cannot be reached or when mail stops going out; it also mails when the club service has not answered for 5 minutes (not during maintenance), and once more when it is back, but the club service does not count in the status file. It also serves a status file (`/status.json`) that plugins read when they cannot reach the school. See its README for deployment.
+The school cannot report its own outage, so a small Cloudflare Worker in [`ops/status-worker/`](ops/status-worker/README.md) checks it from the outside every minute. It mails the operator when the school cannot be reached or when mail stops going out; it also mails when the club service has not answered for 5 minutes (not during maintenance), and once more when it is back, but the club service does not count in the status file. It also serves a status file (`/status.json`) that plugins read when they cannot reach the school; it carries a copy of the school's latest 5 notices too, so a website can show them while the school cannot be reached. See its README for deployment.
 
 ## Running a whole lesson locally
 
