@@ -118,6 +118,16 @@ test('bad input is a 400 invalid_request and changes nothing', async () => {
     { title: '标题', body: '', kind: 'maintenance', startsAt: 'next tuesday' },
     { title: '标题', body: '', kind: 'maintenance', startsAt: START, endsAt: START },
     { title: '标题', body: '', kind: 'maintenance', startsAt: END, endsAt: START },
+    // No offset: it would be read in the server's own time zone.
+    { title: '标题', body: '', kind: 'maintenance', startsAt: '2026-11-24T02:00' },
+    { title: '标题', body: '', kind: 'maintenance', startsAt: '1' },
+    // A year the database cannot hold.
+    { title: '标题', body: '', kind: 'maintenance', startsAt: '-200000-01-01T00:00:00Z' },
+    { title: '标题', body: '', kind: 'maintenance', startsAt: '1999-12-31T23:59:59Z' },
+    // Text the database would refuse, or store changed.
+    { title: 'a\u0000b', body: '', kind: 'general' },
+    { title: '标题', body: 'a\u0000b', kind: 'general' },
+    { title: '标题', body: 'a\ud800b', kind: 'general' },
     { title: 5, body: '', kind: 'general' },
     { title: '标题', body: '', kind: 'general', extra: true },
   ]

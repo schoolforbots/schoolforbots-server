@@ -52,16 +52,32 @@ interface Content {
   endsAt: Date | null
 }
 
-/** A time as the page sends it (ISO 8601); absent or null is none; anything else is a 400. */
+/**
+ * A full ISO 8601 date and time with its offset (`Z` or `+08:00`): one with no offset would be read in the server's
+ * own time zone.
+ */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/
+
+/** A time as the page sends it; absent or null is none; anything else, or a year the database cannot hold, a 400. */
 function timeOf(text: string | null | undefined): Date | null {
   if (text === undefined || text === null) return null
+  if (!ISO_TIME.test(text)) throw INVALID
   const d = new Date(text)
   if (Number.isNaN(d.getTime())) throw INVALID
+  const year = d.getUTCFullYear()
+  if (year < 2000 || year > 9999) throw INVALID
   return d
 }
 
+/** Text the database can store as it is: no NUL, and no lone half of a surrogate pair (it would come back changed). */
+function storable(text: string): boolean {
+  return !text.includes('\u0000') && !LONE_SURROGATE.test(text)
+}
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
 /** The notice's content as it will be stored, or a 400 for anything the table or the spec would refuse. */
 function contentOf(body: Static<typeof CreateBody>): Content {
+  if (!storable(body.title) || !storable(body.body)) throw INVALID
   const title = body.title.trim()
   const titleLength = [...title].length
   if (titleLength < 1 || titleLength > MAX_TITLE) throw INVALID
