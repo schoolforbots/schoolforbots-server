@@ -169,6 +169,21 @@ test('an unknown notice is a 404 on every route', async () => {
   }
 })
 
+test('a number with a leading zero names no notice, as on the public routes', async () => {
+  const id = await create()
+  const padded = `00${id}`
+  for (const [method, path, payload] of [
+    ['PUT', `api/notices/${padded}`, { title: '标题', body: '', kind: 'general' }],
+    ['POST', `api/notices/${padded}/publish`, undefined],
+    ['POST', `api/notices/${padded}/withdraw`, undefined],
+    ['DELETE', `api/notices/${padded}`, undefined],
+  ] as const) {
+    const res = await send(method, path, payload)
+    expect(res.statusCode, `${method} ${path}`).toBe(404)
+    expect(res.json()).toMatchObject({ error: { code: 'not_found' } })
+  }
+})
+
 test('publish, withdraw, publish again: the first publishing time stays', async () => {
   const id = await create()
   t.clock.advance(MINUTE)
