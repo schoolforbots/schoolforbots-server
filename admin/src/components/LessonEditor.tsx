@@ -103,7 +103,7 @@ export function LessonEditor({
 
   return (
     <EditingContext value={editing}>
-      <article ref={article} className="panel lesson">
+      <article ref={article} className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white">
         <Head slot={slot} focused={focused} />
         {segments.map((segment, index) => (
           <Fragment key={index}>

@@ -1,5 +1,5 @@
-import { Button, Checkbox, Input, TextArea } from '../ui.js'
-import { useId, useRef, useState } from 'react'
+import { Badge, Button, Card, Checkbox, Input, TextArea } from '../ui.js'
+import { useId, useRef, useState, type RefObject } from 'react'
 import {
   MAINTENANCE_PATH,
   setMaintenance,
@@ -17,9 +17,11 @@ import { useFocusOnMount } from '../focus.js'
 import { moment, SWITCH_NAMES } from '../labels.js'
 import { useSchoolZone } from '../zone.js'
 
-// The runtime switches: one row each, with what the school does while it is on and while it is off, where it stands
-// and when it last changed. Switching asks first. The class service reads the switches every few seconds, so a
-// change reaches the lessons under way without stopping them.
+// The runtime switches, drawn as the notifications card of HyperUI's settings template: one row each, with what the
+// school does while it is on and while it is off, where it stands and when it last changed, and a toggle on the
+// right. The toggle only asks: switching happens in the dialog it opens. The class service reads the switches every
+// few seconds, so a change reaches the lessons under way without stopping them. Maintenance is a card of its own
+// above, tinted yellow while the school is under it.
 
 /** What each switch does, on and off. */
 const EFFECTS: Record<SwitchName, { on: string; off: string }> = {
@@ -37,13 +39,54 @@ const EFFECTS: Record<SwitchName, { on: string; off: string }> = {
   },
 }
 
+const DONE = 'mt-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800'
+const WRONG = 'rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800'
+const LABEL = 'mt-2 block text-sm font-medium text-gray-700'
+
 /** Said after a switch changed; it takes the focus the dialog's button had. */
 function Switched({ text }: { text: string }) {
   const self = useFocusOnMount<HTMLParagraphElement>()
   return (
-    <p ref={self} tabIndex={-1} className="action-done" role="status">
+    <p ref={self} tabIndex={-1} className={DONE} role="status">
       {text}
     </p>
+  )
+}
+
+/**
+ * The template's toggle switch, drawn on a button: it does not switch, it asks (the dialog does it). Its name is what
+ * it would do, 关掉 or 打开; the badge beside the title says where the switch stands.
+ */
+function Toggle({
+  on,
+  label,
+  opener,
+  onClick,
+}: {
+  on: boolean
+  label: string
+  opener: RefObject<HTMLButtonElement | null>
+  onClick: () => void
+}) {
+  return (
+    <button
+      ref={opener}
+      type="button"
+      onClick={onClick}
+      className={
+        'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full ring-1 ring-inset ' +
+        (on ? 'bg-indigo-600 ring-indigo-600 hover:bg-indigo-700' : 'bg-gray-200 ring-gray-400 hover:bg-gray-300')
+      }
+    >
+      <span className="sr-only">{label}</span>
+      <span
+        aria-hidden="true"
+        className={
+          'inline-block size-5 rounded-full bg-white shadow-sm ring-1 ring-gray-900/10 ' +
+          (on ? 'translate-x-5.5' : 'translate-x-0.5')
+        }
+      />
+    </button>
   )
 }
 
@@ -58,47 +101,53 @@ function SwitchRow({ state, onChanged }: { state: SwitchState; onChanged: (state
   const verb = state.on ? '关掉' : '打开'
 
   return (
-    <section className="switch" aria-labelledby={titleId}>
-      <div className="switch-head">
-        <h2 id={titleId} className="switch-name">
-          {name}
-        </h2>
-        <p className={state.on ? 'switch-state is-on' : 'switch-state'}>{state.on ? '现在开着' : '现在关着'}</p>
-        <Button ref={opener} onClick={() => setAsking(true)}>
-          {verb}
-        </Button>
-      </div>
-      <ul className="switch-effects">
-        {/* The effect in force now reads darker than the other. */}
-        <li className={state.on ? 'switch-now' : undefined}>{effects.on}</li>
-        <li className={state.on ? undefined : 'switch-now'}>{effects.off}</li>
-      </ul>
-      <p className="switch-when">
-        {state.updatedAt === null ? '还没切换过，用的是配置里的默认值。' : `最近一次切换：${moment(state.updatedAt, zone)}`}
-      </p>
-      {done !== undefined && <Switched key={done.n} text={done.text} />}
-      {asking && (
-        <Confirm
-          title={`${verb}“${name}”？`}
-          confirm={verb}
-          busy={`正在${verb}`}
-          cancel={state.on ? '先不关' : '先不开'}
-          onCancel={() => {
-            setAsking(false)
-            opener.current?.focus()
-          }}
-          onConfirm={async () => {
-            const next = await setSwitch(state.name, !state.on)
-            onChanged(next)
-            setAsking(false)
-            setDone((last) => ({ text: `已${verb}。上课服务几秒内读到。`, n: (last?.n ?? 0) + 1 }))
-          }}
-        >
-          <p>{state.on ? effects.off : effects.on}</p>
-          <p>上课服务每隔几秒读一次开关，几秒内生效，正在上的课不用断。</p>
-        </Confirm>
-      )}
-    </section>
+    <li className="py-5 first:pt-0 last:pb-0">
+      <section aria-labelledby={titleId}>
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 id={titleId} className="text-sm font-medium text-gray-900">
+                {name}
+              </h3>
+              <Badge tone={state.on ? 'green' : 'gray'}>{state.on ? '现在开着' : '现在关着'}</Badge>
+            </div>
+            <ul className="mt-2 space-y-1 text-sm">
+              {/* The effect in force now reads darker than the other. */}
+              <li className={state.on ? 'text-gray-900' : 'text-gray-500'}>{effects.on}</li>
+              <li className={state.on ? 'text-gray-500' : 'text-gray-900'}>{effects.off}</li>
+            </ul>
+            <p className="mt-2 text-xs text-gray-600">
+              {state.updatedAt === null
+                ? '还没切换过，用的是配置里的默认值。'
+                : `最近一次切换：${moment(state.updatedAt, zone)}`}
+            </p>
+          </div>
+          <Toggle on={state.on} label={verb} opener={opener} onClick={() => setAsking(true)} />
+        </div>
+        {done !== undefined && <Switched key={done.n} text={done.text} />}
+        {asking && (
+          <Confirm
+            title={`${verb}“${name}”？`}
+            confirm={verb}
+            busy={`正在${verb}`}
+            cancel={state.on ? '先不关' : '先不开'}
+            onCancel={() => {
+              setAsking(false)
+              opener.current?.focus()
+            }}
+            onConfirm={async () => {
+              const next = await setSwitch(state.name, !state.on)
+              onChanged(next)
+              setAsking(false)
+              setDone((last) => ({ text: `已${verb}。上课服务几秒内读到。`, n: (last?.n ?? 0) + 1 }))
+            }}
+          >
+            <p>{state.on ? effects.off : effects.on}</p>
+            <p>上课服务每隔几秒读一次开关，几秒内生效，正在上的课不用断。</p>
+          </Confirm>
+        )}
+      </section>
+    </li>
   )
 }
 
@@ -121,6 +170,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
 
   const current = read.data?.maintenance ?? null
   const turningOn = current === null
+  const under = current !== null
   const [editing, setEditing] = useState(false)
   const [clearBack, setClearBack] = useState(false)
   const asksMessage = turningOn || editing
@@ -138,38 +188,49 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
   }
 
   return (
-    <section className="switch" aria-labelledby={titleId}>
-      <div className="switch-head">
-        <h2 id={titleId} className="switch-name">
-          维护中
-        </h2>
-        <p className="switch-state">{read.data === undefined ? '' : turningOn ? '现在没在维护' : '现在维护中'}</p>
-        {read.data !== undefined && (
-          <>
-            {!turningOn && (
-              <Button onClick={() => open(true)}>修改说明</Button>
+    <section
+      className={'rounded-lg border p-6 ' + (under ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200 bg-white')}
+      aria-labelledby={titleId}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 id={titleId} className="text-base font-semibold text-gray-900">
+              维护中
+            </h2>
+            {read.data !== undefined && (
+              <Badge tone={under ? 'yellow' : 'gray'}>{turningOn ? '现在没在维护' : '现在维护中'}</Badge>
             )}
-            <Button ref={opener} onClick={() => open(false)}>
+          </div>
+          <ul className="mt-2 space-y-1 text-sm">
+            <li className={under ? 'text-gray-900' : 'text-gray-500'}>
+              维护中：上课服务和社团服务都不让任何人进，在线的插件都会被断开，社团里打到一半的牌局由托管替所有人打完；校历接口把说明和预计恢复时间告诉插件。
+            </li>
+            <li className={under ? 'text-gray-500' : 'text-gray-900'}>没在维护：一切照常。</li>
+          </ul>
+        </div>
+        {read.data !== undefined && (
+          <div className="flex shrink-0 gap-2">
+            {!turningOn && <Button onClick={() => open(true)}>修改说明</Button>}
+            <Button ref={opener} type={turningOn ? 'default' : 'primary'} onClick={() => open(false)}>
               {turningOn ? '开始维护' : '结束维护'}
             </Button>
-          </>
+          </div>
         )}
       </div>
-      {read.error !== undefined && <p className="action-error" role="alert">没能读取维护状态。{read.error.message}</p>}
-      <ul className="switch-effects">
-        <li className={turningOn ? undefined : 'switch-now'}>
-          维护中：上课服务和社团服务都不让任何人进，在线的插件都会被断开，社团里打到一半的牌局由托管替所有人打完；校历接口把说明和预计恢复时间告诉插件。
-        </li>
-        <li className={turningOn ? 'switch-now' : undefined}>没在维护：一切照常。</li>
-      </ul>
+      {read.error !== undefined && (
+        <p className={`mt-3 ${WRONG}`} role="alert">
+          没能读取维护状态。{read.error.message}
+        </p>
+      )}
       {current !== null && (
-        <>
-          <p className="switch-when">说明：{current.message}</p>
-          <p className="switch-when">开始时间：{moment(current.since, zone)}</p>
-          <p className="switch-when">
+        <div className="mt-4 grid grid-cols-3 gap-4 rounded-md border border-yellow-200 bg-white p-4 text-sm">
+          <p className="text-gray-900">说明：{current.message}</p>
+          <p className="text-gray-700">开始时间：{moment(current.since, zone)}</p>
+          <p className="text-gray-700">
             预计恢复：{current.expectedBackAt === null ? '没有写' : moment(current.expectedBackAt, zone)}
           </p>
-        </>
+        </div>
       )}
       {done !== undefined && <Switched key={done.n} text={done.text} />}
       {asking && (
@@ -202,8 +263,12 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
         >
           {asksMessage ? (
             <>
-              {turningOn ? <p>开始维护以后，在线的插件都会被断开（社团里打到一半的牌局由托管打完），新的连接也不让进，直到结束维护。</p> : <p>只改说明和预计恢复时间，维护照常进行。</p>}
-              <label className="field-label" htmlFor={messageId}>
+              {turningOn ? (
+                <p>开始维护以后，在线的插件都会被断开（社团里打到一半的牌局由托管打完），新的连接也不让进，直到结束维护。</p>
+              ) : (
+                <p>只改说明和预计恢复时间，维护照常进行。</p>
+              )}
+              <label className={LABEL} htmlFor={messageId}>
                 说明（插件会看到，最多 {MAX_MESSAGE} 字）
               </label>
               <TextArea
@@ -214,10 +279,18 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
                 autoSize={{ minRows: 2, maxRows: 5 }}
                 onChange={(event) => setMessage(event.target.value)}
               />
-              <label className="field-label" htmlFor={hoursId}>
+              <label className={LABEL} htmlFor={hoursId}>
                 预计几小时后恢复（可以不填）
               </label>
-              <Input id={hoursId} type="number" disabled={clearBack} min={0} step={0.5} value={hours} onChange={(event) => setHours(event.target.value)} />
+              <Input
+                id={hoursId}
+                type="number"
+                disabled={clearBack}
+                min={0}
+                step={0.5}
+                value={hours}
+                onChange={(event) => setHours(event.target.value)}
+              />
               {editing && current?.expectedBackAt != null && (
                 <>
                   <p>
@@ -228,7 +301,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
                   </Checkbox>
                 </>
               )}
-              {!hoursOk && <p className="action-error">预计恢复的小时数要大于 0。</p>}
+              {!hoursOk && <p className={WRONG}>预计恢复的小时数要大于 0。</p>}
               {turningOn && <p>哪个时段从开门到下课之间碰上维护，这个时段今天就不上课了，哪怕维护提前结束，以后也不补。</p>}
               {turningOn && <p>维护的日子不算进自动退学的天数。</p>}
             </>
@@ -247,36 +320,43 @@ export function Switches() {
 
   if (read.data === undefined) {
     return (
-      <div className="panel">
+      <Card>
         {read.error !== undefined ? (
           <Failed what="开关" reason={read.error.message} retry={read.reload} />
         ) : (
           <Loading what="开关" />
         )}
-      </div>
+      </Card>
     )
   }
   const { switches } = read.data
   if (switches.length === 0) {
     return (
-      <div className="panel">
+      <Card>
         <Empty why="服务器这次没有列出开关，重新读取看看。" action={<Button onClick={read.reload}>重新读取</Button>} />
-      </div>
+      </Card>
     )
   }
   return (
-    <div className="panel switches">
+    <div className="space-y-6">
       <MaintenanceRow read={maintenance} />
-      {switches.map((state) => (
-        <SwitchRow
-          key={state.name}
-          state={state}
-          // The switch as the server now has it, with the time it changed.
-          onChanged={(next) =>
-            read.set({ switches: switches.map((other) => (other.name === next.name ? next : other)) })
-          }
-        />
-      ))}
+      <Card
+        title="运行时开关"
+        description="上课服务每隔几秒读一次开关，切换以后几秒内生效，正在上的课不用断。每次切换都先确认。"
+      >
+        <ul className="mt-6 divide-y divide-gray-200">
+          {switches.map((state) => (
+            <SwitchRow
+              key={state.name}
+              state={state}
+              // The switch as the server now has it, with the time it changed.
+              onChanged={(next) =>
+                read.set({ switches: switches.map((other) => (other.name === next.name ? next : other)) })
+              }
+            />
+          ))}
+        </ul>
+      </Card>
     </div>
   )
 }

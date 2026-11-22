@@ -1,18 +1,14 @@
 @import 'tailwindcss';
 
-/* The admin pages, after HyperUI's application components and its analytics dashboard: a white sidebar with the
-   pages, a header naming the page, white cards with a hairline edge and a faint shadow on a light grey page.
-   The school's own two colours stay: blackboard green for what acts, the red pen for review marks.
-   Desktop only: the page keeps 1200px and scrolls sideways below that. See DESIGN.md. */
+/* The admin pages are written with Tailwind in the components, after HyperUI's application components and its
+   analytics dashboard template. What stays here: the theme (colours written out for the contrast test), the base
+   rules, and the few things utility classes do not reach (the charts' SVG and readout, the red pen, the notice body
+   as the website shows it). Desktop only: the page keeps 1200px and scrolls sideways below that. See DESIGN.md. */
 
 @theme {
   --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif;
-  /* Blackboard green: white text on it is 7.49:1. */
+  /* The school's blackboard green, as the website uses it: the links of a notice's body, shown as the website will. */
   --color-brand: #2f5d50;
-  --color-brand-dark: #245146;
-  --color-brand-darker: #1c4037;
-  /* The chosen row or choice: the green text on it is 6.42:1. */
-  --color-brand-tint: #e8efec;
   /* The red pen: review marks, and the one alarm (spend over budget). 5.34:1 on white. */
   --color-red-pen: #c8312b;
   /* The edge of a field or a button: 3.2:1 on the page and on white, so a control is found by its outline. */
@@ -20,8 +16,8 @@
   /* A disabled control's words (正在登录): 6.1:1 on its grey fill. */
   --color-disabled: #4b5563;
   --color-placeholder: #6b7280;
-  /* gray-500 is a shade darker than Tailwind's #6b7280, so quiet words read on a grey note too (4.5:1 or more). */
-  /* Tailwind's greys, written out so the contrast test (palette.test.tsx) reads the same values the page uses. */
+  /* Tailwind's greys, written out so the contrast test (palette.test.tsx) reads the same values the page uses.
+     gray-500 is a shade darker than Tailwind's #6b7280, so quiet words read on a grey note too (4.5:1 or more). */
   --color-gray-50: #f9fafb;
   --color-gray-100: #f3f4f6;
   --color-gray-200: #e5e7eb;
@@ -33,6 +29,19 @@
   --color-gray-800: #1f2937;
   --color-gray-900: #111827;
   --color-gray-950: #030712;
+  /* The badges' colours (HyperUI's green, yellow, red, indigo and blue badges), written out for the same test. */
+  --color-green-100: #dcfce7;
+  --color-green-800: #166534;
+  --color-yellow-100: #fef9c3;
+  --color-yellow-800: #854d0e;
+  --color-red-50: #fef2f2;
+  --color-red-100: #fee2e2;
+  --color-red-200: #fecaca;
+  --color-red-700: #b91c1c;
+  --color-indigo-100: #e0e7ff;
+  --color-indigo-700: #4338ca;
+  --color-blue-100: #dbeafe;
+  --color-blue-700: #1d4ed8;
 }
 
 @layer base {
@@ -55,14 +64,19 @@
   button:disabled {
     cursor: not-allowed;
   }
-  /* The focus ring: 2px of the green. Never removed. */
+  /* The focus ring: 2px of near-black, as the template's. Never removed. */
   :focus-visible {
-    outline: 2px solid var(--color-brand);
+    outline: 2px solid var(--color-gray-900);
     outline-offset: 2px;
   }
   table {
     border-collapse: collapse;
   }
+}
+
+/* HyperUI's tables: a thick line under the header (ui.tsx TABLE). */
+.ui-table > thead {
+  border-bottom: 2px solid var(--color-gray-200);
 }
 
 /* Out of sight, still read out: a live region with nothing to say yet. */
@@ -78,109 +92,6 @@
   white-space: nowrap;
 }
 
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.panel {
-  padding: 20px 24px;
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-  background: #fff;
-  box-shadow: var(--shadow-xs);
-}
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-.panel-title {
-  margin: 0 0 12px;
-  color: var(--color-gray-900);
-  font-size: 16px;
-  font-weight: 600;
-}
-.panel-head .panel-title {
-  margin: 0;
-}
-/* The curves sit on the page itself, each in its own panel. */
-.range {
-  padding: 8px 0 0;
-}
-
-/* Today's and yesterday's numbers, what the page is read for first: a grid of stat cards (HyperUI's stats), four
-   a row, joined by hairlines. */
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-  background: var(--color-gray-200);
-}
-.tile {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 14px 18px 16px;
-  background: #fff;
-}
-.tile-label {
-  color: var(--color-gray-600);
-  font-size: 13px;
-}
-.tile-value {
-  color: var(--color-gray-900);
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.3;
-  font-variant-numeric: tabular-nums;
-}
-/* Against the same day last week: a quiet badge, in words, neither green nor red (the red is the pen's). */
-.tile-change {
-  margin-top: 4px;
-  padding: 1px 8px;
-  border-radius: 9999px;
-  background: var(--color-gray-100);
-  color: var(--color-gray-700);
-  font-size: 12px;
-}
-.tile-month {
-  margin-top: 4px;
-  color: var(--color-gray-600);
-  font-size: 12px;
-}
-/* What today is set against, and why no class is held: above the numbers they explain. */
-.day-note {
-  margin: -4px 0 16px;
-  color: var(--color-gray-600);
-}
-
-.reminders {
-  display: flex;
-  flex-direction: column;
-}
-.reminder + .reminder {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-gray-200);
-}
-.reminder-review {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
-.reminder-days {
-  margin: 4px 0 0;
-  padding-left: 20px;
-}
 /* The one red on the page: spend over budget. */
 .reminder-alarm {
   color: var(--color-red-pen);
@@ -195,35 +106,11 @@
 .stale .chart-line {
   opacity: 0.35;
 }
-.range-loading {
-  margin-bottom: 8px;
-  color: var(--color-gray-600);
-}
-
-.chart {
-  margin: 0;
-  padding: 16px 20px 12px;
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-  background: #fff;
-  box-shadow: var(--shadow-xs);
-}
-.chart-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-.chart-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 2px 16px;
-  margin: 4px 0 4px;
+  margin: 12px 0 4px;
   padding: 0;
   list-style: none;
   color: var(--color-gray-600);
@@ -313,241 +200,6 @@
   z-index: 1;
 }
 
-.state {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 24px 0;
-  color: var(--color-gray-600);
-}
-
-.login {
-  display: flex;
-  justify-content: center;
-  padding: 96px 24px;
-}
-.login-panel {
-  width: 360px;
-  padding: 24px;
-}
-.login-notice {
-  margin-bottom: 16px;
-  padding: 8px 12px;
-  border-radius: var(--radius-lg);
-  background: var(--color-gray-100);
-}
-.login-refusal {
-  margin-bottom: 16px;
-  padding: 8px 12px;
-  border: 1px solid var(--color-gray-300);
-  border-radius: var(--radius-lg);
-}
-
-/* The review page: the list of the days ahead on the left, kept in view while the lesson on the right scrolls. */
-.review {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-.review-main {
-  min-width: 0;
-}
-
-.queue {
-  position: sticky;
-  top: 16px;
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - 32px);
-  padding-right: 12px;
-  padding-left: 12px;
-}
-.queue .panel-title {
-  padding: 0 8px;
-}
-.queue-stale {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 0 8px 12px;
-  padding: 8px 12px;
-  border: 1px solid var(--color-gray-300);
-  border-radius: var(--radius-lg);
-}
-.queue-days {
-  flex: 1;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  overflow: auto;
-  list-style: none;
-}
-.queue-day + .queue-day {
-  margin-top: 12px;
-}
-.queue-date {
-  margin: 0 0 2px;
-  padding: 0 8px;
-  color: var(--color-gray-600);
-  font-size: 13px;
-  font-weight: 600;
-}
-.queue-slots {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.slot-button {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: transparent;
-  color: var(--color-gray-900);
-  font: inherit;
-  text-align: left;
-}
-.slot-button:hover {
-  background: var(--color-gray-100);
-}
-.slot-button:active {
-  background: var(--color-gray-200);
-}
-/* The chosen slot: tinted, its name bold, and a green edge on its left, so it is not told by colour alone. */
-.slot-button[aria-current='true'] {
-  background: var(--color-brand-tint);
-  box-shadow: inset 3px 0 0 var(--color-brand);
-  font-weight: 600;
-}
-/* Inside the scrolling list an outer ring would be cut off at its edges. */
-.slot-button:focus-visible {
-  outline-offset: -2px;
-}
-.slot-status {
-  color: var(--color-gray-500);
-  font-weight: 400;
-}
-/* Slots that still need something done read darker than the settled ones. */
-.slot-todo .slot-status {
-  color: var(--color-gray-900);
-  font-weight: 600;
-}
-.slot-topic {
-  padding: 0 8px 4px;
-  color: var(--color-gray-500);
-  font-size: 12px;
-}
-.slot-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 8px 8px;
-}
-.copy-done {
-  color: var(--color-brand);
-  font-size: 13px;
-}
-.queue-foot {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 12px 8px 0;
-  border-top: 1px solid var(--color-gray-200);
-}
-.queue-notice {
-  color: var(--color-gray-600);
-  font-size: 13px;
-}
-
-/* One lesson, read like a corrected exercise book: the text on the left, a ruled margin for the notes on the right. */
-.lesson {
-  padding-bottom: 0;
-}
-.lesson-meta {
-  color: var(--color-gray-500);
-  font-size: 13px;
-}
-.lesson-notices {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-}
-.lesson-notices p {
-  padding: 8px 12px;
-  border-radius: var(--radius-lg);
-  background: var(--color-gray-100);
-}
-.lesson-notices .call-on-check {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.lesson-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.5;
-}
-.lesson-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 16px;
-  margin: 4px 0 12px;
-}
-.lesson-section {
-  padding: 12px 0 4px;
-  border-top: 1px solid var(--color-gray-200);
-}
-.section-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.section-head .ui-button {
-  margin-left: auto;
-}
-.section-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-.section-note {
-  color: var(--color-gray-500);
-  font-size: 12px;
-}
-
-.part {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 24px;
-  padding: 8px 0;
-}
-.part-label {
-  color: var(--color-gray-500);
-  font-size: 12px;
-}
-.part-text {
-  font-size: 15px;
-  line-height: 1.9;
-}
-.part-edit.ui-button {
-  height: auto;
-  padding: 0;
-}
-
 /* The red pen. Its notes are written in a regular script (楷体) where the system has one: a teacher's hand in the
    margin, apart from the printed lesson. */
 .pen-word {
@@ -586,146 +238,9 @@
 .pen-none {
   color: var(--color-gray-500);
 }
-.pen-margin .restore {
-  margin-top: 12px;
-}
-
-.restore {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  color: var(--color-gray-600);
-  font-size: 13px;
-}
-.restore-reason {
-  color: var(--color-gray-500);
-  overflow-wrap: anywhere;
-}
-
-/* An edit or a rewrite under way: a box on the paper colour, so it is plain which part is being changed. */
-.edit-box,
-.reason-box {
-  margin: 8px 0 4px;
-  padding: 12px;
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-  background: var(--color-gray-50);
-}
-/* Ant Design hangs a field's count below it: room for it, so it does not sit on what follows. */
-.box-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-.field-label {
-  display: block;
-  margin: 12px 0 4px;
-  padding: 0;
-  font-weight: 600;
-}
-.edit-box .field-label:first-child,
-.reason-box .field-label:first-child {
-  margin-top: 0;
-}
-.field-hint {
-  margin: 0 0 6px;
-  color: var(--color-gray-500);
-  font-size: 12px;
-}
-.field-set {
-  min-width: 0;
-  margin: 12px 0 0;
-  padding: 0;
-  border: 0;
-}
-.field-set > legend.field-label {
-  margin-top: 0;
-}
-/* A refusal, said where the change was asked for: framed, in words, not in red (the red is the pen's). */
-.action-error {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin-top: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--color-gray-300);
-  border-radius: var(--radius-lg);
-  background: #fff;
-}
-
-/* Approving stays in reach at the bottom of the window while the lesson is read. */
-.lesson-foot {
-  position: sticky;
-  bottom: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  margin: 8px -24px 0;
-  padding: 12px 24px;
-  border-top: 1px solid var(--color-gray-200);
-  border-radius: 0 0 6px 6px;
-  background: #fff;
-}
-.lesson-foot .action-error {
-  margin-top: 0;
-}
-.foot-note {
-  color: var(--color-gray-600);
-}
-
-.lesson-missing p + p {
-  margin-top: 8px;
-}
-
-.dialog-hint {
-  margin-bottom: 4px;
-  color: var(--color-gray-600);
-}
-.topic-confirm {
-  margin-top: 12px;
-  padding: 8px 12px;
-  border-radius: var(--radius-lg);
-  background: var(--color-gray-100);
-  font-weight: 600;
-}
 .date-input {
   width: auto;
 }
-/* The topics given already, under the form, set off by a hairline. */
-.topic-given {
-  margin-top: 16px;
-  padding-top: 4px;
-  border-top: 1px solid var(--color-gray-200);
-}
-.topic-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.topic-list .ui-button {
-  height: auto;
-  padding: 2px 6px;
-  white-space: normal;
-  text-align: left;
-}
-.topic-list .ui-button[aria-pressed='true'] {
-  background: var(--color-gray-100);
-  font-weight: 600;
-}
-.topic-list-state {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--color-gray-600);
-}
-
 /* Tables of numbers (the weekly review, a student's messages and record): the caption names the table, hairlines
    between rows, numbers on the right in figures of one width. */
 .numbers {
@@ -762,310 +277,8 @@
   text-align: right;
   white-space: nowrap;
 }
-.numbers .total th,
-.numbers .total td {
-  border-bottom: 0;
-  font-weight: 600;
-}
 .numbers.wide {
   width: 100%;
-}
-.nowrap {
-  white-space: nowrap;
-}
-.line {
-  overflow-wrap: anywhere;
-}
-.tables {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 16px 48px;
-  margin: 12px 0;
-}
-.lead {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-/* A dialog that asks before an action: what it does, a paragraph a consequence. */
-.confirm-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-/* What an action did, said where it was done. */
-.action-done {
-  margin-top: 12px;
-  padding: 8px 12px;
-  border-radius: var(--radius-lg);
-  background: var(--color-gray-100);
-}
-
-/* The weekly review. */
-.week-picker {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 32px;
-}
-.picker-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.picker-row .field-label {
-  margin: 0;
-}
-.picker-failure {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--color-gray-600);
-}
-.native-select {
-  min-width: 340px;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--color-edge);
-  border-radius: var(--radius-lg);
-  background: #fff;
-  color: var(--color-gray-900);
-  font: inherit;
-}
-.native-select:hover {
-  border-color: var(--color-brand);
-}
-.week-note {
-  color: var(--color-gray-600);
-}
-.listed {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-gray-200);
-}
-/* Right under the block's heading, a list needs no rule above it. */
-.panel-title + .listed {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
-}
-.listed + .tables {
-  padding-top: 12px;
-  border-top: 1px solid var(--color-gray-200);
-}
-.scroll-box {
-  max-height: 320px;
-  overflow: auto;
-}
-.scroll-box:focus-visible {
-  outline-offset: -2px;
-}
-.sub-title {
-  margin: 0 0 4px;
-  font-size: 15px;
-  font-weight: 600;
-}
-.listed .field-hint {
-  margin-bottom: 8px;
-}
-.plain-list {
-  margin: 0;
-  padding-left: 20px;
-}
-.marks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.suggestions {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.suggestion {
-  padding: 12px 0;
-}
-.suggestion + .suggestion {
-  border-top: 1px solid var(--color-gray-200);
-}
-.suggestion-head {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 6px;
-}
-.suggestion-rule {
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.suggestion-head .ui-button {
-  margin-left: auto;
-}
-/* Students' lines, each with when it was said. */
-.lines {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.lines li {
-  display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  gap: 12px;
-}
-.line-when {
-  color: var(--color-gray-500);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* Looking up a student. */
-.lookup .field-label {
-  margin-top: 0;
-}
-.lookup-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.lookup-field {
-  width: 200px;
-}
-.lookup .field-hint {
-  margin: 6px 0 0;
-}
-.facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px 24px;
-  margin: 0;
-}
-.fact dt {
-  color: var(--color-gray-500);
-  font-size: 12px;
-}
-.fact dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.student-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-gray-200);
-}
-.suspend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: 16px;
-}
-.suspend-label {
-  font-weight: 600;
-  white-space: nowrap;
-}
-.actions-hint {
-  margin: 6px 0 0;
-}
-.table-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin-top: 12px;
-}
-.table-foot .action-error {
-  margin-top: 0;
-}
-
-/* The runtime switches: one row each; the effect in force now reads darker than the other. */
-.switch + .switch {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-gray-200);
-}
-.switch-head {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.switch-name {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-/* Its state as a badge (HyperUI's): green while it is on, grey while off, and the words say which. */
-.switch-state {
-  padding: 1px 10px;
-  border-radius: 9999px;
-  background: var(--color-gray-100);
-  color: var(--color-gray-700);
-  font-size: 12px;
-  font-weight: 500;
-}
-.switch-state:empty {
-  display: none;
-}
-.switch-state.is-on {
-  background: var(--color-brand-tint);
-  color: var(--color-brand);
-}
-.switch-head .ui-button {
-  margin-left: auto;
-}
-.switch-effects {
-  margin: 6px 0;
-  padding: 0;
-  list-style: none;
-  color: var(--color-gray-500);
-}
-.switch-effects .switch-now {
-  color: var(--color-gray-900);
-}
-.switch-when {
-  color: var(--color-gray-500);
-  font-size: 13px;
-}
-
-/* The notices: the form on the left, the preview beside it as the website will show it. */
-.notice-status {
-  color: var(--color-gray-600);
-}
-.notice-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
-}
-.notice-preview {
-  padding: 12px 16px;
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--radius-lg);
-  background: #fff;
-}
-.notice-preview .field-label {
-  margin-top: 0;
-  color: var(--color-gray-600);
-  font-size: 13px;
-}
-.notice-preview-title {
-  margin: 4px 0 8px;
-  font-size: 18px;
-  overflow-wrap: anywhere;
-}
-.notice-window {
-  margin-bottom: 8px;
-  color: var(--color-gray-600);
 }
 .notice-body {
   overflow-wrap: anywhere;
@@ -1083,31 +296,8 @@
   margin-bottom: 0;
   padding-left: 1.4em;
 }
-.notice-problems {
-  margin: 0;
-  padding-left: 1.2em;
-}
-.notice-open.ui-button {
-  height: auto;
-  padding: 0;
-  white-space: normal;
-  text-align: left;
-}
-/* Marked as text, not in colour: the list's other columns are plain too. */
-.notice-updated {
-  margin-left: 8px;
-  padding: 0 6px;
-  border: 1px solid var(--color-gray-300);
-  border-radius: 4px;
-  color: var(--color-gray-600);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 /* Tailwind's reset takes the bullets off every list; these lists keep them. */
-.reminder-days,
-.plain-list,
-.notice-body ul,
-.notice-problems {
+.notice-body ul {
   list-style: disc;
 }
+

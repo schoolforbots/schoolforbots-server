@@ -44,7 +44,8 @@ const MARGIN = { top: 12, bottom: 28, left: 56 }
 const NAMES_WIDTH = 84
 /** Line height of a 12px name: the names at the ends never touch. */
 const LABEL_GAP = 17
-const INK = { tick: '#5c5c5c', label: '#1f1f1f', grid: '#e8e7e1', base: '#b9b8ae', marker: '#767676', guide: '#a3a29a' }
+// Tailwind's greys, as the template's charts draw their axes.
+const INK = { tick: '#4b5563', label: '#111827', grid: '#e5e7eb', base: '#d1d5db', marker: '#9ca3af', guide: '#9ca3af' }
 
 /** Ticks from zero to a round number at or above `max`, about four steps. */
 function axisTicks(max: number, counts: boolean): number[] {
@@ -95,13 +96,13 @@ export function LineChart({ title, dates, series, markers, format, formatTick, c
   const several = series.length > 1
 
   return (
-    <figure className="chart" aria-labelledby={titleId}>
-      <div className="chart-head">
-        <h3 id={titleId} className="chart-title">
+    <figure className="chart rounded-lg border border-gray-200 bg-white p-6" aria-labelledby={titleId}>
+      <div className="flex items-center justify-between gap-3">
+        <h3 id={titleId} className="text-sm font-medium text-gray-900">
           {title}
         </h3>
         {hasData && (
-          <Button type="link" size="small" onClick={() => setAsTable(!asTable)}>
+          <Button size="small" onClick={() => setAsTable(!asTable)}>
             {asTable ? '用折线图看' : '用表格看'}
           </Button>
         )}
@@ -161,6 +162,8 @@ interface PlotProps {
 }
 
 function Plot({ title, dates, series, markers, markerDates, format, formatTick, counts, namesAtEnds }: PlotProps) {
+  // The id of the gradient under a single line; only letters and digits, so `url(#…)` finds it.
+  const areaId = `area${useId().replace(/[^a-zA-Z0-9]/g, '')}`
   const [box, width] = useWidth(560)
   // The day the keyboard is on (while the chart has the focus) and the day under the pointer; the pointer's shows
   // while it is over the plot, and leaving the plot gives the readout back to the keyboard.
@@ -271,12 +274,30 @@ function Plot({ title, dates, series, markers, markerDates, format, formatTick, 
               y1={MARGIN.top}
               y2={bottom}
               stroke={INK.marker}
+              strokeDasharray="4 3"
               shapeRendering="crispEdges"
             />
           ) : null,
         )}
         {active !== null && (
           <line x1={crisp(x(active))} x2={crisp(x(active))} y1={MARGIN.top} y2={bottom} stroke={INK.guide} />
+        )}
+        {series.length === 1 && series[0] !== undefined && (
+          <>
+            <defs>
+              <linearGradient id={areaId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={series[0].color} stopOpacity="0.18" />
+                <stop offset="100%" stopColor={series[0].color} stopOpacity="0.02" />
+              </linearGradient>
+            </defs>
+            <path
+              className="chart-line"
+              d={`${series[0].values
+                .map((value, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(value).toFixed(1)}`)
+                .join(' ')} L${x(last).toFixed(1)},${bottom} L${x(0).toFixed(1)},${bottom} Z`}
+              fill={`url(#${areaId})`}
+            />
+          </>
         )}
         {series.map((line) => (
           <path

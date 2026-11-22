@@ -11,7 +11,7 @@ import { useFocusOnMount } from '../focus.js'
 function Refused({ reason }: { reason: string }) {
   const self = useFocusOnMount<HTMLParagraphElement>()
   return (
-    <p ref={self} tabIndex={-1} className="action-error" role="alert">
+    <p ref={self} tabIndex={-1} className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
       {reason}
     </p>
   )
@@ -24,6 +24,7 @@ export function Confirm({
   busy,
   cancel,
   canConfirm = true,
+  danger = false,
   onConfirm,
   onCancel,
 }: {
@@ -37,6 +38,8 @@ export function Confirm({
   cancel: string
   /** False while what the dialog asks for is not filled in: the button that does it is disabled. */
   canConfirm?: boolean
+  /** Something that cannot be taken back (deleting, expelling): the button that does it is drawn in red. */
+  danger?: boolean
   /** Does it; fails with the server's ApiError. The caller closes the dialog once it is done. */
   onConfirm: () => Promise<void>
   /** Backing out: the caller closes the dialog and gives the focus back to what opened it. */
@@ -73,13 +76,13 @@ export function Confirm({
           <Button ref={back} onClick={onCancel} disabled={sending} aria-describedby={consequencesId}>
             {cancel}
           </Button>
-          <Button type="primary" onClick={go} disabled={sending || !canConfirm}>
+          <Button type={danger ? 'danger' : 'primary'} onClick={go} disabled={sending || !canConfirm}>
             {sending ? busy : confirm}
           </Button>
         </>
       }
     >
-      <div id={consequencesId} className="confirm-body">
+      <div id={consequencesId} className="flex flex-col gap-2 leading-relaxed">
         {children}
       </div>
       {/* Keyed by the try, so each refusal takes the focus anew. */}

@@ -760,6 +760,9 @@ describe('the review page', () => {
     show(<ReviewPage />)
 
     await screen.findByRole('heading', { level: 2, name: '秋天的叶子为什么会变色' })
+    // The page's action (in the header, above the list) comes first; then the list is one stop.
+    await user.tab()
+    expect(screen.getByRole('button', { name: '给某一天指定题目' })).toHaveFocus()
     await user.tab()
     expect(screen.getByRole('button', { name: '小学部 待审' })).toHaveFocus()
     await user.keyboard('{ArrowDown}')

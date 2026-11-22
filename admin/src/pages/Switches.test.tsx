@@ -52,8 +52,12 @@ describe('the switches page', () => {
     show(<Switches />)
 
     await screen.findByRole('region', { name: '老师用大模型' })
+    // Maintenance has its own card; the switches are the rows of the card under it.
     expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual([
       '维护中',
+      '运行时开关',
+    ])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
       '老师用大模型',
       '第二层·复查老师',
       '第二层·审查同学',

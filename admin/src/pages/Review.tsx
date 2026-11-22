@@ -16,7 +16,9 @@ import {
 import { LessonEditor } from '../components/LessonEditor.js'
 import { LessonQueue } from '../components/LessonQueue.js'
 import { Empty, Failed, Loading } from '../components/States.js'
-import { dayName, sentence } from '../labels.js'
+import { FAILURE, slotTone } from '../components/lesson/look.js'
+import { dayName, sentence, slotStatus } from '../labels.js'
+import { Badge, Card } from '../ui.js'
 
 // The review page (审课): the list of the days ahead on the left, the chosen lesson on the right. It opens on the first
 // lesson awaiting review; approving one moves on to the next. The list is the layout's own (`queue`), so the count
@@ -70,21 +72,21 @@ function LessonPane({
   const lesson = useLoad<LessonDetail>(lessonPath(lessonId))
   if (lesson.data === undefined) {
     return lesson.error !== undefined ? (
-      <div className="panel">
+      <Card>
         <Failed what="这节课" reason={lesson.error.message} retry={lesson.reload} />
-      </div>
+      </Card>
     ) : (
-      <div className="panel">
+      <Card>
         <Loading what="这节课" />
-      </div>
+      </Card>
     )
   }
   return (
     <>
       {lesson.error !== undefined && (
-        <div className="panel">
+        <Card className="mb-4">
           <Failed what="这节课的最新内容（下面是上次读到的）" reason={lesson.error.message} retry={lesson.reload} />
-        </div>
+        </Card>
       )}
       <LessonEditor
         lesson={lesson.data}
@@ -128,18 +130,24 @@ function MissingLesson({ date, slot, queue }: { date: string; slot: QueueSlot; q
   } else next = '系统会自动生成这节课，生成好以后出现在这里等你审。'
 
   return (
-    <section className="panel lesson-missing" aria-labelledby={titleId}>
-      <h2 id={titleId} className="panel-title">
-        {dayName(date)} {slot.label}
-      </h2>
-      <p>这节课还没有生成。</p>
-      {slot.topic !== null && <p>这一天的题目：《{slot.topic}》，生成时会用上。</p>}
-      {failed !== null && (
-        <p>
-          生成失败，试了 {failed.attempts} 次。最后一次的原因：{sentence(failed.lastError)}
-        </p>
-      )}
-      <p>{next}</p>
+    <section className="rounded-lg border border-gray-200 bg-white" aria-labelledby={titleId}>
+      <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-6 py-5">
+        <h2 id={titleId} className="text-lg font-semibold text-gray-900">
+          {dayName(date)} {slot.label}
+        </h2>
+        <Badge tone={slotTone(slot)}>{slotStatus(slot)}</Badge>
+      </div>
+      {/* HyperUI's empty state: what is not there, why, and what comes next. */}
+      <div className="space-y-3 px-6 py-10 text-sm text-gray-700">
+        <p className="text-base font-medium text-gray-900">这节课还没有生成。</p>
+        {slot.topic !== null && <p>这一天的题目：《{slot.topic}》，生成时会用上。</p>}
+        {failed !== null && (
+          <p className={FAILURE}>
+            生成失败，试了 {failed.attempts} 次。最后一次的原因：{sentence(failed.lastError)}
+          </p>
+        )}
+        <p>{next}</p>
+      </div>
     </section>
   )
 }
@@ -156,21 +164,25 @@ function AllReviewed({ queue, focused }: { queue: Queue; focused: boolean }) {
   // Arrived at by approving the last lesson: the news takes the focus the approve button had.
   useEffect(() => void (focused && done.current?.focus()), [])
   return (
-    <div className="panel">
-      <div className="state">
-        <p ref={done} tabIndex={-1} className="state-text">
-          这几天要审的课都审完了。
-        </p>
-        {toPaste > 0 && (
-          <p className="state-text">{`还有 ${toPaste} 节课要手动补上：用左边那一行的“复制提示词”和“粘贴结果”。`}</p>
-        )}
-        {early > 0 && (
-          <p className="state-text">{`还有 ${early} 节课离上课还早，系统到时会自动生成；想自己定内容，可以先用左边那一行的“复制提示词”和“粘贴结果”补上。`}</p>
-        )}
-        {toWait > 0 && (
-          <p className="state-text">{`还有 ${toWait} 节课没生成，系统生成好以后，会出现在左边等你审。`}</p>
-        )}
-      </div>
+    // HyperUI's empty state, centred in the card.
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-gray-200 bg-white px-6 py-16 text-center">
+      <span aria-hidden="true" className="grid size-12 place-content-center rounded-full bg-green-100 text-green-700">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="size-6">
+          <path d="m4.5 10.5 3.5 3.5 7.5-8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+      <p ref={done} tabIndex={-1} className="text-lg font-semibold text-gray-900">
+        这几天要审的课都审完了。
+      </p>
+      {toPaste > 0 && (
+        <p className="text-sm text-gray-600">{`还有 ${toPaste} 节课要手动补上：用左边那一行的“复制提示词”和“粘贴结果”。`}</p>
+      )}
+      {early > 0 && (
+        <p className="text-sm text-gray-600">{`还有 ${early} 节课离上课还早，系统到时会自动生成；想自己定内容，可以先用左边那一行的“复制提示词”和“粘贴结果”补上。`}</p>
+      )}
+      {toWait > 0 && (
+        <p className="text-sm text-gray-600">{`还有 ${toWait} 节课没生成，系统生成好以后，会出现在左边等你审。`}</p>
+      )}
     </div>
   )
 }
@@ -200,20 +212,20 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
 
   if (data === undefined) {
     return (
-      <div className="panel">
+      <Card>
         {queue.error !== undefined ? (
           <Failed what="这几天的课" reason={queue.error.message} retry={queue.reload} />
         ) : (
           <Loading what="这几天的课" />
         )}
-      </div>
+      </Card>
     )
   }
   if (data.days.length === 0) {
     return (
-      <div className="panel">
+      <Card>
         <Empty why="接下来几天都不上课（周末、放假，或者还没开学），没有要审的课。有上学日以后，这里会列出每天三个学部的课。" />
-      </div>
+      </Card>
     )
   }
 
@@ -244,7 +256,7 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
   }
 
   return (
-    <div className="review">
+    <div className="grid grid-cols-[300px_minmax(0,1fr)] items-start gap-6">
       <LessonQueue
         queue={data}
         selected={selected}
@@ -274,7 +286,7 @@ export function Review({ queue }: { queue: Loaded<Queue> }) {
         reloadFailure={queue.error}
         onRetry={queue.reload}
       />
-      <div className="review-main">{main}</div>
+      <div className="min-w-0">{main}</div>
     </div>
   )
 }
