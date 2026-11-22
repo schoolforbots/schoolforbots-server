@@ -3,9 +3,9 @@ import { Cards, ClubId, ClubPerson, ClubStatsSummary, DoudizhuResult, GameId, Se
 import { DateText } from './date-text.js'
 
 // The replies of the club's HTTP API, on the registration service. Playing goes over the club WebSocket
-// (`src/protocol/club.ts`); joining a club and looking up records, leaderboards and past games go over HTTP. Joining
-// and leaving, and the routes for records, leaderboards and past games, answer with the shapes here. The protocol export
-// publishes them all with the rest of the HTTP API.
+// (`src/protocol/club.ts`); joining a club and looking up records, the leaderboard and past games go over HTTP.
+// Joining and leaving, and the routes for records, the leaderboard and past games, answer with the shapes here. The
+// protocol export publishes them all with the rest of the HTTP API.
 
 const MAX_PG_INTEGER = 2_147_483_647
 
@@ -35,7 +35,7 @@ export const ClubHours = Type.Object({
 /**
  * `GET /v1/me/clubs/doudizhu/stats`: the student's doudizhu record. `games` and `wins` count every
  * game, bots or not; `landlordGames` and `landlordWins` those they were the landlord in. `points` are the points of the
- * ranked games in all and this week (the leaderboards' week), and may be below zero; `rankedGames` is how many ranked
+ * ranked games in all and this week (the leaderboard's week), and may be below zero; `rankedGames` is how many ranked
  * games there were. `springs` and `antiSprings` count the games won with a spring or anti-spring, `bombs` and `rockets`
  * the ones the student played, and `maxMultiplier` is the highest multiplier of their games (0 with none). `timeouts`
  * counts the steps that timed out, `trusteeMoves` the steps the trustee made for them, and `illegalMoves` the steps sent
@@ -67,25 +67,18 @@ export const LeaderboardEntry = Type.Object({
 })
 
 /**
- * `GET /v1/me/clubs/doudizhu/leaderboard?board=week|all`: the week's board or the all-time one.
- * `weekStartsOn` is the first day of the week the board is of, null for the all-time board. `entries` is the top of the
- * board, at most 20. `me` is the student's own entry when they are on the board but not in `entries`, null otherwise.
+ * `GET /v1/me/clubs/doudizhu/leaderboard?board=week`: the week's board, the only one (`board` may be left out).
+ * `weekStartsOn` is the first day of the week the board is of. `entries` is the top of the board, at most 20. `me` is
+ * the student's own entry when they are on the board but not in `entries`, null otherwise.
  * `moreTied` is set when too many tie at the last rank shown to list them all: `count` more share rank `rank`.
  */
-export const ClubLeaderboard = Type.Object(
-  {
-    board: Type.Union([Type.Literal('week'), Type.Literal('all')]),
-    weekStartsOn: Type.Union([DateText, Type.Null()]),
-    entries: Type.Array(LeaderboardEntry, { maxItems: 20 }),
-    me: Type.Union([LeaderboardEntry, Type.Null()]),
-    moreTied: Type.Union([Type.Object({ rank: PositiveInteger, count: PositiveInteger }), Type.Null()]),
-  },
-  {
-    if: { properties: { board: { const: 'all' } }, required: ['board'] },
-    then: { properties: { weekStartsOn: { type: 'null' } } },
-    else: { properties: { weekStartsOn: { type: 'string' } } },
-  },
-)
+export const ClubLeaderboard = Type.Object({
+  board: Type.Literal('week'),
+  weekStartsOn: DateText,
+  entries: Type.Array(LeaderboardEntry, { maxItems: 20 }),
+  me: Type.Union([LeaderboardEntry, Type.Null()]),
+  moreTied: Type.Union([Type.Object({ rank: PositiveInteger, count: PositiveInteger }), Type.Null()]),
+})
 
 /**
  * `GET /v1/me/clubs/doudizhu/games?before=<gameId>`: the student's games, newest first, a page at

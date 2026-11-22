@@ -93,7 +93,6 @@ describe('leaderboard', () => {
     ['a week board with me below it', { ...week, me: entry(31, 37) }],
     ['an empty board', { ...week, entries: [] }],
     ['a board with many tied', { ...week, entries: entries.slice(0, 10), moreTied: { rank: 10, count: 14 } }],
-    ['the all-time board', { ...week, board: 'all', weekStartsOn: null }],
   ])('ClubLeaderboard accepts %s', (_name, value) => {
     expect(ok(ClubLeaderboard, value)).toBe(true)
   })
@@ -102,6 +101,7 @@ describe('leaderboard', () => {
     ['21 entries', { ...week, entries: [...entries, entry(21, 21)] }],
     ['another board', { ...week, board: 'month' }],
     ['a week board with no week', { ...week, weekStartsOn: null }],
+    ['the all-time board, which is gone', { ...week, board: 'all', weekStartsOn: null }],
     ['the all-time board with a week', { ...week, board: 'all' }],
     ['a week that is no date', { ...week, weekStartsOn: '16/11/2026' }],
     ['rank 0', { ...week, entries: [entry(0, 1)] }],

@@ -11,14 +11,14 @@ import { currentMembers } from './members.js'
 import { clubDisplayName } from './people.js'
 
 // What the stored games of doudizhu (`doudizhu_games`, `doudizhu_game_players`) say, worked out by SQL when asked: no
-// totals are kept anywhere. A student's record (`doudizhuStats`, and its summary for `welcome.stats`), the two
-// leaderboards, a student's own games a page at a time, and the whole record of one game.
+// totals are kept anywhere. A student's record (`doudizhuStats`, and its summary for `welcome.stats`), the week's
+// leaderboard, a student's own games a page at a time, and the whole record of one game.
 //
 // - `games` and `wins` count every game, the games with bots too; a game with no landlord counts as a game, not a win.
 // - `points.total` is the sum of the student's scores in the ranked games; `points.week` the same over this week's
 //   ranked games: those that ended from Monday 00:00 in the school's timezone on (`weekStart`).
 // - A student's record and games are theirs for good: they are there whether or not the student is still a member.
-//   The leaderboards list only current members (`currentMembers`).
+//   The leaderboard lists only current members (`currentMembers`).
 
 type Stats = Static<typeof DoudizhuStats>
 type StatsSummary = Static<typeof ClubStatsSummary>
@@ -138,29 +138,27 @@ export function rankBoard(standings: readonly BoardStanding[], studentId: number
 }
 
 /**
- * The week's board or the all-time one, at `now`, for the student `studentId`. On it are the current members of the
- * club who played at least one ranked game in the period (this week, from `weekStart`; or ever); their points are the
- * sum of their scores in those games, and `games` how many there were. Whether the student asking may see it (a member
+ * The week's board, at `now`, for the student `studentId`: the only board there is. On it are the current members of
+ * the club who played at least one ranked game this week (from `weekStart`); their points are the sum of their scores
+ * in those games, and `games` how many there were. Whether the student asking may see it (a member
  * only) is the caller's to check. Members are shown by name and class as at the club's tables.
  *
- * A member's points are those of all their ranked games in the period, the ones from before they last joined too: a
+ * A member's points are those of all their ranked games of the week, the ones from before they last joined too: a
  * record is for good, and membership decides only who is listed.
  */
 export async function doudizhuLeaderboard(
   db: Kysely<Database>,
   config: SchoolConfig,
-  board: Leaderboard['board'],
   studentId: number,
   now: Date,
 ): Promise<Leaderboard> {
-  const since = board === 'week' ? weekStart(now, config.timezone) : null
+  const since = weekStart(now, config.timezone)
   // Summed in SQL: one row a member, never a row a game. A current member is in a class (active or suspended).
-  let query = currentMembers(db, 'doudizhu')
+  const rows = await currentMembers(db, 'doudizhu')
     .innerJoin('classes as c', 'c.id', 's.classId')
     .innerJoin('doudizhuGamePlayers as p', 'p.studentId', 'm.studentId')
     .where('p.ranked', '=', true)
-  if (since !== null) query = query.where('p.endedAt', '>=', since)
-  const rows = await query
+    .where('p.endedAt', '>=', since)
     .groupBy(['s.id', 's.ownerName', 's.aiName', 'c.division', 'c.slot', 'c.classNo'])
     .select([
       's.id',
@@ -181,8 +179,8 @@ export async function doudizhuLeaderboard(
     games: Number(r.games),
   }))
   return {
-    board,
-    weekStartsOn: since === null ? null : localDate(since, config.timezone),
+    board: 'week',
+    weekStartsOn: localDate(since, config.timezone),
     ...rankBoard(standings, studentId),
   }
 }

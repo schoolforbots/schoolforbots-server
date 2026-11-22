@@ -24,8 +24,8 @@ function current(): Expression<SqlBool> {
 }
 
 /**
- * The current memberships of the club, `m` joined to their students `s`: a query to join more onto (the leaderboards
- * do), with the condition of `current` applied.
+ * The current memberships of the club, `m` joined to their students `s`: a query to join more onto (the leaderboard
+ * does), with the condition of `current` applied.
  */
 export function currentMembers(db: Kysely<Database>, club: Club) {
   return db

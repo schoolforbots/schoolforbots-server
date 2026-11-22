@@ -99,7 +99,7 @@ export interface DoudizhuGameEntry {
   readonly players: readonly DoudizhuPlayerRow[]
 }
 
-/** Whether a game counts on the leaderboards: only games without bots do. */
+/** Whether a game counts on the leaderboard: only games without bots do. */
 export const isRanked = (players: readonly SeatPlayer[]): boolean => players.every((p) => !p.bot)
 
 /** The protocol's result of a finished game. Throws unless the game is over. */
