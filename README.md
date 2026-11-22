@@ -204,7 +204,7 @@ npm run lesson:import -- <课程文件.json> --approve  # 存好并审批，班�
 
 3. 重启报名服务，打开 `http://localhost:8080/your-secret-path/`（换成 `ADMIN_PATH` 的值），用密码和当前的验证码登录。每个验证码只能用一次；登录一次管 12 小时。
 
-改后台页面时，`npm run admin:dev` 在 `http://localhost:5173/` 提供页面，把页面调用的接口转给正在运行的报名服务（它从 `.env` 读 `ADMIN_PATH`）；`npm run admin:test` 跑页面的测试。
+改后台页面时，`npm run admin:dev` 在 `http://localhost:5173/` 提供页面，把页面调用的接口转给正在运行的报名服务（它从 `.env` 读 `ADMIN_PATH`）；`npm run admin:test` 跑页面的测试。只改页面、不想起服务器时，`npm run admin:mock` 用 `admin/mock/school.ts` 里的模拟学校回答接口，不用数据库和验证器（见 `admin/DESIGN.md` 的“本地开发”）。
 
 后台有六个标签：学校数据（今天截至现在的数字和上周同一天同一时刻之前比，下了课就能看；昨天的数字和上周同一天比；各种提醒、大模型花费和预算；最近 7、30、90 天的折线图，画到昨天为止）、审课（以后几天的课，见下面）、每周复盘（每周一 0 点的任务跑完后生成）、查学生（一个同学的资料、消息和记录；可以手动停课、退学或解除处罚）、开关和公告（见下面的“公告”）。
 
