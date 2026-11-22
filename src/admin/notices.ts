@@ -112,7 +112,7 @@ function changed(row: Content, next: Content): boolean {
 
 function noticeIdOf(params: unknown): number {
   const { id } = params as { id: string }
-  if (!/^[0-9]{1,9}$/.test(id)) throw NOT_FOUND
+  if (!/^[1-9][0-9]{0,8}$/.test(id)) throw NOT_FOUND
   return Number(id)
 }
 
