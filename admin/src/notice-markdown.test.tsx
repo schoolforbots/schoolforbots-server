@@ -87,6 +87,25 @@ describe('the notice body', () => {
     expect(html('**[a](https://x.org)**')).toBe('<p><strong>[a](https://x.org)</strong></p>')
   })
 
+  it('takes whitespace as JavaScript does: the full-width space and U+FEFF too', () => {
+    expect(html('一\n\u3000\uFEFF\n二')).toBe('<p>一</p><p>二</p>')
+    expect(html('[a](https://x.org/\u3000b)')).toBe('<p>[a](https://x.org/\u3000b)</p>')
+  })
+
+  it('does not make bold across U+2028 or U+2029, but takes them in the text of a link', () => {
+    expect(html('**a\u2028b**')).toBe('<p>**a\u2028b**</p>')
+    expect(html('**a\u2029b**')).toBe('<p>**a\u2029b**</p>')
+    expect(html('[a\u2028b](https://x.org)')).toBe(
+      '<p><a href="https://x.org" target="_blank" rel="noopener noreferrer">a\u2028b</a></p>',
+    )
+  })
+
+  it('ends a link at a ) written plainly, but not at %29', () => {
+    expect(html('[a](https://x.org/b%29c)')).toBe(
+      '<p><a href="https://x.org/b%29c" target="_blank" rel="noopener noreferrer">a</a></p>',
+    )
+  })
+
   it('gives the blocks as data too, for the page and its tests', () => {
     expect(parseNotice('甲\n\n- 乙\n- **丙**')).toEqual([
       { type: 'paragraph', lines: [[{ type: 'text', text: '甲' }]] },

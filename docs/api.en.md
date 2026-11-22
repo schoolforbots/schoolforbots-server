@@ -236,11 +236,11 @@ The times in a notice are UTC ISO 8601 date-times (ending in `Z`); convert them 
 The body is shown by the rules below. The school's admin previews a notice by these rules, so a website that follows them shows the same as the preview:
 
 1. The whole body is text first: HTML in it is shown as the characters it is, never put into the page as HTML.
-2. CRLF and a lone CR both read as a line break. A line that is empty or only whitespace is blank; blank lines separate blocks, and several in a row count as one. A body of nothing but blank lines shows nothing.
+2. CRLF and a lone CR both read as a line break. A line that is empty or only whitespace is blank (whitespace as JavaScript's `\s` and `trim()` take it, the full-width space U+3000 and U+FEFF included); blank lines separate blocks, and several in a row count as one. A body of nothing but blank lines shows nothing.
 3. Within a block, a line whose first two characters are exactly `- ` (a hyphen and a space, nothing before them) is a list item, its text the rest of the line; consecutive items make one list (`<ul>`, a `<li>` each). Every other run of consecutive lines is a paragraph (`<p>`), the lines kept apart by a line break (`<br>`). So a list and a paragraph are separate even with no blank line between them.
 4. In each line (a line of a paragraph, or a list item), from the left:
-   - `[text](https://address)` is a link: `text` is one or more characters other than `]`; the address starts with exactly `https://` (lower case) and runs on with one or more characters that are neither whitespace nor `)`, up to the first `)`. The link opens in a new page, with `rel="noopener noreferrer"`. Any other address (`http:`, `javascript:`, `data:`, a relative one) is not a link: the whole of it is shown as text.
-   - `**text**` is bold (`<strong>`): `text` is one or more characters, up to the nearest `**` on the same line.
+   - `[text](https://address)` is a link: `text` is one or more characters other than `]` (U+2028 and U+2029 included); the address starts with exactly `https://` (lower case) and runs on with one or more characters that are neither whitespace nor `)`, up to the first `)`, so a `)` in an address is written `%29`. Whitespace is as above. The link opens in a new page, with `rel="noopener noreferrer"`. Any other address (`http:`, `javascript:`, `data:`, a relative one) is not a link: the whole of it is shown as text.
+   - `**text**` is bold (`<strong>`): `text` is one or more characters other than U+2028 and U+2029 (which `.` does not match in a JavaScript regular expression), up to the nearest `**` on the same line.
 
    The one that starts further left wins; where both start at the same place, the link. Nothing nests: the text of a link or of bold is plain, `**` and brackets included. Everything else, an unmatched `**` or `[` included, is plain text.
 

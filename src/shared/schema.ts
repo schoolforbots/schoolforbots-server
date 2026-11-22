@@ -294,8 +294,9 @@ export type NoticeStatus = 'draft' | 'published' | 'withdrawn'
 
 /**
  * A notice of the school's, written on the admin pages. `startsAt` and `endsAt` are the window of a `maintenance`
- * notice, which always has its start and may have no end (both null for a `general` one). `publishedAt` is when it was first published, null only for a draft never
- * published; `updatedAt` is when a published notice was last changed, null when it never was.
+ * notice, which always has its start and may have no end (both null for a `general` one). `publishedAt` is when it
+ * was first published, null only for a draft never published; `updatedAt` is when a published notice was last
+ * changed, null when it never was.
  */
 export interface NoticesTable {
   id: Generated<number>
