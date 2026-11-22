@@ -889,6 +889,27 @@ test('the example config has the model, lesson generation, switch and revocation
   expect(c.revocationWindowDays).toBe(30)
 })
 
+test('lessonGeneration.reviewDays is optional, a positive whole number, and no shorter than horizonDays', () => {
+  const none = writeTmpConfig((c) => delete (c.lessonGeneration as any).reviewDays)
+  expect(loadSchoolConfig(none).lessonGeneration.reviewDays).toBeUndefined()
+  const longer = writeTmpConfig((c) => {
+    ;(c.lessonGeneration as any).horizonDays = 3
+    ;(c.lessonGeneration as any).reviewDays = 8
+  })
+  expect(loadSchoolConfig(longer).lessonGeneration).toMatchObject({ horizonDays: 3, reviewDays: 8 })
+  const same = writeTmpConfig((c) => ((c.lessonGeneration as any).reviewDays = (c.lessonGeneration as any).horizonDays))
+  expect(() => loadSchoolConfig(same)).not.toThrow()
+  for (const value of [0, 1.5, '7']) {
+    const tmpPath = writeTmpConfig((c) => ((c.lessonGeneration as any).reviewDays = value))
+    expect(() => loadSchoolConfig(tmpPath), String(value)).toThrow(/lessonGeneration\.reviewDays/)
+  }
+  const shorter = writeTmpConfig((c) => {
+    ;(c.lessonGeneration as any).horizonDays = 7
+    ;(c.lessonGeneration as any).reviewDays = 3
+  })
+  expect(() => loadSchoolConfig(shorter)).toThrow(/lessonGeneration\.reviewDays: must be >= lessonGeneration\.horizonDays/)
+})
+
 test('lessonGeneration.timeoutSeconds is a positive whole number of seconds', () => {
   for (const value of [0, 1.5, '180']) {
     const tmpPath = writeTmpConfig((c) => ((c.lessonGeneration as any).timeoutSeconds = value))

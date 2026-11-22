@@ -362,6 +362,9 @@ export const SchoolConfigSchema = Type.Object({
     mode: Type.Union([Type.Literal('api'), Type.Literal('manual')]),
     // Lessons are made for the school days among this many days after today.
     horizonDays: PositiveInt,
+    // The review page lists the lesson days among this many days after today, so a lesson can be pasted in before the
+    // model would make it. At least horizonDays; without it, horizonDays.
+    reviewDays: Type.Optional(PositiveInt),
     // A pasted lesson is due when this many school days are left before the class.
     manualDeadlineSchoolDays: PositiveInt,
     retryMinutes: PositiveInt,
@@ -606,6 +609,13 @@ export function loadSchoolConfig(path: string): SchoolConfig {
   if (config.teacherAi.answerLeadSeconds >= shortestSegmentSeconds) {
     crossFieldProblems.push(
       `teacherAi.answerLeadSeconds: must be shorter than the shortest segment (${shortestSegmentSeconds} seconds), got ${config.teacherAi.answerLeadSeconds}`,
+    )
+  }
+
+  const { horizonDays, reviewDays } = config.lessonGeneration
+  if (reviewDays !== undefined && reviewDays < horizonDays) {
+    crossFieldProblems.push(
+      `lessonGeneration.reviewDays: must be >= lessonGeneration.horizonDays (${reviewDays} < ${horizonDays})`,
     )
   }
 

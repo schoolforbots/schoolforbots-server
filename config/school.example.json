@@ -88,6 +88,7 @@
   "lessonGeneration": {
     "mode": "api",
     "horizonDays": 7,
+    "reviewDays": 7,
     "manualDeadlineSchoolDays": 3,
     "retryMinutes": 60,
     "timeoutSeconds": 180,

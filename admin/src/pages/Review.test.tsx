@@ -320,6 +320,38 @@ describe('the review page', () => {
     expect(await screen.findByText(/今天的课不会再自动生成了/)).toBeInTheDocument()
   })
 
+  it('offers to paste a lesson ahead of the model’s days, which is not late, and counts it apart', async () => {
+    const NEXT_MON = '2026-11-09'
+    fakeServer({
+      [QUEUE]: ok(
+        lessonQueue([
+          { date: THU, divisions: [queueSlot('primary', missing)] },
+          { date: NEXT_MON, aheadOfGeneration: true, divisions: [queueSlot('primary', missing), queueSlot('junior', missing)] },
+        ]),
+      ),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    expect(
+      await screen.findByText('还有 2 节课离上课还早，系统到时会自动生成；想自己定内容，可以先用左边那一行的“复制提示词”和“粘贴结果”补上。'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('还有 1 节课没生成，系统生成好以后，会出现在左边等你审。')).toBeInTheDocument()
+    expect(screen.queryByText(/要手动补上/)).toBeNull()
+    // The day ahead offers the paste in api mode; Thursday's waits for the model.
+    const ahead = day('11 月 9 日（周一）')
+    expect(ahead.getAllByRole('button', { name: '粘贴结果' })).toHaveLength(2)
+    expect(ahead.getAllByRole('button', { name: /还没到自动生成/ })).toHaveLength(2)
+    expect(day('11 月 5 日（周四）').queryByRole('button', { name: '粘贴结果' })).toBeNull()
+
+    await user.click(ahead.getAllByRole('button', { name: /^小学部/ })[0]!)
+    expect(
+      await screen.findByText(
+        '离上课还早，系统要到快上课时才会自动生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；也可以先给这一天定个题目，到时按题目生成。',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('says a lesson of today will not be made again for its new topic', async () => {
     const TODAY = '2026-11-04'
     fakeServer({

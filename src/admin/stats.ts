@@ -318,12 +318,16 @@ export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'
   const budget = config.llm.monthlyBudgetYuan
 
   const queue = await reviewQueue(deps)
-  const slots = queue.flatMap((day) => day.divisions.map((slot) => ({ date: day.date, ...slot })))
+  const slots = queue.flatMap((day) =>
+    day.divisions.map((slot) => ({ date: day.date, aheadOfGeneration: day.aheadOfGeneration, ...slot })),
+  )
   const classSlots = await db.selectFrom('classes').select(['division', 'slot']).distinct().execute()
   const unreviewed = slots.flatMap((s) => {
     const meets = classSlots.filter((c) => c.division === s.division).map((c) => c.slot)
     const deadline = doorsOf(s.date, meets, config)
     if (s.status === 'approved' || s.locked || deadline.getTime() <= now.getTime()) return []
+    // A lesson missing on a day the model does not make lessons for yet is not late: it is made when the day comes.
+    if (s.status === 'missing' && s.aheadOfGeneration) return []
     return [{ date: s.date, division: s.division, deadline: deadline.toISOString() }]
   })
   // A failure is retried every `retryMinutes`; it is worth a reminder once it has lasted into a new day.

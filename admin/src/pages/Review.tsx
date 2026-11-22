@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import {
+  aheadOfGeneration,
   lessonPath,
   nextToReview,
   pastable,
@@ -118,6 +119,10 @@ function MissingLesson({ date, slot, queue }: { date: string; slot: QueueSlot; q
       '赶在开门前审过；不然这个学部今天上自习。'
   } else if (queue.mode === 'manual') {
     next = '用左边这一行的“复制提示词”把提示词交给大模型，再点“粘贴结果”，把回复整段贴回来。'
+  } else if (aheadOfGeneration(queue, date)) {
+    next =
+      '离上课还早，系统要到快上课时才会自动生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；' +
+      '也可以先给这一天定个题目，到时按题目生成。'
   } else if (failed !== null) {
     next = '系统会接着重试；等不及的话，用左边这一行的“复制提示词”和“粘贴结果”手动补上。'
   } else next = '系统会自动生成这节课，生成好以后出现在这里等你审。'
@@ -142,9 +147,11 @@ function MissingLesson({ date, slot, queue }: { date: string; slot: QueueSlot; q
 /** Nothing is waiting to be read: says so, and how many lessons are still to be made. */
 function AllReviewed({ queue, focused }: { queue: Queue; focused: boolean }) {
   const missing = queueSlots(queue).filter(({ slot }) => slot.status === 'missing' && !slot.locked)
-  // The ones to paste in by hand, and the ones the model is still to make.
-  const toPaste = missing.filter(({ date, slot }) => pastable(queue, date, slot)).length
-  const toWait = missing.length - toPaste
+  // The ones on days ahead of the model's, which may be pasted in but need not be (in api mode); the ones to paste in
+  // by hand; and the ones the model is still to make.
+  const early = queue.mode === 'api' ? missing.filter(({ date }) => aheadOfGeneration(queue, date)).length : 0
+  const toPaste = missing.filter(({ date, slot }) => pastable(queue, date, slot)).length - early
+  const toWait = missing.length - toPaste - early
   const done = useRef<HTMLParagraphElement>(null)
   // Arrived at by approving the last lesson: the news takes the focus the approve button had.
   useEffect(() => void (focused && done.current?.focus()), [])
@@ -156,6 +163,9 @@ function AllReviewed({ queue, focused }: { queue: Queue; focused: boolean }) {
         </p>
         {toPaste > 0 && (
           <p className="state-text">{`还有 ${toPaste} 节课要手动补上：用左边那一行的“复制提示词”和“粘贴结果”。`}</p>
+        )}
+        {early > 0 && (
+          <p className="state-text">{`还有 ${early} 节课离上课还早，系统到时会自动生成；想自己定内容，可以先用左边那一行的“复制提示词”和“粘贴结果”补上。`}</p>
         )}
         {toWait > 0 && (
           <p className="state-text">{`还有 ${toWait} 节课没生成，系统生成好以后，会出现在左边等你审。`}</p>

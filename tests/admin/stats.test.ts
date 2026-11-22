@@ -502,6 +502,21 @@ test('the reminders: lessons not reviewed, failures that lasted into a new day, 
   expect(body.month).toEqual({ costYuan: 1.5, budgetYuan: 1, overBudget: true })
 })
 
+test('past the days the model makes lessons for, only a lesson pasted in and not approved is a reminder', async () => {
+  // Lessons made one day ahead (Thursday), reviewed five ahead: Friday and next Monday are the reviewer's only.
+  const example = exampleConfig()
+  await start({ ...example, lessonGeneration: { ...example.lessonGeneration, horizonDays: 1, reviewDays: 5 } })
+  for (const division of ['primary', 'junior', 'senior'] as const) {
+    await lesson(TODAY, division, { approved: true })
+    await lesson(THURSDAY, division, { approved: true })
+  }
+  await lesson(FRIDAY, 'junior')
+  await lesson('2026-11-09', 'senior', { approved: true })
+
+  const body = (await daily(7)).json()
+  expect(body.reminders.unreviewed).toEqual([{ date: FRIDAY, division: 'junior', deadline: '2026-11-06T01:45:00.000Z' }])
+})
+
 test('a lesson not reviewed is a reminder until the doors open, and not once a class of its division has begun the day', async () => {
   // One day ahead: today and Thursday, whose lessons are all approved.
   await start(horizon(1))

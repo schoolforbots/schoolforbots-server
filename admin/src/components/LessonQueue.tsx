@@ -1,6 +1,7 @@
 import { Button } from 'antd'
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import {
+  aheadOfGeneration,
   pastable,
   queueSlots,
   slotKey,
@@ -18,8 +19,9 @@ import { TopicDialog } from './TopicDialog.js'
 // The left side of the review page: the lesson days from today on, oldest first, three divisions each, every one
 // saying where its lesson stands. A slot is chosen with a click, or with ↑ and ↓ once the list has focus: the list is
 // one stop for Tab, the chosen slot. A lesson still to make can be pasted in from its row (see `pastable`): in manual
-// mode, after the model failed to make it, or today's. At the bottom: giving a day a topic. Both dialogs are opened from here, and the focus
-// goes back to the button that opened one when it closes (a dialog taken away gives none back itself).
+// mode, after the model failed to make it, today's, or one on a day ahead of the model's. At the bottom: giving a day
+// a topic. Both dialogs are opened from here, and the focus goes back to the button that opened one when it closes (a
+// dialog taken away gives none back itself).
 
 const MOVES: Record<string, (at: number, last: number) => number> = {
   ArrowDown: (at, last) => Math.min(at + 1, last),
@@ -67,7 +69,8 @@ function DayList({
                 tabIndex={key === stop ? 0 : -1}
                 onClick={() => onSelect(key)}
               >
-                <span className="slot-name">{slot.label}</span> <span className="slot-status">{slotStatus(slot)}</span>
+                <span className="slot-name">{slot.label}</span>{' '}
+                <span className="slot-status">{slotStatus(slot, aheadOfGeneration(queue, date))}</span>
               </button>
               {slot.topic !== null && <p className="slot-topic">题目：《{slot.topic}》</p>}
               {pastable(queue, date, slot) && (

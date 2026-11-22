@@ -178,6 +178,23 @@ describe('generateMissing', () => {
     expect(provider.calls).toHaveLength(14)
   })
 
+  test('makes lessons for horizonDays only, however far reviewDays reaches; a lesson pasted ahead is kept', async () => {
+    // Three days after Wednesday: Thursday and Friday (the weekend has no lessons). Monday on is the reviewer's only.
+    const { deps, provider } = make(school({ horizonDays: 3, reviewDays: 7 }))
+    const pasted = await saveDraft(deps, { date: MON, division: 'senior' }, content({ title: '自己贴的课' }), {
+      source: 'manual',
+      change: 'generate',
+    })
+    expect(await generateMissing(deps)).toEqual({ generated: 6, failed: 0, waitingManual: 0 })
+    expect(provider.calls).toHaveLength(6)
+    expect([...new Set((await lessonRows()).map((r) => r.date))]).toEqual([THU, FRI, MON])
+
+    // Two days on, Monday is the model's: only its two missing divisions are made, the pasted one stays.
+    clock.set(new Date(`${FRI}T00:05:00+08:00`))
+    expect(await generateMissing(deps)).toEqual({ generated: 2, failed: 0, waitingManual: 0 })
+    expect(await lessonOf(MON, 'senior')).toMatchObject({ id: pasted.lessonId, title: '自己贴的课', source: 'manual', version: 1 })
+  })
+
   test('in manual mode calls the model only for the lessons within manualDeadlineSchoolDays school days', async () => {
     const { deps, provider } = make(school({ mode: 'manual' }))
     // Thursday is 1 school day away, Friday 2 and Monday 3 (the weekend does not count); Tuesday and Wednesday wait.
