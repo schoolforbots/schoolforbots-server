@@ -20,6 +20,7 @@
     "dev:seed": "tsx --env-file-if-exists=.env src/tools/dev-seed.ts",
     "admin:password": "tsx src/tools/admin-password.ts",
     "admin:dev": "npm --prefix admin run dev",
+    "admin:mock": "npm --prefix admin run mock",
     "admin:build": "npm --prefix admin run build",
     "admin:test": "npm --prefix admin test",
     "sim": "tsx src/tools/sim-bots.ts",

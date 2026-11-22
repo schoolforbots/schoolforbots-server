@@ -204,7 +204,7 @@ These keys of the school config are about the model and the admin (see `config/s
 
 3. Restart the registration service and open `http://localhost:8080/your-secret-path/` (with the value of `ADMIN_PATH` in place of the example path). Log in with the password and the current code. Each code works once; a session lasts 12 hours.
 
-To work on the pages, `npm run admin:dev` serves them at `http://localhost:5173/` and passes their API calls on to a running registration service (it reads `ADMIN_PATH` from `.env`); `npm run admin:test` runs their tests.
+To work on the pages, `npm run admin:dev` serves them at `http://localhost:5173/` and passes their API calls on to a running registration service (it reads `ADMIN_PATH` from `.env`); `npm run admin:test` runs their tests. To work on the pages without a server, `npm run admin:mock` answers their API from a pretend school in `admin/mock/school.ts`, with no database and no authenticator (see "本地开发" in `admin/DESIGN.md`).
 
 The admin has six tabs: 学校数据 (today's numbers so far, there as soon as a class is over, next to the same day a week before up to the same time; yesterday's next to the same day a week before; the reminders; the model's spend against the budget; and charts of the last 7, 30 or 90 days, up to yesterday), 审课 (the lessons of the days ahead, see below), 每周复盘 (the weekly review, made every Monday after the midnight job), 查学生 (a student's details, messages and records; suspend, withdraw or lift a penalty by hand), 开关 (the switches) and 公告 (the notices, see "Notices" below).
 
