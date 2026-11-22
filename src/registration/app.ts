@@ -17,6 +17,7 @@ import { registerMailHealthz, type MailHealth } from './mail-health.js'
 import { keyResetRoutes } from './key-resets.js'
 import type { Mailer } from './mailer.js'
 import { meRoutes } from './me.js'
+import { nextSessionRoutes } from './next-session.js'
 import { noticeRoutes } from './notices.js'
 import { recordsRoutes } from './records.js'
 import { registrationRoutes } from './registrations.js'
@@ -98,6 +99,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   app.register(keyResetRoutes(deps))
   app.register(schoolRoutes(deps))
   app.register(noticeRoutes(deps))
+  app.register(nextSessionRoutes(deps))
   if (deps.admin !== undefined && adminPath !== undefined) app.register(adminRoutes(deps.admin), { prefix: adminPath })
 
   return app

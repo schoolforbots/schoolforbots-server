@@ -14,6 +14,7 @@ const CROSS_SITE = [
   '/v1/school-rules/:version',
   '/v1/notices',
   '/v1/notices/:id',
+  '/v1/next-session',
 ]
 
 /** What a browser adds to a request a page on another site makes. */
@@ -42,8 +43,8 @@ function expectNotReadableFromAnotherSite(res: LightMyRequestResponse) {
   expect(Object.keys(res.headers).filter((name) => name.startsWith('access-control-'))).toEqual([])
 }
 
-describe('reading the school calendar, the school rules and the notices from another site', () => {
-  test('each of the six routes allows any site', async () => {
+describe('reading the school calendar, the school rules, the notices and the next session from another site', () => {
+  test('each of the seven routes allows any site', async () => {
     const t = await schoolApp()
     const current = t.schoolRules.current.version
     const { id } = await t.db
@@ -59,6 +60,7 @@ describe('reading the school calendar, the school rules and the notices from ano
       `/v1/school-rules/${current}`,
       '/v1/notices',
       `/v1/notices/${id}`,
+      '/v1/next-session',
     ]) {
       const res = await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
       expect(res.statusCode, url).toBe(200)
@@ -85,7 +87,7 @@ describe('reading the school calendar, the school rules and the notices from ano
   })
 
   test('and so does the rate limit, so a page can tell it apart from a school it cannot reach', async () => {
-    for (const url of ['/v1/school-calendar', '/v1/notices']) {
+    for (const url of ['/v1/school-calendar', '/v1/notices', '/v1/next-session']) {
       const t = await schoolApp({ httpRateLimitPerMinute: 1 })
 
       await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
@@ -104,7 +106,7 @@ describe('reading the school calendar, the school rules and the notices from ano
   test('no preflight is answered, so only a simple GET gets through', async () => {
     const t = await schoolApp()
 
-    for (const url of ['/v1/school-calendar', '/v1/school-rules', '/v1/notices']) {
+    for (const url of ['/v1/school-calendar', '/v1/school-rules', '/v1/notices', '/v1/next-session']) {
       const preflight = await t.app.inject({
         method: 'OPTIONS',
         url,
@@ -134,7 +136,7 @@ describe('reading the school calendar, the school rules and the notices from ano
     })
     destroy = t.destroy
 
-    // The list really holds the route groups: the six routes above, the plugin API and the admin pages.
+    // The list really holds the route groups: the seven routes above, the plugin API and the admin pages.
     expect(routes.map((route) => route.url)).toEqual(expect.arrayContaining(CROSS_SITE))
     expect(routes).toEqual(
       expect.arrayContaining([
