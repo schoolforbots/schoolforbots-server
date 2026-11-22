@@ -9,7 +9,7 @@ interface School {
   cls: number
   club: number
   mailOk: boolean
-  maintenance: { message: string } | null
+  maintenance: { message: string; expectedBackAt?: string | null } | null
 }
 
 function setup() {
@@ -153,6 +153,22 @@ describe('runOnce', () => {
     school.club = 0
     for (let m = 0; m <= 5; m++) await runOnce(env, at(m))
     expect(ctl.sent).toEqual(['【机器人网校】连不上社团服务了'])
+  })
+
+  it('mails that the school is down when it is past its expected time in maintenance and does not answer', async () => {
+    const { school, kv, ctl, env } = setup()
+    school.maintenance = { message: '升级中', expectedBackAt: at(60).toISOString() }
+    await runOnce(env, at(0))
+    expect(status(kv)).toBe('maintenance')
+    school.reg = 0
+    school.cls = 0
+    school.club = 0
+    for (let m = 1; m <= 94; m++) await runOnce(env, at(m))
+    expect(status(kv)).toBe('maintenance')
+    expect(ctl.sent).toEqual([])
+    await runOnce(env, at(95))
+    expect(status(kv)).toBe('down')
+    expect(ctl.sent).toEqual(['【机器人网校】连不上学校了'])
   })
 
   it('mails nothing about the club service in maintenance', async () => {

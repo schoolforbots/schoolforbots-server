@@ -15,14 +15,14 @@ It also serves `GET /status.json` for plugins that cannot reach the school (see 
 
 | Subject | When |
 | --- | --- |
-| 【机器人网校】连不上学校了 | The school has been unreachable for 5 minutes outside maintenance. Sent once. |
+| 【机器人网校】连不上学校了 | The school has been unreachable for 5 minutes outside maintenance, or for 5 minutes once it is well past the end of a maintenance (see below). Sent once. |
 | 【机器人网校】学校已恢复 | The school answers again after that. Sent once. |
 | 【机器人网校】验证码发不出去了 | `/healthz/mail` says mail is not going out. Sent when it breaks, and again every hour while it stays broken. |
 | 【机器人网校】发信已恢复 | `/healthz/mail` says mail works again. Sent once. |
 | 【机器人网校】连不上社团服务了 | `/healthz/club` has failed for 5 minutes outside maintenance. Sent then, and again every hour while it stays down. |
 | 【机器人网校】社团服务已恢复 | `/healthz/club` answers `200` again after that. Sent once. |
 
-Maintenance (reported by the school, or switched on by hand) never causes a mail, and neither does a school that stops answering while it is in maintenance. A school that cannot be reached says nothing about mail, so the mail check is skipped then. A broken mail check does not change `status.json`, and neither does a club service that is down: plugins keep coming to class. A club service that fails only for a moment, as when it restarts, mails nothing. While the school cannot be reached, or counts as down, the club check is skipped: the school's own mail says enough. The mails say only what happened and when; they carry no student data.
+Maintenance (reported by the school, or switched on by hand) never causes a mail, and neither does a school that stops answering while it is in maintenance, for a while: until half an hour after the time the school said it expects to be back, or, with no such time, four hours after the maintenance began. A school that still does not answer after that counts towards down as outside maintenance (a machine that died during maintenance, or a maintenance never switched off): after 5 more minutes `status.json` says `down` and the operator is mailed. A school that answers in maintenance stays in maintenance however long it lasts. Maintenance switched on by hand is not limited. A school that cannot be reached says nothing about mail, so the mail check is skipped then. A broken mail check does not change `status.json`, and neither does a club service that is down: plugins keep coming to class. A club service that fails only for a moment, as when it restarts, mails nothing. While the school cannot be reached, or counts as down, the club check is skipped: the school's own mail says enough. The mails say only what happened and when; they carry no student data.
 
 ## State in KV
 

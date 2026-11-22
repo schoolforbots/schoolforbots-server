@@ -120,6 +120,54 @@ describe('decide', () => {
     expect(r.mails).toEqual([])
   })
 
+  it('counts towards down once the school is past its expected time by half an hour and still not answering', () => {
+    const { r, step } = runner()
+    step(0, { healthy: true, maintenance: { message: '升级中', expectedBackAt: at(60).toISOString() } })
+    for (let i = 1; i <= 89; i++) step(i, dead)
+    expect(r.state).toMatchObject({ status: 'maintenance', message: '升级中', failingSince: null })
+    step(90, dead)
+    expect(r.state).toMatchObject({ status: 'maintenance', message: '升级中', failingSince: at(90).toISOString() })
+    step(94, dead)
+    expect(r.mails).toEqual([])
+    step(95, dead)
+    expect(r.state?.status).toBe('down')
+    expect(r.mails).toEqual(['down'])
+    step(96, up)
+    expect(r.mails).toEqual(['down', 'up'])
+  })
+
+  it('with no expected time, counts towards down four hours after the maintenance began', () => {
+    const { r, step } = runner()
+    step(0, { healthy: true, maintenance: { message: '升级中' } })
+    step(1, dead)
+    step(239, dead)
+    expect(r.state).toMatchObject({ status: 'maintenance', failingSince: null })
+    step(240, dead)
+    expect(r.state?.failingSince).toBe(at(240).toISOString())
+    step(245, dead)
+    expect(r.state?.status).toBe('down')
+    expect(r.mails).toEqual(['down'])
+  })
+
+  it('a later expected time moves the deadline, as long as the school still says it', () => {
+    const { r, step } = runner()
+    step(0, { healthy: true, maintenance: { message: '升级中', expectedBackAt: at(60).toISOString() } })
+    step(50, { healthy: true, maintenance: { message: '升级中', expectedBackAt: at(180).toISOString() } })
+    step(51, dead)
+    step(209, dead)
+    expect(r.state).toMatchObject({ status: 'maintenance', failingSince: null })
+    step(210, dead)
+    expect(r.state?.failingSince).toBe(at(210).toISOString())
+  })
+
+  it('a school still answering in maintenance past its expected time sends nothing', () => {
+    const { r, step } = runner()
+    const m: Probe = { healthy: true, maintenance: { message: '升级中', expectedBackAt: at(60).toISOString() } }
+    for (let i = 0; i <= 600; i += 10) step(i, m)
+    expect(r.state).toMatchObject({ status: 'maintenance', failingSince: null })
+    expect(r.mails).toEqual([])
+  })
+
   it('returns to ok without mail when maintenance ends', () => {
     const { r, step } = runner()
     step(0, { healthy: true, maintenance: { message: '升级中' } })
