@@ -1026,3 +1026,65 @@ p {
   color: #5c5c5c;
   font-size: 13px;
 }
+
+/* The notices: the form on the left, the preview beside it as the website will show it. */
+.notice-status {
+  color: #4a4a4a;
+}
+.notice-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.notice-preview {
+  padding: 12px 16px;
+  border: 1px solid #e3e2dc;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.notice-preview .field-label {
+  margin-top: 0;
+  color: #4a4a4a;
+  font-size: 13px;
+}
+.notice-preview-title {
+  margin: 4px 0 8px;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.notice-window {
+  margin-bottom: 8px;
+  color: #4a4a4a;
+}
+.notice-body {
+  overflow-wrap: anywhere;
+}
+.notice-body p + *,
+.notice-body ul + * {
+  margin-top: 10px;
+}
+.notice-body ul {
+  margin-bottom: 0;
+  padding-left: 1.4em;
+}
+.notice-problems {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.notice-open.ant-btn {
+  height: auto;
+  padding: 0;
+  white-space: normal;
+  text-align: left;
+}
+/* Marked as text, not in colour: the list's other columns are plain too. */
+.notice-updated {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid #b9b8ae;
+  border-radius: 4px;
+  color: #4a4a4a;
+  font-size: 12px;
+  white-space: nowrap;
+}

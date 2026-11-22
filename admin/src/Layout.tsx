@@ -2,6 +2,7 @@ import { Tabs } from 'antd'
 import { useEffect, useState, type ReactNode } from 'react'
 import { LESSON_QUEUE_PATH, lessonsToReview, logout, useLoad, type ApiError, type LessonQueue } from './api.js'
 import { Data } from './pages/Data.js'
+import { Notices } from './pages/Notices.js'
 import { Review } from './pages/Review.js'
 import { Students } from './pages/Students.js'
 import { Switches } from './pages/Switches.js'
@@ -17,7 +18,7 @@ export function TopBar({ children }: { children?: ReactNode }) {
   )
 }
 
-const TABS = ['data', 'review', 'weekly', 'students', 'switches'] as const
+const TABS = ['data', 'review', 'weekly', 'students', 'switches', 'notices'] as const
 type Tab = (typeof TABS)[number]
 
 const isTab = (key: string): key is Tab => (TABS as readonly string[]).includes(key)
@@ -73,6 +74,7 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
     { key: 'weekly', label: '每周复盘', children: <Weekly /> },
     { key: 'students', label: '查学生', children: <Students /> },
     { key: 'switches', label: '开关', children: <Switches /> },
+    { key: 'notices', label: '公告', children: <Notices /> },
   ]
 
   return (

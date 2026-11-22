@@ -15,6 +15,7 @@ import type {
   StudentRecord,
   SwitchState,
   MaintenanceState,
+  NoticeView,
   WeeklyPage,
   WeeklyStats,
 } from './api.js'
@@ -361,5 +362,22 @@ export function textContrast(element: Element, backdrop = '#ffffff'): number {
 export function maintenance(state: Partial<MaintenanceState> | null = null): { maintenance: MaintenanceState | null } {
   return {
     maintenance: state === null ? null : { message: '服务器升级中', since: '2026-11-04T01:00:00.000Z', expectedBackAt: null, ...state },
+  }
+}
+
+/** Notice 7, a general draft made at 18:00 on 3 November at the school, unless `fields` says otherwise. */
+export function notice(fields: Partial<NoticeView> = {}): NoticeView {
+  return {
+    id: 7,
+    title: '期中考试安排',
+    body: '下周三期中考试。',
+    kind: 'general',
+    startsAt: null,
+    endsAt: null,
+    status: 'draft',
+    publishedAt: null,
+    updatedAt: null,
+    createdAt: '2026-11-03T10:00:00.000Z',
+    ...fields,
   }
 }

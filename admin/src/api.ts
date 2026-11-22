@@ -299,7 +299,7 @@ export function onSessionEnded(listener: () => void): () => void {
   }
 }
 
-export async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'X-Requested-With': 'admin' }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
@@ -540,3 +540,46 @@ export interface MaintenanceState {
 export const MAINTENANCE_PATH = 'api/maintenance'
 export const setMaintenance = (body: { on: boolean; message?: string; expectedBackAt?: string | null }) =>
   request<{ maintenance: MaintenanceState | null }>('PUT', MAINTENANCE_PATH, body)
+
+export type NoticeKind = 'general' | 'maintenance'
+export type NoticeStatus = 'draft' | 'published' | 'withdrawn'
+
+/** A notice as `api/notices` lists it; every write to one answers with it. Times are UTC ISO strings. */
+export interface NoticeView {
+  id: number
+  title: string
+  body: string
+  kind: NoticeKind
+  /** A maintenance notice's window; null for a general one. The end may be left out. */
+  startsAt: string | null
+  endsAt: string | null
+  status: NoticeStatus
+  /** When it was first published; published again after a withdrawal, it keeps it. */
+  publishedAt: string | null
+  /** When it was last changed after it was out; null if it never was. */
+  updatedAt: string | null
+  createdAt: string
+}
+
+/** What a notice says: the whole of it is sent each time. The times only for a maintenance notice. */
+export interface NoticeContent {
+  title: string
+  body: string
+  kind: NoticeKind
+  startsAt?: string | null
+  endsAt?: string | null
+}
+
+/** Every notice, newest first: a draft by when it was made, any other by when it was first published. */
+export const NOTICES_PATH = 'api/notices'
+const noticePath = (id: number) => `${NOTICES_PATH}/${id}`
+
+/** Makes a draft. */
+export const createNotice = (content: NoticeContent) => request<NoticeView>('POST', NOTICES_PATH, content)
+/** Replaces what a notice says; `publishedAt` corrects when one that was out was published. */
+export const editNotice = (id: number, content: NoticeContent & { publishedAt?: string }) =>
+  request<NoticeView>('PUT', noticePath(id), content)
+export const publishNotice = (id: number) => request<NoticeView>('POST', `${noticePath(id)}/publish`)
+export const withdrawNotice = (id: number) => request<NoticeView>('POST', `${noticePath(id)}/withdraw`)
+/** Only a draft can be deleted. */
+export const deleteNotice = (id: number) => request<{ ok: true }>('DELETE', noticePath(id))
