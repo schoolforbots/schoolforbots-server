@@ -399,3 +399,39 @@ export const SchoolRulesDiffResult = Type.Object({
   to: DateText,
   diff: Type.String(),
 })
+
+/**
+ * One of the school's notices, as `GET /v1/notices` and `GET /v1/notices/{id}` give it. `id` is its number, for a link
+ * to it. `body` is the text as written, in a small part of Markdown (paragraphs, `- ` lists, `**bold**` and `https://`
+ * links), not rendered. `kind` is `general` or `maintenance`; `window` is null for a general notice and, for a
+ * maintenance notice, when the maintenance starts and ends, each null when not given (most give a start, some no end).
+ * `publishedAt` is when it was first published; `updatedAt` is when it was last changed after that, null when it never
+ * was.
+ */
+export const Notice = Type.Object({
+  id: Type.Integer({ minimum: 1 }),
+  title: Type.String(),
+  body: Type.String(),
+  kind: Type.Union([Type.Literal('general'), Type.Literal('maintenance')]),
+  window: Type.Union([
+    Type.Null(),
+    Type.Object({
+      startsAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+      endsAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+    }),
+  ]),
+  publishedAt: Type.String({ format: 'date-time' }),
+  updatedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+})
+
+/**
+ * `GET /v1/notices?limit=20`, no key needed: the published notices, newest first (by `publishedAt`), at most `limit` of
+ * them (a whole number from 1 to 50, 20 when not given). `more` is true when there are older ones besides.
+ */
+export const NoticesResult = Type.Object({
+  notices: Type.Array(Notice),
+  more: Type.Boolean(),
+})
+
+/** `GET /v1/notices/{id}`, no key needed: one published notice; one not published, or never written, is a 404 not_found. */
+export const NoticeResult = Type.Object({ notice: Notice })
