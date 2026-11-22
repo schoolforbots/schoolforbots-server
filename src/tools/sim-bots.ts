@@ -112,6 +112,8 @@ export interface BotDeps {
   print: (line: string) => void
   /** Called once when the bot stops by itself: sent home after the lesson, or turned away for good. */
   onEnded: () => void
+  /** How long a connection may take to open before the bot gives it up and tries again (ms; for tests). */
+  connectTimeoutMs?: number
 }
 
 export interface Bot {
@@ -152,6 +154,12 @@ const AWAY_MS = [1000, 4000] as const
 const DROP_MARGIN_MS = 2000
 /** How long a bot waits to try again after being turned away at the door or failing to connect (ms). */
 const RETRY_MS = 3000
+/**
+ * How long a connection may take to open, from looking up the address to the answer to the upgrade (ms). Past it the
+ * bot gives the connection up, counts a failed try, and tries again: `ws` itself waits for the answer forever, so one
+ * lost on the way kept a bot out of the lesson for good.
+ */
+export const CONNECT_TIMEOUT_MS = 15_000
 /** How long a bot takes over a reply or an answer (ms): well within the reply timeout of a lesson at 30x (4 s). */
 const THINK_MS = [300, 1000] as const
 
@@ -189,6 +197,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
   let closingSeen = false
   let dropping = false
   let reconnectTimer: NodeJS.Timeout | undefined
+  let connectTimer: NodeJS.Timeout | undefined
   let chatTimer: NodeJS.Timeout | undefined
   let nextId = 0
   /** The most questions a lesson allows, and how many the bot has sent in this session (kept across connections). */
@@ -252,6 +261,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     tally.ended = reason
     clearTimeout(chatTimer)
     clearTimeout(reconnectTimer)
+    clearTimeout(connectTimer)
     say(`结束：${reason}`)
     deps.onEnded()
   }
@@ -271,7 +281,14 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
       failed = true
       sampler.samples.connectFailures++
     }
+    // Given up as an error on the way: counted, closed, tried again.
+    clearTimeout(connectTimer)
+    connectTimer = setTimeout(() => {
+      say('连接超时')
+      ws.terminate()
+    }, deps.connectTimeoutMs ?? CONNECT_TIMEOUT_MS)
     ws.on('open', () => {
+      clearTimeout(connectTimer)
       opened = true
       // `lastSeq` counts the events of the session the welcome named: the school replays after it only in that session.
       const resume = sessionId !== null && lastSeq > 0 ? { sessionId, lastSeq } : {}
@@ -293,6 +310,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     })
     ws.on('close', () => {
       if (socket !== ws) return
+      clearTimeout(connectTimer)
       socket = null
       if (opened && !closingSeen && !dropping && tally.ended === null) {
         sampler.samples.unexpectedDisconnects++
@@ -534,6 +552,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
       tally.ended ??= '中途停止'
       clearTimeout(chatTimer)
       clearTimeout(reconnectTimer)
+      clearTimeout(connectTimer)
       socket?.terminate()
     },
   }

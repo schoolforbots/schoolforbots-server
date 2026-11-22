@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import type { AddressInfo } from 'node:net'
+import { createServer, type AddressInfo, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -381,6 +381,30 @@ describe('against a fake school', () => {
     bot.start()
     await waitUntil(() => bot.tally.unexpectedDisconnects === 1, 'the disconnect')
     expect(bot.tally).toMatchObject({ connects: 1, welcomes: 1, invalid: 1, unexpectedDisconnects: 1, connectFailures: 0 })
+  })
+
+  test('a connection that never gets an answer to its handshake is given up and tried again', async () => {
+    // Takes the TCP connection and says nothing: the upgrade is never answered, as when it is lost on the way.
+    const sockets: Socket[] = []
+    const silent = createServer((socket) => void sockets.push(socket))
+    await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+    cleanups.push(async () => {
+      for (const s of sockets) s.destroy()
+      await new Promise<void>((resolve) => silent.close(() => resolve()))
+    })
+    const lines: string[] = []
+    const bot = createClubBot({ studentId: 1, key: 'k1', displayName: '小鱼1' }, 'quick', { ...QUIET, url: `ws://127.0.0.1:${(silent.address() as AddressInfo).port}/v1/club` }, {
+      clock: { now: () => new Date() },
+      random: seededRandom(1),
+      timing: { retryMs: 50, connectTimeoutMs: 200, reformMs: [60_000, 60_000] },
+      print: (line) => void lines.push(line),
+    })
+    cleanups.push(() => bot.stop())
+    bot.start()
+    await waitUntil(() => sockets.length >= 2, 'the second try')
+    expect(bot.tally).toMatchObject({ connects: 0, welcomes: 0 })
+    expect(bot.tally.connectFailures).toBeGreaterThanOrEqual(1)
+    expect(lines).toContain('小鱼1 连接超时')
   })
 
   test('replaced ends a bot, and is no unexpected disconnect', async () => {

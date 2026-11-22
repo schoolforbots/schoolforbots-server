@@ -1,4 +1,4 @@
-import type { AddressInfo } from 'node:net'
+import { createServer, type AddressInfo, type Socket } from 'node:net'
 import { Value } from 'typebox/value'
 import { afterEach, expect, test } from 'vitest'
 import { WebSocketServer } from 'ws'
@@ -587,4 +587,29 @@ test('a refused conversation line is taken back, and an unmatched line is report
   sampler.samples.chatMs.push(5)
   expect(summarize(sampler.samples).chatUnmatched).toBe(2)
   await school.close()
+})
+
+test('a connection that never gets an answer to its handshake is given up and tried again', async () => {
+  // Takes the TCP connection and says nothing: the upgrade is never answered, as when it is lost on the way.
+  const sockets: Socket[] = []
+  const silent = createServer((socket) => void sockets.push(socket))
+  await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+  const { port } = silent.address() as AddressInfo
+  const sampler = createSampler()
+  const lines: string[] = []
+  try {
+    bot = createBot(
+      { studentId: 1, key: 'k', displayName: '小鱼' },
+      { url: `ws://127.0.0.1:${port}/v1/class`, chatEvery: 3600, dropRate: 0, maxRounds: 3, ask: 0 },
+      { clock: systemClock, sampler, random: () => 0, print: (line) => void lines.push(line), onEnded: () => {}, connectTimeoutMs: 200 },
+    )
+    bot.start()
+    await waitUntil(() => sockets.length >= 2, 'the second try')
+    expect(sampler.samples.connectFailures).toBeGreaterThanOrEqual(1)
+    expect(lines).toContain('小鱼 连接超时')
+  } finally {
+    bot?.stop()
+    for (const s of sockets) s.destroy()
+    await new Promise<void>((resolve) => silent.close(() => resolve()))
+  }
 })
