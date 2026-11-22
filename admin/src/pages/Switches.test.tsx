@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { fail, fakeServer, maintenance, ok, show, switches, textContrast } from '../test-api.js'
+import { fail, fakeServer, maintenance, ok, show, switches } from '../test-api.js'
 import { Switches } from './Switches.js'
 
 const READ = 'GET api/switches'
@@ -131,10 +131,7 @@ describe('the switches page', () => {
 
     const busy = dialog.getByRole('button', { name: '正在关掉' })
     expect(busy).toBeDisabled()
-    // The dialog is white; on it the disabled button's grey fill and its words.
-    expect(textContrast(busy)).toBeGreaterThanOrEqual(4.5)
-    // Over the page colour too, where the boxes of the review page sit.
-    expect(textContrast(busy, '#f7f6f2')).toBeGreaterThanOrEqual(4.5)
+    // The words are the only sign of progress; palette.test.tsx checks they read on the grey fill.
   })
 
   it('shows the server’s reason when it will not switch', async () => {

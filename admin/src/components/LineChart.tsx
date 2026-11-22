@@ -1,4 +1,4 @@
-import { Button, Table } from 'antd'
+import { Button } from '../ui.js'
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { dayName, shortDayName } from '../labels.js'
 import { Empty } from './States.js'
@@ -385,19 +385,34 @@ function DayTable({ title, dates, series, markers, format }: DayTableProps) {
         .join('；'),
     }))
     .reverse()
-  const columns = [
-    { key: 'date', title: '日期', render: (_: unknown, row: (typeof rows)[number]) => shortDayName(row.date) },
-    ...series.map((line, k) => ({
-      key: line.key,
-      title: line.name,
-      align: 'right' as const,
-      render: (_: unknown, row: (typeof rows)[number]) => format(row.values[k] ?? 0),
-    })),
-    ...(withSwitches ? [{ key: 'switches', title: '切换开关', dataIndex: 'switches' }] : []),
-  ]
   return (
     <div className="chart-table" tabIndex={0} role="region" aria-label={`${title}：每天的数字`}>
-      <Table size="small" pagination={false} rowKey="date" columns={columns} dataSource={rows} />
+      <table className="numbers wide">
+        <thead>
+          <tr>
+            <th scope="col">日期</th>
+            {series.map((line) => (
+              <th key={line.key} scope="col" className="num">
+                {line.name}
+              </th>
+            ))}
+            {withSwitches && <th scope="col">切换开关</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.date}>
+              <td>{shortDayName(row.date)}</td>
+              {row.values.map((value, k) => (
+                <td key={series[k]?.key ?? k} className="num">
+                  {format(value)}
+                </td>
+              ))}
+              {withSwitches && <td>{row.switches}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

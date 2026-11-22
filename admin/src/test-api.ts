@@ -1,6 +1,5 @@
 import { render } from '@testing-library/react'
-import { ConfigProvider } from 'antd'
-import { createElement, type ReactElement, type ReactNode } from 'react'
+import type { ReactElement } from 'react'
 import { vi } from 'vitest'
 import type {
   DailyStats,
@@ -19,13 +18,10 @@ import type {
   WeeklyPage,
   WeeklyStats,
 } from './api.js'
-import { antdSettings } from './theme.js'
 
-/** Renders `ui` inside the same Ant Design settings as the real pages. */
+/** Renders `ui` as the real pages do. */
 export function show(ui: ReactElement) {
-  return render(ui, {
-    wrapper: ({ children }: { children: ReactNode }) => createElement(ConfigProvider, antdSettings, children),
-  })
+  return render(ui)
 }
 
 /** A request the page sent, as the fake server saw it. */
@@ -337,12 +333,6 @@ function parseColor(color: string): [number, number, number, number] {
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] ?? 1]
 }
 
-/** `top` laid over the opaque `under`. */
-function over(top: [number, number, number, number], under: [number, number, number]): [number, number, number] {
-  const [r, g, b, a] = top
-  return [r * a + under[0] * (1 - a), g * a + under[1] * (1 - a), b * a + under[2] * (1 - a)]
-}
-
 function luminance([r, g, b]: [number, number, number]): number {
   const linear = (c: number) => {
     const v = c / 255
@@ -351,13 +341,11 @@ function luminance([r, g, b]: [number, number, number]): number {
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
 }
 
-/** The WCAG contrast of an element's text on its own background laid over `backdrop`, as the page's styles give them. */
-export function textContrast(element: Element, backdrop = '#ffffff'): number {
-  const style = getComputedStyle(element)
-  const [r, g, b] = parseColor(backdrop)
-  const background = over(parseColor(style.backgroundColor || 'rgba(0, 0, 0, 0)'), [r, g, b])
-  const text = over(parseColor(style.color), background)
-  const [light, dark] = [luminance(text), luminance(background)].sort((x, y) => y - x)
+/** The WCAG contrast of two opaque colours, `#rrggbb`. */
+export function contrast(a: string, b: string): number {
+  const x = parseColor(a)
+  const y = parseColor(b)
+  const [light, dark] = [luminance([x[0], x[1], x[2]]), luminance([y[0], y[1], y[2]])].sort((m, n) => n - m)
   return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05)
 }
 

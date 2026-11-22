@@ -1,4 +1,4 @@
-import { Button } from 'antd'
+import { Button } from '../ui.js'
 import { Fragment, useId, type ReactNode } from 'react'
 import type { LessonFlag } from '../api.js'
 

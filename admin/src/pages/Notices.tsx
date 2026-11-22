@@ -1,4 +1,4 @@
-import { Button, Input, Radio } from 'antd'
+import { Button, Input, RadioGroup, TextArea } from '../ui.js'
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   createNotice,
@@ -308,7 +308,7 @@ function NoticeEditor({
           <Input id={ids.title} value={title} onChange={(event) => setTitle(event.target.value)} />
           <fieldset className="field-set">
             <legend className="field-label">类型</legend>
-            <Radio.Group
+            <RadioGroup
               value={kind}
               onChange={(event) => setKind(event.target.value as NoticeKind)}
               options={(Object.keys(NOTICE_KIND_NAMES) as NoticeKind[]).map((key) => ({
@@ -348,7 +348,7 @@ function NoticeEditor({
           <p id={ids.bodyHint} className="field-hint">
             最多 {MAX_BODY} 字。空一行分段；行首写“- ”是列表；**加粗**；[文字](https://…) 是链接，只认 https://，地址里的 ) 要写成 %29。别的写法照原样显示。
           </p>
-          <Input.TextArea
+          <TextArea
             id={ids.body}
             aria-describedby={ids.bodyHint}
             value={body}

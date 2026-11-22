@@ -1,4 +1,4 @@
-import { Button, Input, Modal } from 'antd'
+import { Button, Modal, TextArea } from '../ui.js'
 import { useId, useRef, useState } from 'react'
 import { getPrompt, type ApiError, type PromptTarget } from '../api.js'
 
@@ -21,7 +21,7 @@ export function CopyPrompt({ target, ready }: { target: PromptTarget; ready?: ()
 
   function close() {
     setStage({ name: 'idle' })
-    // Ant Design gives the focus back once its closing is over; say where at once, so it never rests on the page.
+    // Back to the button that opened it, at once, so the focus never rests on the page.
     button.current?.focus()
   }
 
@@ -74,11 +74,9 @@ export function CopyPrompt({ target, ready }: { target: PromptTarget; ready?: ()
         <label className="field-label" htmlFor={boxId}>
           提示词
         </label>
-        <Input.TextArea
+        <TextArea
           id={boxId}
-          ref={(field) => {
-            box.current = field?.resizableTextArea?.textArea ?? null
-          }}
+          ref={box}
           readOnly
           value={stage.name === 'byHand' ? stage.text : ''}
           autoSize={{ minRows: 8, maxRows: 16 }}

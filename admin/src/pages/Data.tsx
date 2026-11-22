@@ -1,4 +1,4 @@
-import { Button, Segmented } from 'antd'
+import { Button, Segmented } from '../ui.js'
 import { useId, useState } from 'react'
 import {
   dailyStatsPath,
@@ -73,7 +73,7 @@ function Tiles(props: { labelId: string; day: DayNumbers; before: DayNumbers | n
           <p className="tile-value">{tile.format(day[tile.key])}</p>
           <p className="tile-change">{change(day[tile.key], before?.[tile.key], weekday, tile.format)}</p>
           {tile.key === 'costYuan' && month !== undefined && (
-            <p className="tile-change">
+            <p className="tile-month">
               本月 {yuan(month.costYuan)}，预算 {yuan(month.budgetYuan)}
             </p>
           )}

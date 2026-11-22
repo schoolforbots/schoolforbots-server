@@ -1,4 +1,4 @@
-import { Button, Input, Modal } from 'antd'
+import { Button, Modal, TextArea } from '../ui.js'
 import { useId, useRef, useState } from 'react'
 import { paste, type ApiError, type LessonDetail, type PromptTarget } from '../api.js'
 import { useFocusOnMount } from '../focus.js'
@@ -93,11 +93,9 @@ export function PasteDialog({
       <label className="field-label" htmlFor={boxId}>
         大模型的回复
       </label>
-      <Input.TextArea
+      <TextArea
         id={boxId}
-        ref={(field) => {
-          box.current = field?.resizableTextArea?.textArea ?? null
-        }}
+        ref={box}
         aria-describedby={hintId}
         value={text}
         onChange={(event) => {

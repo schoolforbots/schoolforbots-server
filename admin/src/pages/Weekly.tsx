@@ -1,4 +1,4 @@
-import { Button } from 'antd'
+import { Button } from '../ui.js'
 import { useId, useRef, useState, type ReactNode } from 'react'
 import {
   dropRule,

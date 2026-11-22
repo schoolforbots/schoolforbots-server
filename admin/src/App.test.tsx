@@ -25,7 +25,7 @@ describe('the admin app', () => {
     await user.type(screen.getByLabelText('密码'), 'a long password')
     await user.type(screen.getByLabelText('动态验证码'), '123456{Enter}')
 
-    expect(await screen.findByRole('tab', { name: '学校数据', selected: true })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: '学校数据', current: 'page' })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /^昨天/ })).toBeInTheDocument()
   })
 
@@ -39,7 +39,7 @@ describe('the admin app', () => {
 
     expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument()
     expect(screen.getByText('登录已经过期，重新登录后回到刚才那一页。')).toBeInTheDocument()
-    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
   })
 
   it('logs out', async () => {

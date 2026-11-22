@@ -1,4 +1,4 @@
-import { Button, Checkbox, Input } from 'antd'
+import { Button, Checkbox, Input, TextArea } from '../ui.js'
 import { useId, useRef, useState } from 'react'
 import {
   MAINTENANCE_PATH,
@@ -63,7 +63,7 @@ function SwitchRow({ state, onChanged }: { state: SwitchState; onChanged: (state
         <h2 id={titleId} className="switch-name">
           {name}
         </h2>
-        <p className="switch-state">{state.on ? '现在开着' : '现在关着'}</p>
+        <p className={state.on ? 'switch-state is-on' : 'switch-state'}>{state.on ? '现在开着' : '现在关着'}</p>
         <Button ref={opener} onClick={() => setAsking(true)}>
           {verb}
         </Button>
@@ -206,7 +206,7 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
               <label className="field-label" htmlFor={messageId}>
                 说明（插件会看到，最多 {MAX_MESSAGE} 字）
               </label>
-              <Input.TextArea
+              <TextArea
                 id={messageId}
                 value={message}
                 maxLength={MAX_MESSAGE}

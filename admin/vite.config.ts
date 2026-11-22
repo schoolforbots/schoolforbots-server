@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { loadEnv } from 'vite'
 import { defineConfig } from 'vitest/config'
@@ -16,10 +17,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
-    plugins: [react()],
-    // Ant Design is most of the one bundle (about 300 kB gzipped). One person opens these pages on a computer, so it
-    // is not split up.
-    build: { chunkSizeWarningLimit: 1100 },
+    plugins: [react(), tailwindcss()],
     server: {
       proxy:
         adminPath === ''
