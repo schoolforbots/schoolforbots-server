@@ -435,3 +435,37 @@ export const NoticesResult = Type.Object({
 
 /** `GET /v1/notices/{id}`, no key needed: one published notice; one not published, or never written, is a 404 not_found. */
 export const NoticeResult = Type.Object({ notice: Notice })
+
+/**
+ * `GET /v1/next-session`, no key needed: the session going on now, or the next one, for every class of the school.
+ * `session` is null when there is none in the next 30 days (the school is on a break, say).
+ * `date` is its school day (`YYYY-MM-DD` in the school's time zone) and `slot` its slot; `startsAt` and `endsAt` are
+ * when its lesson starts and ends, and `doorsOpenAt` when the classes' doors open, before it. `inProgress` is true from
+ * the doors opening to the end. Under maintenance no session is in progress: the one given is the first to start after
+ * the maintenance is expected to end, or after now when that is not known.
+ * `kind` is `lesson` on a weekday and `study` for a study hall (自习), at the weekend, or on a weekday the classes have
+ * already made one. `divisions` are the divisions with a class in the slot that has students in it, primary, junior,
+ * senior: `subject` and `title` are those of the division's lesson once it is approved, null before (it is being
+ * prepared) and null in a study hall.
+ */
+export const NextSessionResult = Type.Object({
+  session: Type.Union([
+    Type.Null(),
+    Type.Object({
+      date: DateText,
+      slot: Slot,
+      startsAt: Type.String({ format: 'date-time' }),
+      endsAt: Type.String({ format: 'date-time' }),
+      doorsOpenAt: Type.String({ format: 'date-time' }),
+      inProgress: Type.Boolean(),
+      kind: Type.Union([Type.Literal('lesson'), Type.Literal('study')]),
+      divisions: Type.Array(
+        Type.Object({
+          division: Division,
+          subject: Type.Union([Type.String(), Type.Null()]),
+          title: Type.Union([Type.String(), Type.Null()]),
+        }),
+      ),
+    }),
+  ]),
+})

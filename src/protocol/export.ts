@@ -16,6 +16,7 @@ const PUBLISHED_HTTP = [
   'KeyResetResult',
   'KeyResetVerifyRequest',
   'Me',
+  'NextSessionResult',
   'Notice',
   'NoticeResult',
   'NoticesResult',
