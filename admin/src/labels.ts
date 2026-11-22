@@ -3,6 +3,8 @@ import type {
   Division,
   LlmPurpose,
   MessageKind,
+  NoticeKind,
+  NoticeStatus,
   QueueSlot,
   RuleKind,
   Slot,
@@ -50,6 +52,14 @@ export const MESSAGE_KIND_NAMES: Record<MessageKind, string> = {
   question: '提问',
   answer: '点名回答',
   closing: '下课前最后一句',
+}
+
+export const NOTICE_KIND_NAMES: Record<NoticeKind, string> = { general: '普通', maintenance: '维护' }
+
+export const NOTICE_STATUS_NAMES: Record<NoticeStatus, string> = {
+  draft: '草稿',
+  published: '已发布',
+  withdrawn: '已撤下',
 }
 
 /**
@@ -121,6 +131,34 @@ export const localDay = (instant: string, timeZone: string) => onClock(instant, 
 
 /** The time of an instant in `timeZone`, as 09:45. */
 export const clockTime = (instant: string, timeZone: string) => onClock(instant, timeZone).time
+
+/** An instant in `timeZone` as a `datetime-local` field holds it: 2026-11-24T02:00. */
+export function clockInput(instant: string, timeZone: string): string {
+  const { date, time } = onClock(instant, timeZone)
+  return `${date}T${time}`
+}
+
+/** `YYYY-MM-DDTHH:mm` read as if it were UTC, in milliseconds; NaN for anything else. */
+function asUtc(input: string): number {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(input)
+  if (parts === null) return NaN
+  const [year, month, day, hour, minute] = parts.slice(1).map(Number) as [number, number, number, number, number]
+  return Date.UTC(year, month - 1, day, hour, minute)
+}
+
+/**
+ * What a `datetime-local` field holds (2026-11-24T02:00), read on the clock of `timeZone`, as the instant it is (UTC
+ * ISO, as `toISOString` writes it). Null for anything else, and for a time that clock skips (when it is put forward).
+ */
+export function instantOf(input: string, timeZone: string): string | null {
+  const wanted = asUtc(input)
+  if (Number.isNaN(wanted)) return null
+  // The zone's offset at a first guess, then at the instant that gives, which settles it across a change of offset.
+  let instant = wanted
+  for (let i = 0; i < 2; i++) instant += wanted - asUtc(clockInput(new Date(instant).toISOString(), timeZone))
+  const iso = new Date(instant).toISOString()
+  return clockInput(iso, timeZone) === input ? iso : null
+}
 
 /** An instant in `timeZone`, with its year: 2026 年 11 月 4 日 09:45. */
 export function moment(instant: string, timeZone: string): string {

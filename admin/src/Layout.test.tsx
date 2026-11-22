@@ -20,14 +20,14 @@ function serve(queue = lessonQueue(), stats = dailyStats(7)) {
 }
 
 describe('the layout', () => {
-  it('has the title, the logout and five tabs, the school data first', async () => {
+  it('has the title, the logout and six tabs, the school data first', async () => {
     serve()
     show(<Layout onLoggedOut={vi.fn()} />)
 
     expect(screen.getByRole('heading', { level: 1, name: '机器人网校 · 后台' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent)
-    expect(tabs).toEqual(['学校数据', '审课', '每周复盘', '查学生', '开关'])
+    expect(tabs).toEqual(['学校数据', '审课', '每周复盘', '查学生', '开关', '公告'])
     expect(screen.getByRole('tab', { name: '学校数据' })).toHaveAttribute('aria-selected', 'true')
   })
 
@@ -77,13 +77,14 @@ describe('the layout', () => {
     expect(await screen.findByRole('tab', { name: '审课 · 待审数没读到' })).toBeInTheDocument()
   })
 
-  it('shows the weekly review, the student lookup and the switches on their tabs', async () => {
+  it('shows the weekly review, the student lookup, the switches and the notices on their tabs', async () => {
     fakeServer({
       'GET api/stats/daily?days=7': ok(dailyStats(7)),
       'GET api/lessons/queue': ok(lessonQueue()),
       'GET api/weekly': ok(weeklyPage()),
       'GET api/weekly/weeks': ok({ weeks: [] }),
       'GET api/switches': ok(switches()),
+      'GET api/notices': ok({ notices: [] }),
     })
     const user = userEvent.setup()
     show(<Layout onLoggedOut={vi.fn()} />)
@@ -96,6 +97,9 @@ describe('the layout', () => {
       .toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: '开关' }))
     expect(await within(screen.getByRole('tabpanel', { name: '开关' })).findByRole('region', { name: '老师用大模型' }))
+      .toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '公告' }))
+    expect(await within(screen.getByRole('tabpanel', { name: '公告' })).findByRole('button', { name: '写新公告' }))
       .toBeInTheDocument()
     expect(screen.queryByText('这一页还在做。')).not.toBeInTheDocument()
   })
