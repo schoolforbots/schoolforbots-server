@@ -420,6 +420,296 @@
         }
       }
     },
+    "Notice": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "body",
+        "kind",
+        "window",
+        "publishedAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "general"
+            },
+            {
+              "type": "string",
+              "const": "maintenance"
+            }
+          ]
+        },
+        "window": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "startsAt",
+                "endsAt"
+              ],
+              "properties": {
+                "startsAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "endsAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "NoticeResult": {
+      "type": "object",
+      "required": [
+        "notice"
+      ],
+      "properties": {
+        "notice": {
+          "type": "object",
+          "required": [
+            "id",
+            "title",
+            "body",
+            "kind",
+            "window",
+            "publishedAt",
+            "updatedAt"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "title": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "general"
+                },
+                {
+                  "type": "string",
+                  "const": "maintenance"
+                }
+              ]
+            },
+            "window": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "startsAt",
+                    "endsAt"
+                  ],
+                  "properties": {
+                    "startsAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "endsAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "publishedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "NoticesResult": {
+      "type": "object",
+      "required": [
+        "notices",
+        "more"
+      ],
+      "properties": {
+        "notices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "body",
+              "kind",
+              "window",
+              "publishedAt",
+              "updatedAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "title": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "general"
+                  },
+                  {
+                    "type": "string",
+                    "const": "maintenance"
+                  }
+                ]
+              },
+              "window": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "startsAt",
+                      "endsAt"
+                    ],
+                    "properties": {
+                      "startsAt": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "endsAt": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "publishedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "more": {
+          "type": "boolean"
+        }
+      }
+    },
     "ReEnrollRequest": {
       "type": "object",
       "required": [
