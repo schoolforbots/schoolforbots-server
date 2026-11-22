@@ -159,7 +159,10 @@ export function queueSlot(division: QueueSlot['division'], slot: Partial<QueueSl
   }
 }
 
-export function lessonQueue(days: LessonQueue['days'] = []): LessonQueue {
+/** A queue of these days; a day says `aheadOfGeneration` only when it is. */
+export function lessonQueue(
+  days: (Omit<LessonQueue['days'][number], 'aheadOfGeneration'> & { aheadOfGeneration?: boolean })[] = [],
+): LessonQueue {
   return {
     mode: 'api',
     today: '2026-11-04',
@@ -167,7 +170,7 @@ export function lessonQueue(days: LessonQueue['days'] = []): LessonQueue {
       { kind: 'review', afterSegment: 2 },
       { kind: 'extension', afterSegment: 4 },
     ],
-    days,
+    days: days.map((d) => ({ ...d, aheadOfGeneration: d.aheadOfGeneration ?? false })),
   }
 }
 

@@ -104,7 +104,7 @@ interface Queue {
   mode: string
   today: string
   callOns: unknown[]
-  days: { date: string; divisions: QueueSlot[] }[]
+  days: { date: string; aheadOfGeneration: boolean; divisions: QueueSlot[] }[]
 }
 
 async function queue(): Promise<Queue> {
@@ -195,6 +195,35 @@ describe('the review queue', () => {
     expect(await days({ breaks: [{ from: THU, reopensOn: NEXT_MON }] })).toEqual([MON, TUE, WED, NEXT_MON])
     expect(await days({ breaks: [{ from: WED, reopensOn: null }] })).toEqual([MON, TUE])
     expect(await days({ openingDay: '2026-12-01', breaks: [] })).toEqual([])
+  })
+
+  test('reaches reviewDays ahead, marking the days the model does not make lessons for yet', async () => {
+    const example = exampleConfig()
+    const config = (horizonDays: number, reviewDays?: number): SchoolConfig => ({
+      ...example,
+      lessonGeneration: { ...example.lessonGeneration, horizonDays, reviewDays },
+    })
+    await start({ config: config(3, 7) })
+    const q = await queue()
+    // Monday to Thursday is the model's (three days after today); Friday and next Monday only the reviewer's.
+    expect(q.days.map((d) => [d.date, d.aheadOfGeneration])).toEqual([
+      [MON, false],
+      [TUE, false],
+      [WED, false],
+      [THU, false],
+      [FRI, true],
+      [NEXT_MON, true],
+    ])
+    expect(slotOf(q, FRI, 'junior')).toMatchObject({ status: 'missing', generationFailed: null })
+
+    // Without reviewDays the queue ends where the model's days end.
+    const alone = await reviewQueue({ db: t.db, config: config(3), clock: t.clock })
+    expect(alone.map((d) => [d.date, d.aheadOfGeneration])).toEqual([
+      [MON, false],
+      [TUE, false],
+      [WED, false],
+      [THU, false],
+    ])
   })
 
   test('says which mode lessons are made in', async () => {
@@ -577,6 +606,24 @@ describe('pasting a reply in', () => {
     })
     expect(noVersion.statusCode).toBe(422)
     expect(noVersion.json().error.message).toBe('重写要带上复制提示词时这节课的版本号')
+  })
+
+  test('works for a day past the model’s days, in api mode: topic, prompt and pasted reply', async () => {
+    const example = exampleConfig()
+    await start({ config: { ...example, lessonGeneration: { ...example.lessonGeneration, horizonDays: 3, reviewDays: 7 } } })
+    expect((await api('PUT', `topics/${NEXT_MON}/junior`, { topic: '开学第一课' })).json()).toEqual({ result: 'stored' })
+    const prompt = await api('GET', promptQuery({ kind: 'generate', date: NEXT_MON, division: 'junior' }))
+    expect(prompt.statusCode).toBe(200)
+    expect(prompt.json().text).toContain('本节课的主题：开学第一课')
+    const stored = await api('POST', 'lessons/paste', {
+      date: NEXT_MON,
+      division: 'junior',
+      kind: 'generate',
+      pasted: lessonReply('开学第一课'),
+    })
+    expect(stored.statusCode).toBe(200)
+    expect(stored.json()).toMatchObject({ date: NEXT_MON, division: 'junior', source: 'manual', topic: '开学第一课', version: 1 })
+    expect(slotOf(await queue(), NEXT_MON, 'junior')).toMatchObject({ status: 'pending', lessonId: stored.json().id })
   })
 
   test('a new lesson pasted for a day that has one is a 409 unless it names the version it replaces', async () => {

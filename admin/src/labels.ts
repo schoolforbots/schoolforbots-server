@@ -64,9 +64,10 @@ export const NOTICE_STATUS_NAMES: Record<NoticeStatus, string> = {
 
 /**
  * Where a slot of the review queue stands, as its list says it. A day a class of the division has begun is settled:
- * its lesson was taught (已开课), or the day became a study hall (当天已定).
+ * its lesson was taught (已开课), or the day became a study hall (当天已定). `ahead`: the slot's day is past the days the
+ * model makes lessons for, so a lesson missing there is not made yet by design (还没到自动生成).
  */
-export function slotStatus(slot: QueueSlot): string {
+export function slotStatus(slot: QueueSlot, ahead = false): string {
   if (slot.locked) return slot.status === 'approved' ? '已开课' : '当天已定'
   const failed = slot.generationFailed !== null
   switch (slot.status) {
@@ -78,7 +79,8 @@ export function slotStatus(slot: QueueSlot): string {
       // A lesson there already fails to be made again only for a new topic; the old one waits meanwhile.
       return failed ? '待审，重新生成失败' : '待审'
     case 'missing':
-      return failed ? '生成失败' : '待生成'
+      if (failed) return '生成失败'
+      return ahead ? '还没到自动生成' : '待生成'
   }
 }
 

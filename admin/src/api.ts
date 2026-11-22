@@ -94,12 +94,31 @@ export interface LessonQueue {
   /** The school's calendar day today (`YYYY-MM-DD`): a topic can be given from the day after it. */
   today: string
   callOns: { kind: 'review' | 'extension'; afterSegment: number }[]
-  days: { date: string; divisions: QueueSlot[] }[]
+  days: QueueDay[]
 }
 
-/** The lessons the operator can still act on: not approved, on a day no class of the division has begun. */
+export interface QueueDay {
+  date: string
+  /**
+   * Past the days the model makes lessons for: a lesson missing here is not late. The model makes it when the day
+   * comes within them; it can be pasted in before that.
+   */
+  aheadOfGeneration: boolean
+  divisions: QueueSlot[]
+}
+
+/** Whether the day is past the days the model makes lessons for (see `QueueDay.aheadOfGeneration`). */
+export const aheadOfGeneration = (queue: LessonQueue, date: string) =>
+  queue.days.find((day) => day.date === date)?.aheadOfGeneration === true
+
+/**
+ * The lessons the operator can still act on: not approved, on a day no class of the division has begun. A lesson
+ * missing on a day ahead of the model's is not one yet.
+ */
 export function lessonsToReview(queue: LessonQueue): number {
-  return queue.days.flatMap((day) => day.divisions).filter((slot) => slot.status !== 'approved' && !slot.locked)
+  return queue.days
+    .flatMap((day) => day.divisions.map((slot) => ({ slot, ahead: day.aheadOfGeneration })))
+    .filter(({ slot, ahead }) => slot.status !== 'approved' && !slot.locked && !(ahead && slot.status === 'missing'))
     .length
 }
 
@@ -107,13 +126,16 @@ export function lessonsToReview(queue: LessonQueue): number {
 export const slotKey = (date: string, division: Division) => `${date}/${division}`
 
 /**
- * A lesson not made yet that can be pasted in by hand: in manual mode, after the model failed to make it, or today's,
- * which the model no longer makes (it makes the days after today).
+ * A lesson not made yet that can be pasted in by hand: in manual mode, after the model failed to make it, today's,
+ * which the model no longer makes (it makes the days after today), or one on a day ahead of the model's.
  */
 export const pastable = (queue: LessonQueue, date: string, slot: QueueSlot) =>
   slot.status === 'missing' &&
   !slot.locked &&
-  (queue.mode === 'manual' || slot.generationFailed !== null || date === queue.today)
+  (queue.mode === 'manual' ||
+    slot.generationFailed !== null ||
+    date === queue.today ||
+    aheadOfGeneration(queue, date))
 
 /** A lesson there to read and approve: made, not approved, on a day still open. */
 export const awaitsReview = (slot: QueueSlot) =>

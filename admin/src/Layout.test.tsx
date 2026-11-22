@@ -70,6 +70,28 @@ describe('the layout', () => {
     expect(await screen.findByRole('tab', { name: '审课 · 待审 3' })).toBeInTheDocument()
   })
 
+  it('leaves out of the count a lesson missing on a day the model does not make lessons for yet', async () => {
+    serve(
+      lessonQueue([
+        {
+          date: '2026-11-05',
+          divisions: [queueSlot('primary', { status: 'missing', lessonId: null, version: null })],
+        },
+        {
+          date: '2026-11-09',
+          aheadOfGeneration: true,
+          divisions: [
+            queueSlot('primary', { status: 'missing', lessonId: null, version: null }),
+            queueSlot('junior', { status: 'pending' }),
+          ],
+        },
+      ]),
+    )
+    show(<Layout onLoggedOut={vi.fn()} />)
+
+    expect(await screen.findByRole('tab', { name: '审课 · 待审 2' })).toBeInTheDocument()
+  })
+
   it('says the count of lessons to review was not read, rather than showing none', async () => {
     fakeServer({ 'GET api/stats/daily?days=7': ok(dailyStats(7)), 'GET api/lessons/queue': { networkError: true } })
     show(<Layout onLoggedOut={vi.fn()} />)

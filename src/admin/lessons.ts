@@ -68,24 +68,35 @@ export interface QueueSlot {
 
 export interface QueueDay {
   date: string
+  /**
+   * Past the days the model makes lessons for (`lessonGeneration.horizonDays`): a lesson missing here is not late, it
+   * is made when the day comes within them, or pasted in before that.
+   */
+  aheadOfGeneration: boolean
   divisions: QueueSlot[]
 }
 
-/** The lesson days from today to `lessonGeneration.horizonDays` days after it, both included, in order. */
+/**
+ * The lesson days from today to `lessonGeneration.reviewDays` days after it (`horizonDays` without it), both included,
+ * in order.
+ */
 function queueDates(config: SchoolConfig, today: string): string[] {
+  const { horizonDays, reviewDays } = config.lessonGeneration
   const dates: string[] = []
-  for (let ahead = 0; ahead <= config.lessonGeneration.horizonDays; ahead++) {
+  for (let ahead = 0; ahead <= (reviewDays ?? horizonDays); ahead++) {
     const date = addDaysToDate(today, ahead)
     if (isLessonDay(date, config)) dates.push(date)
   }
   return dates
 }
 
-/** Every lesson day from today to the horizon, oldest first, each with its three divisions. */
+/** Every lesson day from today to the end of the review window, oldest first, each with its three divisions. */
 export async function reviewQueue(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'>): Promise<QueueDay[]> {
   const { db, config, clock } = deps
-  const dates = queueDates(config, localDate(clock.now(), config.timezone))
+  const today = localDate(clock.now(), config.timezone)
+  const dates = queueDates(config, today)
   if (dates.length === 0) return []
+  const lastGenerated = addDaysToDate(today, config.lessonGeneration.horizonDays)
 
   const lessons = await db
     .selectFrom('lessons as l')
@@ -115,6 +126,7 @@ export async function reviewQueue(deps: Pick<AdminDeps, 'db' | 'config' | 'clock
     rows.find((r) => r.date === date && r.division === division)
   return dates.map((date) => ({
     date,
+    aheadOfGeneration: date > lastGenerated,
     divisions: DIVISIONS.map((division): QueueSlot => {
       const lesson = find(lessons, date, division)
       const failure = find(failures, date, division)
