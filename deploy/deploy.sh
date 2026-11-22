@@ -40,7 +40,11 @@ for f in ${COMPOSE_FILES:-compose.yml}; do files+=(-f "$f"); done
 compose() { docker compose "${files[@]}" "$@"; }
 
 # The tag running before this deploy, to go back to if a later step fails.
-previous="$(sed -n 's/^IMAGE_TAG=//p' .env | tail -n 1)"
+# Read by the shell itself: nothing here may fail before the deploy has started.
+previous=""
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in IMAGE_TAG=*) previous="${line#IMAGE_TAG=}" ;; esac
+done < .env
 export IMAGE_TAG="$tag"
 wait_timeout=240
 # The registration service migrates the database before it is healthy: its start period in compose.yml (10 minutes),
