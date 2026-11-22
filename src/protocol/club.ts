@@ -27,8 +27,8 @@ export const ClubPerson = Type.Union([
 ])
 
 /**
- * A `ClubPerson` with the student's class, e.g. `"初中部·晚班·3 班"`; `null` for a bot. Used only in the lobby and on the
- * leaderboards.
+ * A `ClubPerson` with the student's class, e.g. `"初中部·晚班·3 班"`; `null` for a bot. Used only in the lobby and on
+ * the leaderboard.
  */
 export const ClubPersonWithClass = Type.Union([
   Type.Object({
@@ -491,7 +491,7 @@ export const RoomState = Type.Object({
  * then null. `doublings` lists every doubling with its cause (a bomb or rocket played, with the seat that played it; a
  * spring or anti-spring, with no seat). `multiplier` is the multiplier after the cap, `capped` whether the cap cut it.
  * `scores` is each seat's score, by seat, adding up to 0 (all 0 with no landlord). `hands` is the cards each seat had
- * left, by seat. `ranked` is true when the game counts on the leaderboards, which only games without bots do.
+ * left, by seat. `ranked` is true when the game counts on the leaderboard, which only games without bots do.
  */
 export const DoudizhuResult = Type.Object({
   gameId: GameId,

@@ -7,26 +7,24 @@ import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf } from './auth.js'
 import { ApiError } from './errors.js'
 
-// What a student can look up of their doudizhu: their record, the two leaderboards, their own games a page at a time,
+// What a student can look up of their doudizhu: their record, the week's leaderboard, their own games a page at a time,
 // and the whole record of one of them. The sums are worked out from the stored games when asked
 // (`src/club/doudizhu-stats.ts`).
 //
 // - A record and games are the student's for good: any student with a valid key gets theirs, member or not, whatever
 //   their status (as with the summaries and discipline records).
-// - The leaderboards are for current members only: anyone else gets a 403 `not_member`.
+// - The leaderboard is for current members only: anyone else gets a 403 `not_member`. There was an all-time board too;
+//   it is gone, and asking for it (`board=all`) gets a 400 that says so, so a plugin that still offers it tells its
+//   owner why.
 // - A game's record is for the students who played it: anyone else (one who watched it too) gets the 404 `not_found`
 //   of a game that does not exist, so nobody learns whether it was played.
 
 const MAX_PG_INTEGER = 2_147_483_647
 
-// What a board is serialized with: `ClubLeaderboard` without its if/then/else (which ties `weekStartsOn` to the board).
-// With it, fast-json-stringify cannot build the route's serializer and the service does not start: "Failed to merge
-// "type" keyword schemas". A response schema only serializes the reply, it does not validate it, and leaving the
-// condition out changes nothing of the shape: it says only which of null and a date goes with which board, and the
-// query always gives the right one (tests/registration/doudizhu.test.ts checks the replies against the whole schema).
-const LeaderboardReply = Type.Object(ClubLeaderboard.properties)
-
-const LeaderboardQuery = Type.Object({ board: Type.Union([Type.Literal('week'), Type.Literal('all')]) })
+// `all` is still let through the schema, to be answered with what became of the all-time board; any other value is the
+// schema's 400.
+const LeaderboardQuery = Type.Object({ board: Type.Optional(Type.Union([Type.Literal('week'), Type.Literal('all')])) })
+const NO_ALL_TIME_BOARD = '总榜已经取消，只有本周榜。'
 // A query or path value is text. The schemas only turn away a parameter given twice; `gameIdOf` reads the one value.
 const GamesQuery = Type.Object({ before: Type.Optional(Type.String()) })
 const GameParams = Type.Object({ gameId: Type.String() })
@@ -53,16 +51,17 @@ export function doudizhuRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebo
       '/v1/me/clubs/doudizhu/leaderboard',
       {
         preHandler: requireStudent(deps),
-        schema: { querystring: LeaderboardQuery, response: { 200: LeaderboardReply } },
+        schema: { querystring: LeaderboardQuery, response: { 200: ClubLeaderboard } },
       },
       async (request) => {
+        if (request.query.board === 'all') throw new ApiError(400, 'invalid_request', {}, NO_ALL_TIME_BOARD)
         const student = studentOf(request)
         // The same members the boards list: a current member, in a class (the boards show the class). Every current
         // member is in one (active or suspended); the class is checked too so that whoever may look could be on it.
         if (student.classId === null || !(await isMember(deps.db, student.id, 'doudizhu'))) {
           throw new ApiError(403, 'not_member')
         }
-        return doudizhuLeaderboard(deps.db, deps.config, request.query.board, student.id, deps.clock.now())
+        return doudizhuLeaderboard(deps.db, deps.config, student.id, deps.clock.now())
       },
     )
 

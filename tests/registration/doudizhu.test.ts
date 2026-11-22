@@ -214,7 +214,7 @@ describe('the stats', () => {
 })
 
 describe('the leaderboards', () => {
-  test('the week’s and the all-time board, with me', async () => {
+  test('the week’s board, with me; asked for without a board too', async () => {
     const a = await student()
     const b = await student()
     await game({ endedAt: LAST_WEEK, ranked: true, seats: [{ studentId: a.id, score: 10 }, { studentId: b.id, score: -10 }] })
@@ -231,12 +231,20 @@ describe('the leaderboards', () => {
     expect(week.me).toBeNull()
     expect(week.moreTied).toBeNull()
 
-    const all = await ok<Board>(ClubLeaderboard, `${BASE}/leaderboard?board=all`, a.key)
-    expect(all.weekStartsOn).toBeNull()
-    expect(all.entries.map((e) => [e.studentId, e.points])).toEqual([
-      [a.id, 9],
-      [b.id, -9],
-    ])
+    // No board is the week's.
+    expect(await ok<Board>(ClubLeaderboard, `${BASE}/leaderboard`, a.key)).toEqual(week)
+  })
+
+  test('the all-time board is gone: board=all is a 400 that says so, before membership is looked at', async () => {
+    const a = await student()
+    const never = await student({ member: false })
+    for (const s of [a, never]) {
+      expect(await errorOf(`${BASE}/leaderboard?board=all`, s.key)).toEqual({
+        status: 400,
+        code: 'invalid_request',
+        message: '总榜已经取消，只有本周榜。',
+      })
+    }
   })
 
   test('a member who never played sees the board; a suspended member too', async () => {
@@ -260,8 +268,8 @@ describe('the leaderboards', () => {
     const pending = await insertStudent(t.db, { status: 'pending', createdAt: REGISTERED })
 
     for (const s of [never, left, dropped, pending]) {
-      for (const board of ['week', 'all']) {
-        expect(await errorOf(`${BASE}/leaderboard?board=${board}`, s.key)).toEqual({
+      for (const query of ['?board=week', '']) {
+        expect(await errorOf(`${BASE}/leaderboard${query}`, s.key)).toEqual({
           status: 403,
           code: 'not_member',
           message: ERROR_MESSAGES.not_member,
@@ -271,9 +279,9 @@ describe('the leaderboards', () => {
     expect(ERROR_MESSAGES.not_member).toBe('入社以后才能看排行榜。')
   })
 
-  test('the board must be week or all, given once', async () => {
+  test('a board given must be week, given once', async () => {
     const a = await student()
-    for (const query of ['', '?board=x', '?board=WEEK', '?board=week&board=all']) {
+    for (const query of ['?board=', '?board=x', '?board=WEEK', '?board=week&board=week', '?board=week&board=all']) {
       expect(await errorOf(`${BASE}/leaderboard${query}`, a.key), query).toMatchObject({ status: 400, code: 'invalid_request' })
     }
   })

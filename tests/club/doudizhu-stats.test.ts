@@ -320,7 +320,7 @@ describe('the leaderboards', () => {
     const dropped = await student({ ownerName: '退学' })
     const never = await student({ member: false, ownerName: '没入社' })
     const botsOnly = await student({ ownerName: '陪练局' })
-    // Last week, Sunday 23:59 local: all-time only.
+    // Last week, Sunday 23:59 local: not on this week's board.
     await game({ endedAt: SUNDAY_2359, ranked: true, seats: [{ studentId: a, score: 10 }, { studentId: b, score: -5 }, { studentId: c, score: -5 }] })
     // This week, Monday 00:00 local.
     await game({ endedAt: MONDAY, ranked: true, seats: [{ studentId: a, score: -2 }, { studentId: b, score: 4 }, { studentId: c, score: -2 }] })
@@ -331,7 +331,7 @@ describe('the leaderboards', () => {
     await leave(t.db, gone, 'doudizhu')
     await t.db.updateTable('students').set({ status: 'dropped' }).where('id', '=', dropped).execute()
 
-    const week = checked(ClubLeaderboard, await doudizhuLeaderboard(t.db, config, 'week', a, NOW))
+    const week = checked(ClubLeaderboard, await doudizhuLeaderboard(t.db, config, a, NOW))
     expect(week.board).toBe('week')
     expect(week.weekStartsOn).toBe('2026-11-16')
     expect(week.entries).toEqual([
@@ -342,13 +342,8 @@ describe('the leaderboards', () => {
     expect(week.me).toBeNull()
     expect(week.moreTied).toBeNull()
 
-    const all = checked(ClubLeaderboard, await doudizhuLeaderboard(t.db, config, 'all', a, NOW))
-    expect(all.weekStartsOn).toBeNull()
-    expect(all.entries.map((e) => [e.studentId, e.rank, e.points, e.games])).toEqual([
-      [a, 1, 8, 2],
-      [b, 2, -1, 2],
-      [c, 3, -7, 2],
-    ])
+    // Their own points still count every ranked game, last week's too.
+    expect((await doudizhuStats(t.db, a, NOW, TZ)).points).toEqual({ total: 8, week: -2 })
     // Their own record is still there for those not on the board.
     expect((await doudizhuStats(t.db, gone, NOW, TZ)).points.total).toBe(99)
     expect((await doudizhuGames(t.db, gone, null)).games).toHaveLength(1)
@@ -359,10 +354,10 @@ describe('the leaderboards', () => {
     const b = await student()
     await game({ endedAt: SUNDAY_2359, ranked: true, seats: [{ studentId: a, score: 5 }] })
     await game({ endedAt: MONDAY, ranked: true, seats: [{ studentId: b, score: 1 }] })
-    const week = await doudizhuLeaderboard(t.db, config, 'week', a, NOW)
+    const week = await doudizhuLeaderboard(t.db, config, a, NOW)
     expect(week.entries.map((e) => e.studentId)).toEqual([b])
     // Seen from Sunday 23:59 itself, both games are of that (the earlier) week.
-    const before = await doudizhuLeaderboard(t.db, config, 'week', a, SUNDAY_2359)
+    const before = await doudizhuLeaderboard(t.db, config, a, SUNDAY_2359)
     expect(before.weekStartsOn).toBe('2026-11-09')
     expect(before.entries.map((e) => e.studentId)).toEqual([a, b])
   })
@@ -376,7 +371,7 @@ describe('the leaderboards', () => {
       await game({ endedAt: MONDAY, ranked: true, seats: ids.slice(i, i + 3).map((studentId) => ({ studentId, score: 1 })) })
     }
     const last = ids[23]!
-    const board = checked(ClubLeaderboard, await doudizhuLeaderboard(t.db, config, 'all', last, NOW))
+    const board = checked(ClubLeaderboard, await doudizhuLeaderboard(t.db, config, last, NOW))
     expect(board.entries).toHaveLength(20)
     expect(board.entries.map((e) => e.studentId)).toEqual(ids.slice(0, 20))
     expect(board.moreTied).toEqual({ rank: 1, count: 4 })
@@ -486,6 +481,6 @@ describe('the record of a game', () => {
     const stats = await doudizhuStats(t.db, id, at(10), TZ)
     expect(stats).toMatchObject({ games: 1, wins: 1, rankedGames: 0, points: { total: 0, week: 0 } })
     expect(stats.maxMultiplier).toBe(entry.record.result.multiplier)
-    expect((await doudizhuLeaderboard(t.db, config, 'all', id, at(10))).entries).toEqual([])
+    expect((await doudizhuLeaderboard(t.db, config, id, at(10))).entries).toEqual([])
   })
 })

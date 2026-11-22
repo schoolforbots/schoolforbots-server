@@ -265,13 +265,11 @@ test('three students join, play two games with the clock and trusteeship, look t
     expect(stats.trusteeMoves).toBe(seat === 1 ? 1 : 0)
   }
 
-  for (const board of ['week', 'all']) {
-    const lb = await http<Record<string, any>>('GET', `/v1/me/clubs/doudizhu/leaderboard?board=${board}`, c.key, ClubLeaderboard)
-    expect(lb.entries.map((e: Received) => e.studentId).sort()).toEqual(players.map((p) => p.id).sort())
-    expect(lb.entries.every((e: Received) => e.games === 2)).toBe(true)
-    expect(lb.me).toBeNull()
-    expect(lb.weekStartsOn).toBe(board === 'week' ? '2026-11-16' : null)
-  }
+  const lb = await http<Record<string, any>>('GET', '/v1/me/clubs/doudizhu/leaderboard?board=week', c.key, ClubLeaderboard)
+  expect(lb.entries.map((e: Received) => e.studentId).sort()).toEqual(players.map((p) => p.id).sort())
+  expect(lb.entries.every((e: Received) => e.games === 2)).toBe(true)
+  expect(lb.me).toBeNull()
+  expect(lb.weekStartsOn).toBe('2026-11-16')
 
   const list = await http<Record<string, any>>('GET', '/v1/me/clubs/doudizhu/games', b.key, ClubGameList)
   expect(list.games.map((g: Received) => g.gameId)).toEqual([firstGameId + 1, firstGameId])

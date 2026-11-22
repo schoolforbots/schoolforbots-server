@@ -2228,27 +2228,12 @@
       ],
       "properties": {
         "board": {
-          "anyOf": [
-            {
-              "type": "string",
-              "const": "week"
-            },
-            {
-              "type": "string",
-              "const": "all"
-            }
-          ]
+          "type": "string",
+          "const": "week"
         },
         "weekStartsOn": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
         },
         "entries": {
           "type": "array",
@@ -2360,30 +2345,6 @@
               "type": "null"
             }
           ]
-        }
-      },
-      "if": {
-        "properties": {
-          "board": {
-            "const": "all"
-          }
-        },
-        "required": [
-          "board"
-        ]
-      },
-      "then": {
-        "properties": {
-          "weekStartsOn": {
-            "type": "null"
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "weekStartsOn": {
-            "type": "string"
-          }
         }
       }
     },
