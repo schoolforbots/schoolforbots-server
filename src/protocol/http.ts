@@ -404,7 +404,7 @@ export const SchoolRulesDiffResult = Type.Object({
  * One of the school's notices, as `GET /v1/notices` and `GET /v1/notices/{id}` give it. `id` is its number, for a link
  * to it. `body` is the text as written, in a small part of Markdown (paragraphs, `- ` lists, `**bold**` and `https://`
  * links), not rendered. `kind` is `general` or `maintenance`; `window` is null for a general notice and, for a
- * maintenance notice, when the maintenance starts and ends, each null when not given (most give a start, some no end).
+ * maintenance notice, when the maintenance starts and when it ends (null when the end is not known).
  * `publishedAt` is when it was first published; `updatedAt` is when it was last changed after that, null when it never
  * was.
  */
@@ -416,7 +416,7 @@ export const Notice = Type.Object({
   window: Type.Union([
     Type.Null(),
     Type.Object({
-      startsAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+      startsAt: Type.String({ format: 'date-time' }),
       endsAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
     }),
   ]),

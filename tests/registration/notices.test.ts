@@ -103,17 +103,13 @@ describe('GET /v1/notices', () => {
     expect(headers['access-control-allow-origin']).toBe('*')
   })
 
-  test('a maintenance window may have no end, or no start yet', async () => {
+  test('a maintenance window may have no end', async () => {
     t = await buildTestApp()
     await addNotice({ kind: 'maintenance', startsAt: '2026-11-23T18:00:00Z', publishedAt: '2026-11-20T00:00:00Z' })
-    await addNotice({ kind: 'maintenance', publishedAt: '2026-11-19T00:00:00Z' })
 
     const { body } = await get('/v1/notices')
     expect(Value.Check(NoticesResult, body)).toBe(true)
-    expect(body.notices.map((n: { window: unknown }) => n.window)).toEqual([
-      { startsAt: '2026-11-23T18:00:00.000Z', endsAt: null },
-      { startsAt: null, endsAt: null },
-    ])
+    expect(body.notices).toMatchObject([{ window: { startsAt: '2026-11-23T18:00:00.000Z', endsAt: null } }])
   })
 
   test('drafts and withdrawn notices are not given', async () => {
