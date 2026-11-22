@@ -43,6 +43,7 @@ describe('the club block', () => {
       recordDrainSeconds: 10,
       roomEventBuffer: 1000,
       lobbyMaxRooms: 50,
+      ipRetentionDays: 180,
       wordLists: { phrases: 'config/club/doudizhu-phrases.json', emoji: 'config/club/emoji.json' },
     })
     expect(DEFAULT_CLUB.botNames[0]).toBe('陪练小一')
@@ -95,6 +96,8 @@ describe('the club block', () => {
     ['recordDrainSeconds', 0],
     ['recordDrainSeconds', -1],
     ['recordDrainSeconds', 1.5],
+    ['ipRetentionDays', 0],
+    ['ipRetentionDays', 1.5],
     ['botNames', []],
     ['botNames', ['陪练小一']],
     ['botNames', ['', '陪练小二']],
