@@ -6,11 +6,19 @@ x-logging: &logging
   # The server's journald keeps the logs; how long is set there, not here.
   driver: journald
 
+# Memory limits: one service that leaks is stopped (and restarted) on its own, before the machine runs out and the
+# kernel picks something to kill, the database perhaps. Each is a few times what the service was seen to use at its
+# busiest: 1200 students in class and 900 in the club at once, a lesson with 4000 students. The heap of each Node
+# service stays well below its limit, so it collects its garbage harder before the limit is reached.
 x-service: &service
   image: ghcr.io/schoolforbots/server:${IMAGE_TAG:?set IMAGE_TAG in .env}
   env_file: .env
+  # PID 1 of its own: a TERM while the service is still starting reaches it, rather than being ignored.
+  init: true
+  mem_limit: 512m
   environment: &service-environment
     NODE_ENV: production
+    NODE_OPTIONS: --max-old-space-size=320
     TRUST_PROXY: '1'
     SCHOOL_CONFIG: /app/private/school.json
     PROMPTS_DIR: /app/private/prompts
@@ -25,6 +33,7 @@ x-service: &service
 services:
   postgres:
     image: postgres:17-alpine
+    mem_limit: 512m
     environment:
       POSTGRES_USER: school
       POSTGRES_DB: school
@@ -55,6 +64,8 @@ services:
       # it halfway, again and again. The first check that passes ends the start period, so it costs nothing after.
       # deploy.sh waits at least this long for it.
       start_period: 10m
+    # Its 10 seconds to stop, and some to spare, before Docker kills it.
+    stop_grace_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,6 +83,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+    # Its 10 seconds to stop, and some to spare, before Docker kills it.
+    stop_grace_period: 20s
     depends_on:
       registration:
         condition: service_healthy
@@ -98,6 +111,8 @@ services:
 
   caddy:
     image: caddy:2
+    # It holds every WebSocket connection: about 600 MiB with 4000.
+    mem_limit: 1g
     environment:
       SCHOOL_DOMAIN: ${SCHOOL_DOMAIN:?set SCHOOL_DOMAIN in .env}
       CADDY_TLS_LINE: ''
@@ -126,6 +141,7 @@ services:
     build: ./backup
     # PID 1 of its own: docker stop reaches a running backup as a TERM, not after a silent kill.
     init: true
+    mem_limit: 256m
     env_file: backup.env
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
@@ -139,6 +155,7 @@ services:
   # stopped.
   watchdog:
     image: docker:29-cli
+    mem_limit: 64m
     entrypoint: ['sh', '/watchdog.sh']
     environment:
       WATCHDOG_INTERVAL: '30'

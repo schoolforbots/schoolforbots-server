@@ -276,11 +276,13 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 | `watchdog` | 每 30 秒把带 `school.watchdog=true`、正在运行、健康检查说不健康的容器逐个重启。手动停掉的容器不会被拉起来。 |
 | `backup` | 在服务器上用 `deploy/backup/Dockerfile` 构建（`postgres:17-alpine` 加装 `age` 和 `rclone`）。每天夜里把数据库加密备份出去（见下面的"备份"）。 |
 
+每个容器都有内存上限（`mem_limit`）：三个 Node 服务各 512 MiB（堆上限 320 MiB，`NODE_OPTIONS`），`postgres` 512 MiB，`caddy` 1 GiB（每条 WebSocket 连接都经过它，4000 条时约用 600 MiB），`backup` 256 MiB，`watchdog` 64 MiB。哪个服务超了，只有它被杀掉、再被拉起来，不会把整台机器的内存用光、连累数据库。三个 Node 服务都以 `init: true` 运行，启动途中收到的 TERM 也能送到；`registration` 和 `class` 的停止宽限是 20 秒。服务器内存比 2 GiB 大或者小很多时，按比例调这些数。
+
 镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每次合进 `main` 都会构建它、跑 `deploy/smoke-test.sh` 和恢复演练（`deploy/backup/drill.sh`），再推到 `ghcr.io/schoolforbots/server`，带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。拉取请求改到了进镜像的东西或 `deploy/` 里的文件时，也会跑这两项检查。部署请用 `sha-…` 标签，这样知道跑的是哪一版；`main` 每次合并都会移动。要退回上一版，用同样的方法部署之前的 `sha-…` 标签（见下面）。GitHub 新建的包不是公开的：第一次推送之后，要在 GitHub 上这个包的设置里（“Change visibility”）把它设为公开；在此之前不登录就拉不下这个镜像。
 
 把 `deploy/env.example` 复制成 `deploy/.env`，把 `deploy/backup.env.example` 复制成 `deploy/backup.env`，都填好。`env.example` 列的是 compose 自己要的变量，和正式运行的学校要设的服务变量；其余的变量见根目录的 `.env.example` 和上面的“环境变量”。`backup.env` 放备份的设置（见下面的“备份”），只有 `backup` 服务读它，所以能删备份的存储密钥到不了面向互联网的那些服务。真实的 `school.json`、`prompts/`、`moderation/` 和社团的词表放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。这两个环境变量文件和这个文件夹都不提交。
 
-更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 和 `backup.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；重建 `club` 并等到健康；把其余服务拉起来；最后让 Caddy 用上 `deploy/` 里的 `Caddyfile`。每一步都会打印，任何一步失败就停下，退出码非 0。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。社团服务不等空闲：停止时打到一半的牌局由托管替所有人打完、写进库，再断开连接。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。退回到还没有社团服务的版本时，服务器上的 `deploy/` 也要换回那一版的：新版的 `deploy.sh` 会在重建 `club` 那一步失败。
+更新用 `deploy/deploy.sh <镜像标签> [--now]`；新服务器第一次启动也用这个脚本，先把 `.env` 和 `backup.env` 填好。它会：拉镜像；把 `postgres` 拉起来并等到健康（已经在跑就什么也不做）；备份一次数据库（和每晚的备份一样，见下面的“备份”；备份失败就停下，这时什么都还没改，原来的版本照常在跑；新服务器上的库还没有表，不备份）；重建 `registration`（它升级数据库）并等到健康；等上课服务空下来；重建 `class` 并等到健康；重建 `club` 并等到健康；把其余服务拉起来；最后让 Caddy 用上 `deploy/` 里的 `Caddyfile`。每一步都会打印，任何一步失败就停下，退出码非 0；备份之后的步骤失败时，它还会打印怎么退回原来的版本（见下面）。没有备份存储的单机试运行，用 `SKIP_BACKUP=1` 跳过备份。上课服务只在空闲时重启：有课在上、或者 15 分钟内要开课时，`class-busy`（`node dist/tools/class-busy.js`）以退出码 3 报忙，并打印最早什么时候空下来，脚本每分钟再问一次；`--now` 跳过这个等待。社团服务不等空闲：停止时打到一半的牌局由托管替所有人打完、写进库，再断开连接。数据库迁移只加东西，因为新旧两版会并存一阵子。也正因为这样才能退回：用这个脚本部署之前的标签，旧版就在新版迁移过的数据库上启动，新加的表和列它不管。这时旧版的报名服务不跑迁移，在日志里写出它不认识的迁移的名字；只有它自己的某个迁移还没跑过时，它才拒绝启动。退回到还没有社团服务的版本时，服务器上的 `deploy/` 也要换回那一版的：新版的 `deploy.sh` 会在重建 `club` 那一步失败。
 
 部署时还要注意：
 
