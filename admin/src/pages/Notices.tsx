@@ -1,11 +1,12 @@
 import { Button, Input, Radio } from 'antd'
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import {
   createNotice,
   deleteNotice,
   editNotice,
   NOTICES_PATH,
   publishNotice,
+  request,
   useLoad,
   withdrawNotice,
   type ApiError,
@@ -40,11 +41,14 @@ function Done({ text }: { text: string }) {
   )
 }
 
-/** What stops the notice from being sent, or the server's refusal; it takes the focus when it appears. */
-function Problems({ lines }: { lines: string[] }) {
+/**
+ * What stops the notice from being sent (a status: it follows the typing, so it is not read out at each key), or the
+ * server's refusal (an alert). It takes the focus when it appears, so a press that was stopped is read out.
+ */
+function Problems({ lines, role }: { lines: string[]; role: 'status' | 'alert' }) {
   const self = useFocusOnMount<HTMLDivElement>()
   return (
-    <div ref={self} tabIndex={-1} className="action-error" role="alert">
+    <div ref={self} tabIndex={-1} className="action-error" role={role}>
       {lines.length === 1 ? (
         <p>{lines[0]}</p>
       ) : (
@@ -71,10 +75,14 @@ const length = (text: string) => [...text].length
  */
 function readTime(label: string, input: string, zone: string): { at: string | null; problem?: string } {
   if (input === '') return { at: null }
+  const outOfRange = { at: null, problem: `${label}要在 2000 年到 9999 年之间。` }
+  // The year as written first: a field takes years of any number of digits.
+  const written = Number(/^(\d+)-/.exec(input)?.[1] ?? NaN)
+  if (written < 2000 || written > 9999) return outOfRange
   const at = instantOf(input, zone)
   if (at === null) return { at: null, problem: `${label}的时间不对，学校时区里没有这个时间。` }
   const year = new Date(at).getUTCFullYear()
-  if (year < 2000 || year > 9999) return { at: null, problem: `${label}要在 2000 年到 9999 年之间。` }
+  if (year < 2000 || year > 9999) return outOfRange
   return { at }
 }
 
@@ -82,13 +90,16 @@ type Action = 'save' | 'publish' | 'withdraw'
 
 function NoticeEditor({
   initial,
+  dirtyRef,
   onChanged,
   onDeleted,
   onClose,
 }: {
   /** Null for a new notice. */
   initial: NoticeView | null
-  /** The notice changed on the server: the list is read again. */
+  /** Kept up to date with whether the form has changes not saved, for the page to ask before dropping them. */
+  dirtyRef: { current: boolean }
+  /** The notice changed on the server, or a refusal says the list may be out of date: the list is read again. */
   onChanged: () => void
   onDeleted: () => void
   onClose: () => void
@@ -97,7 +108,6 @@ function NoticeEditor({
   const ids = {
     title: useId(),
     heading: useId(),
-    name: useId(),
     body: useId(),
     bodyHint: useId(),
     starts: useId(),
@@ -107,32 +117,55 @@ function NoticeEditor({
   }
   const heading = useFocusOnMount<HTMLHeadingElement>()
   const [notice, setNotice] = useState(initial)
-  const timeInput = (at: string | null) => (at === null ? '' : clockInput(at, zone))
+  // The notice as last taken from the server, for what is done between two renders.
+  const latest = useRef(initial)
+  const timeInput = (at: string | null | undefined) => (at == null ? '' : clockInput(at, zone))
   const [title, setTitle] = useState(initial?.title ?? '')
   const [kind, setKind] = useState<NoticeKind>(initial?.kind ?? 'general')
-  const [starts, setStarts] = useState(timeInput(initial?.startsAt ?? null))
-  const [ends, setEnds] = useState(timeInput(initial?.endsAt ?? null))
+  const [starts, setStarts] = useState(timeInput(initial?.startsAt))
+  const [ends, setEnds] = useState(timeInput(initial?.endsAt))
   const [body, setBody] = useState(initial?.body ?? '')
-  const [published, setPublished] = useState(timeInput(initial?.publishedAt ?? null))
+  const [published, setPublished] = useState(timeInput(initial?.publishedAt))
   const [sending, setSending] = useState<Action>()
+  // Counts the presses stopped by the checks since the last save: the checks show from the first.
   const [tried, setTried] = useState(0)
   const [failure, setFailure] = useState<{ text: string; n: number }>()
   const [done, setDone] = useState<{ text: string; n: number }>()
   const [deleting, setDeleting] = useState(false)
+  const [withdrawing, setWithdrawing] = useState(false)
   const deleteButton = useRef<HTMLButtonElement>(null)
+  const withdrawButton = useRef<HTMLButtonElement>(null)
 
   const status = notice?.status ?? null
   const maintenance = kind === 'maintenance'
   const wasOut = status === 'published' || status === 'withdrawn'
+  const trimmed = title.trim()
+
+  /**
+   * A time field: one left as the notice has it is that very instant (a time the clock shows twice, when it is put
+   * back, would otherwise be read as the first); any other is read on the school's clock.
+   */
+  const timeField = (label: string, input: string, saved: string | null | undefined) =>
+    input !== '' && saved != null && input === timeInput(saved) ? { at: saved } : readTime(label, input, zone)
+  const start = timeField('维护开始', starts, notice?.startsAt)
+  const end = timeField('维护结束', ends, notice?.endsAt)
+  const publication = timeField('发布时间', published, notice?.publishedAt)
+
+  const dirty =
+    trimmed !== (notice?.title ?? '') ||
+    kind !== (notice?.kind ?? 'general') ||
+    body !== (notice?.body ?? '') ||
+    (maintenance && (starts !== timeInput(notice?.startsAt) || ends !== timeInput(notice?.endsAt))) ||
+    (wasOut && published !== timeInput(notice?.publishedAt))
+  useEffect(() => {
+    dirtyRef.current = dirty
+  })
 
   // Everything the server would refuse, in the order of the form.
   const problems: string[] = []
-  const trimmed = title.trim()
   if (!storable(title)) problems.push('标题里有存不了的字符（NUL 或半个字符），删掉再试。')
   else if (trimmed === '') problems.push('标题不能空着。')
   else if (length(trimmed) > MAX_TITLE) problems.push(`标题最多 ${MAX_TITLE} 字，现在 ${length(trimmed)} 字。`)
-  const start = readTime('维护开始', starts, zone)
-  const end = readTime('维护结束', ends, zone)
   if (maintenance) {
     if (starts === '') problems.push('维护公告要写开始时间。')
     if (start.problem !== undefined) problems.push(start.problem)
@@ -141,12 +174,34 @@ function NoticeEditor({
   }
   if (!storable(body)) problems.push('正文里有存不了的字符（NUL 或半个字符），删掉再试。')
   else if (length(body) > MAX_BODY) problems.push(`正文最多 ${MAX_BODY} 字，现在 ${length(body)} 字。`)
-  const publication = readTime('发布时间', published, zone)
   if (wasOut) {
     if (published === '') problems.push('发布时间不能空着。')
     else if (publication.problem !== undefined) problems.push(publication.problem)
     else if (publication.at !== null && new Date(publication.at).getTime() > Date.now()) {
       problems.push('发布时间不能晚于现在。')
+    }
+  }
+
+  /**
+   * Takes the notice as the server now has it (null: it is gone). The form keeps what was written; only a publication
+   * time left as it was follows the server's.
+   */
+  function take(next: NoticeView | null) {
+    const before = timeInput(latest.current?.publishedAt)
+    setPublished((input) => (input === before ? timeInput(next?.publishedAt) : input))
+    latest.current = next
+    setNotice(next)
+  }
+
+  /** After a refusal: the list is read again, and a notice whose state was not what the page thought is read anew. */
+  async function resync(error: ApiError, id: number | undefined) {
+    onChanged()
+    if (id === undefined || (error.status !== 404 && error.status !== 409)) return
+    try {
+      const { notices } = await request<{ notices: NoticeView[] }>('GET', NOTICES_PATH)
+      take(notices.find((one) => one.id === id) ?? null)
+    } catch {
+      // The list says it could not be read; the editor stays as it was.
     }
   }
 
@@ -167,58 +222,74 @@ function NoticeEditor({
     return editNotice(notice.id, { ...content, ...correction })
   }
 
-  async function act(action: Action) {
+  async function act(action: Action, confirmed = false) {
     setFailure(undefined)
     setDone(undefined)
+    if (action === 'withdraw' && dirty && !confirmed) {
+      setWithdrawing(true)
+      return
+    }
     if (action !== 'withdraw' && problems.length > 0) {
       setTried((n) => n + 1)
       return
     }
     setSending(action)
-    // The notice as the server now has it; its publication time is the one it was given there.
-    const took = (next: NoticeView) => {
-      setNotice(next)
-      setPublished(timeInput(next.publishedAt))
-      onChanged()
-    }
     const say = (text: string) => setDone((last) => ({ text, n: (last?.n ?? 0) + 1 }))
-    const refuse = (text: string) => setFailure((last) => ({ text, n: (last?.n ?? 0) + 1 }))
+    const refuse = (text: string, error: ApiError, id: number | undefined) => {
+      setFailure((last) => ({ text: `${text}${error.message}`, n: (last?.n ?? 0) + 1 }))
+      void resync(error, id)
+    }
     try {
-      if (action === 'withdraw' && notice !== null) {
-        took(await withdrawNotice(notice.id))
-        say('已撤下。网站上不再显示这条公告。')
+      if (action === 'withdraw') {
+        if (notice === null) return
+        try {
+          take(await withdrawNotice(notice.id))
+          onChanged()
+          say(`已撤下。网站上不再显示这条公告。${dirty ? '表单里的修改还没保存。' : ''}`)
+        } catch (error) {
+          refuse('没能撤下：', error as ApiError, notice.id)
+        }
         return
       }
       let saved: NoticeView
       try {
         saved = await save()
       } catch (error) {
-        refuse(`没能保存：${(error as ApiError).message}`)
+        refuse('没能保存：', error as ApiError, notice?.id)
         return
       }
-      took(saved)
+      take(saved)
+      setTried(0)
+      onChanged()
       if (action === 'save') {
         say(saved.status === 'draft' ? '草稿已保存。' : '修改已保存。')
         return
       }
+      // Published meanwhile (in another window, say): there is nothing to publish.
+      if (saved.status === 'published') {
+        say('已保存。这条公告已经是发布状态。')
+        return
+      }
       const again = saved.status === 'withdrawn'
       try {
-        took(await publishNotice(saved.id))
+        take(await publishNotice(saved.id))
+        onChanged()
         say(again ? '已重新发布，发布时间还是第一次发布的时间。' : '已发布。')
       } catch (error) {
-        const reason = (error as ApiError).message
-        refuse(again ? `修改已保存，但没能重新发布：${reason}` : `草稿已保存，但没能发布：${reason}`)
+        refuse(again ? '修改已保存，但没能重新发布：' : '草稿已保存，但没能发布：', error as ApiError, saved.id)
       }
-    } catch (error) {
-      // Saving and publishing say their own failures above: what reaches here is the withdrawal's.
-      refuse(`没能撤下：${(error as ApiError).message}`)
     } finally {
       setSending(undefined)
     }
   }
 
   const button = (action: Action, label: string, busy: string, primary = false) => (
-    <Button type={primary ? 'primary' : 'default'} onClick={() => act(action)} disabled={sending !== undefined}>
+    <Button
+      ref={action === 'withdraw' ? withdrawButton : undefined}
+      type={primary ? 'primary' : 'default'}
+      onClick={() => act(action)}
+      disabled={sending !== undefined}
+    >
       {sending === action ? busy : label}
     </Button>
   )
@@ -275,7 +346,7 @@ function NoticeEditor({
             正文
           </label>
           <p id={ids.bodyHint} className="field-hint">
-            最多 {MAX_BODY} 字。空一行分段；行首写“- ”是列表；**加粗**；[文字](https://…) 是链接，只认 https://。别的写法照原样显示。
+            最多 {MAX_BODY} 字。空一行分段；行首写“- ”是列表；**加粗**；[文字](https://…) 是链接，只认 https://，地址里的 ) 要写成 %29。别的写法照原样显示。
           </p>
           <Input.TextArea
             id={ids.body}
@@ -316,8 +387,8 @@ function NoticeEditor({
         </section>
       </div>
       {/* Keyed by the try, so each one that is stopped takes the focus anew. */}
-      {tried > 0 && problems.length > 0 && <Problems key={`check-${tried}`} lines={problems} />}
-      {failure !== undefined && <Problems key={`refusal-${failure.n}`} lines={[failure.text]} />}
+      {tried > 0 && problems.length > 0 && <Problems key={`check-${tried}`} lines={problems} role="status" />}
+      {failure !== undefined && <Problems key={`refusal-${failure.n}`} lines={[failure.text]} role="alert" />}
       {done !== undefined && <Done key={done.n} text={done.text} />}
       <div className="box-actions">
         {(status === null || status === 'draft') && (
@@ -347,6 +418,24 @@ function NoticeEditor({
           关闭
         </Button>
       </div>
+      {withdrawing && (
+        <Confirm
+          title="有没保存的修改，先撤下吗？"
+          confirm="撤下"
+          busy="正在撤下"
+          cancel="先不撤"
+          onCancel={() => {
+            setWithdrawing(false)
+            withdrawButton.current?.focus()
+          }}
+          onConfirm={async () => {
+            setWithdrawing(false)
+            await act('withdraw', true)
+          }}
+        >
+          <p>表单里改过的地方还没保存，撤下不会保存这些修改。它们留在表单里，撤下以后还可以保存。</p>
+        </Confirm>
+      )}
       {deleting && notice !== null && (
         <Confirm
           title={`删除草稿“${notice.title}”？`}
@@ -383,6 +472,7 @@ function NoticeList({ notices, onOpen }: { notices: NoticeView[]; onOpen: (notic
             {notice.updatedAt !== null && (
               <span className="notice-updated" title={`发布以后改过：${moment(notice.updatedAt, zone)}`}>
                 已更新
+                <span className="visually-hidden">（发布以后改过：{moment(notice.updatedAt, zone)}）</span>
               </span>
             )}
           </td>
@@ -402,10 +492,25 @@ export function Notices() {
   const [open, setOpen] = useState<{ notice: NoticeView | null; n: number }>()
   const [done, setDone] = useState<{ text: string; n: number }>()
   const writeNew = useRef<HTMLButtonElement>(null)
+  const dirty = useRef(false)
+  // What to do once the changes not saved may be dropped, and where the focus goes back to if they may not.
+  const [leaving, setLeaving] = useState<{ go: () => void; back: HTMLElement | null }>()
+
+  /** Does `go`, which closes the open editor; asks first when it has changes not saved. */
+  function leave(go: () => void) {
+    if (open !== undefined && dirty.current) {
+      setLeaving({ go, back: document.activeElement instanceof HTMLElement ? document.activeElement : null })
+    } else {
+      go()
+    }
+  }
 
   function openEditor(notice: NoticeView | null) {
-    setDone(undefined)
-    setOpen((last) => ({ notice, n: (last?.n ?? 0) + 1 }))
+    leave(() => {
+      setDone(undefined)
+      dirty.current = false
+      setOpen((last) => ({ notice, n: (last?.n ?? 0) + 1 }))
+    })
   }
 
   let list
@@ -442,16 +547,39 @@ export function Notices() {
           key={open.n}
           initial={open.notice}
           onChanged={read.reload}
+          dirtyRef={dirty}
           onDeleted={() => {
+            dirty.current = false
             setOpen(undefined)
             read.reload()
             setDone((last) => ({ text: '草稿已删除。', n: (last?.n ?? 0) + 1 }))
           }}
-          onClose={() => {
-            setOpen(undefined)
-            writeNew.current?.focus()
-          }}
+          onClose={() =>
+            leave(() => {
+              dirty.current = false
+              setOpen(undefined)
+              writeNew.current?.focus()
+            })
+          }
         />
+      )}
+      {leaving !== undefined && (
+        <Confirm
+          title="有没保存的修改，关掉就没了"
+          confirm="不保存，关掉"
+          busy="正在关掉"
+          cancel="回去接着改"
+          onCancel={() => {
+            leaving.back?.focus()
+            setLeaving(undefined)
+          }}
+          onConfirm={async () => {
+            setLeaving(undefined)
+            leaving.go()
+          }}
+        >
+          <p>这条公告改过的地方还没保存。要留着的话，回去先保存。</p>
+        </Confirm>
       )}
     </div>
   )

@@ -123,7 +123,7 @@ function onClock(instant: string, timeZone: string): { date: string; time: strin
     hourCycle: 'h23',
   }).formatToParts(new Date(instant))
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
-  return { date: `${part('year')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` }
+  return { date: `${part('year').padStart(4, '0')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` }
 }
 
 /** The calendar day of an instant in `timeZone`, as `YYYY-MM-DD`. */
@@ -143,7 +143,10 @@ function asUtc(input: string): number {
   const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(input)
   if (parts === null) return NaN
   const [year, month, day, hour, minute] = parts.slice(1).map(Number) as [number, number, number, number, number]
-  return Date.UTC(year, month - 1, day, hour, minute)
+  // Date.UTC would read a year below 100 as 19xx; the year is set on its own.
+  const at = new Date(Date.UTC(2000, month - 1, day, hour, minute))
+  at.setUTCFullYear(year)
+  return at.getTime()
 }
 
 /**
