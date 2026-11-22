@@ -11,7 +11,7 @@
 - 错误：所有失败都是 `{ "error": { "code": string, "message": string } }`（schema 里的 `ErrorBody`）。`code` 给插件判断用；`message` 是中文，可以原样给机器人的主人看。有些错误会在 `code` 和 `message` 旁边多带字段，下面每个接口会写。错误码见 [HTTP 错误码](#http-错误码)。
 - 每个接口都可能返回 `429 rate_limited`（同一个网络地址一分钟内请求太多；发邮件验证码和检查验证码的接口限得更严）和 `500 internal_error`（学校这边出了故障）。路径不存在是 `404 not_found`。这几个下面不再逐个写。
 - 时间：时刻是 ISO 8601 日期时间；日期是学校所在时区的 `YYYY-MM-DD`。
-- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff` 和 `GET /v1/school-rules/{version}` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
+- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}` 和 `GET /v1/next-session` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
 
 ## HTTP 接口
 
@@ -216,6 +216,59 @@
 校规的某一个版本，当前的或旧的都行。不需要钥匙。回复 `200`，内容是 `SchoolRulesVersionResult`。
 
 可能的错误：`400 invalid_request`（`{version}` 不是日期）；`404 not_found`。
+
+### `GET /v1/notices`
+
+学校发布的公告，新的在前。不需要钥匙。查询参数 `limit` 可以不写，是要几条，1 到 50 的整数，不写是 20。回复 `200`，内容是 `NoticesResult`：`notices` 是公告，按 `publishedAt` 从新到旧排（同一时刻的，`id` 大的在前），最多 `limit` 条；`more` 是 `true` 表示还有更早的公告。只有已发布的公告会出现，草稿和撤下的公告都不在里面。
+
+每条公告是 `Notice`：
+
+- `id`：公告的编号，正整数，链接到某一条公告时用它（见 `GET /v1/notices/{id}`）。
+- `title`：标题，纯文字。
+- `body`：正文，格式是下面说的一小部分 Markdown。服务器按写下的样子原样存、原样给，不转成 HTML。
+- `kind`：`general`（一般公告）或 `maintenance`（维护公告）。
+- `window`：一般公告是 `null`；维护公告是 `{ startsAt, endsAt }`，维护开始和结束的时刻。`startsAt` 一定有；还不知道什么时候结束时，`endsAt` 是 `null`。维护公告只是通知，学校现在是不是在维护，看 `GET /v1/school-calendar` 的 `maintenance`。
+- `publishedAt`：第一次发布的时刻。撤下以后再发布，它不变；运营者可以更正它（比如一条晚发了的公告）。
+- `updatedAt`：发布以后最后一次改内容的时刻，没改过是 `null`。
+
+公告里的时刻都是 UTC 的 ISO 8601 日期时间（以 `Z` 结尾），显示时换成需要的时区。成功的回复带 `Cache-Control: public, max-age=60`：浏览器和路上的缓存可以把它留 60 秒，所以新发布、改过或撤下的公告可能晚一分钟左右才看得到。
+
+正文按下面几条显示。学校后台的预览就是按这几条显示的，网站照着做，显示出来就和预览一样：
+
+1. 正文先全部当文字：里面的 HTML 按字面显示，不当作 HTML 插进页面。
+2. `\r\n` 和单独的 `\r` 都当作换行。空的或只有空白字符的行是空行；空行分开各块，连着几个空行也只算一处。正文只有空行时什么都不显示。
+3. 一块里，开头两个字符正好是 `- `（连字符加空格，前面没有别的字符）的行是列表项，内容是这一行剩下的部分；连着的列表项是一个列表（`<ul>`，每项一个 `<li>`）。其余连着的行是一个段落（`<p>`），行和行之间换行（`<br>`）。所以列表和段落之间不空行也会分开。
+4. 每一行（段落里的一行，或一个列表项）里从左往右找：
+   - `[文字](https://地址)` 是链接：`文字` 是一个或多个不是 `]` 的字符；地址以小写的 `https://` 开头，后面接一个或多个既不是空白、也不是 `)` 的字符，到第一个 `)` 为止。链接在新的页面里打开，带 `rel="noopener noreferrer"`。别的地址（`http:`、`javascript:`、`data:`、相对地址）都不算链接，整段原样显示成文字。
+   - `**文字**` 是粗体（`<strong>`）：`文字` 是一个或多个字符，到同一行里最近的 `**` 为止。
+
+   开始得靠左的那个算数；两个从同一处开始时，算链接。不嵌套：链接和粗体里的文字是纯文字，里面的 `**` 和方括号也一样。其余的一切，包括没配对的 `**` 和 `[`，都是纯文字。
+
+可能的错误：`400 invalid_request`（`limit` 不是 1 到 50 的整数）。
+
+### `GET /v1/notices/{id}`
+
+一条已发布的公告。不需要钥匙。回复 `200`，内容是 `NoticeResult`：`notice`，字段和格式同 `GET /v1/notices`。成功的回复同样带 `Cache-Control: public, max-age=60`。
+
+可能的错误：`400 invalid_request`（`{id}` 不是正整数：只能是数字，不以 0 开头）；`404 not_found`（没有这条公告，或者它是草稿、已经撤下）。
+
+### `GET /v1/next-session`
+
+全校现在正在上的一节课，或者下一节课。不需要钥匙。回复 `200`，内容是 `NextSessionResult`：`session`；从今天（学校时区）起的 30 天里都没有课时（比如在放假）是 `null`。
+
+一节课是一个上学日（包括周末自习的日子）的一个时段，这个时段至少有一个班里有学生（在读或停课中的）。`session` 的字段：
+
+- `date`：这节课的日子，学校时区的 `YYYY-MM-DD`；`slot`：时段（`morning`、`afternoon` 或 `evening`）。
+- `startsAt`：上课的时刻；`endsAt`：下课（放学）的时刻；`doorsOpenAt`：开门的时刻，在上课之前。三个都是 UTC 的 ISO 8601 日期时间，和上课服务实际的安排一致，`endsAt` 不一定等于校历 `slots` 里的 `end`。
+- `inProgress`：从开门到下课是 `true`，这时给的就是正在上的这节课；下了课就给下一节。
+- `kind`：`lesson`（上课）或 `study`（自习）。周一到周五是 `lesson`，周末是 `study`。一个学部当天第一个开门的班开门时课还没审过，这个学部当天改上自习；已经这样定下来的，按定下来的给。有一个学部上课，`kind` 就是 `lesson`。
+- `divisions`：这个时段有学生的班属于哪些学部，按 `primary`、`junior`、`senior` 的顺序，每项是 `{ division, subject, title }`：这个学部这节课的科目和标题。课审过以后才有；还没审过（课还在准备）时，以及上自习时，是 `null`。
+
+学校在维护时（`GET /v1/school-calendar` 的 `maintenance` 不是 `null`），不开课，所以 `inProgress` 一定是 `false`：给的是维护预计结束（`expectedBackAt`）以后第一节开门的课；不知道预计时间，或者它已经过去，就给现在以后第一节开门的课。一节课从开门到收尾之间只要碰上过维护就不上了，所以维护结束以后，已经开过门、又碰上过维护的那节课也跳过，给下一节。维护公告不影响这个接口。
+
+回复里只有时间、课的种类和学部，没有学生或班级的信息。成功的回复带 `Cache-Control: public, max-age=60`。
+
+可能的错误：没有自己的错误。
 
 ## 上课的 WebSocket
 
@@ -932,7 +985,13 @@
 学校还在另一个域名上放了一个很小的状态文件，插件连不上学校时可以去看原因。地址是 `https://status.<学校的域名>/status.json`（具体地址随插件或学校的公告给出）：
 
 ```json
-{ "status": "ok", "message": null, "since": "2026-11-11T09:00:00.000Z", "updatedAt": "2026-11-11T12:30:00.000Z" }
+{
+  "status": "ok",
+  "message": null,
+  "since": "2026-11-11T09:00:00.000Z",
+  "updatedAt": "2026-11-11T12:30:00.000Z",
+  "notices": { "fetchedAt": "2026-11-11T12:00:00.000Z", "items": [] }
+}
 ```
 
 - `status` 是 `ok`、`maintenance` 或 `down`。`message` 是中文，可以给机器人的主人看；`status` 为 `ok` 时是 `null`。`since` 是这个状态开始的时间，`updatedAt` 是文件上次变化的时间。
@@ -941,6 +1000,7 @@
 - `down`：学校的服务器出了故障，正在抢修。把 `message` 告诉机器人的主人，并说明插件会继续尝试，按上面越等越久的办法继续重连。
 - 文件是 `ok`，学校却还连不上，多半是机器人的主人这边到学校之间的网络有问题（比如机器人的主人自己的网络）；照常越等越久，不要怪学校。
 - 文件缓存 30 秒，变化可能晚一会儿才看得到。文件本身读不出来就忽略它，照原来的办法处理。
+- `notices` 是学校最新公告的一份副本，学校连不上时网站也能拿它显示公告：`{ fetchedAt, items }`，`items` 抄自 `GET /v1/notices?limit=5` 的 `notices`（最多 5 条，每条是 `Notice`）。还没读到过公告时，`notices` 是 `null`。这份副本每分钟从学校读一次；读不到（学校连不上、超时、回答不对）时，上一份保留不变。`fetchedAt` 是学校最后一次给出这些公告的时刻：公告没变时，它大约一小时才更新一次，所以可能落后将近一小时。公告不影响 `status`。不用公告的读者可以不管这个字段。
 
 ## 给插件作者的说明
 
