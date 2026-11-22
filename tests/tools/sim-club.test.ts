@@ -403,8 +403,9 @@ describe('against a fake school', () => {
     bot.start()
     await waitUntil(() => sockets.length >= 2, 'the second try')
     expect(bot.tally).toMatchObject({ connects: 0, welcomes: 0 })
-    expect(bot.tally.connectFailures).toBeGreaterThanOrEqual(1)
+    expect(bot.tally.connectFailures).toBe(1)
     expect(lines).toContain('小鱼1 连接超时')
+    expect(lines.filter((l) => l.startsWith('小鱼1 连接出错'))).toEqual([])
   })
 
   test('replaced ends a bot, and is no unexpected disconnect', async () => {

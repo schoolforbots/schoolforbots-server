@@ -1,4 +1,5 @@
 import { once } from 'node:events'
+import { createServer as createHttpServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, test } from 'vitest'
 import WebSocket, { WebSocketServer } from 'ws'
@@ -54,6 +55,37 @@ describe('closeWebSockets', () => {
     // The two that answered closed normally.
     expect(await closes[0]).toBe(1005)
     expect(await closes[2]).toBe(1005)
+  })
+
+  test('refuses an upgrade that comes in during the grace, and is not held up by it', async () => {
+    // As under Fastify: the server has no port of its own, upgrades are handed to it.
+    const http = createHttpServer()
+    const server = new WebSocketServer({ noServer: true })
+    wss = server
+    http.on('upgrade', (req, socket, head) => server.handleUpgrade(req, socket, head, (ws) => server.emit('connection', ws, req)))
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
+    const url = `ws://127.0.0.1:${(http.address() as AddressInfo).port}`
+    try {
+      const first = new WebSocket(url)
+      clients.push(first)
+      await once(first, 'open')
+      deaf(first)
+
+      const started = performance.now()
+      const closing = closeWebSockets(server, 300)
+      const late = new WebSocket(url)
+      clients.push(late)
+      // Refused: the error that follows is expected.
+      late.on('error', () => {})
+      const [, response] = (await once(late, 'unexpected-response')) as [unknown, { statusCode: number }]
+      expect(response.statusCode).toBe(503)
+      await closing
+      expect(performance.now() - started).toBeLessThan(2_000)
+      expect(server.clients.size).toBe(0)
+    } finally {
+      wss = undefined
+      await new Promise<void>((resolve) => http.close(() => resolve()))
+    }
   })
 
   test('closes the server with no clients at all', async () => {

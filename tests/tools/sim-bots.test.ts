@@ -605,8 +605,9 @@ test('a connection that never gets an answer to its handshake is given up and tr
     )
     bot.start()
     await waitUntil(() => sockets.length >= 2, 'the second try')
-    expect(sampler.samples.connectFailures).toBeGreaterThanOrEqual(1)
+    expect(sampler.samples.connectFailures).toBe(1)
     expect(lines).toContain('小鱼 连接超时')
+    expect(lines.filter((l) => l.startsWith('小鱼 连接出错'))).toEqual([])
   } finally {
     bot?.stop()
     for (const s of sockets) s.destroy()

@@ -566,9 +566,11 @@ export function createClubBot(
       failed = true
       tally.connectFailures++
     }
-    // Given up as an error on the way: counted, closed, tried again.
+    // Given up as an error on the way: counted, closed, tried again (the error it raises says nothing more).
+    let timedOut = false
     timers.clear(connectTimer)
     connectTimer = timers.set(() => {
+      timedOut = true
       say('连接超时')
       ws.terminate()
     }, timing.connectTimeoutMs)
@@ -590,7 +592,7 @@ export function createClubBot(
     ws.on('error', (err: NodeJS.ErrnoException) => {
       // Stopping a connection still on its way errs too: that is no failure.
       if (!opened && !ended()) connectFailed()
-      if (!ended()) say(`连接出错 ${err.code ?? err.message}`)
+      if (!ended() && !timedOut) say(`连接出错 ${err.code ?? err.message}`)
     })
     ws.on('close', () => {
       if (socket !== ws) return

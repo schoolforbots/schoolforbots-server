@@ -281,9 +281,11 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
       failed = true
       sampler.samples.connectFailures++
     }
-    // Given up as an error on the way: counted, closed, tried again.
+    // Given up as an error on the way: counted, closed, tried again (the error it raises says nothing more).
+    let timedOut = false
     clearTimeout(connectTimer)
     connectTimer = setTimeout(() => {
+      timedOut = true
       say('连接超时')
       ws.terminate()
     }, deps.connectTimeoutMs ?? CONNECT_TIMEOUT_MS)
@@ -306,7 +308,7 @@ export function createBot(student: SeededStudent, opts: SimOptions, deps: BotDep
     })
     ws.on('error', (err: NodeJS.ErrnoException) => {
       if (!opened) connectFailed()
-      if (tally.ended === null) say(`连接出错 ${err.code ?? err.message}`)
+      if (tally.ended === null && !timedOut) say(`连接出错 ${err.code ?? err.message}`)
     })
     ws.on('close', () => {
       if (socket !== ws) return
