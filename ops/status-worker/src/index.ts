@@ -71,10 +71,14 @@ export async function probeSchool(
     try {
       const res = await get(`${root}/v1/school-calendar`)
       if (res?.ok) {
-        const body = (await res.json()) as { maintenance?: { message?: unknown } | null }
+        const body = (await res.json()) as { maintenance?: { message?: unknown; expectedBackAt?: unknown } | null }
         if (body.maintenance) {
           const m = body.maintenance.message
-          maintenance = { message: typeof m === 'string' ? m : '' }
+          const back = body.maintenance.expectedBackAt
+          maintenance = {
+            message: typeof m === 'string' ? m : '',
+            expectedBackAt: typeof back === 'string' && !Number.isNaN(Date.parse(back)) ? back : null,
+          }
         }
       }
     } catch {

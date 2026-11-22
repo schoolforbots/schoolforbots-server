@@ -10,11 +10,16 @@ export interface StoredState {
   failingSince: string | null
   /** True when the current maintenance was switched on by hand (the `manual` key). */
   viaManual?: boolean
+  /** When the school said, last time it answered in maintenance, it expects to be back (ISO), or null. */
+  expectedBackAt?: string | null
+  /** When the school in maintenance stopped answering (ISO), or null while it answers. */
+  silentSince?: string | null
 }
 
 export interface Probe {
   healthy: boolean
-  maintenance: { message: string } | null
+  /** The school's maintenance, as `GET /v1/school-calendar` gives it; `expectedBackAt` is ISO, absent or null if not set. */
+  maintenance: { message: string; expectedBackAt?: string | null } | null
 }
 
 export interface Manual {
@@ -28,6 +33,15 @@ export interface MailState {
 }
 
 const DEFAULT_MAINTENANCE = '学校正在维护'
+/** How long past its expected time a school in maintenance that does not answer counts towards down. */
+export const OVERRUN_GRACE_MS = 30 * 60_000
+/** With no expected time: how long after the maintenance began a school that does not answer counts towards down. */
+export const MAINTENANCE_SILENCE_MS = 4 * 60 * 60_000
+/**
+ * However late it is, how long a school in maintenance may stop answering before it counts towards down: the services
+ * are stopped for work only after the maintenance has been on a while, perhaps past its expected time already.
+ */
+export const MIN_SILENCE_MS = 30 * 60_000
 const DEFAULT_DOWN = '学校的服务器出了故障，正在抢修。'
 
 export function decide(
@@ -42,6 +56,8 @@ export function decide(
   let message: string | null
   let failingSince: string | null = null
   let viaManual = false
+  let expectedBackAt: string | null = null
+  let silentSince: string | null = null
   let mail: 'down' | 'up' | null = null
 
   const schoolMaintenance = probe.maintenance !== null
@@ -49,14 +65,23 @@ export function decide(
     status = 'maintenance'
     message = manual.note ?? (probe.maintenance?.message || null) ?? DEFAULT_MAINTENANCE
     viaManual = manual.maintenance
+    expectedBackAt = probe.maintenance?.expectedBackAt ?? null
   } else if (probe.healthy) {
     status = 'ok'
     message = null
     if (prev?.status === 'down') mail = 'up'
-  } else if (prev?.status === 'maintenance' && prev.viaManual !== true && prev.failingSince === null) {
-    // The school was stopped on purpose; nothing to report until it answers again.
+  } else if (
+    prev?.status === 'maintenance' &&
+    prev.viaManual !== true &&
+    prev.failingSince === null &&
+    now.getTime() < silentUntil(prev, prev.silentSince ?? nowIso)
+  ) {
+    // The school was stopped on purpose; nothing to report until it answers again, or until it is well past the time
+    // it said it would be back (a machine that died during maintenance, or maintenance never switched off).
     status = 'maintenance'
     message = manual.note ?? prev.message
+    expectedBackAt = prev.expectedBackAt ?? null
+    silentSince = prev.silentSince ?? nowIso
   } else {
     // Already down, or counting towards down. Maintenance clears failingSince, so after it ends the count restarts.
     failingSince = prev?.failingSince ?? nowIso
@@ -83,7 +108,9 @@ export function decide(
     prev.status !== status ||
     prev.message !== message ||
     prev.failingSince !== failingSince ||
-    (prev.viaManual === true) !== viaManual
+    (prev.viaManual === true) !== viaManual ||
+    (prev.expectedBackAt ?? null) !== expectedBackAt ||
+    (prev.silentSince ?? null) !== silentSince
   if (!changed) return { next: prev, write: false, mail }
 
   const next: StoredState = {
@@ -93,8 +120,20 @@ export function decide(
     updatedAt: nowIso,
     failingSince,
     viaManual,
+    expectedBackAt,
+    silentSince,
   }
   return { next, write: true, mail }
+}
+
+/**
+ * Until when a school in maintenance may stay silent: its expected time and a grace, or a while after the maintenance
+ * began; at least a while after it stopped answering.
+ */
+function silentUntil(prev: StoredState, silentSince: string): number {
+  const expected = prev.expectedBackAt == null ? NaN : Date.parse(prev.expectedBackAt)
+  const planned = Number.isNaN(expected) ? Date.parse(prev.since) + MAINTENANCE_SILENCE_MS : expected + OVERRUN_GRACE_MS
+  return Math.max(planned, Date.parse(silentSince) + MIN_SILENCE_MS)
 }
 
 export function decideMail(
