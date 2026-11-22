@@ -289,6 +289,27 @@ export interface BackupRunsTable {
   ok: boolean
 }
 
+export type NoticeKind = 'general' | 'maintenance'
+export type NoticeStatus = 'draft' | 'published' | 'withdrawn'
+
+/**
+ * A notice of the school's, written on the admin pages. `startsAt` and `endsAt` are the window of a `maintenance`
+ * notice (null for a `general` one). `publishedAt` is when it was first published, null only for a draft never
+ * published; `updatedAt` is when a published notice was last changed, null when it never was.
+ */
+export interface NoticesTable {
+  id: Generated<number>
+  title: string
+  body: Generated<string>
+  kind: NoticeKind
+  startsAt: Date | null
+  endsAt: Date | null
+  status: Generated<NoticeStatus>
+  publishedAt: Date | null
+  updatedAt: Date | null
+  createdAt: Date
+}
+
 /** A student's membership of a club, from `joinedAt` on. Leaving deletes the row. */
 export interface ClubMembersTable {
   studentId: number
@@ -524,4 +545,5 @@ export interface Database {
   clubMembers: ClubMembersTable
   doudizhuGames: DoudizhuGamesTable
   doudizhuGamePlayers: DoudizhuGamePlayersTable
+  notices: NoticesTable
 }
