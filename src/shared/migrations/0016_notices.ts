@@ -1,9 +1,9 @@
 import { type Kysely, sql } from 'kysely'
 
 // The school's notices, written on the admin pages and read by anyone through `GET /v1/notices`. Only a `maintenance`
-// notice has a window, and always its start (`starts_at`); its end (`ends_at`) may be left out, and is after the start. `published_at` is when it was first published, kept when it is
-// withdrawn and published again; a notice that has ever been out has one. `updated_at` is set only when a published
-// notice is changed.
+// notice has a window, and always its start (`starts_at`); its end (`ends_at`) may be left out, and is after the
+// start. `published_at` is when it was first published, kept when it is withdrawn and published again; a notice that
+// has ever been out has one. `updated_at` is set only when a published notice is changed.
 export async function up(db: Kysely<any>): Promise<void> {
   await db.schema
     .createTable('notices')
