@@ -226,7 +226,8 @@ export default {
     }
     const [state, notices] = await Promise.all([
       readJson<StoredState>(env.STATE, 'state'),
-      readJson<NoticesCopy>(env.STATE, 'notices'),
+      // The notices are extra: a copy that cannot be read is left out, not a failed status file.
+      readJson<NoticesCopy>(env.STATE, 'notices').catch(() => null),
     ])
     if (state === null) {
       return new Response(JSON.stringify({ error: 'not ready' }), {

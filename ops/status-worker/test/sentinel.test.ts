@@ -527,6 +527,9 @@ describe('parseNotices', () => {
     ['window endsAt a number', { notices: [notice(1, { window: { startsAt: 'a', endsAt: 3 } as never })] }],
     ['publishedAt missing', { notices: [{ ...notice(1), publishedAt: null }] }],
     ['updatedAt a number', { notices: [{ ...notice(1), updatedAt: 1 }] }],
+    ['publishedAt not a time', { notices: [{ ...notice(1), publishedAt: '' }] }],
+    ['updatedAt not a time', { notices: [{ ...notice(1), updatedAt: 'soon' }] }],
+    ['startsAt not a time', { notices: [notice(1, { window: { startsAt: 'x', endsAt: null } })] }],
     ['one bad item among good ones', { notices: [notice(1), { id: 2 }] }],
   ])('rejects an answer with %s', (_name, body) => {
     expect(parseNotices(body)).toBeNull()

@@ -254,6 +254,20 @@ describe('notices in status.json', () => {
     expect(Object.keys(body)).toEqual(['status', 'message', 'since', 'updatedAt', 'notices'])
   })
 
+  it('serves the status without notices when their copy cannot be read', async () => {
+    const { school, env } = setup()
+    school.notices.body = { notices: [NOTICE], more: false }
+    await runOnce(env, at(0))
+    const get = env.STATE.get.bind(env.STATE)
+    env.STATE.get = (async (k: string) => {
+      if (k === 'notices') throw new Error('kv down')
+      return get(k)
+    }) as typeof env.STATE.get
+    const body = await statusJson(env)
+    expect(body.status).toBe('ok')
+    expect(body.notices).toBeNull()
+  })
+
   it('serves null when the notices were never read', async () => {
     const { school, env, ctl } = setup()
     school.notices.status = 404

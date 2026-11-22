@@ -224,7 +224,8 @@ export interface NoticesCopy {
 export const MAX_NOTICES = 5
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
-const isNullableString = (v: unknown): v is string | null => v === null || typeof v === 'string'
+const isTime = (v: unknown): v is string => typeof v === 'string' && !Number.isNaN(Date.parse(v))
+const isNullableTime = (v: unknown): v is string | null => v === null || isTime(v)
 
 function parseNotice(v: unknown): NoticeItem | null {
   if (!isObject(v)) return null
@@ -234,10 +235,10 @@ function parseNotice(v: unknown): NoticeItem | null {
   if (kind !== 'general' && kind !== 'maintenance') return null
   let win: NoticeItem['window'] = null
   if (window !== null) {
-    if (!isObject(window) || typeof window.startsAt !== 'string' || !isNullableString(window.endsAt)) return null
+    if (!isObject(window) || !isTime(window.startsAt) || !isNullableTime(window.endsAt)) return null
     win = { startsAt: window.startsAt, endsAt: window.endsAt }
   }
-  if (typeof publishedAt !== 'string' || !isNullableString(updatedAt)) return null
+  if (!isTime(publishedAt) || !isNullableTime(updatedAt)) return null
   return { id, title, body, kind, window: win, publishedAt, updatedAt }
 }
 
