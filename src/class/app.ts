@@ -11,6 +11,7 @@ import { RateWindow } from '../shared/rate-window.js'
 import type { Database } from '../shared/schema.js'
 import { hashSecret } from '../shared/secrets.js'
 import { HANDSHAKE_RATE_LIMITED, HandshakeGuard } from '../shared/ws-handshake.js'
+import { preCloseWebSockets } from '../shared/ws-close.js'
 import {
   MAX_FRAME_BYTES,
   RATE_WINDOW_MS,
@@ -127,6 +128,8 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
 
   app.register(websocket, {
     options: { maxPayload: WS_MAX_PAYLOAD },
+    // On a stop, a client that does not answer the close of its connection is cut after a moment (see ws-close.ts).
+    preClose: preCloseWebSockets(),
     // Errors of an open connection (a frame too big, a client gone uncleanly): `ws` closes the connection itself.
     errorHandler(error, socket, request) {
       request.log.warn({ err: error }, 'class connection error')

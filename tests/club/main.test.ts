@@ -8,6 +8,7 @@ import { join } from '../../src/club/members.js'
 import { createRecorder, nextGameId, storedDoudizhuOptions } from '../../src/club/recorder.js'
 import { CLUB_TICK_MS, type ClubService, createClubService, startClubService } from '../../src/club/service.js'
 import type { Ticker } from '../../src/class/ticker.js'
+import { WS_CLOSE_GRACE_MS } from '../../src/shared/ws-close.js'
 import { createTestClock } from '../helpers/clock.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertStudent } from '../helpers/factories.js'
@@ -78,6 +79,31 @@ describe('starting the club service', () => {
     client.send({ id: 'h', ...HELLO })
     expect(await client.next()).toEqual({ type: 'ack', id: 'h', ok: true })
     expect(await client.next()).toMatchObject({ type: 'welcome', club: { id: 'doudizhu', name: '斗地主社' }, room: null })
+  })
+
+  test('stops soon even when a client never answers the close of its connection', async () => {
+    const { db, service: s } = await build()
+    const classId = await insertClass(db, { classNo: 1 })
+    const { id, key } = await insertStudent(db, { classId, status: 'active', createdAt: new Date(T0.getTime() - 86_400_000) })
+    await join(db, id, 'doudizhu', new Date(T0.getTime() - 60_000))
+    ticker = await startClubService(s, { port: 0, host: '127.0.0.1' })
+    const { port } = s.app.server.address() as AddressInfo
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/club`, { headers: { authorization: `Bearer ${key}` } })
+    sockets.push(ws)
+    const client = track(ws)
+    await once(ws, 'open')
+    client.send({ id: 'h', ...HELLO })
+    expect(await client.next()).toEqual({ type: 'ack', id: 'h', ok: true })
+    await client.next()
+    // A client far away, or gone without a word: it reads nothing more, so the close is never answered.
+    ;(ws as unknown as { _socket: { pause(): void } })._socket.pause()
+
+    const started = performance.now()
+    await ticker.stop()
+    ticker = undefined
+    await s.stop(0)
+    await s.app.close()
+    expect(performance.now() - started).toBeLessThan(WS_CLOSE_GRACE_MS + 2_000)
   })
 
   test('a game played over WebSocket is stored, and the next welcome shows it in the stats', async () => {

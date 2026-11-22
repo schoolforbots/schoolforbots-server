@@ -100,6 +100,12 @@ export interface ClubSimTiming {
   groupWaitMs: number
   /** How long a bot sits at a table with no game before it gives up on it and forms another. */
   seatWaitMs: number
+  /**
+   * How long a connection may take to open, from looking up the address to the answer to the upgrade. Past it the bot
+   * gives the connection up, counts a failed try, and tries again: `ws` itself waits for the answer forever. On real
+   * time, whatever `timers` the bot is given.
+   */
+  connectTimeoutMs: number
 }
 
 export const DEFAULT_TIMING: ClubSimTiming = {
@@ -110,6 +116,7 @@ export const DEFAULT_TIMING: ClubSimTiming = {
   reformMs: [2000, 5000],
   groupWaitMs: 1000,
   seatWaitMs: 60_000,
+  connectTimeoutMs: 15_000,
 }
 
 /** What one bot saw and did. */
@@ -422,6 +429,8 @@ export function createClubBot(
   let closingSeen = false
   let dropping = false
   let reconnectTimer: unknown
+  // On real time, not the bot's timers: it waits on the network, which a faster clock in a test does not speed up.
+  let connectTimer: NodeJS.Timeout | undefined
   let formTimer: unknown
   /** How long to wait after the `closing` of this connection. */
   let closingRetry = timing.retryMs
@@ -481,6 +490,7 @@ export function createClubBot(
     if (ended()) return
     tally.ended = reason
     timers.clear(reconnectTimer)
+    clearTimeout(connectTimer)
     timers.clear(formTimer)
     say(`结束：${reason}`)
     deps.onEnded?.()
@@ -558,7 +568,16 @@ export function createClubBot(
       failed = true
       tally.connectFailures++
     }
+    // Given up as an error on the way: counted, closed, tried again (the error it raises says nothing more).
+    let timedOut = false
+    clearTimeout(connectTimer)
+    connectTimer = setTimeout(() => {
+      timedOut = true
+      say('连接超时')
+      ws.terminate()
+    }, timing.connectTimeoutMs)
     ws.on('open', () => {
+      clearTimeout(connectTimer)
       opened = true
       tally.connects++
       const resume = roomId === null ? {} : { roomId, lastSeq }
@@ -575,10 +594,11 @@ export function createClubBot(
     ws.on('error', (err: NodeJS.ErrnoException) => {
       // Stopping a connection still on its way errs too: that is no failure.
       if (!opened && !ended()) connectFailed()
-      if (!ended()) say(`连接出错 ${err.code ?? err.message}`)
+      if (!ended() && !timedOut) say(`连接出错 ${err.code ?? err.message}`)
     })
     ws.on('close', () => {
       if (socket !== ws) return
+      clearTimeout(connectTimer)
       socket = null
       if (opened && !closingSeen && !dropping && !ended()) {
         tally.unexpectedDisconnects++
@@ -1030,6 +1050,7 @@ export function createClubBot(
     stop() {
       tally.ended ??= STOPPED
       timers.clear(reconnectTimer)
+      clearTimeout(connectTimer)
       timers.clear(formTimer)
       timers.clear(turnTimer)
       timers.clear(flushTimer)
