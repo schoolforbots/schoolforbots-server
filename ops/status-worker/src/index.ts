@@ -3,8 +3,13 @@ import {
   decide,
   decideClub,
   decideMail,
+  decideNotices,
   type MailState,
   type Manual,
+  MAX_NOTICES,
+  type NoticeItem,
+  type NoticesCopy,
+  parseNotices,
   type Probe,
   type StoredState,
 } from './sentinel.js'
@@ -97,6 +102,18 @@ export async function probeSchool(
   return { probe: { healthy, maintenance }, mailOk, clubOk }
 }
 
+/** The school's latest notices, or null when they cannot be read or the answer has the wrong shape. */
+export async function probeNotices(base: string): Promise<NoticeItem[] | null> {
+  const root = base.replace(/\/+$/, '')
+  try {
+    const res = await get(`${root}/v1/notices?limit=${MAX_NOTICES}`)
+    if (res?.status !== 200) return null
+    return parseNotices(await res.json())
+  } catch {
+    return null
+  }
+}
+
 async function readJson<T>(kv: KVNamespace, key: string): Promise<T | null> {
   const raw = await kv.get(key)
   if (raw === null) return null
@@ -140,21 +157,27 @@ async function put(env: Env, key: string, value: unknown): Promise<boolean> {
 // Trade-off when KV itself is down: nothing is written, so no mail is queued or sent (the same
 // decision comes back every minute, and sending would repeat it every minute); status.json keeps
 // its last content. Each check is independent: one failure never stops the other.
+// The notices are only copied for status.json: they never touch the status or the mails, and a failed read keeps the
+// last copy.
 export async function runOnce(env: Env, now: Date): Promise<void> {
-  const [prev, prevMail, prevClub, manualRaw, note, pendingRaw] = await Promise.all([
+  const [prev, prevMail, prevClub, manualRaw, note, pendingRaw, prevNotices] = await Promise.all([
     readJson<StoredState>(env.STATE, 'state'),
     readJson<MailState>(env.STATE, 'mail'),
     readJson<ClubState>(env.STATE, 'club'),
     env.STATE.get('manual'),
     env.STATE.get('note'),
     readJson<MailKind[]>(env.STATE, 'pending'),
+    readJson<NoticesCopy>(env.STATE, 'notices'),
   ])
   const pending: MailKind[] = Array.isArray(pendingRaw) ? pendingRaw.filter((k) => k in MAILS) : []
   const manual: Manual = {
     maintenance: manualRaw?.trim() === 'maintenance',
     note: note?.trim() ? note.trim() : null,
   }
-  const { probe, mailOk, clubOk } = await probeSchool(env.SCHOOL_URL)
+  const [{ probe, mailOk, clubOk }, noticeItems] = await Promise.all([
+    probeSchool(env.SCHOOL_URL),
+    probeNotices(env.SCHOOL_URL),
+  ])
 
   const queue = [...pending]
 
@@ -174,6 +197,9 @@ export async function runOnce(env: Env, now: Date): Promise<void> {
     now,
   )
   if (club.write && (await put(env, 'club', club.next)) && club.mail) queue.push(club.mail)
+
+  const notices = decideNotices(prevNotices, noticeItems, now)
+  if (notices.write) await put(env, 'notices', notices.next)
 
   const left: MailKind[] = []
   for (const kind of queue) {
@@ -198,7 +224,10 @@ export default {
     if (url.pathname !== '/status.json' || (request.method !== 'GET' && request.method !== 'HEAD')) {
       return new Response('Not found', { status: 404 })
     }
-    const state = await readJson<StoredState>(env.STATE, 'state')
+    const [state, notices] = await Promise.all([
+      readJson<StoredState>(env.STATE, 'state'),
+      readJson<NoticesCopy>(env.STATE, 'notices'),
+    ])
     if (state === null) {
       return new Response(JSON.stringify({ error: 'not ready' }), {
         status: 503,
@@ -210,6 +239,8 @@ export default {
       message: state.message,
       since: state.since,
       updatedAt: state.updatedAt,
+      // The last good copy of the school's notices, or null if they were never read.
+      notices: notices ?? null,
     }
     return new Response(JSON.stringify(body), { headers: HEADERS })
   },

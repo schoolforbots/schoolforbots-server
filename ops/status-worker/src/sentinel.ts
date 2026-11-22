@@ -202,3 +202,73 @@ export function decideClub(
   if (!due) return keep
   return { next: { badSince: cur.badSince, notifiedAt: nowIso }, write: true, mail: 'club_down' }
 }
+
+/** One notice as `GET /v1/notices` gives it (times are UTC ISO). */
+export interface NoticeItem {
+  id: number
+  title: string
+  body: string
+  kind: 'general' | 'maintenance'
+  window: { startsAt: string; endsAt: string | null } | null
+  publishedAt: string
+  updatedAt: string | null
+}
+
+/** The last good read of the school's notices, as stored in KV `notices` and served in status.json. */
+export interface NoticesCopy {
+  /** When the school last gave these items (ISO); refreshed at most every `refreshMs` while they stay the same. */
+  fetchedAt: string
+  items: NoticeItem[]
+}
+
+export const MAX_NOTICES = 5
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const isNullableString = (v: unknown): v is string | null => v === null || typeof v === 'string'
+
+function parseNotice(v: unknown): NoticeItem | null {
+  if (!isObject(v)) return null
+  const { id, title, body, kind, window, publishedAt, updatedAt } = v
+  if (typeof id !== 'number' || !Number.isInteger(id) || id < 1) return null
+  if (typeof title !== 'string' || typeof body !== 'string') return null
+  if (kind !== 'general' && kind !== 'maintenance') return null
+  let win: NoticeItem['window'] = null
+  if (window !== null) {
+    if (!isObject(window) || typeof window.startsAt !== 'string' || !isNullableString(window.endsAt)) return null
+    win = { startsAt: window.startsAt, endsAt: window.endsAt }
+  }
+  if (typeof publishedAt !== 'string' || !isNullableString(updatedAt)) return null
+  return { id, title, body, kind, window: win, publishedAt, updatedAt }
+}
+
+/**
+ * The items of a `GET /v1/notices` answer, or null when it does not have the right shape. One bad item rejects the
+ * whole answer; at most `MAX_NOTICES` are kept, with only the known fields.
+ */
+export function parseNotices(body: unknown): NoticeItem[] | null {
+  if (!isObject(body) || !Array.isArray(body.notices)) return null
+  const items: NoticeItem[] = []
+  for (const raw of body.notices.slice(0, MAX_NOTICES)) {
+    const item = parseNotice(raw)
+    if (item === null) return null
+    items.push(item)
+  }
+  return items
+}
+
+/**
+ * Whether to store a read of the notices. `items` is null when the read failed: the last copy stays as it is. New
+ * items are written at once; the same items again only once the copy is `refreshMs` old, so `fetchedAt` says how
+ * fresh the copy is to within that interval while KV is written at most about 24 times a day for it.
+ */
+export function decideNotices(
+  prev: NoticesCopy | null,
+  items: NoticeItem[] | null,
+  now: Date,
+  refreshMs = 60 * 60_000,
+): { next: NoticesCopy | null; write: boolean } {
+  if (items === null) return { next: prev, write: false }
+  const same = prev !== null && JSON.stringify(prev.items) === JSON.stringify(items)
+  if (same && now.getTime() - Date.parse(prev.fetchedAt) < refreshMs) return { next: prev, write: false }
+  return { next: { fetchedAt: now.toISOString(), items }, write: true }
+}

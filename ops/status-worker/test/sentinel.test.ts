@@ -4,8 +4,11 @@ import {
   decide,
   decideClub,
   decideMail,
+  decideNotices,
   type MailState,
   type Manual,
+  type NoticeItem,
+  parseNotices,
   type Probe,
   type StoredState,
 } from '../src/sentinel.js'
@@ -477,5 +480,94 @@ describe('decideClub', () => {
     expect(s.mails).toEqual(['club_down'])
     step(201, true)
     expect(s.mails).toEqual(['club_down', 'club_up'])
+  })
+})
+
+const notice = (id: number, over: Partial<NoticeItem> = {}): NoticeItem => ({
+  id,
+  title: `t${id}`,
+  body: `b${id}`,
+  kind: 'general',
+  window: null,
+  publishedAt: '2026-11-20T08:00:00.000Z',
+  updatedAt: null,
+  ...over,
+})
+
+describe('parseNotices', () => {
+  it('accepts the school answer and keeps only the known fields', () => {
+    const m = notice(2, {
+      kind: 'maintenance',
+      window: { startsAt: '2026-11-23T01:00:00.000Z', endsAt: null },
+      updatedAt: '2026-11-21T00:00:00.000Z',
+    })
+    const out = parseNotices({ notices: [{ ...notice(1), extra: 'x' }, m], more: false })
+    expect(out).toEqual([notice(1), m])
+  })
+
+  it('accepts an empty list', () => {
+    expect(parseNotices({ notices: [], more: false })).toEqual([])
+  })
+
+  it('keeps at most 5 items', () => {
+    const out = parseNotices({ notices: [1, 2, 3, 4, 5, 6, 7].map((i) => notice(i)), more: true })
+    expect(out?.map((n) => n.id)).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it.each([
+    ['not an object', 'x'],
+    ['null', null],
+    ['no notices array', { notices: 'x' }],
+    ['id not a positive integer', { notices: [notice(0)] }],
+    ['id not an integer', { notices: [notice(1.5)] }],
+    ['title not a string', { notices: [{ ...notice(1), title: 3 }] }],
+    ['body missing', { notices: [{ ...notice(1), body: undefined }] }],
+    ['unknown kind', { notices: [{ ...notice(1), kind: 'urgent' }] }],
+    ['window without startsAt', { notices: [notice(1, { window: { endsAt: null } as never })] }],
+    ['window endsAt a number', { notices: [notice(1, { window: { startsAt: 'a', endsAt: 3 } as never })] }],
+    ['publishedAt missing', { notices: [{ ...notice(1), publishedAt: null }] }],
+    ['updatedAt a number', { notices: [{ ...notice(1), updatedAt: 1 }] }],
+    ['one bad item among good ones', { notices: [notice(1), { id: 2 }] }],
+  ])('rejects an answer with %s', (_name, body) => {
+    expect(parseNotices(body)).toBeNull()
+  })
+})
+
+describe('decideNotices', () => {
+  const items = [notice(1)]
+
+  it('stores the first good read', () => {
+    expect(decideNotices(null, items, at(0))).toEqual({
+      next: { fetchedAt: at(0).toISOString(), items },
+      write: true,
+    })
+  })
+
+  it('keeps nothing when it has never read and the read fails', () => {
+    expect(decideNotices(null, null, at(0))).toEqual({ next: null, write: false })
+  })
+
+  it('keeps the last copy when the read fails', () => {
+    const prev = { fetchedAt: at(0).toISOString(), items }
+    expect(decideNotices(prev, null, at(500))).toEqual({ next: prev, write: false })
+  })
+
+  it('does not write unchanged items until the copy is an hour old', () => {
+    const prev = { fetchedAt: at(0).toISOString(), items }
+    expect(decideNotices(prev, [notice(1)], at(59))).toEqual({ next: prev, write: false })
+    expect(decideNotices(prev, [notice(1)], at(60))).toEqual({
+      next: { fetchedAt: at(60).toISOString(), items },
+      write: true,
+    })
+  })
+
+  it('writes at once when the items change', () => {
+    const prev = { fetchedAt: at(0).toISOString(), items }
+    const changed = [notice(1, { title: 'new' })]
+    expect(decideNotices(prev, changed, at(1))).toEqual({
+      next: { fetchedAt: at(1).toISOString(), items: changed },
+      write: true,
+    })
+    expect(decideNotices(prev, [], at(2)).write).toBe(true)
   })
 })
