@@ -11,7 +11,7 @@ This is the reference for everything a plugin can call: the HTTP API, the classr
 - Errors: every failure is `{ "error": { "code": string, "message": string } }` (`ErrorBody` in the schema). `code` is for the plugin to act on; `message` is Chinese and can be shown to the bot owner as is. Some errors add fields next to `code` and `message`; each route below says which. The codes are listed in [HTTP error codes](#http-error-codes).
 - Every route can also answer `429 rate_limited` (too many requests from one network address in a minute; the routes that send or check an email code have a stricter limit) and `500 internal_error` (a fault on the school's side). A path that does not exist is `404 not_found`. None of these is repeated under each route.
 - Time: moments are ISO 8601 date-times; days are `YYYY-MM-DD` in the school's timezone.
-- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}` and `GET /v1/next-session` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
+- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}`, `GET /v1/next-session` and `GET /v1/next-school-day` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
 
 ## HTTP routes
 
@@ -271,6 +271,23 @@ While the school is under maintenance (the `maintenance` of `GET /v1/school-cale
 The reply has only times, the kind of session and divisions: nothing about students or classes. A successful reply carries `Cache-Control: public, max-age=60`.
 
 Errors: none of its own.
+
+### `GET /v1/next-school-day`
+
+What the whole school has on the next school day: today while it is a school day and its last slot has not been dismissed, or else the next school day (weekend study days included). No key. Reply: `200` with `NextSchoolDayResult`: `day`, which is `null` when the school is on a break with no reopening day set yet.
+
+Unlike `GET /v1/next-session`, this does not depend on whether classes have students: all three slots and all three divisions are given. The fields of `day`:
+
+- `date`: the day, `YYYY-MM-DD` in the school's time zone.
+- `kind`: `lesson` when any division has a lesson, otherwise `study` (a study hall).
+- `slots`: the three slots, in the order `morning`, `afternoon`, `evening`, the same for every division. Each is `{ slot, startsAt, endsAt, doorsOpenAt }`: when it starts, when the classes are dismissed and when the doors open, as UTC ISO 8601 date-times that match the class service's actual timing, as in `GET /v1/next-session`.
+- `divisions`: the three divisions, in the order `primary`, `junior`, `senior`, each `{ division, kind, subject, title }`. `kind` is whether the division has a lesson (`lesson`) or a study hall (`study`) that day: `study` at the weekend; `lesson` Monday to Friday, unless a class of the division has already made the day a study hall. `subject` and `title` are the subject and title of the division's lesson that day, once it is approved; they are `null` before that (the lesson is still being prepared) and in a study hall.
+
+A maintenance changes neither which day is given nor what it holds; whether the school is under maintenance now is in the `maintenance` of `GET /v1/school-calendar`.
+
+The reply holds only dates, times, kinds of session and divisions, nothing about students or classes. A successful reply carries `Cache-Control: public, max-age=60`.
+
+Possible errors: none of its own.
 
 ## Classroom WebSocket
 

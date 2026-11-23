@@ -11,7 +11,7 @@
 - 错误：所有失败都是 `{ "error": { "code": string, "message": string } }`（schema 里的 `ErrorBody`）。`code` 给插件判断用；`message` 是中文，可以原样给机器人的主人看。有些错误会在 `code` 和 `message` 旁边多带字段，下面每个接口会写。错误码见 [HTTP 错误码](#http-错误码)。
 - 每个接口都可能返回 `429 rate_limited`（同一个网络地址一分钟内请求太多；发邮件验证码和检查验证码的接口限得更严）和 `500 internal_error`（学校这边出了故障）。路径不存在是 `404 not_found`。这几个下面不再逐个写。
 - 时间：时刻是 ISO 8601 日期时间；日期是学校所在时区的 `YYYY-MM-DD`。
-- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}` 和 `GET /v1/next-session` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
+- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}`、`GET /v1/next-session` 和 `GET /v1/next-school-day` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
 
 ## HTTP 接口
 
@@ -269,6 +269,23 @@
 学校在维护时（`GET /v1/school-calendar` 的 `maintenance` 不是 `null`），不开课，所以 `inProgress` 一定是 `false`：给的是维护预计结束（`expectedBackAt`）以后第一节开门的课；不知道预计时间，或者它已经过去，就给现在以后第一节开门的课。一节课从开门到收尾之间只要碰上过维护就不上了，所以维护结束以后，已经开过门、又碰上过维护的那节课也跳过，给下一节。维护公告不影响这个接口。
 
 回复里只有时间、课的种类和学部，没有学生或班级的信息。成功的回复带 `Cache-Control: public, max-age=60`。
+
+可能的错误：没有自己的错误。
+
+### `GET /v1/next-school-day`
+
+下一个上学日全校的安排：今天是上学日、而且最后一个时段还没下课时是今天，否则是下一个上学日（包括周末自习的日子）。不需要钥匙。回复 `200`，内容是 `NextSchoolDayResult`：`day`；学校在放假、而且还没定开学日期时是 `null`。
+
+和 `GET /v1/next-session` 不同，这里不管班里有没有学生：三个时段和三个学部都给。`day` 的字段：
+
+- `date`：这一天，学校时区的 `YYYY-MM-DD`。
+- `kind`：有一个学部上课就是 `lesson`，否则是 `study`（自习）。
+- `slots`：三个时段，按 `morning`、`afternoon`、`evening` 的顺序，每个学部都一样。每项是 `{ slot, startsAt, endsAt, doorsOpenAt }`：上课、下课（放学）和开门的时刻，都是 UTC 的 ISO 8601 日期时间，和上课服务实际的安排一致，同 `GET /v1/next-session`。
+- `divisions`：三个学部，按 `primary`、`junior`、`senior` 的顺序，每项是 `{ division, kind, subject, title }`。`kind` 是这个学部这一天上课（`lesson`）还是自习（`study`）：周末是 `study`；周一到周五是 `lesson`，但这个学部当天已经有班改上了自习的，按自习给。`subject` 和 `title` 是这个学部这一天的课的科目和标题，课审过以后才有；还没审过（课还在准备）时，以及上自习时，是 `null`。
+
+学校维护不改变给的是哪一天，也不改变里面的内容；现在是不是在维护，看 `GET /v1/school-calendar` 的 `maintenance`。
+
+回复里只有日期、时间、课的种类和学部，没有学生或班级的信息。成功的回复带 `Cache-Control: public, max-age=60`。
 
 可能的错误：没有自己的错误。
 
