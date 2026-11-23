@@ -470,3 +470,40 @@ export const NextSessionResult = Type.Object({
     }),
   ]),
 })
+
+/**
+ * `GET /v1/next-school-day`, no key needed: today while it is a school day and its last slot has not been dismissed,
+ * or else the next school day, for the whole school. `day` is null when the school is on a break with no reopening day
+ * yet. `date` is the day (`YYYY-MM-DD` in the school's time zone). `slots` are its three slots, morning, afternoon,
+ * evening, the same for every division: `startsAt` and `endsAt` are when it starts and when the classes are dismissed,
+ * and `doorsOpenAt` when their doors open, before it. `divisions` are all three divisions, primary, junior, senior,
+ * whether or not a class of theirs has students: `kind` is `lesson`, or `study` for a study hall (at the weekend, or
+ * on a weekday the division's classes have already made one); `subject` and `title` are those of the division's lesson
+ * once it is approved, null before (it is being prepared) and null in a study hall. The day's `kind` is `lesson` when
+ * any division has one. A maintenance does not change the day.
+ */
+export const NextSchoolDayResult = Type.Object({
+  day: Type.Union([
+    Type.Null(),
+    Type.Object({
+      date: DateText,
+      kind: Type.Union([Type.Literal('lesson'), Type.Literal('study')]),
+      slots: Type.Array(
+        Type.Object({
+          slot: Slot,
+          startsAt: Type.String({ format: 'date-time' }),
+          endsAt: Type.String({ format: 'date-time' }),
+          doorsOpenAt: Type.String({ format: 'date-time' }),
+        }),
+      ),
+      divisions: Type.Array(
+        Type.Object({
+          division: Division,
+          kind: Type.Union([Type.Literal('lesson'), Type.Literal('study')]),
+          subject: Type.Union([Type.String(), Type.Null()]),
+          title: Type.Union([Type.String(), Type.Null()]),
+        }),
+      ),
+    }),
+  ]),
+})

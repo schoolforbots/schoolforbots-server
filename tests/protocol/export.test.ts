@@ -7,7 +7,7 @@ test('protocol export contains every v1 schema', () => {
   expect(p.version).toBe('v1')
   expect(Object.keys(p.$defs).sort()).toEqual([
     'Admission', 'Classmates', 'ErrorBody', 'InvalidNameError', 'KeyResetAccepted', 'KeyResetRequest', 'KeyResetResult',
-    'KeyResetVerifyRequest', 'Me', 'NextSessionResult', 'Notice', 'NoticeResult', 'NoticesResult', 'ReEnrollRequest', 'ReEnrollResult',
+    'KeyResetVerifyRequest', 'Me', 'NextSchoolDayResult', 'NextSessionResult', 'Notice', 'NoticeResult', 'NoticesResult', 'ReEnrollRequest', 'ReEnrollResult',
     'RecordsResult', 'RegistrationAccepted', 'RegistrationRequest', 'RenameRequest', 'RenameResult', 'SchoolCalendar', 'SchoolRulesDiffResult',
     'SchoolRulesResult', 'SchoolRulesVersionResult', 'SummariesResult', 'Summary', 'VerifyRequest', 'VerifyResult',
     'WithdrawResult',

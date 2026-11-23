@@ -15,6 +15,7 @@ const CROSS_SITE = [
   '/v1/notices',
   '/v1/notices/:id',
   '/v1/next-session',
+  '/v1/next-school-day',
 ]
 
 /** What a browser adds to a request a page on another site makes. */
@@ -44,7 +45,7 @@ function expectNotReadableFromAnotherSite(res: LightMyRequestResponse) {
 }
 
 describe('reading the school calendar, the school rules, the notices and the next session from another site', () => {
-  test('each of the seven routes allows any site', async () => {
+  test('each of the eight routes allows any site', async () => {
     const t = await schoolApp()
     const current = t.schoolRules.current.version
     const { id } = await t.db
@@ -61,6 +62,7 @@ describe('reading the school calendar, the school rules, the notices and the nex
       '/v1/notices',
       `/v1/notices/${id}`,
       '/v1/next-session',
+      '/v1/next-school-day',
     ]) {
       const res = await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
       expect(res.statusCode, url).toBe(200)
@@ -87,7 +89,7 @@ describe('reading the school calendar, the school rules, the notices and the nex
   })
 
   test('and so does the rate limit, so a page can tell it apart from a school it cannot reach', async () => {
-    for (const url of ['/v1/school-calendar', '/v1/notices', '/v1/next-session']) {
+    for (const url of ['/v1/school-calendar', '/v1/notices', '/v1/next-session', '/v1/next-school-day']) {
       const t = await schoolApp({ httpRateLimitPerMinute: 1 })
 
       await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
@@ -106,7 +108,7 @@ describe('reading the school calendar, the school rules, the notices and the nex
   test('no preflight is answered, so only a simple GET gets through', async () => {
     const t = await schoolApp()
 
-    for (const url of ['/v1/school-calendar', '/v1/school-rules', '/v1/notices', '/v1/next-session']) {
+    for (const url of ['/v1/school-calendar', '/v1/school-rules', '/v1/notices', '/v1/next-session', '/v1/next-school-day']) {
       const preflight = await t.app.inject({
         method: 'OPTIONS',
         url,

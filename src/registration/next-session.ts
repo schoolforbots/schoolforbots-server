@@ -2,8 +2,8 @@ import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import type { Kysely } from 'kysely'
 import type { Static } from 'typebox'
 import { lessonSteps, type StepName } from '../class/timeline.js'
-import { NextSessionResult } from '../protocol/http.js'
-import { isLessonDay, isSchoolDay } from '../shared/calendar.js'
+import { NextSchoolDayResult, NextSessionResult } from '../protocol/http.js'
+import { isLessonDay, isSchoolDay, nextSchoolDay } from '../shared/calendar.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { addDaysToDate, atLocalTime, localDate } from '../shared/local-time.js'
 import { maintenanceBetween, type Maintenance } from '../shared/maintenance.js'
@@ -20,8 +20,13 @@ const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
 const DIVISIONS: readonly Division[] = ['primary', 'junior', 'senior']
 
 type NextSession = NonNullable<Static<typeof NextSessionResult>['session']>
+type NextDay = NonNullable<Static<typeof NextSchoolDayResult>['day']>
+type Plan = NextDay['divisions'][number]
 
-/** When the session going on now, or the next one, is, to anyone. (No key needed, and nothing about a student.) */
+/**
+ * When the session going on now, or the next one, is, and what the next school day holds, to anyone. (No key needed,
+ * and nothing about a student.)
+ */
 export function nextSessionRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
   return async (app) => {
     // Any site's web page may read this, errors and the rate limit included, as it may the calendar: see
@@ -35,6 +40,42 @@ export function nextSessionRoutes(deps: RegistrationDeps): FastifyPluginAsyncTyp
       reply.header('cache-control', CACHE_CONTROL)
       return { session }
     })
+
+    app.get('/v1/next-school-day', { schema: { response: { 200: NextSchoolDayResult } } }, async (_request, reply) => {
+      const day = await nextDay(deps.db, deps.config, deps.clock.now())
+      reply.header('cache-control', CACHE_CONTROL)
+      return { day }
+    })
+  }
+}
+
+/**
+ * Today while it is a school day and its last slot has not been dismissed, or else the next school day: its slots'
+ * times and what each of the three divisions has, whether or not any class has students. Null when the school is on a
+ * break with no reopening day yet. A maintenance does not change the day.
+ */
+async function nextDay(db: Kysely<Database>, config: SchoolConfig, now: Date): Promise<NextDay | null> {
+  const today = localDate(now, config.timezone)
+  const slotsOf = (date: string): NextDay['slots'] =>
+    SLOTS.map((slot) => {
+      const startsAt = atLocalTime(date, config.slots[slot].start, config.timezone)
+      const { doorsAt, endsAt } = timesOf(startsAt, config)
+      return { slot, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), doorsOpenAt: doorsAt.toISOString() }
+    })
+
+  let date = nextSchoolDay(today, config)
+  if (date === today) {
+    const dismissed = slotsOf(today).every((s) => Date.parse(s.endsAt) <= now.getTime())
+    if (dismissed) date = nextSchoolDay(addDaysToDate(today, 1), config)
+  }
+  if (date === null) return null
+
+  const plans = await plansOf(db, config, date, DIVISIONS)
+  return {
+    date,
+    kind: plans.some((p) => p.kind === 'lesson') ? 'lesson' : 'study',
+    slots: slotsOf(date),
+    divisions: plans,
   }
 }
 
@@ -125,19 +166,32 @@ async function memberDivisions(db: Kysely<Database>): Promise<Map<Slot, Division
   return bySlot
 }
 
-/**
- * Whether the divisions have a lesson or a study hall on `date`, and the subject and title of each one's lesson, as
- * `planSession` decides it. The first session a class of the division has opened that day decides; before any has, a
- * lesson day (a weekday) is a lesson, its subject and title unknown until it is approved (the class service makes it a
- * study hall if it is still not approved when the doors open), and any other day a study hall. The session is a
- * lesson when any division has one.
- */
+/** Whether the divisions have a lesson or a study hall on `date`, and each one's subject and title: see `plansOf`. */
 async function whatIsTaught(
   db: Kysely<Database>,
   config: SchoolConfig,
   date: string,
   divisions: readonly Division[],
 ): Promise<Pick<NextSession, 'kind' | 'divisions'>> {
+  const plans = await plansOf(db, config, date, divisions)
+  return {
+    kind: plans.some((p) => p.kind === 'lesson') ? 'lesson' : 'study',
+    divisions: plans.map(({ division, subject, title }) => ({ division, subject, title })),
+  }
+}
+
+/**
+ * Whether each of the divisions has a lesson or a study hall on `date`, and the subject and title of its lesson, as
+ * `planSession` decides it. The first session a class of the division has opened that day decides; before any has, a
+ * lesson day (a weekday) is a lesson, its subject and title unknown until it is approved (the class service makes it a
+ * study hall if it is still not approved when the doors open), and any other day a study hall.
+ */
+async function plansOf(
+  db: Kysely<Database>,
+  config: SchoolConfig,
+  date: string,
+  divisions: readonly Division[],
+): Promise<Plan[]> {
   const opened = await db
     .selectFrom('classSessions as s')
     .innerJoin('classes as c', 'c.id', 's.classId')
@@ -158,20 +212,16 @@ async function whatIsTaught(
         .execute()
     : []
 
-  const plans = divisions.map((division) => {
+  return divisions.map((division): Plan => {
     // The rows are in the order the sessions began, so the first of the division is the one that decided.
     const decided = opened.find((r) => r.division === division)
     if (decided !== undefined) {
       return decided.kind === 'lesson'
-        ? { division, lesson: true, subject: decided.subject, title: decided.title }
-        : { division, lesson: false, subject: null, title: null }
+        ? { division, kind: 'lesson', subject: decided.subject, title: decided.title }
+        : { division, kind: 'study', subject: null, title: null }
     }
-    if (!isLessonDay(date, config)) return { division, lesson: false, subject: null, title: null }
+    if (!isLessonDay(date, config)) return { division, kind: 'study', subject: null, title: null }
     const lesson = approved.find((r) => r.division === division)
-    return { division, lesson: true, subject: lesson?.subject ?? null, title: lesson?.title ?? null }
+    return { division, kind: 'lesson', subject: lesson?.subject ?? null, title: lesson?.title ?? null }
   })
-  return {
-    kind: plans.some((p) => p.lesson) ? 'lesson' : 'study',
-    divisions: plans.map(({ division, subject, title }) => ({ division, subject, title })),
-  }
 }
