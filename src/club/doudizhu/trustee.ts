@@ -1,14 +1,17 @@
-import { type Card, toRank } from './cards.js'
+import { BLACK_JOKER, type Card, RED_JOKER, toRank, TWO } from './cards.js'
 import { classify, type Interpretation } from './classify.js'
 import { type Auto, bid, type GameState, pass, play, type StepResult } from './game.js'
 import { legalMoves } from './moves.js'
+import { checkBid } from './validate.js'
 
 // The trustee (3.8): the steps the server makes for a seat that timed out, is in trusteeship, is a bot, or plays on as
 // the club closes. It is simple and fixed, the same for everyone, and always makes the same step in the same position.
-// It never bids, never uses a bomb or the rocket to beat a move, and never beats its partner.
+// It never bids, never uses a bomb or the rocket to beat a move, and never beats its partner. A practice bot plays as
+// the trustee does, but bids by the strength of its hand (`handBid`), the same way for the same cards: a seat in
+// trusteeship, timed out or played out at closing is a student's, and the trustee takes no stakes for it.
 
 export type TrusteeStep =
-  | { readonly bid: 0 }
+  | { readonly bid: number }
   | { readonly play: Interpretation }
   | { readonly pass: true }
 
@@ -59,14 +62,43 @@ export function trusteeAction(state: GameState, seat: number): TrusteeStep {
   return beat === undefined ? { pass: true } : { play: beat }
 }
 
+const ACE = 14
+
 /**
- * Makes the trustee's step for the seat to act, marked with `auto` (`timeout`, `trustee`, `bot` or `closing`). The
- * step always goes.
+ * A practice bot's bid for a hand: points for its high cards (the red joker 4, the black joker 3, each 2 2, each A 1)
+ * and 4 for each bomb (four of a rank); 7 points or more bid 1, 9 or more 2, 12 or more 3. A bid that is not above
+ * the bids before it is no bid (0). The order of the cards does not matter.
+ */
+export function handBid(hand: readonly Card[], bidsSoFar: readonly number[]): number {
+  const counts = new Map<number, number>()
+  for (const card of hand) counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1)
+  let points = 0
+  for (const [rank, count] of counts) {
+    if (rank === RED_JOKER) points += 4
+    else if (rank === BLACK_JOKER) points += 3
+    else if (rank === TWO) points += 2 * count
+    else if (rank === ACE) points += count
+    if (count === 4) points += 4
+  }
+  const wanted = points >= 12 ? 3 : points >= 9 ? 2 : points >= 7 ? 1 : 0
+  return checkBid(wanted, bidsSoFar) === null ? wanted : 0
+}
+
+/** A practice bot's step for the seat to act: a bid by its hand (`handBid`), else the trustee's step. */
+export function botAction(state: GameState, seat: number): TrusteeStep {
+  if (state.toAct !== seat) throw new Error(`seat ${seat} is not to act`)
+  if (state.phase !== 'bidding') return trusteeAction(state, seat)
+  return { bid: handBid(state.hands[seat]!, state.bids.map((b) => b.bid)) }
+}
+
+/**
+ * Makes the trustee's step for the seat to act, marked with `auto` (`timeout`, `trustee`, `bot` or `closing`); a bot's
+ * (`bot`) is `botAction`'s. The step always goes.
  */
 export function actFor(state: GameState, auto: Exclude<Auto, null>): StepResult & { ok: true } {
   const seat = state.toAct
   if (seat === null) throw new Error('nobody is to act: the game is over')
-  const step = trusteeAction(state, seat)
+  const step = auto === 'bot' ? botAction(state, seat) : trusteeAction(state, seat)
   let result: StepResult
   if ('bid' in step) result = bid(state, seat, step.bid, auto)
   else if ('pass' in step) result = pass(state, seat, auto)

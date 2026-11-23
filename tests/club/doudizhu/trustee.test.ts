@@ -5,8 +5,9 @@ import { shuffle } from '../../../src/club/doudizhu/deal.js'
 import { bid, type GameEvent, type GameState, newGame } from '../../../src/club/doudizhu/game.js'
 import { legalMoves } from '../../../src/club/doudizhu/moves.js'
 import { DEFAULT_DOUDIZHU_RULES } from '../../../src/club/doudizhu/rules.js'
-import { actFor, type TrusteeStep, trusteeAction } from '../../../src/club/doudizhu/trustee.js'
-import { hand, ranks, seededRandomInt } from './helpers.js'
+import { type RecordedStep, replay } from '../../../src/club/doudizhu/replay.js'
+import { actFor, botAction, handBid, type TrusteeStep, trusteeAction } from '../../../src/club/doudizhu/trustee.js'
+import { deckOf, hand, ranks, seededRandomInt } from './helpers.js'
 
 const rules = DEFAULT_DOUDIZHU_RULES
 
@@ -218,5 +219,112 @@ describe('actFor', () => {
       return trusteeGame(bidden.state).events
     }
     expect(play()).toEqual(play())
+  })
+})
+
+// Hands of 17 cards for the bidding tests: the points are 大王 4, 小王 3, a 2 2, an A 1, a bomb 4.
+const STRONG = '大王 小王 2 2 2 A A K K Q Q J 10 9 8 7 6' // 4 + 3 + 6 + 2 = 15
+const WEAK = '3 3 4 5 6 7 8 9 10 J Q K K 5 6 7 8' // nothing
+const MIDDLE = '大王 2 2 A 3 4 5 6 7 8 9 10 J Q K 3 4' // 4 + 4 + 1 = 9
+const FAIR = '小王 2 2 3 4 5 6 7 8 9 10 J Q K 3 4 5' // 3 + 4 = 7
+const BOMB = '7 7 7 7 2 A 3 4 5 6 8 9 10 J Q K 3' // 4 + 2 + 1 = 7
+const SHORT_OF_ONE = '小王 2 A 3 4 5 6 7 8 9 10 J Q K 3 4 5' // 3 + 2 + 1 = 6
+
+describe('handBid', () => {
+  test('bids by the strength of the hand', () => {
+    expect(handBid(hand(STRONG), [])).toBe(3)
+    expect(handBid(hand(MIDDLE), [])).toBe(2)
+    expect(handBid(hand(FAIR), [])).toBe(1)
+    expect(handBid(hand(BOMB), [])).toBe(1)
+    expect(handBid(hand(SHORT_OF_ONE), [])).toBe(0)
+    expect(handBid(hand(WEAK), [])).toBe(0)
+  })
+
+  test('bids only above the bids before it, else no bid', () => {
+    expect(handBid(hand(MIDDLE), [0, 1])).toBe(2)
+    expect(handBid(hand(MIDDLE), [2])).toBe(0)
+    expect(handBid(hand(MIDDLE), [0, 2])).toBe(0)
+    expect(handBid(hand(FAIR), [1])).toBe(0)
+    expect(handBid(hand(STRONG), [2, 0])).toBe(3)
+    expect(handBid(hand(WEAK), [1])).toBe(0)
+  })
+
+  test('gives the same bid for the same cards, in any order', () => {
+    for (const cards of [STRONG, MIDDLE, FAIR, WEAK]) {
+      const first = handBid(hand(cards), [])
+      const reversed = hand(cards).reverse()
+      for (let i = 0; i < 5; i++) expect(handBid(hand(cards), [])).toBe(first)
+      expect(handBid(reversed, [])).toBe(first)
+    }
+  })
+})
+
+// A deal where seat 0 is worth 3 (13 points), seat 1 worth 2 (9 points, with a bomb) and seat 2 worth nothing.
+const deck = deckOf(
+  '大王 小王 2 2 A A K K Q Q J J 10 10 9 9 8',
+  '2 2 A 7 7 7 7 3 3 4 4 5 5 6 6 K Q',
+  '3 3 4 4 5 5 6 6 8 8 8 9 9 10 10 J J',
+  'K Q A',
+)
+
+describe('botAction', () => {
+  
+  test('bids by the hand of the seat to act, above the bids before it', () => {
+    const state = newGame({ rules, firstBidder: 1, decks: [deck] }).state
+    expect(botAction(state, 1)).toEqual({ bid: 2 })
+    const after = bid(state, 1, 2)
+    if (!after.ok) throw new Error('refused')
+    expect(botAction(after.state, 2)).toEqual({ bid: 0 })
+    const third = bid(after.state, 2, 0)
+    if (!third.ok) throw new Error('refused')
+    expect(botAction(third.state, 0)).toEqual({ bid: 3 })
+  })
+
+  test('plays as the trustee once the bidding is over', () => {
+    const state = position(['3 3 4', '5', '6'], 0, 0)
+    expect(botAction(state, 0)).toEqual(trusteeAction(state, 0))
+  })
+})
+
+describe('actFor while bidding', () => {
+
+  test('a bot bids by its hand', () => {
+    const state = newGame({ rules, firstBidder: 0, decks: [deck] }).state
+    const { events } = actFor(state, 'bot')
+    expect(events[0]).toEqual({ kind: 'bid', turn: 1, seat: 0, bid: 3, auto: 'bot' })
+  })
+
+  test('the trustee, for a timeout, in trusteeship or at closing, still never bids', () => {
+    for (const auto of ['timeout', 'trustee', 'closing'] as const) {
+      const state = newGame({ rules, firstBidder: 0, decks: [deck] }).state
+      expect(actFor(state, auto).events[0]).toEqual({ kind: 'bid', turn: 1, seat: 0, bid: 0, auto })
+    }
+  })
+
+  test('three bots play whole games, every bid allowed, and a replay of the record ends the same', () => {
+    let landlords = 0
+    for (let seed = 1; seed <= 100; seed++) {
+      const start = newGame({ rules, firstBidder: seed % 3, random: seededRandomInt(seed) })
+      let state = start.state
+      const events: GameEvent[] = []
+      for (let steps = 0; state.phase !== 'over'; steps++) {
+        if (steps > 300) throw new Error('the game does not end')
+        const result = actFor(state, 'bot')
+        state = result.state
+        events.push(...result.events)
+      }
+      if (state.outcome!.outcome !== 'no_landlord') landlords++
+      // The record keeps the bids made; a replay takes them as they are and does not ask the bots again.
+      const steps = events.flatMap((e): RecordedStep[] => {
+        if (e.kind === 'bid') return [{ turn: e.turn, seat: e.seat, action: 'bid', bid: e.bid, auto: e.auto }]
+        if (e.kind === 'play') return [{ turn: e.turn, seat: e.seat, action: 'play', move: e.move, auto: e.auto }]
+        if (e.kind === 'pass') return [{ turn: e.turn, seat: e.seat, action: 'pass', auto: e.auto }]
+        return []
+      })
+      const again = replay(rules, seed % 3, state.decks, steps)
+      expect(again.events).toEqual([...start.events, ...events])
+    }
+    // Bots with good cards bid: most games get a landlord.
+    expect(landlords).toBeGreaterThan(80)
   })
 })
