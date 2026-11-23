@@ -337,7 +337,7 @@ function NoticeEditor({
       </div>
       <div className="grid grid-cols-3 gap-6 px-6">
         <div className="col-span-2 divide-y divide-gray-200">
-          <FormSection title="标题和类型" about="标题会显示在网站的公告列表里。维护公告还要写维护的时间。">
+          <FormSection title="标题和类型" about="标题会显示在网站的公告列表里。维护公告还要写维护的时间。它只是通知大家，不会让学校进入维护；到时候要在“开关”页点“开始维护”。">
             <div>
               <label className={LABEL} htmlFor={ids.title}>
                 标题

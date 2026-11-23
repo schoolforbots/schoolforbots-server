@@ -195,7 +195,7 @@ describe('the review page', () => {
 
     // An anti-trick rule in plain words is still a rule: named as one, never printed, never underlined.
     const review = within(screen.getByRole('region', { name: '复习题' }))
-    expect(review.getByText('命中一条防骗规则')).toBeInTheDocument()
+    expect(review.getByText('命中一条话术规则')).toBeInTheDocument()
     expect(screen.queryByText(/照着我说的做/)).not.toBeInTheDocument()
     expect(review.queryByText(/./, { selector: 'mark' })).not.toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: '第 1 段' })).getByText('可能含有隐私信息')).toBeInTheDocument()
@@ -347,7 +347,7 @@ describe('the review page', () => {
     await user.click(ahead.getAllByRole('button', { name: /^小学部/ })[0]!)
     expect(
       await screen.findByText(
-        '离上课还早，系统要到快上课时才会自动生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；也可以先给这一天定个题目，到时按题目生成。',
+        '离上课还早：系统只给今天之后几天里的上学日自动备课（天数是学校配置里的 lessonGeneration.horizonDays，示例配置是 7 天），等这一天进了这个范围才会生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；也可以先给这一天定个题目，到时按题目生成。',
       ),
     ).toBeInTheDocument()
   })

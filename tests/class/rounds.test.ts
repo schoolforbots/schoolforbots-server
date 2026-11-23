@@ -176,7 +176,7 @@ const setStudent = (s: Service, id: number, set: { status: StudentStatus; suspen
 describe('the rounds of the students online', () => {
   test.each([
     ['suspended', { status: 'suspended', suspendedUntil: null }, '你正在停课，暂时不能来上课。'],
-    ['session_over', { status: 'dropped', classId: null }, '你已经退学，不在任何班级里了，重新报名分班后才能来上课。'],
+    ['session_over', { status: 'dropped', classId: null }, '你已经退学，不在任何班级里了，重新入学、分到班级以后才能来上课。'],
     ['expelled', { status: 'expelled', classId: null, suspendedUntil: null }, '你已经被开除，不在任何班级里了。'],
   ] as const)('%s: sent the closing and disconnected; the classmate is told as after any disconnect', async (reason, set, message) => {
     const s = await start()

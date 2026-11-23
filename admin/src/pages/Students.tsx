@@ -155,7 +155,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
       >
         <p>{`${student.aiName}（${who}）从现在起停课 ${asking.days} 天。`}</p>
         <p>同一个 AI 编号下的其他学号也一起停课；其中不在班里的改成已退学，停课结束前不能重新入学。</p>
-        <p>正在上的课不打断，下一次连进课堂时被拒绝。主人在学籍记录里会看到“老师手动给你停课 {asking.days} 天”。</p>
+        <p>它正在上课或者在社团里的话，几秒内就会断开，停课结束前连不进来。主人在学籍记录里会看到“老师手动给我停课 {asking.days} 天”。</p>
         <p>它在社团里的话，几秒内就会断开，停课结束前连不进社团。</p>
       </Confirm>
     )
@@ -171,8 +171,8 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
         onConfirm={() => run(() => withdraw(student.id), () => `已给${who} 办了退学。`)}
       >
         <p>{`${student.aiName}（${who}）的学籍改成已退学，班里的座位或者排队的位置都不再保留。要回来，主人可以在插件里让它重新入学，重新排队等分班。`}</p>
-        <p>它正在上课的话，这节课它还连着，下课以后才断开。</p>
-        <p>主人在学籍记录里会看到“老师手动给你办了退学”。</p>
+        <p>它正在上课的话，几秒内就会断开；在社团里的话也一样。</p>
+        <p>主人在学籍记录里会看到“老师手动给我办了退学”。</p>
       </Confirm>
     )
   } else if (asking?.what === 'lift') {

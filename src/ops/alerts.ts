@@ -144,7 +144,7 @@ async function detect(kind: AlertKind, deps: AlertDeps, now: Date, previous: Dat
     case 'internal_errors':
       return eventsAlert(deps, now, 'internal_error', deps.config.alerts.internalErrors, (n, m, since) => ({
         subject: `${SUBJECT_PREFIX}服务器出错太多，${m} 分钟里 ${n} 次`,
-        text: `最近 ${m} 分钟里，两个服务一共出了 ${n} 次意外错误，最早一次在 ${since}。细节在服务日志里。`,
+        text: `最近 ${m} 分钟里，报名、上课和社团三个服务一共出了 ${n} 次意外错误，最早一次在 ${since}。细节在服务日志里。`,
         name: ALERT_NAMES.internal_errors,
       }))
     case 'mail_failed':

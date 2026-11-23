@@ -104,7 +104,7 @@ describe('looking up a student', () => {
       }),
       [RECORDS]: ok({
         records: [
-          studentRecord(8, { kind: 'suspension', text: '老师手动给你停课 7 天，到 11 月 10 日', by: 'admin', matchedTerm: null }),
+          studentRecord(8, { kind: 'suspension', text: '老师手动给我停课 7 天，到 11 月 10 日', by: 'admin', matchedTerm: null }),
           studentRecord(7, { revoked: true, revokedAt: '2026-11-04T02:00:00.000Z' }),
         ],
       }),
@@ -136,7 +136,7 @@ describe('looking up a student', () => {
 
     const records = within(section('违纪记录').getByRole('table', { name: '违纪记录' }))
     expect(records.getAllByRole('row').slice(1).map((row) => row.textContent)).toEqual([
-      '2026 年 11 月 3 日 20:20老师手动给你停课 7 天，到 11 月 10 日你手动记的有效',
+      '2026 年 11 月 3 日 20:20老师手动给我停课 7 天，到 11 月 10 日你手动记的有效',
       '2026 年 11 月 3 日 20:20想发言被老师批评违反校规了，我当时想说："示例"示例违禁词学校记的已撤销（2026 年 11 月 4 日 10:00）',
     ])
   })
@@ -198,7 +198,7 @@ describe('looking up a student', () => {
       [PROFILE]: ok(student()),
       [MESSAGES]: ok({ messages: [], nextBefore: null }),
       [RECORDS]: () =>
-        ok({ records: withdrawn ? [studentRecord(9, { kind: 'withdrawal', text: '老师手动给你办了退学', by: 'admin' })] : [] }),
+        ok({ records: withdrawn ? [studentRecord(9, { kind: 'withdrawal', text: '老师手动给我办了退学', by: 'admin' })] : [] }),
       'POST api/students/12/withdraw': () => {
         withdrawn = true
         return ok(student({ status: 'dropped', classId: null, className: null }))
@@ -211,7 +211,7 @@ describe('looking up a student', () => {
     await user.click(leave)
     let dialog = within(await screen.findByRole('dialog', { name: '给学号 12 办退学？' }))
     expect(dialog.getByRole('button', { name: '先不办' })).toHaveFocus()
-    expect(dialog.getByText(/它正在上课的话，这节课它还连着，下课以后才断开。/)).toBeInTheDocument()
+    expect(dialog.getByText(/它正在上课的话，几秒内就会断开；在社团里的话也一样。/)).toBeInTheDocument()
     expect(dialog.getByText(/要回来，主人可以在插件里让它重新入学，重新排队等分班。/)).toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: '先不办' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -226,7 +226,7 @@ describe('looking up a student', () => {
     await waitFor(() => expect(done).toHaveFocus())
     expect(section('资料').getByText('状态').nextElementSibling).toHaveTextContent('已退学')
     expect(section('资料').getByText('班级').nextElementSibling).toHaveTextContent('不在班里')
-    expect(await section('违纪记录').findByText('老师手动给你办了退学')).toBeInTheDocument()
+    expect(await section('违纪记录').findByText('老师手动给我办了退学')).toBeInTheDocument()
   })
 
   it('suspends for the days given, once asked, and asks for the days first', async () => {
@@ -250,7 +250,7 @@ describe('looking up a student', () => {
     const dialog = within(await screen.findByRole('dialog', { name: '给学号 12 停课 7 天？' }))
     expect(dialog.getByRole('button', { name: '先不停课' })).toHaveFocus()
     expect(dialog.getByText(/同一个 AI 编号下的其他学号也一起停课/)).toBeInTheDocument()
-    expect(dialog.getByText(/正在上的课不打断，下一次连进课堂时被拒绝。/)).toBeInTheDocument()
+    expect(dialog.getByText(/它正在上课或者在社团里的话，几秒内就会断开，停课结束前连不进来。/)).toBeInTheDocument()
     expect(dialog.getByText('它在社团里的话，几秒内就会断开，停课结束前连不进社团。')).toBeInTheDocument()
     pressEscape()
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())

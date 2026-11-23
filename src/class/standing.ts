@@ -24,7 +24,7 @@ export const GONE_STANDING: ClassStanding = { status: 'dropped', suspendedUntil:
 
 /** What a student with no class is told, by status. */
 function noClassMessage(status: StudentStatus): string {
-  if (status === 'dropped') return '你已经退学，不在任何班级里了，重新报名分班后才能来上课。'
+  if (status === 'dropped') return '你已经退学，不在任何班级里了，重新入学、分到班级以后才能来上课。'
   if (status === 'expelled') return '你已经被开除，不在任何班级里了。'
   return '你还没有分班，分到班级后才能来上课。'
 }

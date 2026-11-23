@@ -12,7 +12,7 @@ function noteFor(flag: LessonFlag): string {
     case 'word':
       return `词库命中“${flag.rule}”一词`
     case 'pattern':
-      return '命中一条防骗规则'
+      return '命中一条话术规则'
     case 'privacy':
       return '可能含有隐私信息'
   }

@@ -231,7 +231,7 @@ describe('checkPlay', () => {
       const error = refused(context('3 3 4 4', { seat: 0, move: reading('5 5') }), cardsOf('4 4'))
       expect(error).toEqual({
         problem: 'cannot_beat',
-        reason: '上家出的是对牌（一对 5），你要出更大的对牌，或者炸弹、王炸；也可以不要。',
+        reason: '上家出的是对牌（一对 5），你要出更大的对牌，或者炸弹、火箭（王炸）；也可以不要。',
         toBeat: { seat: 0, move: { type: 'pair', name: '对牌', cards: ['5', '5'] } },
       })
       expect(Value.Check(IllegalMoveError, asProtocol(error))).toBe(true)
@@ -243,7 +243,7 @@ describe('checkPlay', () => {
       const error = refused(context('4 5 6 7 8 9 10', straight), cardsOf('6 7 8 9 10'))
       expect(error).toEqual({
         problem: 'cannot_beat',
-        reason: '下家出的是单顺（3 4 5 6 7 8），你要出同样 6 张、更大的单顺，或者炸弹、王炸；也可以不要。',
+        reason: '下家出的是单顺（3 4 5 6 7 8），你要出同样 6 张、更大的单顺，或者炸弹、火箭（王炸）；也可以不要。',
         toBeat: { seat: 2, move: { type: 'straight', name: '单顺', cards: ['3', '4', '5', '6', '7', '8'] } },
       })
       expect(refused(context('9 9 9', { seat: 0, move: reading('3') }), cardsOf('9 9 9')).problem).toBe('cannot_beat')
@@ -251,7 +251,7 @@ describe('checkPlay', () => {
 
     test('names bombs and the rocket', () => {
       expect(refused(context('3 3 3 3', { seat: 0, move: reading('5 5 5 5') }), cardsOf('3 3 3 3')).reason).toBe(
-        '上家出的是炸弹（5 5 5 5），你要出更大的炸弹，或者王炸；也可以不要。',
+        '上家出的是炸弹（5 5 5 5），你要出更大的炸弹，或者火箭（王炸）；也可以不要。',
       )
       const rocket = refused(context('2 2 2 2', { seat: 0, move: reading('小王 大王') }), cardsOf('2 2 2 2'))
       expect(rocket.reason).toBe('上家出的是火箭（小王 大王），没有牌能压住，只能不要。')
@@ -269,7 +269,7 @@ describe('checkPlay', () => {
       expect(refused(ctx, cardsOf('6 6 6 7 7 7 8 8 8 9 9 9'))).toEqual({
         problem: 'cannot_beat',
         reason:
-          '下家出的是飞机带单（3 3 3 5 5 5 6 6 6 7 7 7），你要出同样 12 张、更大的飞机带单，或者炸弹、王炸；也可以不要。' +
+          '下家出的是飞机带单（3 3 3 5 5 5 6 6 6 7 7 7），你要出同样 12 张、更大的飞机带单，或者炸弹、火箭（王炸）；也可以不要。' +
           '这手牌也能当飞机带单出，要这样出请加 "as": "plane_solo"。',
         toBeat: {
           seat: 2,

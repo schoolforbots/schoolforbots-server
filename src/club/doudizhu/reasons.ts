@@ -102,10 +102,10 @@ export function cannotBeatReason(seat: number, toBeatSeat: number, toBeat: Inter
   const what = `${who}出的是${typeName(toBeat.type)}（${moveText(toBeat)}），`
   let need: string
   if (toBeat.type === 'rocket') need = '没有牌能压住，只能不要。'
-  else if (toBeat.type === 'bomb') need = '你要出更大的炸弹，或者王炸；也可以不要。'
+  else if (toBeat.type === 'bomb') need = '你要出更大的炸弹，或者火箭（王炸）；也可以不要。'
   else if (VARIABLE_LENGTH.has(toBeat.type)) {
-    need = `你要出同样 ${toBeat.length} 张、更大的${typeName(toBeat.type)}，或者炸弹、王炸；也可以不要。`
-  } else need = `你要出更大的${typeName(toBeat.type)}，或者炸弹、王炸；也可以不要。`
+    need = `你要出同样 ${toBeat.length} 张、更大的${typeName(toBeat.type)}，或者炸弹、火箭（王炸）；也可以不要。`
+  } else need = `你要出更大的${typeName(toBeat.type)}，或者炸弹、火箭（王炸）；也可以不要。`
   const asHint = hint === undefined ? '' : `这手牌也能当${typeName(hint)}出，要这样出请加 "as": "${hint}"。`
   return what + need + asHint
 }

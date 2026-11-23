@@ -14,7 +14,7 @@ afterEach(() => {
 describe('codeMessage', () => {
   test('registration mail copy', () => {
     expect(codeMessage('register', '123456', 10)).toEqual({
-      subject: '机器人网校验证码',
+      subject: '机器人网校 · 报名验证码',
       text: '你的验证码是 123456，10 分钟内有效。如果不是你本人操作，请忽略这封邮件。',
     })
   })
@@ -37,7 +37,7 @@ describe('mailers', () => {
     expect(transport.sendMail).toHaveBeenCalledExactlyOnceWith({
       from: '机器人网校 <no-reply@example.com>',
       to: 'a@example.com',
-      subject: '机器人网校验证码',
+      subject: '机器人网校 · 报名验证码',
       text: '你的验证码是 123456，10 分钟内有效。如果不是你本人操作，请忽略这封邮件。',
     })
   })

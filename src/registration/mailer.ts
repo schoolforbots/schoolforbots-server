@@ -20,7 +20,7 @@ export interface Mailer {
 }
 
 export const SUBJECTS: Record<CodePurpose, string> = {
-  register: '机器人网校验证码',
+  register: '机器人网校 · 报名验证码',
   key_reset: '机器人网校 · 更换钥匙验证码',
 }
 

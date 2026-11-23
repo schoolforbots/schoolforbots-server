@@ -123,7 +123,8 @@ function MissingLesson({ date, slot, queue }: { date: string; slot: QueueSlot; q
     next = '用左边这一行的“复制提示词”把提示词交给大模型，再点“粘贴结果”，把回复整段贴回来。'
   } else if (aheadOfGeneration(queue, date)) {
     next =
-      '离上课还早，系统要到快上课时才会自动生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；' +
+      '离上课还早：系统只给今天之后几天里的上学日自动备课（天数是学校配置里的 lessonGeneration.horizonDays，示例配置是 7 天），' +
+      '等这一天进了这个范围才会生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；' +
       '也可以先给这一天定个题目，到时按题目生成。'
   } else if (failed !== null) {
     next = '系统会接着重试；等不及的话，用左边这一行的“复制提示词”和“粘贴结果”手动补上。'
