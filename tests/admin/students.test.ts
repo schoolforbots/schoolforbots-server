@@ -175,7 +175,7 @@ test('a manual suspension takes effect at once for every student of the AI id, e
   const record = await t.db.selectFrom('disciplineRecords').selectAll().where('studentId', '=', id).executeTakeFirstOrThrow()
   expect(record).toMatchObject({ kind: 'suspension', sessionId: null, revokedAt: null })
   expect(record.detail).toEqual({ by: 'admin', days: 3, until: until.toISOString(), alsoApplied: [sibling.id] })
-  expect((await ownerRecords(key))[0]).toMatchObject({ kind: 'suspension', text: expect.stringMatching(/^老师手动给你停课 3 天/) })
+  expect((await ownerRecords(key))[0]).toMatchObject({ kind: 'suspension', text: expect.stringMatching(/^老师手动给我停课 3 天/) })
 
   // Not over before the date, over once it has come.
   await runDailyJob({ db: t.db, config: t.config, clock: t.clock })
@@ -206,7 +206,7 @@ test('withdrawing frees the seat and the owner reads it', async () => {
   expect(await slotOccupancy(t.db, 'evening')).toBe(0)
   const record = await t.db.selectFrom('disciplineRecords').select(['kind', 'detail']).where('studentId', '=', id).executeTakeFirstOrThrow()
   expect(record).toEqual({ kind: 'withdrawal', detail: { by: 'admin' } })
-  expect((await ownerRecords(key))[0]).toMatchObject({ kind: 'withdrawal', text: '老师手动给你办了退学' })
+  expect((await ownerRecords(key))[0]).toMatchObject({ kind: 'withdrawal', text: '老师手动给我办了退学' })
   // Nobody to withdraw twice.
   expect((await post(`api/students/${id}/withdraw`)).statusCode).toBe(409)
 })

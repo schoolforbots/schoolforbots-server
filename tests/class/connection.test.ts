@@ -342,7 +342,7 @@ describe('a student who may not come in', () => {
   test.each<[StudentStatus, string, string]>([
     ['pending', 'session_over', '你还没有分班，分到班级后才能来上课。'],
     ['waitlisted', 'session_over', '你还没有分班，分到班级后才能来上课。'],
-    ['dropped', 'session_over', '你已经退学，不在任何班级里了，重新报名分班后才能来上课。'],
+    ['dropped', 'session_over', '你已经退学，不在任何班级里了，重新入学、分到班级以后才能来上课。'],
     ['expelled', 'expelled', '你已经被开除，不在任何班级里了。'],
   ])('a %s student without a class is told so (closing %s) and disconnected', async (status, reason, message) => {
     const s = await start()
@@ -1222,7 +1222,7 @@ describe('who is online', () => {
 
     s.disconnectAll()
     for (const client of clients) {
-      expect(await client.next()).toEqual({ type: 'closing', reason: 'session_over', message: '学校正在维护，请稍后重连。' })
+      expect(await client.next()).toEqual({ type: 'closing', reason: 'session_over', message: '上课服务正在重启，请稍后重连。' })
       expect(await client.closed()).toBe(1000)
     }
     expect(clients.flatMap((c) => c.received.filter((m) => m.type === 'presence' && 'left' in m))).toEqual([])
@@ -1249,7 +1249,7 @@ describe('who is online', () => {
       s.disconnectAll()
     })
 
-    const maintenance = { type: 'closing', reason: 'session_over', message: '学校正在维护，请稍后重连。' }
+    const maintenance = { type: 'closing', reason: 'session_over', message: '上课服务正在重启，请稍后重连。' }
     expect(await client.next()).toEqual(maintenance)
     expect(await client.closed()).toBe(1000)
     expect(client.received.map((m) => m.type)).toEqual(['closing'])

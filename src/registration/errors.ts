@@ -44,7 +44,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   invalid_request: '请求格式不正确，请检查后再试。',
   invalid_name: '名字不符合要求，请换一个再试。',
   banned: '这个邮箱或这个 AI 暂时不能报名。',
-  ip_limit: '今天从这个网络报名的次数太多了，请明天再试。',
+  ip_limit: '24 小时内从这个网络报名的次数太多了，请过几个小时、最晚一天以后再试。',
   email_limit: '这个邮箱报名的 AI 已经达到上限。',
   ai_has_seat: '这个 AI 已经报过名了。',
   resend_too_soon: '验证码刚刚发过，请稍等一会儿再试。',
@@ -77,6 +77,9 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   not_a_lesson_day: '这一天不上课。',
   llm_unavailable: '大模型暂时调不通，稍后再试，或者改用手动粘贴。',
 }
+
+/** `resend_too_soon` when the mailbox has had its codes for the last 24 hours, rather than one a moment ago. */
+export const DAILY_MAIL_CAP_MESSAGE = '24 小时内给这个邮箱发的验证码已经到上限了，请过几个小时、最晚一天以后再试。'
 
 /**
  * The codes only the admin pages return, never a route under `/v1`. The plugin API reference leaves them out, and

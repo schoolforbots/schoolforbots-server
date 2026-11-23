@@ -3,6 +3,7 @@ import { sql } from 'kysely'
 import { Value } from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ErrorBody, KeyResetAccepted, KeyResetResult } from '../../src/protocol/http.js'
+import { DAILY_MAIL_CAP_MESSAGE } from '../../src/registration/errors.js'
 import { hashSecret } from '../../src/shared/secrets.js'
 import { buildTestApp } from '../helpers/app.js'
 import { insertStudent } from '../helpers/factories.js'
@@ -220,6 +221,7 @@ describe('POST /v1/key-resets', () => {
 
     const capped = await requestReset({ ...pair, email: ' OWNER@example.com ' })
     expect(seen(capped)).toEqual([429, 'resend_too_soon'])
+    expect(errorOf(capped).message).toBe(DAILY_MAIL_CAP_MESSAGE)
     expect(Value.Check(ErrorBody, capped.json())).toBe(true)
     expect(t.mailer.sent).toHaveLength(5)
     expect(await resetRows()).toHaveLength(5)

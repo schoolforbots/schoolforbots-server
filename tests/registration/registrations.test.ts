@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Value } from 'typebox/value'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { ErrorBody, InvalidNameError, RegistrationAccepted, VerifyResult } from '../../src/protocol/http.js'
+import { DAILY_MAIL_CAP_MESSAGE } from '../../src/registration/errors.js'
 import { TencentSesError } from '../../src/registration/tencent-ses.js'
 import type { SchoolRules } from '../../src/shared/school-rules.js'
 import { hashSecret } from '../../src/shared/secrets.js'
@@ -395,6 +396,7 @@ describe('POST /v1/registrations', () => {
     const capped = await register(registrationBody({ email: ' a@EXAMPLE.com' }), '203.0.113.99')
     expect(capped.statusCode).toBe(429)
     expect(errorOf(capped).code).toBe('resend_too_soon')
+    expect(errorOf(capped).message).toBe(DAILY_MAIL_CAP_MESSAGE)
     expect(Value.Check(ErrorBody, capped.json())).toBe(true)
     expect(t.mailer.sent).toHaveLength(5)
     expect(await t.db.selectFrom('registrations').select('id').execute()).toHaveLength(5)

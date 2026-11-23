@@ -156,7 +156,7 @@ describe('createTencentSesMailer', () => {
   test('a registration code has the registration subject', async () => {
     const fetchMock = sent()
     await createTencentSesMailer(SETTINGS, FROM, 10, { fetch: fetchMock }).sendCode('a@example.com', 'register', '654321')
-    expect(sentBody(fetchMock)).toMatchObject({ Subject: '机器人网校验证码' })
+    expect(sentBody(fetchMock)).toMatchObject({ Subject: '机器人网校 · 报名验证码' })
   })
 
   test('an alert goes out with the alert template, the given subject, its kind and its time, and no text', async () => {

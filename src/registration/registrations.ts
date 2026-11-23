@@ -16,7 +16,7 @@ import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.
 import type { RegistrationDeps } from './app.js'
 import { isAiSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy, suspensionOfAi } from './capacity.js'
 import { assignQueuedNow } from './daily-job.js'
-import { ApiError, invalidNameError } from './errors.js'
+import { ApiError, DAILY_MAIL_CAP_MESSAGE, invalidNameError } from './errors.js'
 import { isMailServiceFault, mailErrorKind } from './mail-errors.js'
 import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
@@ -150,7 +150,9 @@ async function createRegistration(
         .where('email', '=', email)
         .where('createdAt', '>', new Date(now.getTime() - DAY_MS)),
     )
-    if (mailedToday >= config.verificationCode.dailyMailCapPerAddress) throw new ApiError(429, 'resend_too_soon')
+    if (mailedToday >= config.verificationCode.dailyMailCapPerAddress) {
+      throw new ApiError(429, 'resend_too_soon', {}, DAILY_MAIL_CAP_MESSAGE)
+    }
 
     // An unknown referrer is not an error; it is just not recorded.
     const referrer =

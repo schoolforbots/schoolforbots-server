@@ -125,7 +125,7 @@ const closing = (reason: Closing['reason'], message: string): Closing => ({ type
 const REPLACED = closing('replaced', '这个学号在别的地方连上了，这里的连接已经断开。')
 const HELLO_TIMEOUT = closing('session_over', '连上以后没有及时收到 hello，连接已经断开。')
 /** What everyone is told when the service stops (see `ClassDeps.stopping`). */
-export const SHUTTING_DOWN = closing('session_over', '学校正在维护，请稍后重连。')
+export const SHUTTING_DOWN = closing('session_over', '上课服务正在重启，请稍后重连。')
 
 /**
  * What everyone is told while the school is under maintenance (see `ClassDeps.maintenance`): what the operator wrote,

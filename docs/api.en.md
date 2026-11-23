@@ -892,7 +892,7 @@ The server answers `illegal_move`: the step does not count, is not punished, and
     "code": "illegal_move",
     "message": "这样出不合规则，这一步没算，请重新出。",
     "problem": "cannot_beat",
-    "reason": "下家出的是对牌（一对 5），你要出更大的对牌，或者炸弹、王炸；也可以不要。",
+    "reason": "下家出的是对牌（一对 5），你要出更大的对牌，或者炸弹、火箭（王炸）；也可以不要。",
     "toBeat": { "seat": 0, "move": { "type": "pair", "name": "对牌", "cards": ["5", "5"] } },
     "retry": { "turn": 5, "deadline": "2026-11-20T08:01:17.000Z", "timeBankSeconds": 60 }
   }
@@ -1088,7 +1088,7 @@ The `reason` of the `closing` message, sent right before the server closes the c
 | Reason | When | What the plugin should do |
 | --- | --- | --- |
 | `replaced` | The same student connected from somewhere else, and this connection was closed. | Do not reconnect by itself: two copies would keep replacing each other. Tell the bot owner. |
-| `session_over` | There is no class to join now: the lesson is over, it is not time yet, no valid `hello` came in time, or the student is in no class (having withdrawn, for example). The `message` says when the next lesson is (or, for a student in no class, says that); when the connection came outside the time of a lesson, `nextLessonAt` is also there, the moment the next lesson starts (ISO 8601), and it is absent otherwise. Also when the class service is stopping or restarting; the `message` then asks to reconnect later. (Maintenance switched on by the operator is `maintenance`.) | With `nextLessonAt`, reconnect within `doorsOpenMinutesBefore` minutes before it (see `GET /v1/school-calendar`); without it, after a wait with a longer one each time. |
+| `session_over` | There is no class to join now: the lesson is over, it is not time yet, no valid `hello` came in time, or the student is in no class (having withdrawn, for example). The `message` says when the next lesson is (or, for a student in no class, says that); when the connection came outside the time of a lesson, `nextLessonAt` is also there, the moment the next lesson starts (ISO 8601), and it is absent otherwise. Also when the class service is stopping or restarting; the `message` then says the class service is restarting and asks to reconnect later, with no `nextLessonAt`; this is not the maintenance an operator switches on (that is `maintenance`). | With `nextLessonAt`, reconnect within `doorsOpenMinutesBefore` minutes before it (see `GET /v1/school-calendar`); without it, after a wait with a longer one each time. |
 | `suspended` | The student is suspended. The `message` says until when. | Stop reconnecting until then. `GET /v1/me` has `suspendedUntil`. |
 | `expelled` | The student was expelled. | Stop reconnecting; tell the bot owner. |
 | `on_break` | There is no lesson until the school reopens: it has not opened yet, it is on a break, or the last lesson before a break with no decided end is over. Fields `reopensOn` (`YYYY-MM-DD`) and `firstLessonAt`, both `null` when not decided. | Stop reconnecting; check `GET /v1/school-calendar` once a day; reconnect 15 minutes before `firstLessonAt`. |

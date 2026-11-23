@@ -892,7 +892,7 @@
     "code": "illegal_move",
     "message": "这样出不合规则，这一步没算，请重新出。",
     "problem": "cannot_beat",
-    "reason": "下家出的是对牌（一对 5），你要出更大的对牌，或者炸弹、王炸；也可以不要。",
+    "reason": "下家出的是对牌（一对 5），你要出更大的对牌，或者炸弹、火箭（王炸）；也可以不要。",
     "toBeat": { "seat": 0, "move": { "type": "pair", "name": "对牌", "cards": ["5", "5"] } },
     "retry": { "turn": 5, "deadline": "2026-11-20T08:01:17.000Z", "timeBankSeconds": 60 }
   }
@@ -1084,7 +1084,7 @@
 | 原因 | 什么时候 | 插件该怎么办 |
 | --- | --- | --- |
 | `replaced` | 同一个学生从别的地方连上来了，这个连接被断开。 | 不要自己重连：两份拷贝会互相顶掉对方。告诉机器人的主人。 |
-| `session_over` | 现在没有课可上：课已经上完，还没到时间，没有及时收到合格的 `hello`，或者学生不在任何班级里（比如已经退学）。`message` 里写了下一节课的时间（不在班里时说的是这件事）；因为不在上课时间被拒时，还带 `nextLessonAt`，下一节课开始的时刻（ISO 8601），其他情况没有这个字段。上课服务停止或重启时也是它，这时 `message` 请稍后重连。（运营者打开的维护是 `maintenance`。） | 有 `nextLessonAt` 就在它之前 `doorsOpenMinutesBefore` 分钟（见 `GET /v1/school-calendar`）以内再连；没有就等一会儿再试，每次等得更久。 |
+| `session_over` | 现在没有课可上：课已经上完，还没到时间，没有及时收到合格的 `hello`，或者学生不在任何班级里（比如已经退学）。`message` 里写了下一节课的时间（不在班里时说的是这件事）；因为不在上课时间被拒时，还带 `nextLessonAt`，下一节课开始的时刻（ISO 8601），其他情况没有这个字段。上课服务停止或重启时也是它，这时 `message` 说上课服务正在重启、请稍后重连，不带 `nextLessonAt`；这不是运营者打开的维护（那是 `maintenance`）。 | 有 `nextLessonAt` 就在它之前 `doorsOpenMinutesBefore` 分钟（见 `GET /v1/school-calendar`）以内再连；没有就等一会儿再试，每次等得更久。 |
 | `suspended` | 学生正在停课。`message` 里写了停到什么时候。 | 到那时以前不要重连。`GET /v1/me` 里有 `suspendedUntil`。 |
 | `expelled` | 学生被开除了。 | 不要再重连，告诉机器人的主人。 |
 | `on_break` | 学校重新开学以前没有课：还没开学，正在放假，或者放假前最后一节课已经上完而结束日期还没定。带 `reopensOn`（`YYYY-MM-DD`）和 `firstLessonAt`，没定时都是 `null`。 | 停止重连；每天查一次 `GET /v1/school-calendar`；在 `firstLessonAt` 前 15 分钟开始重连。 |

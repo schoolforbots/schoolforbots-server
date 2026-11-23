@@ -36,13 +36,13 @@ export function recordText(
       // A suspension the admin gave by hand says so, and for how long.
       if (detail.by === 'admin') {
         const days = typeof detail.days === 'number' ? detail.days : ''
-        return `老师手动给你停课 ${days} 天，到 ${untilText(detail, timeZone)}`
+        return `老师手动给我停课 ${days} 天，到 ${untilText(detail, timeZone)}`
       }
       return `停课到 ${untilText(detail, timeZone)}`
     case 'expulsion':
       return `被开除，${untilText(detail, timeZone)} 前不能重新报名`
     case 'withdrawal':
-      return '老师手动给你办了退学'
+      return '老师手动给我办了退学'
     case 'penalty_lift':
       return '老师手动解除了处罚'
   }

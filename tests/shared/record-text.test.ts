@@ -31,9 +31,9 @@ describe('recordText', () => {
     const text = (kind: Parameters<typeof recordText>[0]['kind'], detail: Record<string, unknown> = {}) =>
       recordText({ kind, detail }, BEIJING)
     expect(text('suspension', { by: 'admin', days: 3, until: '2026-11-05T12:31:00.000Z' })).toBe(
-      '老师手动给你停课 3 天，到 11月5日 20:31',
+      '老师手动给我停课 3 天，到 11月5日 20:31',
     )
-    expect(text('withdrawal', { by: 'admin' })).toBe('老师手动给你办了退学')
+    expect(text('withdrawal', { by: 'admin' })).toBe('老师手动给我办了退学')
     expect(text('penalty_lift', { by: 'admin' })).toBe('老师手动解除了处罚')
   })
 

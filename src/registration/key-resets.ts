@@ -7,7 +7,7 @@ import { KeyResetAccepted, KeyResetRequest, KeyResetResult, KeyResetVerifyReques
 import { lock, type Database } from '../shared/db.js'
 import { generateCode, generateStudentKey, hashSecret } from '../shared/secrets.js'
 import type { RegistrationDeps } from './app.js'
-import { ApiError } from './errors.js'
+import { ApiError, DAILY_MAIL_CAP_MESSAGE } from './errors.js'
 import { isMailServiceFault, mailErrorKind } from './mail-errors.js'
 import { codeMatches, codeRouteConfig, fail, normalizeEmail, type Outcome } from './verification.js'
 
@@ -111,7 +111,9 @@ async function requestKeyReset(
       .where('requestedEmail', '=', email)
       .where('createdAt', '>', new Date(now.getTime() - DAY_MS))
       .executeTakeFirstOrThrow()
-    if (Number(today.count) >= config.verificationCode.dailyMailCapPerAddress) throw new ApiError(429, 'resend_too_soon')
+    if (Number(today.count) >= config.verificationCode.dailyMailCapPerAddress) {
+      throw new ApiError(429, 'resend_too_soon', {}, DAILY_MAIL_CAP_MESSAGE)
+    }
 
     const student = await trx
       .selectFrom('students')

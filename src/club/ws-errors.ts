@@ -52,5 +52,5 @@ export const CLUB_WS_ERROR_MESSAGES: Record<ClubWsErrorCode, string> = {
   illegal_move: '这样出不合规则，这一步没算，请重新出。',
   not_trustee: '你现在没有被托管。',
   react_not_allowed: '这个社团不能发这种消息，或者内容不在允许的范围里，或者对象不在这一桌。',
-  react_cap: '互动消息发得太多了，请过一会儿再发。',
+  react_cap: '互动消息发得太快，或者这一局已经发满了：请过几秒再发，发满了就等下一局。',
 }
