@@ -12,7 +12,7 @@ import type {
 } from '../../src/club/game.js'
 import { botPerson, studentPerson } from '../../src/club/people.js'
 import type { YourTurnMessage } from '../../src/protocol/club.js'
-import { seededRandomInt } from './doudizhu/helpers.js'
+import { deckOf, seededRandomInt } from './doudizhu/helpers.js'
 import { ackFrame, answer, checkProtocol, fakeGame, type FakeGameOptions, FakeSession } from './helpers/fake-game.js'
 
 // The doudizhu game with the clock (src/club/doudizhu-game.ts, src/club/doudizhu-clock.ts), on a fake clock: every
@@ -37,6 +37,20 @@ const students: SeatPlayer[] = [
   studentPerson({ id: 39, ownerName: 'Tom', aiName: 'Bot' }),
 ]
 const withBots: SeatPlayer[] = [students[0]!, botPerson('陪练小一'), botPerson('陪练小二')]
+/** Seat 0 has every high card, seats 1 and 2 none: bots in seats 1 and 2 never bid. */
+const WEAK_BOTS = deckOf(
+  '大王 小王 2 2 2 2 A A A A K K K K Q Q Q',
+  '3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 10 J',
+  '3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 10 J',
+  'J J Q',
+)
+/** The same deal with seats 0 and 1 swapped: a bot in seat 1 bids 3. */
+const STRONG_BOT = deckOf(
+  '3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 10 J',
+  '大王 小王 2 2 2 2 A A A A K K K K Q Q Q',
+  '3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 10 J',
+  'J J Q',
+)
 
 const privates = (output: GameOutput) =>
   output.emits.filter((e): e is Extract<GameEmit, { to: 'seat' }> => e.to === 'seat')
@@ -221,7 +235,8 @@ describe('the deadline and the time bank', () => {
   })
 
   test('a student among bots: the bots play at once and never count, the student is asked from the timeout on', () => {
-    const t = new Table(withBots, { firstBidder: 1 })
+    // The bots' hands are too weak to bid (they bid by their hands), every deal: nobody bids.
+    const t = new Table(withBots, { firstBidder: 1, decks: [WEAK_BOTS] })
     const started = t.start()
     expect(steps(started)).toEqual(['1:bot', '2:bot'])
     t.expectAsked(0, 3, 10, 30)
@@ -238,6 +253,15 @@ describe('the deadline and the time bank', () => {
     expect(last.over).toBe(true)
     expect(gameEvents(last).at(-1)).toMatchObject({ kind: 'over', result: { outcome: 'no_landlord', ranked: false } })
     expect(t.s.seatCounts[0]).toEqual({ timeouts: 2, trusteeMoves: 1, illegalMoves: 0 })
+  })
+
+  test('a bot bids by its hand, and with a strong one takes the landlord before the student is asked', () => {
+    const t = new Table(withBots, { firstBidder: 1, decks: [STRONG_BOT] })
+    const started = t.start()
+    expect(gameEvents(started).filter((e) => e.kind === 'bid' || e.kind === 'landlord')).toMatchObject([
+      { kind: 'bid', seat: 1, bid: 3, auto: 'bot' },
+      { kind: 'landlord', seat: 1 },
+    ])
   })
 })
 
@@ -825,7 +849,7 @@ describe('random games against the clock', () => {
       illegal: 0, stale: 0, finished: 0, closedLate: 0, redeals: 0,
     }
     for (let g = 0; g < GAMES; g++) randomGame(random, tally)
-    // Every path was taken, many times.
-    for (const [name, count] of Object.entries(tally)) expect(count, name).toBeGreaterThan(50)
+    // Every path was taken, many times. Redeals fewer: bots bid by their hands, so fewer deals go without a bid.
+    for (const [name, count] of Object.entries(tally)) expect(count, name).toBeGreaterThan(name === 'redeals' ? 10 : 50)
   }, RUN_TIMEOUT)
 })

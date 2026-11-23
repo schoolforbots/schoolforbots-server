@@ -38,6 +38,8 @@ const GAMES = 600
 const RUN_TIMEOUT = 120_000
 const STUDENT = (seat: number) => ({ studentId: 50 + seat, displayName: `学生 #00${50 + seat}`, bot: false as const })
 const AUTOS: readonly Exclude<Auto, null>[] = ['timeout', 'trustee', 'bot', 'closing']
+/** The autos the trustee acts with; a bot (`bot`) bids by its hand, and plays as the trustee does. */
+const TRUSTEE_AUTOS: readonly Exclude<Auto, null>[] = ['timeout', 'trustee', 'closing']
 
 const next = (seat: number) => (seat + 1) % 3
 const cardKey = (card: Card) => `${card.rank}${card.suit ?? ''}`
@@ -95,11 +97,14 @@ const PRIVATE_KEYS = /"(suit|hands|decks|spareDecks|body|kickers|main|movesBy)"/
 type Player = (state: GameState, random: RandomInt) => StepResult
 
 /** Every seat in trusteeship. */
-const trustee: Player = (state, random) => actFor(state, AUTOS[random(AUTOS.length)]!)
+const trustee: Player = (state, random) => actFor(state, TRUSTEE_AUTOS[random(TRUSTEE_AUTOS.length)]!)
 
-/** The trustee once the bidding is over; a random bid before (the trustee never bids, so its games never start). */
+/**
+ * The trustee or a bot once the bidding is over; a random bid before (the trustee never bids, so its games never
+ * start).
+ */
 const trusteeAfterBids: Player = (state, random) =>
-  state.phase === 'bidding' ? randomBid(state, random) : trustee(state, random)
+  state.phase === 'bidding' ? randomBid(state, random) : actFor(state, AUTOS[random(AUTOS.length)]!)
 
 /** Expects `attempt` to be refused with `problem` and to leave `state` untouched. */
 function expectRefused(state: GameState, attempt: () => StepResult, problem: string): void {
