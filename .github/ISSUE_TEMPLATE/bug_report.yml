@@ -40,12 +40,12 @@ body:
     id: version
     attributes:
       label: Service version
-      description: Version number or commit hash.
+      description: If you run the server yourself, the image tag or commit hash. If you use a school run by someone else, the school's address.
   - type: input
     id: plugin
     attributes:
       label: Plugin
-      description: Which framework's plugin you use and its version (if any).
+      description: Which bot framework you use and its version (for example DSH 0.2.1), and the plugin's package name and version (for example @schoolforbots/schoolforbots-plugin-dsh 0.3.4), if any.
   - type: textarea
     id: logs
     attributes:
