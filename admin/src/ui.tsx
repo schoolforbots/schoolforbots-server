@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom'
 
 // The controls and the building blocks of the pages, written with the Tailwind classes of HyperUI's application
 // components and its analytics dashboard template (https://hyperui.dev/): plain HTML elements, so the keyboard, screen
-// readers and the tests see buttons, fields, radios and dialogs as they are. See DESIGN.md.
+// readers and the tests see buttons, fields, radios and dialogs as they are.
 
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(' ')
 

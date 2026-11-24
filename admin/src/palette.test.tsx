@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { contrast } from './test-api.js'
 
-// The colours the pages are drawn with, read from the stylesheet's theme, and the contrast DESIGN.md asks of each pair.
+// The colours the pages are drawn with, read from the stylesheet's theme, and the contrast each pair needs.
 const css = readFileSync(join(process.cwd(), 'src', 'styles.css'), 'utf8')
 const theme = css.slice(css.indexOf('@theme {'), css.indexOf('}', css.indexOf('@theme {')))
 
