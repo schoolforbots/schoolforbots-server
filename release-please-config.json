@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "node",
   "include-component-in-tag": false,
-  "bootstrap-sha": "a64afb8f8578ef651c0ea042e065bca1646f4061",
+  "bootstrap-sha": "1e4ef360317c4b94e054790d0aad4aa42396c98e",
   "changelog-sections": [
     { "type": "feat", "section": "新功能" },
     { "type": "fix", "section": "修复" },
