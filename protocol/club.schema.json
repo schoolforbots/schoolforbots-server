@@ -1786,6 +1786,7 @@
         "visibility",
         "host",
         "seats",
+        "waiting",
         "spectators",
         "gamesPlayed",
         "closesAt",
@@ -1898,6 +1899,56 @@
                 "type": "boolean"
               }
             }
+          },
+          "maxItems": 10
+        },
+        "waiting": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName",
+                  "bot"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "bot": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "displayName",
+                  "bot"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "null"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "bot": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                }
+              }
+            ]
           },
           "maxItems": 10
         },
@@ -2807,6 +2858,10 @@
                 {
                   "type": "string",
                   "const": "disconnected_idle"
+                },
+                {
+                  "type": "string",
+                  "const": "replaced"
                 }
               ]
             }
@@ -6551,6 +6606,7 @@
             "visibility",
             "host",
             "seats",
+            "waiting",
             "spectators",
             "gamesPlayed",
             "closesAt",
@@ -6663,6 +6719,56 @@
                     "type": "boolean"
                   }
                 }
+              },
+              "maxItems": 10
+            },
+            "waiting": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "studentId",
+                      "displayName",
+                      "bot"
+                    ],
+                    "properties": {
+                      "studentId": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "bot": {
+                        "type": "boolean",
+                        "const": false
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "studentId",
+                      "displayName",
+                      "bot"
+                    ],
+                    "properties": {
+                      "studentId": {
+                        "type": "null"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "bot": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    }
+                  }
+                ]
               },
               "maxItems": 10
             },
@@ -7445,6 +7551,7 @@
             "visibility",
             "host",
             "seats",
+            "waiting",
             "spectators",
             "gamesPlayed",
             "closesAt",
@@ -7557,6 +7664,56 @@
                     "type": "boolean"
                   }
                 }
+              },
+              "maxItems": 10
+            },
+            "waiting": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "studentId",
+                      "displayName",
+                      "bot"
+                    ],
+                    "properties": {
+                      "studentId": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "bot": {
+                        "type": "boolean",
+                        "const": false
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "studentId",
+                      "displayName",
+                      "bot"
+                    ],
+                    "properties": {
+                      "studentId": {
+                        "type": "null"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "bot": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    }
+                  }
+                ]
               },
               "maxItems": 10
             },
@@ -8378,6 +8535,7 @@
                         "visibility",
                         "host",
                         "seats",
+                        "waiting",
                         "spectators",
                         "gamesPlayed",
                         "closesAt",
@@ -8490,6 +8648,56 @@
                                 "type": "boolean"
                               }
                             }
+                          },
+                          "maxItems": 10
+                        },
+                        "waiting": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": [
+                                  "studentId",
+                                  "displayName",
+                                  "bot"
+                                ],
+                                "properties": {
+                                  "studentId": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 2147483647
+                                  },
+                                  "displayName": {
+                                    "type": "string"
+                                  },
+                                  "bot": {
+                                    "type": "boolean",
+                                    "const": false
+                                  }
+                                }
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "studentId",
+                                  "displayName",
+                                  "bot"
+                                ],
+                                "properties": {
+                                  "studentId": {
+                                    "type": "null"
+                                  },
+                                  "displayName": {
+                                    "type": "string"
+                                  },
+                                  "bot": {
+                                    "type": "boolean",
+                                    "const": true
+                                  }
+                                }
+                              }
+                            ]
                           },
                           "maxItems": 10
                         },
@@ -9272,6 +9480,7 @@
                         "visibility",
                         "host",
                         "seats",
+                        "waiting",
                         "spectators",
                         "gamesPlayed",
                         "closesAt",
@@ -9384,6 +9593,56 @@
                                 "type": "boolean"
                               }
                             }
+                          },
+                          "maxItems": 10
+                        },
+                        "waiting": {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": [
+                                  "studentId",
+                                  "displayName",
+                                  "bot"
+                                ],
+                                "properties": {
+                                  "studentId": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 2147483647
+                                  },
+                                  "displayName": {
+                                    "type": "string"
+                                  },
+                                  "bot": {
+                                    "type": "boolean",
+                                    "const": false
+                                  }
+                                }
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "studentId",
+                                  "displayName",
+                                  "bot"
+                                ],
+                                "properties": {
+                                  "studentId": {
+                                    "type": "null"
+                                  },
+                                  "displayName": {
+                                    "type": "string"
+                                  },
+                                  "bot": {
+                                    "type": "boolean",
+                                    "const": true
+                                  }
+                                }
+                              }
+                            ]
                           },
                           "maxItems": 10
                         },
@@ -10982,6 +11241,7 @@
                 "visibility",
                 "host",
                 "seats",
+                "waiting",
                 "spectators",
                 "gamesPlayed",
                 "closesAt",
@@ -11094,6 +11354,56 @@
                         "type": "boolean"
                       }
                     }
+                  },
+                  "maxItems": 10
+                },
+                "waiting": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "studentId",
+                          "displayName",
+                          "bot"
+                        ],
+                        "properties": {
+                          "studentId": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 2147483647
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "bot": {
+                            "type": "boolean",
+                            "const": false
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "studentId",
+                          "displayName",
+                          "bot"
+                        ],
+                        "properties": {
+                          "studentId": {
+                            "type": "null"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "bot": {
+                            "type": "boolean",
+                            "const": true
+                          }
+                        }
+                      }
+                    ]
                   },
                   "maxItems": 10
                 },
@@ -11886,6 +12196,8 @@
               "host",
               "seatsFree",
               "bots",
+              "students",
+              "playing",
               "gamesPlayed"
             ],
             "properties": {
@@ -11953,6 +12265,14 @@
                 "maximum": 9
               },
               "bots": {
+                "type": "boolean"
+              },
+              "students": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "playing": {
                 "type": "boolean"
               },
               "gamesPlayed": {
@@ -12263,6 +12583,10 @@
                     {
                       "type": "string",
                       "const": "disconnected_idle"
+                    },
+                    {
+                      "type": "string",
+                      "const": "replaced"
                     }
                   ]
                 }
@@ -15046,6 +15370,7 @@
                             "visibility",
                             "host",
                             "seats",
+                            "waiting",
                             "spectators",
                             "gamesPlayed",
                             "closesAt",
@@ -15158,6 +15483,56 @@
                                     "type": "boolean"
                                   }
                                 }
+                              },
+                              "maxItems": 10
+                            },
+                            "waiting": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "studentId",
+                                      "displayName",
+                                      "bot"
+                                    ],
+                                    "properties": {
+                                      "studentId": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 2147483647
+                                      },
+                                      "displayName": {
+                                        "type": "string"
+                                      },
+                                      "bot": {
+                                        "type": "boolean",
+                                        "const": false
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "studentId",
+                                      "displayName",
+                                      "bot"
+                                    ],
+                                    "properties": {
+                                      "studentId": {
+                                        "type": "null"
+                                      },
+                                      "displayName": {
+                                        "type": "string"
+                                      },
+                                      "bot": {
+                                        "type": "boolean",
+                                        "const": true
+                                      }
+                                    }
+                                  }
+                                ]
                               },
                               "maxItems": 10
                             },
@@ -15940,6 +16315,7 @@
                             "visibility",
                             "host",
                             "seats",
+                            "waiting",
                             "spectators",
                             "gamesPlayed",
                             "closesAt",
@@ -16052,6 +16428,56 @@
                                     "type": "boolean"
                                   }
                                 }
+                              },
+                              "maxItems": 10
+                            },
+                            "waiting": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "studentId",
+                                      "displayName",
+                                      "bot"
+                                    ],
+                                    "properties": {
+                                      "studentId": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 2147483647
+                                      },
+                                      "displayName": {
+                                        "type": "string"
+                                      },
+                                      "bot": {
+                                        "type": "boolean",
+                                        "const": false
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "studentId",
+                                      "displayName",
+                                      "bot"
+                                    ],
+                                    "properties": {
+                                      "studentId": {
+                                        "type": "null"
+                                      },
+                                      "displayName": {
+                                        "type": "string"
+                                      },
+                                      "bot": {
+                                        "type": "boolean",
+                                        "const": true
+                                      }
+                                    }
+                                  }
+                                ]
                               },
                               "maxItems": 10
                             },
@@ -17650,6 +18076,7 @@
                     "visibility",
                     "host",
                     "seats",
+                    "waiting",
                     "spectators",
                     "gamesPlayed",
                     "closesAt",
@@ -17762,6 +18189,56 @@
                             "type": "boolean"
                           }
                         }
+                      },
+                      "maxItems": 10
+                    },
+                    "waiting": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "studentId",
+                              "displayName",
+                              "bot"
+                            ],
+                            "properties": {
+                              "studentId": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 2147483647
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "bot": {
+                                "type": "boolean",
+                                "const": false
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "studentId",
+                              "displayName",
+                              "bot"
+                            ],
+                            "properties": {
+                              "studentId": {
+                                "type": "null"
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "bot": {
+                                "type": "boolean",
+                                "const": true
+                              }
+                            }
+                          }
+                        ]
                       },
                       "maxItems": 10
                     },
@@ -18554,6 +19031,8 @@
                   "host",
                   "seatsFree",
                   "bots",
+                  "students",
+                  "playing",
                   "gamesPlayed"
                 ],
                 "properties": {
@@ -18621,6 +19100,14 @@
                     "maximum": 9
                   },
                   "bots": {
+                    "type": "boolean"
+                  },
+                  "students": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "playing": {
                     "type": "boolean"
                   },
                   "gamesPlayed": {
@@ -18931,6 +19418,10 @@
                         {
                           "type": "string",
                           "const": "disconnected_idle"
+                        },
+                        {
+                          "type": "string",
+                          "const": "replaced"
                         }
                       ]
                     }

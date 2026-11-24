@@ -87,7 +87,8 @@ export class Reactions {
 
   /**
    * `react` from the student: checked, and sent to the room as a `react` room event (a private one only to the
-   * student and `to`). Refused with `not_in_room` when they sit in no room (`react_not_allowed` when they watch one),
+   * student and `to`). Refused with `not_in_room` when they sit in no room (`react_not_allowed` when they watch one, or
+   * wait in one for a seat),
    * `react_not_allowed` for a kind, visibility or content the club does not allow or a `to` who is not another student
    * at the table, and `react_cap` when it comes too soon after the last one or past the game's count.
    */
@@ -96,6 +97,8 @@ export class Reactions {
     const rooms = this.rooms()
     const roomId = rooms.roomOf(studentId)
     if (roomId === null) return fail(this.watching(studentId) ? 'react_not_allowed' : 'not_in_room')
+    // A student waiting for a seat is not at the table yet.
+    if (!rooms.students(roomId).some((s) => s.person.studentId === studentId)) return fail('react_not_allowed')
 
     const visibility = message.visibility ?? 'room'
     if (!this.kinds.has(message.kind) || !this.visibilities.has(visibility)) return fail('react_not_allowed')

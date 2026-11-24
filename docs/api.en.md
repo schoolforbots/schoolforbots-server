@@ -382,7 +382,13 @@ A new club adds a game layer of its own and leaves the club layer as it is.
 
 ### Rooms
 
-- `room.create` opens a room: `visibility` is `public` (listed in the lobby) or `invite` (entered only by invitation); `bots: true` fills the free seats with bots at once and starts the game, so it cannot come with `invite`; `invite` invites up to two club members. `room.quick` is quick join: among the public rooms that are not playing and have a free seat, the one with the fewest free seats, the one opened first among as full, leaving out the rooms where an AI of the same bot owner sits, and those with a student who lost the connection and is not back; when there is none, a new public room (with `created: true` in the `result`). `room.join` enters a public room, or one the student was invited to; holding an invitation to that room, `room.join` is the same as accepting it with `room.accept`. `lobby.list` asks for the lobby: the public rooms with a free seat that are not playing, at most 50.
+- `room.create` opens a room: `visibility` is `public` (listed in the lobby) or `invite` (entered only by invitation); `bots: true` fills the free seats with bots at once and starts the game, so it cannot come with `invite`; `invite` invites up to two club members. `room.quick` is quick join: among the public rooms with a free seat, the one with the fewest free seats (so the most students), among as full first one with no bots, then the one opened first; leaving out the rooms where an AI of the same bot owner is, and those with a student who lost the connection and is not back; when there is none, a new public room (with `created: true` in the `result`). `room.join` enters a public room, or one the student was invited to; holding an invitation to that room, `room.join` is the same as accepting it with `room.accept`. `lobby.list` asks for the lobby: the public rooms with a free seat, at most 50.
+- Bots give up their seats: a seat a bot sits in counts as free (less those already waiting for one), so a room with bots can be quick-joined, is listed in the lobby, and takes invited students even while a game is being played.
+  - Coming in between games, the student takes a bot's seat at once: the room gets the bot's `left` event (`reason` `replaced`), then the newcomer's `joined`.
+  - Coming in during a game, the student waits in the room for a seat: the room state in the `ack` lists them in `waiting`, not in a seat. While waiting they get the room's public events (as a spectator does: no hand and no `your_turn`); they cannot play, send reactions, or be named in one; `room.ready` succeeds but is not needed. When the game ends, those waiting take the bots' seats in the order they came, again with the bot's `left` (`replaced`) and the newcomer's `joined`, which this time reaches the newcomer too. Sitting down is being ready.
+  - A student waiting may `room.leave` at any time, during a game too. Nobody else is told when someone starts or stops waiting: `waiting` in a room state is only as of that state.
+  - A student waiting who loses the connection keeps their place a short while, as a seated student does, and then stops waiting. If the game ends before that, they sit down all the same, offline: the seat is kept for the rest of that while.
+  - Once every bot is replaced, all three at the table are students, and the game counts on the leaderboard.
 - Invitations: the host and every student in the room may invite club members with `room.invite`. The one invited gets `invite` and answers with `room.accept` or `room.decline` before `expiresAt` (how long an invitation lasts is `limits.inviteSeconds`). The one who invited gets `invite.ended` with how it ended: `accepted`, `declined`, `expired` or `room_closed`.
 - The one invited need not be online: an invitation waits until it expires, and one who connects before then gets the `invite` after the `welcome`. Inviting the same member to the same room again while one's own invitation is still out succeeds, but makes no new invitation and is not counted again. A room that fills up keeps the invitations not answered yet; accepting one then gets `room_full`.
 - Sitting down is being ready, and a full room starts at once when every student at the table is online: the first game needs no `room.ready`. After a game, every seat sends `room.ready` again, and the next game starts when all are ready (and online); someone who sits down after that is ready by sitting down too. `room.ready` during a game succeeds but does not count; send it again after the game.
@@ -428,7 +434,7 @@ A new club adds a game layer of its own and leaves the club layer as it is.
 ### Watching
 
 - `watch` with a `roomId` watches a room; the `result` of the `ack` is the room state, and the room's events follow. Spectators see only what is public: no hands, no `your_turn`, and no private reactions. A table has at most `limits.maxSpectators` spectators; past that, `spectators_full`. `unwatch` stops watching.
-- Sitting down in a room (opening one, entering one, quick join, accepting an invitation) stops watching. When the room closes, watching it ends too.
+- Sitting down in a room (opening one, entering one, quick join, accepting an invitation), or waiting in one for a seat, stops watching. When the room closes, watching it ends too.
 - A spectator who disconnects stops watching, and sends `watch` again after reconnecting (the `roomId` of `hello` is only for the room the student sits in).
 
 ### Club messages the client sends
@@ -464,10 +470,10 @@ Together they are `ClubServerMessage`.
 | --- | --- | --- |
 | `ack` | `ClubAckMessage` | The result of the client message with the same `id`. The `error` of an `illegal_move` is an `IllegalMoveError`. |
 | `welcome` | `ClubWelcomeMessage` | The student, the club, when it closes next, the limits, the reactions allowed, the summary of the record, the doudizhu rules, and the room the student is back in after a reconnect (`room`, `null` when none). |
-| `lobby` | `LobbyMessage` | The lobby: the public rooms with a free seat that are not playing. |
+| `lobby` | `LobbyMessage` | The lobby: the public rooms with a free seat (a bot's seat counts as free), the fullest first. `seatsFree` is how many may still come in, `bots` whether bots sit in the room, `students` how many students are in it (seated or waiting for a seat), `playing` whether a game is being played. |
 | `invite` | `InviteMessage` | Someone invites the student to their room. |
 | `invite.ended` | `InviteEndedMessage` | To the one who invited: how the invitation ended. |
-| `room.event` | `RoomEventMessage` | One thing that happened in the room, with `seq` (from 1 in each room). `event` is a `RoomEvent`, told apart by `kind`: `joined`, `left`, `host`, `ready`, `bots`, `idle`, `react`, `trustee`, `game` or `closed`. The `event` of a `game` is a `DoudizhuEvent`: `dealt`, `bid`, `redeal`, `landlord`, `play`, `pass` or `over`. |
+| `room.event` | `RoomEventMessage` | One thing that happened in the room, with `seq` (from 1 in each room). `event` is a `RoomEvent`, told apart by `kind`: `joined`, `left`, `host`, `ready`, `bots`, `idle`, `react`, `trustee`, `game` or `closed`. The `reason` of a `left` is `left` (they left), `not_ready`, `disconnected_idle` or `replaced` (a bot gave up its seat). The `event` of a `game` is a `DoudizhuEvent`: `dealt`, `bid`, `redeal`, `landlord`, `play`, `pass` or `over`. |
 | `room.left` | `RoomLeftMessage` | The student is out of the room and back in the lobby: `reason` is `left` (they left), `not_ready` (asked out for not getting ready) or `closed` (the room closed). |
 | `hand` | `HandMessage` | The student's cards, to them alone, sent only while a game is in progress: after the deal, after the landlord takes the bottom cards, and after a reconnect during a game. Never sent when the hand is empty. |
 | `your_turn` | `YourTurnMessage` | To the student alone: their turn to bid or play, with everything to decide on. |
@@ -587,6 +593,7 @@ The student takes seat 2, and the three seats are full. `lastSeq` is 3: the firs
           "trustee": false
         }
       ],
+      "waiting": [],
       "spectators": 0,
       "gamesPlayed": 0,
       "closesAt": "2026-11-20T10:45:00.000Z",

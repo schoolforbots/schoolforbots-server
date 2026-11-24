@@ -14,10 +14,16 @@ export interface RoomSummary {
   readonly visibility: 'public' | 'invite'
   /** Whether a game is being played in it now. */
   readonly playing: boolean
+  /**
+   * How many may still come in: the empty seats and the bots' seats, less those waiting for a bot's seat already (see
+   * `rooms.ts`). Only a room with bots has any while a game is played.
+   */
   readonly seatsFree: number
   readonly host: PersonWithClass
   /** Whether a bot sits in it. */
   readonly bots: boolean
+  /** How many students are in it: seated, or waiting for a bot's seat. */
+  readonly students: number
   readonly gamesPlayed: number
   /** The order the rooms were opened in: a room opened earlier has a smaller number. */
   readonly opened: number
@@ -27,19 +33,22 @@ export interface RoomSummary {
   readonly away: boolean
 }
 
-/** Whether a room is open to anyone who comes by: public, not playing, and with a free seat. */
+/**
+ * Whether a room is open to anyone who comes by: public, with a free seat. A room where a game is being played has
+ * one only when bots sit in it (who give up their seats once the game ends).
+ */
 function open(room: RoomSummary): boolean {
-  return room.visibility === 'public' && !room.playing && room.seatsFree >= 1
+  return room.visibility === 'public' && room.seatsFree >= 1
 }
 
-/** Fewest free seats first (closest to full), then the room opened first. */
+/** Fewest free seats first (closest to full), then a room with no bots, then the room opened first. */
 function byFullness(a: RoomSummary, b: RoomSummary): number {
-  return a.seatsFree - b.seatsFree || a.opened - b.opened
+  return a.seatsFree - b.seatsFree || Number(a.bots) - Number(b.bots) || a.opened - b.opened
 }
 
 /**
- * The lobby: the open rooms (public, not playing, with a free seat), the fullest first and, among as full, the oldest
- * first, at most `max` of them.
+ * The lobby: the open rooms (public, with a free seat), the fullest first and, among as full, those with no bots, then
+ * the oldest, at most `max` of them.
  */
 export function lobbyMessage(rooms: Iterable<RoomSummary>, max: number): LobbyFrame {
   const listed = [...rooms].filter(open).sort(byFullness).slice(0, max)
@@ -50,15 +59,18 @@ export function lobbyMessage(rooms: Iterable<RoomSummary>, max: number): LobbyFr
       host: room.host,
       seatsFree: room.seatsFree,
       bots: room.bots,
+      students: room.students,
+      playing: room.playing,
       gamesPlayed: room.gamesPlayed,
     })),
   }
 }
 
 /**
- * The room quick join seats a student in: the open room with the fewest free seats, the oldest among as full, leaving
- * out the rooms where a student of the same owner (`email`) sits, and those where a seated student is away (a game
- * would not start there until they are back). Null when there is none, and a new room is opened.
+ * The room quick join seats a student in: the open room with the fewest free seats (so the one with the most students
+ * in it), one with no bots and then the oldest among as full, leaving out the rooms where a student of the same owner
+ * (`email`) is, and those where a student is away (a game would not start there until they are back). Null when there
+ * is none, and a new room is opened.
  */
 export function quickJoinRoom(rooms: Iterable<RoomSummary>, email: string): RoomSummary | null {
   const candidates = [...rooms].filter((room) => open(room) && !room.away && !room.owners.has(email)).sort(byFullness)

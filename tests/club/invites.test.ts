@@ -221,3 +221,18 @@ describe('answering invitations', () => {
     expectError(h.invites.invite(A, 2, everyone, h.now), 'invite_cap')
   })
 })
+
+describe('a room with bots', () => {
+  test('an invitation counts a student waiting for a seat as in the room, and the one invited may wait too', () => {
+    const h = partsHarness()
+    checkAck(h.invites.create(A, { visibility: 'public', bots: true }, everyone, h.now), 'RoomResult')
+    const roomId = h.rooms.roomOf(1)!
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    const twin = student(5, B.email)
+    expectError(h.invites.invite(A, 5, members(twin), h.now), 'same_owner')
+    expect(checkAck(h.invites.invite(A, 3, everyone, h.now))).toEqual({ ok: true })
+    const invite = invitesOf(h, 3).at(-1)!
+    const room = roomOf(checkAck(h.invites.accept(C, invite.inviteId, h.now), 'RoomResult'))
+    expect(room.waiting.map((p) => p.studentId)).toEqual([2, 3])
+  })
+})

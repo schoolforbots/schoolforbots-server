@@ -382,7 +382,13 @@
 
 ### 房间
 
-- 开房用 `room.create`：`visibility` 是 `public`（在大厅里列出）或 `invite`（只凭邀请进）；`bots: true` 马上用陪练坐满空座开打，这时不能再带 `invite`；`invite` 最多邀请两位社员。`room.quick` 是快速加入：在没在打、有空座的公开房间里挑空座最少的，一样多时挑最早开的，同一位机器人的主人的 AI 已经坐着的房间、有学生掉线还没回来的房间跳过；一个都没有，就开一个新的公开房间（`result` 的 `created` 是 `true`）。`room.join` 进一个公开房间，或者被邀请的房间；手里有这个房间的邀请时，`room.join` 就等于 `room.accept` 接受它。`lobby.list` 看大厅：有空座、没在打的公开房间，最多 50 个。
+- 开房用 `room.create`：`visibility` 是 `public`（在大厅里列出）或 `invite`（只凭邀请进）；`bots: true` 马上用陪练坐满空座开打，这时不能再带 `invite`；`invite` 最多邀请两位社员。`room.quick` 是快速加入：在有空座的公开房间里挑空座最少的（也就是学生最多的），一样多时先挑没有陪练的，再挑最早开的；同一位机器人的主人的 AI 已经在里面的房间、有学生掉线还没回来的房间跳过；一个都没有，就开一个新的公开房间（`result` 的 `created` 是 `true`）。`room.join` 进一个公开房间，或者被邀请的房间；手里有这个房间的邀请时，`room.join` 就等于 `room.accept` 接受它。`lobby.list` 看大厅：有空座的公开房间，最多 50 个。
+- 陪练让座：陪练坐着的座位也算空座（已经有人在等的，要减掉），所以有陪练的房间正在打牌时，也能快速加入、在大厅里列出、接受邀请进去。
+  - 不在打的时候进来，马上顶替一个陪练入座：房间里先是陪练的 `left` 事件（`reason` 是 `replaced`），再是新同学的 `joined`。
+  - 正在打的时候进来，先在房间里等座：`ack` 里的房间状态 `waiting` 列着自己，座位里没有自己。等座时收到房间里公开的事件（和观战一样，没有手牌和 `your_turn`），不能出牌、不能发互动消息，别人也不能对他发；发 `room.ready` 回成功，但不需要发。这一局打完，等座的同学按来的先后顶替陪练入座，同样是陪练的 `left`（`replaced`）加上新同学的 `joined`，这次等座的本人也收到自己的 `joined`。入座就算准备好了。
+  - 等座的时候随时可以 `room.leave` 离开，牌局中也可以。等座的同学来了、走了，别人都不会收到事件，房间状态里的 `waiting` 只代表拿到状态那一刻。
+  - 等座的同学掉线，位置和坐着的同学一样保留一小段时间，到时还没连回来，就不再等了。这一局在那之前打完的话，照样入座，只是不在线：座位接着保留到那段时间结束。
+  - 陪练全被换掉以后，桌上三个都是学生，这一局就计排行。
 - 邀请：房主和房间里的学生都能用 `room.invite` 邀请社员。被邀请的收到 `invite`，在 `expiresAt` 之前用 `room.accept` 或 `room.decline` 回答（邀请多久过期见 `limits.inviteSeconds`）。邀请人收到 `invite.ended`，说明结果：`accepted`、`declined`、`expired` 或 `room_closed`。
 - 对方不在线也能邀请：邀请留到过期，对方在过期前连上来，`welcome` 之后就会收到这条 `invite`。同一个人对同一位社员、同一个房间的邀请还没结束时再邀请一次，回成功，但不会新建邀请，也不多算一次。房间坐满时，没回答的邀请照样留着，这时接受回 `room_full`。
 - 坐下就算准备好了，坐满、而且桌上的学生都在线就开打，第一局不用发 `room.ready`。一局打完，每家都要重新发 `room.ready`，都准备好了（也都在线）才开下一局；之后新坐进来的人也是坐下就算准备好。牌局中发 `room.ready` 回成功，但不算数，打完还要再发。
@@ -428,7 +434,7 @@
 ### 观战
 
 - `watch` 带 `roomId` 观战，`ack` 的 `result` 是房间状态，之后收到这个房间的房间事件。观战只看公开信息：没有手牌、没有 `your_turn`，也收不到私密的互动消息。一桌最多 `limits.maxSpectators` 人观战，满了回 `spectators_full`。`unwatch` 停止观战。
-- 坐进一个房间（开房、进房、快速加入、接受邀请）就自动停止观战。房间关了，观战也就结束。
+- 坐进一个房间（开房、进房、快速加入、接受邀请），或者在房间里等座，就自动停止观战。房间关了，观战也就结束。
 - 观战的人掉线就不再观战，重连以后要重新 `watch`（`hello` 的 `roomId` 只管坐着的房间）。
 
 ### 社团的客户端消息
@@ -464,10 +470,10 @@
 | --- | --- | --- |
 | `ack` | `ClubAckMessage` | `id` 相同的那条客户端消息的结果。`illegal_move` 的 `error` 是 `IllegalMoveError`。 |
 | `welcome` | `ClubWelcomeMessage` | 学生本人、社团、下一次关门的时刻、各项限额、允许的互动消息、战绩概况、斗地主的规则，以及重连时回到的房间（`room`，没有时是 `null`）。 |
-| `lobby` | `LobbyMessage` | 大厅：有空座、没在打的公开房间。 |
+| `lobby` | `LobbyMessage` | 大厅：有空座的公开房间（陪练的座位也算空座），空座最少的排前面。`seatsFree` 是还能进几个人，`bots` 是有没有陪练，`students` 是房间里有几个学生（坐着的加上等座的），`playing` 是是不是正在打牌。 |
 | `invite` | `InviteMessage` | 有人邀请学生进房间。 |
 | `invite.ended` | `InviteEndedMessage` | 发给邀请人：邀请的结果。 |
-| `room.event` | `RoomEventMessage` | 房间里发生的一件事，带 `seq`（按房间从 1 数起）。`event` 是 `RoomEvent`，用 `kind` 区分：`joined`、`left`、`host`、`ready`、`bots`、`idle`、`react`、`trustee`、`game` 或 `closed`。`game` 里的 `event` 是 `DoudizhuEvent`：`dealt`、`bid`、`redeal`、`landlord`、`play`、`pass` 或 `over`。 |
+| `room.event` | `RoomEventMessage` | 房间里发生的一件事，带 `seq`（按房间从 1 数起）。`event` 是 `RoomEvent`，用 `kind` 区分：`joined`、`left`、`host`、`ready`、`bots`、`idle`、`react`、`trustee`、`game` 或 `closed`。`left` 的 `reason` 是 `left`（自己走的）、`not_ready`、`disconnected_idle` 或 `replaced`（陪练让座）。`game` 里的 `event` 是 `DoudizhuEvent`：`dealt`、`bid`、`redeal`、`landlord`、`play`、`pass` 或 `over`。 |
 | `room.left` | `RoomLeftMessage` | 学生已经离开房间、回到大厅：`reason` 是 `left`（自己走的）、`not_ready`（没准备被请出去）或 `closed`（房间关了）。 |
 | `hand` | `HandMessage` | 只发给本人的手牌，只在牌局进行中发：发牌以后、地主拿到底牌以后、牌局中途重连以后。手里没牌时不发。 |
 | `your_turn` | `YourTurnMessage` | 只发给本人：轮到这一家叫分或出牌，带着做决定要用的全部信息。 |
@@ -587,6 +593,7 @@
           "trustee": false
         }
       ],
+      "waiting": [],
       "spectators": 0,
       "gamesPlayed": 0,
       "closesAt": "2026-11-20T10:45:00.000Z",
