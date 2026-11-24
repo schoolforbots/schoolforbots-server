@@ -1,0 +1,79 @@
+name: release
+
+# Versions (README, "Releases"). On every push to main, release-please keeps a release pull request up to date: the next
+# version in package.json and its part of CHANGELOG.md, from the Conventional Commits since the last release. Merging
+# that pull request tags the commit vX.Y.Z and publishes a GitHub release; then the commit's image, already built and
+# smoke-tested as ghcr.io/schoolforbots/server:sha-<first 7> by image.yml, is also tagged :vX.Y.Z, which is what is
+# deployed.
+#
+# release-please acts with a token of the organization's GitHub App (RELEASE_APP_ID, RELEASE_APP_PRIVATE_KEY): a pull
+# request opened with GITHUB_TOKEN would not start the workflows, so its required checks would never run. The App's
+# commits are signed off by nobody, and dco.yml does not check authors whose names end in [bot].
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Gives the released commit's image its version tag, once image.yml has published it: no new build, so what is
+  # deployed as vX.Y.Z is exactly what was smoke-tested.
+  image-tag:
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the released commit's image with its version
+        env:
+          SHA: ${{ needs.release-please.outputs.sha }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          image=ghcr.io/schoolforbots/server
+          from="$image:sha-${SHA::7}"
+          # image.yml builds it on the same push to main; wait for it, 50 minutes at most.
+          for _ in $(seq 100); do
+            if docker buildx imagetools inspect "$from" >/dev/null 2>&1; then
+              docker buildx imagetools create --tag "$image:$TAG" "$from"
+              echo "Tagged $from as $image:$TAG"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::$from was not published in time: tag it by hand with docker buildx imagetools create --tag $image:$TAG $from"
+          exit 1

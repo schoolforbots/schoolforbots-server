@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "include-component-in-tag": false,
+  "bootstrap-sha": "a64afb8f8578ef651c0ea042e065bca1646f4061",
+  "changelog-sections": [
+    { "type": "feat", "section": "新功能" },
+    { "type": "fix", "section": "修复" },
+    { "type": "perf", "section": "性能" },
+    { "type": "revert", "section": "回退" },
+    { "type": "docs", "section": "文档", "hidden": true },
+    { "type": "refactor", "section": "重构", "hidden": true },
+    { "type": "test", "section": "测试", "hidden": true },
+    { "type": "build", "section": "构建", "hidden": true },
+    { "type": "ci", "section": "CI", "hidden": true },
+    { "type": "chore", "section": "其他", "hidden": true },
+    { "type": "style", "section": "格式", "hidden": true }
+  ],
+  "packages": {
+    ".": { "package-name": "@schoolforbots/server" }
+  }
+}
