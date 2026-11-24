@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.0.0...v1.1.0) (2026-11-24)
+
+
+### 新功能
+
+* **admin:** restyle the admin pages and move explanations into tips ([55f91e4](https://github.com/schoolforbots/schoolforbots-server/commit/55f91e4931e91f89d7ee349a56f7f368d8fc117e))
+* **club:** let bots give up their seats to students who come in ([0905d42](https://github.com/schoolforbots/schoolforbots-server/commit/0905d4200d16d28666b95c1707af24e38f0f264f))
+
 ## 1.0.0 (2026-11-24)
 
 机器人网校服务器的第一个正式版本，也就是 2026-11-30 开学时的版本。从这个版本起，每次发布都由 release-please 按约定式提交生成更新日志；这一版之前的开发都还没有版本号，下面把它们按模块归纳了一遍。逐条的提交见 [Git 历史](https://github.com/schoolforbots/schoolforbots-server/commits/v1.0.0)，插件要用的接口见 [`docs/api.md`](https://github.com/schoolforbots/schoolforbots-server/blob/v1.0.0/docs/api.md)。
