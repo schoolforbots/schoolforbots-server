@@ -1,0 +1,257 @@
+/*
+ * Motion. It shows where things come from and where they go; nothing loops or
+ * decorates. 150–260 ms, easing out, no bounce; only transform and opacity move.
+ * Under prefers-reduced-motion everything below becomes a cut or a short fade.
+ */
+:root {
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ---------------------------------------------------------------------------
+ * Moving between pages: the browser's own cross-document view transitions. The
+ * top bar and the sidebar stay put; the page fades out and the next one rises
+ * into place; the block marking the current page in the sidebar slides from the
+ * old item to the new. Browsers without them (Firefox, for now) just go. */
+@view-transition {
+  navigation: auto;
+}
+header.header {
+  view-transition-name: site-header;
+}
+#starlight__sidebar {
+  view-transition-name: site-sidebar;
+}
+.sidebar-mark {
+  view-transition-name: sidebar-mark;
+}
+
+::view-transition-group(site-header),
+::view-transition-group(site-sidebar) {
+  animation: none;
+}
+::view-transition-old(site-header),
+::view-transition-old(site-sidebar) {
+  display: none;
+}
+::view-transition-new(site-header),
+::view-transition-new(site-sidebar) {
+  animation: none;
+}
+::view-transition-group(sidebar-mark) {
+  animation-duration: 0.3s;
+  animation-timing-function: var(--ease-out);
+}
+/* The sidebar is drawn above the page, so the mark is never hidden behind the fade. */
+::view-transition-group(site-sidebar) {
+  z-index: 1;
+}
+::view-transition-group(sidebar-mark) {
+  z-index: 2;
+}
+::view-transition-group(site-header) {
+  z-index: 3;
+}
+
+::view-transition-old(root) {
+  animation: vt-fade-out 0.14s ease-in both;
+}
+::view-transition-new(root) {
+  animation: vt-rise-in 0.26s var(--ease-out) 0.06s both;
+}
+@keyframes vt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Switching light and dark: the new theme opens out in a circle from the button
+ * (ThemeSelect.astro sets the centre and radius). Nothing else moves meanwhile. */
+.theme-changing :is(header.header, #starlight__sidebar, .sidebar-mark) {
+  view-transition-name: none;
+}
+.theme-changing::view-transition-old(root) {
+  animation: none;
+}
+.theme-changing::view-transition-new(root) {
+  animation: vt-theme-circle 0.5s var(--ease-out) both;
+}
+@keyframes vt-theme-circle {
+  from {
+    clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 0));
+  }
+  to {
+    clip-path: circle(var(--theme-r, 150vmax) at var(--theme-x, 50%) var(--theme-y, 0));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Jumping within a page scrolls there smoothly; the heading you land on gets a
+ * highlighter stroke that sweeps under it and fades (lib/motion.ts adds .flash). */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+@property --sweep {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+@property --ink {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+.sl-markdown-content .flash:is(h2, h3, h4) {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--sfb-mark) var(--ink), transparent),
+    color-mix(in srgb, var(--sfb-mark) var(--ink), transparent)
+  );
+  background-repeat: no-repeat;
+  background-position: 0 88%;
+  background-size: var(--sweep) 0.42em;
+  animation: flash-sweep 1.6s var(--ease-out) both;
+}
+@keyframes flash-sweep {
+  0% {
+    --sweep: 0%;
+    --ink: 100%;
+  }
+  28% {
+    --sweep: 100%;
+    --ink: 100%;
+  }
+  65% {
+    --sweep: 100%;
+    --ink: 100%;
+  }
+  100% {
+    --sweep: 100%;
+    --ink: 0%;
+  }
+}
+.sl-markdown-content tr.flash {
+  animation: flash-row 1.8s ease-out both;
+}
+.sl-markdown-content details.schema.flash {
+  animation: flash-card 1.8s ease-out both;
+}
+@keyframes flash-card {
+  0%,
+  45% {
+    border-color: var(--sfb-highlight);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--sfb-mark) 80%, transparent);
+  }
+}
+@keyframes flash-row {
+  0%,
+  45% {
+    background: color-mix(in srgb, var(--sfb-mark) 70%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * The table of contents marker glides between lines. */
+.toc-marker {
+  top: 0;
+  transition:
+    transform 0.28s var(--ease-out),
+    height 0.28s var(--ease-out),
+    opacity 0.2s ease;
+}
+
+/* ---------------------------------------------------------------------------
+ * Search: the box opens down from the top bar, scaling up a touch, over a
+ * blurred page; it closes the same way back. */
+site-search dialog {
+  transform-origin: 50% 0;
+  transition:
+    opacity 0.18s ease,
+    transform 0.22s var(--ease-out),
+    overlay 0.22s allow-discrete,
+    display 0.22s allow-discrete;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+}
+site-search dialog[open] {
+  opacity: 1;
+  transform: none;
+}
+@starting-style {
+  site-search dialog[open] {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+site-search dialog::backdrop {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition:
+    opacity 0.22s ease,
+    overlay 0.22s allow-discrete,
+    display 0.22s allow-discrete;
+  opacity: 0;
+}
+site-search dialog[open]::backdrop {
+  opacity: 1;
+}
+@starting-style {
+  site-search dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * The menu on narrow screens: the sidebar slides in from the left. */
+@media (max-width: 50rem) {
+  [data-mobile-menu-expanded] #starlight__sidebar {
+    animation: menu-in 0.26s var(--ease-out) both;
+  }
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Small things: buttons press, pagination cards lift. */
+.pagination-links a:hover {
+  transform: translateY(-2px);
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion: cuts and short fades only. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after,
+  *::backdrop {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+  .sl-markdown-content .flash:is(h2, h3, h4),
+  .sl-markdown-content tr.flash {
+    animation: flash-row 1.2s ease-out both !important;
+    background-size: auto;
+  }
+}

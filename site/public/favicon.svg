@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>机器人网校</title>
+  <rect width="512" height="512" rx="112" fill="#D45113"/>
+  <path fill="#813405" d="M256 132C172 132 124 192 118 274C113 350 96 420 48 470C40 478 46 488 58 488H454C466 488 472 478 464 470C416 420 399 350 394 274C388 192 340 132 256 132Z"/>
+  <g fill="#F8DDA4">
+    <path d="M196 488V444C196 412 222 396 256 396C290 396 316 412 316 444V488Z"/>
+    <ellipse cx="194" cy="452" rx="15" ry="24"/>
+    <ellipse cx="318" cy="452" rx="15" ry="24"/>
+    <rect x="148" y="194" width="216" height="180" rx="82"/>
+  </g>
+  <rect x="204" y="256" width="30" height="50" rx="15" fill="#813405"/>
+  <rect x="278" y="256" width="30" height="50" rx="15" fill="#813405"/>
+  <path fill="none" stroke="#F8DDA4" stroke-width="26" stroke-linecap="round" d="M62 247L232 136Q256 121 280 136L450 247"/>
+  <path fill="none" stroke="#813405" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" d="M46 222L228 104Q256 86 284 104L466 222"/>
+</svg>

@@ -1,0 +1,99 @@
+:root {
+  --sfb-bg: #FFFDF9;
+  --sfb-bg-soft: #FBF7F1;
+  --sfb-surface: #FFFFFF;
+  --sfb-hero-top: #FDF4E3;
+  --sfb-line: #EFE5DA;
+  --sfb-ink: #1F1410;
+  --sfb-mute: #5E4D43;
+  --sfb-link: #813405;
+  --sfb-mark: #F8DDA4; /* the highlighter band under links */
+  --sfb-btn: #813405;
+  --sfb-btn-ink: #FFFFFF;
+  --sfb-btn-hover: #6A2A03;
+  --sfb-nav-btn: #1F1410;
+  --sfb-nav-btn-ink: #FFFFFF;
+  --sfb-focus: #D45113;
+  --sfb-highlight: #D45113;
+  --sfb-live-bg: #DDF9C1;
+  --sfb-live-ink: #2C5A1D;
+  --sfb-num-bg: #F8DDA4;
+  --sfb-num-ink: #813405;
+  --sfb-ok: #3F8A2C;
+  --sfb-danger: #B4232F; /* errors and suspended classes; crimson, clearly apart from the orange accent */
+  /* 红砖墙裙 at the foot of every page: brick, the mortar between bricks, and the ledge on top. */
+  --sfb-brick: #813405;
+  --sfb-mortar: #BC8E6E;
+  --sfb-ledge: #5F2603;
+  --sfb-font-body: "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  --sfb-font-heading: "SFB Heading", var(--sfb-font-body);
+  color-scheme: light;
+}
+
+/* 晚自习: the same school at night. */
+:root[data-theme='dark'] {
+  --sfb-bg: #0E1412;
+  --sfb-bg-soft: #141C19;
+  --sfb-surface: #121A17;
+  --sfb-hero-top: #141D19;
+  --sfb-line: #26302B;
+  --sfb-ink: #F3EFE6;
+  --sfb-mute: #A9B2AC;
+  --sfb-link: #F8DDA4;
+  --sfb-mark: #3D3220;
+  --sfb-btn: #F9A03F;
+  --sfb-btn-ink: #21140A;
+  --sfb-btn-hover: #FBB565;
+  --sfb-nav-btn: #F3EFE6;
+  --sfb-nav-btn-ink: #0E1412;
+  --sfb-focus: #F9A03F;
+  --sfb-highlight: #F9A03F;
+  --sfb-live-bg: #2C362B;
+  --sfb-live-ink: #DDF9C1;
+  --sfb-num-bg: #342E1E;
+  --sfb-num-ink: #F9A03F;
+  --sfb-ok: #DDF9C1;
+  --sfb-danger: #FF8A8F; /* errors and suspended classes; a light red that reads on the dark background, clearly apart from the gold accent */
+  /* The dado at night: darker bricks, kept dim on purpose; decoration only. */
+  --sfb-brick: #5A2410;
+  --sfb-mortar: #211812;
+  --sfb-ledge: #2A1406;
+  --sfb-font-body: "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  --sfb-font-heading: "SFB Heading", var(--sfb-font-body);
+  color-scheme: dark;
+}
+
+/* No explicit choice: follow the system. Keep identical to the block above. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --sfb-bg: #0E1412;
+    --sfb-bg-soft: #141C19;
+    --sfb-surface: #121A17;
+    --sfb-hero-top: #141D19;
+    --sfb-line: #26302B;
+    --sfb-ink: #F3EFE6;
+    --sfb-mute: #A9B2AC;
+    --sfb-link: #F8DDA4;
+    --sfb-mark: #3D3220;
+    --sfb-btn: #F9A03F;
+    --sfb-btn-ink: #21140A;
+    --sfb-btn-hover: #FBB565;
+    --sfb-nav-btn: #F3EFE6;
+    --sfb-nav-btn-ink: #0E1412;
+    --sfb-focus: #F9A03F;
+    --sfb-highlight: #F9A03F;
+    --sfb-live-bg: #2C362B;
+    --sfb-live-ink: #DDF9C1;
+    --sfb-num-bg: #342E1E;
+    --sfb-num-ink: #F9A03F;
+    --sfb-ok: #DDF9C1;
+    --sfb-danger: #FF8A8F; /* errors and suspended classes; a light red that reads on the dark background, clearly apart from the gold accent */
+    /* The dado at night: darker bricks, kept dim on purpose; decoration only. */
+    --sfb-brick: #5A2410;
+    --sfb-mortar: #211812;
+    --sfb-ledge: #2A1406;
+    --sfb-font-body: "PingFang SC", "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+    --sfb-font-heading: "SFB Heading", var(--sfb-font-body);
+    color-scheme: dark;
+  }
+}
