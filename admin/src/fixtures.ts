@@ -4,6 +4,7 @@ import type {
   ClubDay,
   DailyStats,
   DoudizhuPage,
+  SchoolOverview,
   DayNumbers,
   LessonDetail,
   LessonQueue,
@@ -67,9 +68,25 @@ export function seriesDay(date: string, numbers: Partial<SeriesDay> = {}): Serie
 }
 
 /** The answer of `api/stats/daily` for `days` days ending yesterday, all zeros unless `stats` says otherwise. */
+/** The school as it stands, empty unless `overview` says otherwise. */
+export function schoolOverview(overview: Partial<SchoolOverview> = {}): SchoolOverview {
+  const slot = (name: 'morning' | 'afternoon' | 'evening') => ({ slot: name, seated: 0, capacity: 4000, waitlisted: 0, classes: [] })
+  return {
+    students: { total: 0, pending: 0, waitlisted: 0, active: 0, suspended: 0, dropped: 0, expelled: 0 },
+    owners: { inSchool: 0, all: 0 },
+    signupsToday: { started: 0, verified: 0 },
+    slots: [slot('morning'), slot('afternoon'), slot('evening')],
+    classSize: { standard: 100, max: 120 },
+    activity: { active: 0, cameThisWeek: 0, droppedTonight: null, droppedWithinWeek: null },
+    plugins: [],
+    ...overview,
+  }
+}
+
 export function dailyStats(days: number, stats: Partial<DailyStats> = {}): DailyStats {
   const today = shiftDate(YESTERDAY, 1)
   return {
+    overview: schoolOverview(),
     todaySoFar: dayNumbers(today),
     sameTimeLastWeek: dayNumbers(shiftDate(today, -7)),
     // 16:00 at the school (UTC+8), today.

@@ -37,6 +37,7 @@ import {
   dayNumbers,
   doudizhuPage,
   lessonDetail,
+  schoolOverview,
   seriesDay,
   shiftDate,
   student,
@@ -139,6 +140,31 @@ function dailyStats(days: number): DailyStats {
     .filter(({ slot }) => slot.status !== 'approved' && !slot.locked)
     .map(({ date, slot }) => ({ date, division: slot.division, deadline: doorsOpen(date) }))
   return {
+    overview: schoolOverview({
+      students: { total: 2860, pending: 64, waitlisted: 0, active: 2410, suspended: 18, dropped: 352, expelled: 16 },
+      owners: { inSchool: 1702, all: 2015 },
+      signupsToday: { started: 118, verified: 87 },
+      slots: [
+        { slot: 'morning', seated: 412, capacity: 4000, waitlisted: 0, classes: [{ division: 'junior', classes: 4, students: 396 }] },
+        {
+          slot: 'afternoon',
+          seated: 640,
+          capacity: 4000,
+          waitlisted: 0,
+          classes: [
+            { division: 'primary', classes: 2, students: 188 },
+            { division: 'senior', classes: 4, students: 431 },
+          ],
+        },
+        { slot: 'evening', seated: 3640, capacity: 4000, waitlisted: 0, classes: [{ division: 'junior', classes: 13, students: 1413 }] },
+      ],
+      activity: { active: 2410, cameThisWeek: 1974, droppedTonight: 6, droppedWithinWeek: 41 },
+      plugins: [
+        { pluginType: 'openclaw', pluginVersion: '1.4.0', students: 1730 },
+        { pluginType: 'openclaw', pluginVersion: '1.3.2', students: 512 },
+        { pluginType: 'hermes', pluginVersion: '0.6.1', students: 186 },
+      ],
+    }),
     todaySoFar: numbersFor(today, share),
     sameTimeLastWeek: numbersFor(shiftDate(today, -7), share),
     asOf: new Date().toISOString(),
