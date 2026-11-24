@@ -6,14 +6,15 @@
 #   admin    the admin pages' tests and build
 #   worker   the status Worker's typecheck and tests
 #   image    the image: deploy/smoke-test.sh and the restore drill (deploy/backup/drill.sh)
+#   site     the API reference site's build (site/)
 # The changed files are those between the merge commit GitHub makes for a pull request and its first parent, the tip
 # of the base branch. Any other event, such as a push to main, runs everything: every commit on main is fully checked
 # and gets its sha- image. When in doubt a part runs: a path not named below, or changes that cannot be told, run
 # everything.
 set -euo pipefail
 
-backend=false admin=false worker=false image=false
-everything() { backend=true admin=true worker=true image=true; }
+backend=false admin=false worker=false image=false site=false
+everything() { backend=true admin=true worker=true image=true site=true; }
 
 if [ "${GITHUB_EVENT_NAME:-}" != pull_request ]; then
   echo "affected: not a pull request (${GITHUB_EVENT_NAME:-run by hand}), so everything runs"
@@ -39,13 +40,20 @@ else
       # Read by nothing in CI.
       .github/ISSUE_TEMPLATE/* | .github/pull_request_template.md | .github/CODEOWNERS | .github/dependabot.yml) ;;
       LICENSE | .env.example | admin/README.md) ;;
-      # Read by the release workflow only.
-      release-please-config.json | .release-please-manifest.json) ;;
+      # Read by the release workflow; the site shows the manifest's version.
+      release-please-config.json) ;;
+      .release-please-manifest.json) site=true ;;
       # Tested, and built into the image. The drill also seeds its database with src/tools/dev-seed.ts.
       src/*) backend=true image=true ;;
       # Read by the typecheck or the tests only: the tests compare protocol/ with the schemas the code exports, and
       # docs/api*.md with the routes and error codes.
-      tests/* | scripts/* | protocol/* | docs/* | vitest.config.ts) backend=true ;;
+      # The site is built from docs/ and protocol/ too.
+      tests/* | scripts/* | vitest.config.ts) backend=true ;;
+      protocol/* | docs/*) backend=true site=true ;;
+      # The API reference site is a package of its own, not in the image.
+      site/*) site=true ;;
+      # The site's changelog page.
+      CHANGELOG.md) site=true ;;
       # Read by the tests, and copied into the image or used to build it.
       school-rules/* | data/* | config/* | tsconfig*.json) backend=true image=true ;;
       # The admin pages are built into the image.
@@ -74,6 +82,7 @@ describe() { if [ "$2" = true ]; then echo "| $1 | runs |"; else echo "| $1 | sk
   describe "Admin pages: tests and build" "$admin"
   describe "Status Worker: typecheck and tests" "$worker"
   describe "Image: smoke test and restore drill" "$image"
+  describe "API reference site: build" "$site"
 } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 {
@@ -81,4 +90,5 @@ describe() { if [ "$2" = true ]; then echo "| $1 | runs |"; else echo "| $1 | sk
   echo "admin=$admin"
   echo "worker=$worker"
   echo "image=$image"
+  echo "site=$site"
 } | tee -a "${GITHUB_OUTPUT:-/dev/null}"

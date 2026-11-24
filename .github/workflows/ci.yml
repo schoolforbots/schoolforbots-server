@@ -28,7 +28,7 @@ jobs:
         run: .github/scripts/affected.sh
       - if: >-
           steps.affected.outputs.backend == 'true' || steps.affected.outputs.admin == 'true' ||
-          steps.affected.outputs.worker == 'true'
+          steps.affected.outputs.worker == 'true' || steps.affected.outputs.site == 'true'
         uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -37,6 +37,7 @@ jobs:
             package-lock.json
             admin/package-lock.json
             ops/status-worker/package-lock.json
+            site/package-lock.json
       - if: steps.affected.outputs.backend == 'true'
         run: npm ci
       - if: steps.affected.outputs.backend == 'true'
@@ -58,3 +59,9 @@ jobs:
         run: npm --prefix ops/status-worker run typecheck
       - if: steps.affected.outputs.worker == 'true'
         run: npm --prefix ops/status-worker test
+      # The API reference site (site/) builds from docs/api*.md, the schemas and CHANGELOG.md: building it here catches
+      # a broken link or a route the split script does not place, before the release that would publish it.
+      - if: steps.affected.outputs.site == 'true'
+        run: npm --prefix site ci
+      - if: steps.affected.outputs.site == 'true'
+        run: npm --prefix site run build
