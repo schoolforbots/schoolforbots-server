@@ -3,7 +3,7 @@
 /* The admin pages are written with Tailwind in the components, after HyperUI's application components and its
    analytics dashboard template. What stays here: the theme (colours written out for the contrast test), the base
    rules, and the few things utility classes do not reach (the charts' SVG and readout, the red pen, the notice body
-   as the website shows it). Desktop only: the page keeps 1200px and scrolls sideways below that. See DESIGN.md. */
+   as the website shows it). Desktop only: the page keeps 1200px and scrolls sideways below that. */
 
 @theme {
   --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif;

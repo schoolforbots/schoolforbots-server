@@ -38,7 +38,7 @@ else
       .github/workflows/* | .github/scripts/*) everything ;;
       # Read by nothing in CI.
       .github/ISSUE_TEMPLATE/* | .github/pull_request_template.md | .github/CODEOWNERS | .github/dependabot.yml) ;;
-      LICENSE | .env.example | admin/DESIGN.md) ;;
+      LICENSE | .env.example | admin/README.md) ;;
       # Read by the release workflow only.
       release-please-config.json | .release-please-manifest.json) ;;
       # Tested, and built into the image. The drill also seeds its database with src/tools/dev-seed.ts.
