@@ -12,7 +12,7 @@ const lobby = (h: Harness) => {
 }
 
 describe('the lobby', () => {
-  test('lists the public rooms not playing with a free seat, the fullest first, then the oldest', () => {
+  test('lists the public rooms with a free seat, the fullest first, then the oldest', () => {
     const h = harness()
     const one = openRoom(h, student(1)) // 2 free
     const two = openRoom(h, student(2), [student(3)]) // 1 free
@@ -28,22 +28,46 @@ describe('the lobby', () => {
       host: { studentId: 2, displayName: '主人2家的小鱼2 #0002', bot: false, className: '初中部·晚班·3 班' },
       seatsFree: 1,
       bots: false,
+      students: 2,
+      playing: false,
       gamesPlayed: 0,
     })
   })
 
-  test('a room after a game, with a bot and a free seat, is listed again', () => {
+  test('a room with a bot is listed while it plays and after: the bot seat counts as free', () => {
     const h = harness()
     const roomId = openRoom(h, student(1), [student(2)])
     h.advance(10 * 60) // the idle prompt
     checkAck(h.rooms.bots(2, h.now))
-    expect(lobby(h).rooms).toEqual([]) // playing
+    expect(lobby(h).rooms).toEqual([
+      expect.objectContaining({ roomId, seatsFree: 1, bots: true, students: 2, playing: true, gamesPlayed: 0 }),
+    ])
     playOut(h, roomId)
-    expect(lobby(h).rooms).toEqual([]) // full, though over
+    expect(lobby(h).rooms).toEqual([
+      expect.objectContaining({ roomId, seatsFree: 1, bots: true, students: 2, playing: false, gamesPlayed: 1 }),
+    ])
     checkAck(h.rooms.leave(2, h.now))
     expect(lobby(h).rooms).toEqual([
-      expect.objectContaining({ roomId, seatsFree: 1, bots: true, gamesPlayed: 1 }),
+      expect.objectContaining({ roomId, seatsFree: 2, bots: true, students: 1, gamesPlayed: 1 }),
     ])
+  })
+
+  test('a student waiting for the bot seat takes it off the lobby', () => {
+    const h = harness()
+    const roomId = openRoom(h, student(1), [student(2)])
+    h.advance(10 * 60)
+    checkAck(h.rooms.bots(2, h.now))
+    checkAck(h.rooms.join(student(3), roomId, h.now), 'RoomResult')
+    expect(lobby(h).rooms).toEqual([])
+  })
+
+  test('a room full of students is not listed', () => {
+    const h = harness()
+    const roomId = openRoom(h, student(1), [student(2)])
+    checkAck(h.rooms.join(student(3), roomId, h.now), 'RoomResult')
+    expect(lobby(h).rooms).toEqual([])
+    playOut(h, roomId)
+    expect(lobby(h).rooms).toEqual([])
   })
 
   test('lists at most lobbyMaxRooms rooms', () => {
@@ -66,6 +90,7 @@ describe('the lobby', () => {
       seatsFree: 1,
       host: { studentId: 1, displayName: 'x #0001', bot: false, className: 'c' },
       bots: true,
+      students: 1,
       gamesPlayed: 2,
       opened: 1,
       owners: new Set(),
@@ -93,7 +118,7 @@ describe('quick join', () => {
     expect(h.game.sessions).toHaveLength(1)
   })
 
-  test('skips invite-only rooms, rooms playing, and rooms of the same owner', () => {
+  test('skips invite-only rooms, rooms playing with no bots, and rooms of the same owner', () => {
     const h = harness()
     openRoom(h, student(1), [student(2)], 'invite')
     const playing = openRoom(h, student(3), [student(4)])
@@ -131,6 +156,7 @@ describe('quick join', () => {
       seatsFree: 1,
       host,
       bots: false,
+      students: 1,
       gamesPlayed: 0,
       opened: 1,
       owners: new Set(),
@@ -154,12 +180,37 @@ describe('quick join', () => {
     const owners = new Set<string>()
     const host = { studentId: 1, displayName: 'x #0001', bot: false as const, className: 'c' }
     const rooms: RoomSummary[] = [
-      { roomId: 'rbbbbbb', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, gamesPlayed: 0, opened: 2, owners, away: false },
-      { roomId: 'raaaaaa', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, gamesPlayed: 0, opened: 1, owners, away: false },
-      { roomId: 'rcccccc', visibility: 'public', playing: false, seatsFree: 0, host, bots: false, gamesPlayed: 0, opened: 0, owners, away: false },
+      { roomId: 'rbbbbbb', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, students: 1, gamesPlayed: 0, opened: 2, owners, away: false },
+      { roomId: 'raaaaaa', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, students: 1, gamesPlayed: 0, opened: 1, owners, away: false },
+      { roomId: 'rcccccc', visibility: 'public', playing: false, seatsFree: 0, host, bots: false, students: 3, gamesPlayed: 0, opened: 0, owners, away: false },
     ]
     expect(quickJoinRoom(rooms, 'a@example.com')!.roomId).toBe('raaaaaa')
     expect(quickJoinRoom([...rooms].reverse(), 'a@example.com')!.roomId).toBe('raaaaaa')
     expect(quickJoinRoom([rooms[2]!], 'a@example.com')).toBeNull()
+  })
+
+  test('among rooms as full, one with no bots comes before an older one with bots', () => {
+    const owners = new Set<string>()
+    const host = { studentId: 1, displayName: 'x #0001', bot: false as const, className: 'c' }
+    const rooms: RoomSummary[] = [
+      { roomId: 'raaaaaa', visibility: 'public', playing: true, seatsFree: 2, host, bots: true, students: 1, gamesPlayed: 0, opened: 1, owners, away: false },
+      { roomId: 'rbbbbbb', visibility: 'public', playing: false, seatsFree: 2, host, bots: false, students: 1, gamesPlayed: 0, opened: 2, owners, away: false },
+    ]
+    expect(quickJoinRoom(rooms, 'a@example.com')!.roomId).toBe('rbbbbbb')
+    expect(lobbyMessage(rooms, 50).rooms.map((r) => r.roomId)).toEqual(['rbbbbbb', 'raaaaaa'])
+  })
+
+  test('takes a room where students play with bots, and waits there for a bot seat', () => {
+    const h = harness()
+    const roomId = openRoom(h, student(1), [student(2)])
+    h.advance(10 * 60)
+    checkAck(h.rooms.bots(2, h.now))
+    openRoom(h, student(3)) // 2 free: the room with bots is fuller
+    const result = checkAck(h.rooms.quick(student(4), h.now), 'QuickJoinResult')
+    expect(result).toMatchObject({ ok: true, result: { created: false } })
+    const room = roomOf(result)
+    expect(room.roomId).toBe(roomId)
+    expect(room.waiting.map((p) => p.studentId)).toEqual([4])
+    expect(h.rooms.roomOf(4)).toBe(roomId)
   })
 })

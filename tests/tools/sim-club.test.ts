@@ -193,12 +193,16 @@ describe('against the club service', () => {
       expect(tally.gameIds.size).toBe(tally.gamesOver)
       expect(tally.steps).toBeGreaterThan(0)
     }
-    // The three of a group sat at the same tables, and so did the three that quick join: the same games.
+    // The three of a group sat at the same tables: the same games.
     const games = (b: ClubBot) => [...b.tally.gameIds].slice(0, 2)
     expect(games(bots[1]!)).toEqual(games(bots[0]!))
     expect(games(bots[2]!)).toEqual(games(bots[0]!))
-    expect(games(bots[4]!)).toEqual(games(bots[3]!))
-    expect(games(bots[5]!)).toEqual(games(bots[3]!))
+    // Those that quick join may take a bot's seat at a table of those that play with bots, so they are not always
+    // at the same tables; but each played a game with another of the nine.
+    for (const quick of bots.slice(3, 6)) {
+      const others = bots.filter((b) => b !== quick)
+      expect([...quick.tally.gameIds].some((id) => others.some((b) => b.tally.gameIds.has(id)))).toBe(true)
+    }
     expectNothingWrong(bots)
     expect(sum(bots, (t) => t.timeoutsLeft + t.illegalSent + t.drops + t.reactsSent)).toBe(0)
     // Every step was acked and measured; the hand-offs too, all of them live.
@@ -435,7 +439,7 @@ describe('against a fake school', () => {
       room: {
         roomId: 'rabcd', club: 'doudizhu', visibility: 'public', host: 1,
         seats: [0, 1, 2].map((seat) => ({ seat, player: person(seat), ready: true, online: true, trustee: false })),
-        spectators: 0, gamesPlayed: 0, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: 5, game: table,
+        waiting: [], spectators: 0, gamesPlayed: 0, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: 5, game: table,
       },
     }
     expect(Value.Check(ClubServerMessage, inGame)).toBe(true)
@@ -682,7 +686,7 @@ function scriptedRun(seed: number, framesPerMinute = 600) {
   const room = () => ({
     roomId: ROOM, club: 'doudizhu', visibility: 'public', host: 1,
     seats: [0, 1, 2].map((seat) => ({ seat, player: person(seat), ready: true, online: true, trustee: false })),
-    spectators: 0, gamesPlayed: gameId, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: seq, game: null,
+    waiting: [], spectators: 0, gamesPlayed: gameId, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: seq, game: null,
   })
 
   function receive(msg: Record<string, any>): void {
@@ -787,7 +791,7 @@ describe('sent away in the middle of a game', () => {
     const room = {
       roomId: 'rabcd', club: 'doudizhu', visibility: 'public', host: 1,
       seats: [0, 1, 2].map((seat) => ({ seat, player: person(seat), ready: true, online: true, trustee: false })),
-      spectators: 0, gamesPlayed: 0, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: 3,
+      waiting: [], spectators: 0, gamesPlayed: 0, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: 3,
       game: {
         game: 'doudizhu', gameId: 7, phase: 'bidding', firstBidder: 0, bids: [], landlord: null, base: null, bottom: null,
         cardsLeft: [17, 17, 17], multiplier: 1, trick: null, history: [], trustee: [false, false, false], toAct: 1,

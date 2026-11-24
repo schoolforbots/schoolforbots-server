@@ -253,7 +253,7 @@ describe('server messages', () => {
       { seat: 1, player: bot, ready: true, online: true, trustee: false },
       { seat: 2, player: null, ready: false, online: false, trustee: false },
     ],
-    spectators: 0, gamesPlayed: 2, closesAt: later, lastSeq: 40, game: null,
+    waiting: [], spectators: 0, gamesPlayed: 2, closesAt: later, lastSeq: 40, game: null,
   }
   const result = {
     gameId: 5, outcome: 'landlord_won', landlord: 2, base: 3,
@@ -313,7 +313,7 @@ describe('server messages', () => {
     ['welcome back in a room', { ...welcome, room: { ...room, game: table } }],
     ['lobby', {
       type: 'lobby',
-      rooms: [{ roomId: 'r7k2q', host: withClass, seatsFree: 2, bots: false, gamesPlayed: 0 }],
+      rooms: [{ roomId: 'r7k2q', host: withClass, seatsFree: 2, bots: false, students: 1, playing: false, gamesPlayed: 0 }],
     }],
     ['an empty lobby', { type: 'lobby', rooms: [] }],
     ['invite', { type: 'invite', inviteId: 3, from: withClass, roomId: 'r7k2q', expiresAt: later }],
@@ -401,7 +401,7 @@ describe('server messages', () => {
     ['game event over with two hands', gameEvent({ kind: 'over', result: { ...result, hands: [[], []] } })],
     ['game event play at seat 3', gameEvent({ kind: 'play', turn: 7, seat: 3, move: pair9, cardsLeft: 15, multiplier: 2, auto: null })],
     ['game event dealt to two seats', gameEvent({ kind: 'dealt', gameId: 5, seats: [student, other], firstBidder: 1 })],
-    ['lobby with no free seat', { type: 'lobby', rooms: [{ roomId: 'r7k2q', host: withClass, seatsFree: 0, bots: false, gamesPlayed: 0 }] }],
+    ['lobby with no free seat', { type: 'lobby', rooms: [{ roomId: 'r7k2q', host: withClass, seatsFree: 0, bots: false, students: 3, playing: false, gamesPlayed: 0 }] }],
     ['invite.ended for another reason', { type: 'invite.ended', inviteId: 3, reason: 'lost' }],
     ['room.left for another reason', { type: 'room.left', roomId: 'r7k2q', reason: 'kicked' }],
   ])('rejects %s', (_name, message) => {

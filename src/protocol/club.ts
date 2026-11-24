@@ -192,8 +192,10 @@ export const RoomCreateMessage = Type.Object({
 })
 
 /**
- * Enters a public room, or a room you were invited to. The `ack` has a `RoomResult`, `result: { room }`, the room's
- * `RoomState`; its room events follow.
+ * Enters a public room, or a room you were invited to. Bots give up their seats: a room whose seats are all taken may
+ * still have room for you when bots sit in it. Between games you take a bot's seat at once; while a game is being
+ * played you wait for one, listed in `RoomState.waiting`, and take it when the game ends (your own `joined` comes
+ * then). The `ack` has a `RoomResult`, `result: { room }`, the room's `RoomState`; its room events follow.
  */
 export const RoomJoinMessage = Type.Object({
   id: Id,
@@ -203,8 +205,9 @@ export const RoomJoinMessage = Type.Object({
 
 /**
  * Quick join: the server seats you in the public room with a free seat that is closest to full, or opens a public room
- * with you as its host when there is none. The `ack` has a `QuickJoinResult`, `result: { room, created }`: the room's
- * `RoomState`, and `created` true for a new room.
+ * with you as its host when there is none. A seat a bot sits in counts as free, so you may be seated in a bot's seat,
+ * or wait for one while a game is being played, as for `room.join`. The `ack` has a `QuickJoinResult`,
+ * `result: { room, created }`: the room's `RoomState`, and `created` true for a new room.
  */
 export const RoomQuickMessage = Type.Object({
   id: Id,
@@ -460,7 +463,9 @@ export const DoudizhuTable = Type.Object(
 /**
  * A room as it is now. `host` is the student number of the host. `seats` lists every seat of the room, a free one with
  * `player: null`; `online` is whether the player is connected (bots always are), `trustee` whether the server is acting
- * for them. `spectators` is how many are watching, `gamesPlayed` how many games the room has played. `closesAt` is when
+ * for them. `waiting` lists the students waiting for a bot's seat while a game is being played, in the order they came:
+ * when it ends they take the bots' seats (`left` with `replaced`, then `joined`); nobody is told when someone starts or
+ * stops waiting, so it is only as of this state. `spectators` is how many are watching, `gamesPlayed` how many games the room has played. `closesAt` is when
  * the club closes next, and `lastSeq` the `seq` of the room's last event, 0 when it has had none yet. `game` is the
  * game being played or just over, null before the first; each game's state is told apart by its `game` field.
  */
@@ -479,6 +484,7 @@ export const RoomState = Type.Object({
     }),
     { maxItems: 10 },
   ),
+  waiting: Type.Array(ClubPerson, { maxItems: 10 }),
   spectators: Count,
   gamesPlayed: Count,
   closesAt: DateTime,
@@ -547,8 +553,9 @@ export const DoudizhuEvent = Type.Union([
 
 /**
  * One thing that happened in a room, told apart by `kind`. `joined` and `left`: someone took or left a seat; `left`
- * says why: they left, they were asked out before an idle prompt for never getting ready (`not_ready`), or they were
- * disconnected while the room waited (`disconnected_idle`). `host`: the host is now `studentId`. `ready`: the seat is
+ * says why: they left, they were asked out before an idle prompt for never getting ready (`not_ready`), they were
+ * disconnected while the room waited (`disconnected_idle`), or a bot gave up its seat to a student (`replaced`), whose
+ * `joined` follows. `host`: the host is now `studentId`. `ready`: the seat is
  * ready for the next game. `bots`: bots took the seats `seats`. `idle`: the idle prompt: the room has waited too long,
  * so before `decideBy` someone sends `room.bots` to fill the free seats with bots, or the students go elsewhere; when
  * nobody chooses, the room closes. `react`: a reaction; `reaction` is its kind, `content` what was sent, and `text`
@@ -566,7 +573,12 @@ export const RoomEvent = Type.Union([
     kind: Type.Literal('left'),
     seat: ClubSeat,
     player: ClubPerson,
-    reason: Type.Union([Type.Literal('left'), Type.Literal('not_ready'), Type.Literal('disconnected_idle')]),
+    reason: Type.Union([
+      Type.Literal('left'),
+      Type.Literal('not_ready'),
+      Type.Literal('disconnected_idle'),
+      Type.Literal('replaced'),
+    ]),
   }),
   Type.Object({ kind: Type.Literal('host'), studentId: StudentId }),
   Type.Object({ kind: Type.Literal('ready'), seat: ClubSeat }),
@@ -778,8 +790,10 @@ export const ClubWelcomeMessage = Type.Object({
 })
 
 /**
- * The lobby: the public rooms that have a free seat and are not playing, at most 50. `seatsFree` is how many seats are
- * free, `bots` whether bots sit in the room.
+ * The lobby: the public rooms that have a free seat, at most 50, the fullest first. A seat a bot sits in counts as free
+ * (less one for each student waiting for one already), so a room where a game is being played (`playing`) is listed
+ * when bots sit in it. `seatsFree` is how many may still come in, `bots` whether bots sit in the room, `students` how
+ * many students are in it, seated or waiting for a seat.
  */
 export const LobbyMessage = Type.Object({
   type: Type.Literal('lobby'),
@@ -789,6 +803,8 @@ export const LobbyMessage = Type.Object({
       host: ClubPersonWithClass,
       seatsFree: Type.Integer({ minimum: 1, maximum: 9 }),
       bots: Type.Boolean(),
+      students: Count,
+      playing: Type.Boolean(),
       gamesPlayed: Count,
     }),
     { maxItems: 50 },

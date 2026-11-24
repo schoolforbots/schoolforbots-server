@@ -104,7 +104,7 @@ export class Invites {
     if (roomId === null) return fail('not_in_room')
     const target = targets(to)
     if (target === null || target.studentId !== to) return fail('not_member_target')
-    if (rooms.students(roomId).some((s) => s.email === target.email)) return fail('same_owner')
+    if (rooms.present(roomId).some((s) => s.email === target.email)) return fail('same_owner')
     // The same invitation out already: it stands, and nothing new is sent or counted.
     if (this.waiting(student.person.studentId, to, roomId, now)) return { ok: true }
     if (!this.mayInvite(student.person.studentId, 1, now)) return fail('invite_cap')

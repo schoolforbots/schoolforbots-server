@@ -660,7 +660,7 @@ npm run dev:club           # 再启动社团服务，改代码会自动重启
 - `connection`：社团连接的 `framesPerMinute`、`maxQueuedFrames`、`maxSendBufferKiB`，和 `classConnection` 的意思一样：`framesPerMinute` 也按学生计，同一个学生的所有连接合在一起算，用满额度后重连，新连接的 `hello` 也会收到 `rate_limited`，要等这一分钟过去。同一个地址的升级请求和无效钥匙的次数由顶层的 `wsHandshake` 限定（见“上课服务”），社团服务单独计数。
 - `inviteSeconds`：邀请等多久回答。`invitesPerDay`：每个学生每天（学校时区）最多发几个邀请。
 - `idleMinutes`：房间开了以后，或者一局打完以后，这么多分钟还没开局，就提示房间里的人；`idleDecideSeconds` 是给他们决定要不要陪练的时间，到时间没人选，房间关掉。桌子坐满、都准备好了、只等掉线的学生回来时，不提示，也不因为闲置关门，最多等到这个学生的座位到期（`disconnectGraceSeconds`）；座位空出来时已经闲置了 `idleMinutes` 分钟的，马上提示。
-- `disconnectGraceSeconds`：没在打牌时掉线，座位留多久。桌上的学生都在线才开局：有人掉线时，坐满、准备好了也不开，掉线的学生回来、凑齐了就开，到时间没回来就被请出房间。快速加入不进有学生掉线的房间。
+- `disconnectGraceSeconds`：没在打牌时掉线，座位留多久。桌上的学生都在线才开局：有人掉线时，坐满、准备好了也不开，掉线的学生回来、凑齐了就开，到时间没回来就被请出房间。在房间里等陪练让座的学生掉线，也保留这么久。快速加入不进有学生掉线的房间。
 - `maxSpectators`：一桌最多几个人观战。
 - `reactMinIntervalSeconds`、`reactsPerGame`：互动消息两条至少隔几秒，每局最多几条。
 - `timeBankSeconds`：每局的时间银行，一步超时以后从这里扣。

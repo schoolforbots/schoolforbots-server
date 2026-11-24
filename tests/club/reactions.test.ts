@@ -273,3 +273,19 @@ describe('a game failing to take a reaction', () => {
     expect(h.rooms.state(roomId, h.now)!.game!.phase).not.toBe('over')
   })
 })
+
+describe('a student waiting for a seat', () => {
+  test('may not react, nor be named, until they sit down', () => {
+    const h = partsHarness()
+    checkAck(h.rooms.create(A, { visibility: 'public', bots: true }, h.now), 'RoomResult')
+    const roomId = h.rooms.roomOf(1)!
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    expect(h.rooms.state(roomId, h.now)!.waiting.map((p) => p.studentId)).toEqual([2])
+    expectError(h.reactions.react(B, SMILE, h.now), 'react_not_allowed')
+    expectError(h.reactions.react(A, react({ kind: 'emoji', content: '😀', to: 2 }), h.now), 'react_not_allowed')
+    // A reaction to the whole table reaches them all the same.
+    h.outbox.clear()
+    checkAck(h.reactions.react(A, SMILE, h.now))
+    expect(reactsOf(h, 2)).toHaveLength(1)
+  })
+})

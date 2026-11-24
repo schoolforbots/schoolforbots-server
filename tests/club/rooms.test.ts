@@ -1019,3 +1019,205 @@ describe('a game hook that fails', () => {
     expect(starts[0]!.carry).toBeNull()
   })
 })
+
+describe('bots give up their seats', () => {
+  /** A public room of A and two bots, its first game started. */
+  const botRoom = (h: Harness): string =>
+    roomOf(checkAck(h.rooms.create(A, { visibility: 'public', bots: true }, h.now), 'RoomResult')).roomId
+  const seatEvents = (frames: RoomEventFrame[]) =>
+    frames.flatMap((f) =>
+      f.event.kind === 'left'
+        ? [`left:${f.event.seat}:${f.event.reason}:${f.event.player.displayName}`]
+        : f.event.kind === 'joined'
+          ? [`joined:${f.event.seat}:${f.event.player.studentId}`]
+          : [],
+    )
+  const who = (h: Harness, roomId: string) =>
+    h.rooms.state(roomId, h.now)!.seats.map((s) => s.player?.studentId ?? s.player?.displayName ?? null)
+
+  test('between games, a student takes a bot seat at once', () => {
+    const h = harness()
+    const roomId = botRoom(h)
+    playOut(h, roomId)
+    h.outbox.clear()
+    const room = roomOf(checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult'))
+    expect(room.seats.map((s) => s.player?.studentId ?? s.player?.displayName)).toEqual([1, 2, '陪练小二'])
+    expect(room.seats[1]).toMatchObject({ ready: true, online: true })
+    expect(room.waiting).toEqual([])
+    expect(seatEvents(h.outbox.eventsOf(1))).toEqual(['left:1:replaced:陪练小一', 'joined:1:2'])
+    // Its own `joined` is in the state it was given.
+    expect(h.outbox.of(2)).toEqual([])
+    expect(room.lastSeq).toBe(h.outbox.eventsOf(1).at(-1)!.seq)
+    // A gets ready, and the next game starts with B in it.
+    checkAck(h.rooms.ready(1, h.now))
+    expect(h.game.sessions).toHaveLength(2)
+    expect(h.rooms.state(roomId, h.now)!.game).not.toBeNull()
+    expect(who(h, roomId)).toEqual([1, 2, '陪练小二'])
+  })
+
+  test('during a game, a student waits for a bot seat, hears the game, and sits down when it ends', () => {
+    const h = harness()
+    const roomId = botRoom(h)
+    const room = roomOf(checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult'))
+    expect(room.waiting).toEqual([{ studentId: 2, displayName: '主人2家的小鱼2 #0002', bot: false }])
+    expect(room.seats.map((s) => s.player?.bot)).toEqual([false, true, true])
+    expect(h.rooms.roomOf(2)).toBe(roomId)
+    // The others are not told that B waits.
+    expect(seatEvents(h.outbox.eventsOf(1))).toEqual([])
+
+    const before = h.outbox.eventsOf(2).length
+    playOut(h, roomId)
+    const got = h.outbox.eventsOf(2).slice(before)
+    // B heard the game, but none of what is sent to a seat alone.
+    const over = got.findIndex((f) => f.event.kind === 'game' && f.event.event.kind === 'over')
+    expect(over).toBeGreaterThanOrEqual(0)
+    expect(h.outbox.of(2).filter((m) => m.type === 'hand' || m.type === 'your_turn')).toEqual([])
+    // Once the game is over, the bot gives up its seat to B, who is told too (no ack carries it).
+    expect(seatEvents(got.slice(over + 1))).toEqual(['left:1:replaced:陪练小一', 'joined:1:2'])
+    expect(seatEvents(h.outbox.eventsOf(1)).slice(-2)).toEqual(['left:1:replaced:陪练小一', 'joined:1:2'])
+    const after = h.rooms.state(roomId, h.now)!
+    expect(after.waiting).toEqual([])
+    expect(after.seats[1]).toMatchObject({ player: { studentId: 2 }, ready: true, online: true })
+    // Ready already: the next game waits for A alone.
+    checkAck(h.rooms.ready(2, h.now))
+    expect(h.game.sessions).toHaveLength(1)
+    checkAck(h.rooms.ready(1, h.now))
+    expect(h.game.sessions).toHaveLength(2)
+  })
+
+  test('as many wait as there are bots; the next one finds the room full', () => {
+    const h = harness()
+    const roomId = botRoom(h)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    const room = roomOf(checkAck(h.rooms.join(C, roomId, h.now), 'RoomResult'))
+    expect(room.waiting.map((p) => p.studentId)).toEqual([2, 3])
+    expectError(h.rooms.join(D, roomId, h.now), 'room_full')
+    expect(h.rooms.lobby().rooms).toEqual([])
+    playOut(h, roomId)
+    // In the order they came; no bot is left.
+    expect(who(h, roomId)).toEqual([1, 2, 3])
+    checkAck(h.rooms.ready(1, h.now))
+    expect(h.game.sessions).toHaveLength(2)
+    expect(h.rooms.state(roomId, h.now)!.seats.every((s) => s.player!.bot === false)).toBe(true)
+  })
+
+  test('nobody of the same owner as a student waiting comes in', () => {
+    const h = harness()
+    const roomId = botRoom(h)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    expectError(h.rooms.join(student(5, B.email), roomId, h.now), 'same_owner')
+  })
+
+  test('a student waiting plays no part: no turn, no trustee, no idle prompt; ready is no error', () => {
+    const h = harness()
+    const roomId = botRoom(h)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    const pass = { id: 'm', type: 'pass', game: 'doudizhu', turn: 1 } as Parameters<Harness['rooms']['gameMessage']>[1]
+    expectError(h.rooms.gameMessage(2, pass, h.now), 'not_your_turn')
+    expectError(h.rooms.trusteeOff(2, h.now), 'not_trustee')
+    expectError(h.rooms.bots(2, h.now), 'no_idle_prompt')
+    checkAck(h.rooms.ready(2, h.now))
+    expect(h.rooms.resend(2, h.now)).toEqual([])
+    expectError(h.rooms.create(B, { visibility: 'public', bots: false }, h.now), 'in_room')
+    expectError(h.rooms.quick(B, h.now), 'in_room')
+    expectError(h.rooms.join(B, roomId, h.now), 'in_room')
+  })
+
+  test('a student waiting may leave during the game; nobody else is told', () => {
+    const h = harness()
+    const roomId = botRoom(h)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    const before = h.outbox.eventsOf(1).length
+    checkAck(h.rooms.leave(2, h.now))
+    expect(leftMessages(h, 2)).toEqual([{ type: 'room.left', roomId, reason: 'left' }])
+    expect(h.outbox.eventsOf(1)).toHaveLength(before)
+    expect(h.rooms.roomOf(2)).toBeNull()
+    expect(h.rooms.state(roomId, h.now)!.waiting).toEqual([])
+    playOut(h, roomId)
+    expect(h.rooms.state(roomId, h.now)!.seats.map((s) => s.player!.bot)).toEqual([false, true, true])
+  })
+
+  test('the events replayed to a student waiting who comes back are the public ones', () => {
+    const h = harness()
+    const roomId = botRoom(h)
+    const lastSeq = roomOf(checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')).lastSeq
+    h.rooms.disconnected(2, h.now)
+    h.rooms.emit(roomId, { kind: 'ready', seat: 0 }, h.now, [1])
+    const pub = h.rooms.emit(roomId, { kind: 'ready', seat: 0 }, h.now)
+    h.rooms.reconnected(2, h.now)
+    expect(h.rooms.replay(2, roomId, lastSeq)!.map((f) => f.seq)).toEqual([pub])
+  })
+
+  describe('a student waiting who disconnects', () => {
+    const GRACE = 5
+
+    test('stops waiting once the grace ends', () => {
+      const h = harness({ club: { disconnectGraceSeconds: GRACE } })
+      const roomId = botRoom(h)
+      checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+      h.rooms.disconnected(2, h.now)
+      h.advance(GRACE - 1)
+      expect(h.rooms.roomOf(2)).toBe(roomId)
+      h.advance(1)
+      expect(h.rooms.roomOf(2)).toBeNull()
+      expect(h.rooms.state(roomId, h.now)!.waiting).toEqual([])
+    })
+
+    test('keeps their place when back within the grace', () => {
+      const h = harness({ club: { disconnectGraceSeconds: GRACE } })
+      const roomId = botRoom(h)
+      checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+      h.rooms.disconnected(2, h.now)
+      h.advance(GRACE - 1)
+      h.rooms.reconnected(2, h.now)
+      h.advance(GRACE * 2)
+      expect(h.rooms.roomOf(2)).toBe(roomId)
+    })
+
+    test('sits down away when the game ends first, the grace going on in the seat', () => {
+      const h = harness({ club: { disconnectGraceSeconds: GRACE } })
+      const roomId = botRoom(h)
+      checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+      h.rooms.disconnected(2, h.now)
+      playOut(h, roomId)
+      expect(h.rooms.state(roomId, h.now)!.seats[1]).toMatchObject({ player: { studentId: 2 }, online: false })
+      // The next game waits for B.
+      checkAck(h.rooms.ready(1, h.now))
+      expect(h.game.sessions).toHaveLength(1)
+      h.outbox.clear()
+      h.advance(GRACE)
+      expect(h.rooms.roomOf(2)).toBeNull()
+      expect(seatEvents(h.outbox.eventsOf(1))[0]).toBe('left:1:disconnected_idle:主人2家的小鱼2 #0002')
+    })
+  })
+
+  test('the club closing puts a student waiting out with the others, and seats nobody', () => {
+    const h = harness()
+    const roomId = botRoom(h)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    h.outbox.clear()
+    h.rooms.closeAll('club_closed', h.now)
+    expect(seatEvents(h.outbox.eventsOf(1))).toEqual([])
+    expect(h.outbox.eventsOf(2).at(-1)!.event).toEqual({ kind: 'closed', reason: 'club_closed' })
+    expect(leftMessages(h, 2)).toEqual([{ type: 'room.left', roomId, reason: 'closed' }])
+    expect(h.rooms.roomOf(2)).toBeNull()
+  })
+
+  test('an invite-only room with bots takes someone invited, who waits for a bot seat', () => {
+    const h = harness()
+    const roomId = openRoom(h, A, [B], 'invite')
+    h.advance(10 * 60)
+    checkAck(h.rooms.bots(1, h.now))
+    expectError(h.rooms.join(C, roomId, h.now), 'room_private')
+    const room = roomOf(checkAck(h.rooms.join(C, roomId, h.now, { invited: true }), 'RoomResult'))
+    expect(room.waiting.map((p) => p.studentId)).toEqual([3])
+  })
+
+  test('the listener hears of a student once they start waiting, so they stop watching', () => {
+    const seated: number[] = []
+    const h = harness({ listeners: { seated: (_, id) => seated.push(id) } })
+    const roomId = botRoom(h)
+    checkAck(h.rooms.join(B, roomId, h.now), 'RoomResult')
+    expect(seated).toEqual([1, 2])
+  })
+})
