@@ -1,7 +1,9 @@
 // Made-up answers of the admin API, built to the types in api.ts: the tests start from them (through test-api.ts),
 // and so does the mock school (mock/school.ts). Plain data, nothing of the test runner.
 import type {
+  ClubDay,
   DailyStats,
+  DoudizhuPage,
   DayNumbers,
   LessonDetail,
   LessonQueue,
@@ -291,5 +293,41 @@ export function notice(fields: Partial<NoticeView> = {}): NoticeView {
     updatedAt: null,
     createdAt: '2026-11-03T10:00:00.000Z',
     ...fields,
+  }
+}
+
+/** One day of the doudizhu club, all zeros unless `numbers` says otherwise. */
+export function clubDay(date: string, numbers: Partial<ClubDay> = {}): ClubDay {
+  return { date, games: 0, rankedGames: 0, players: 0, newMembers: 0, ...numbers }
+}
+
+/** The answer of `api/clubs/doudizhu` for `days` days ending yesterday, empty unless `page` says otherwise. */
+export function doudizhuPage(days: number, page: Partial<DoudizhuPage> = {}): DoudizhuPage {
+  const today = shiftDate(YESTERDAY, 1)
+  return {
+    enabled: true,
+    members: 0,
+    todaySoFar: clubDay(today),
+    sameTimeLastWeek: clubDay(shiftDate(today, -7)),
+    // 16:00 at the school (UTC+8), today.
+    asOf: `${today}T08:00:00.000Z`,
+    yesterday: clubDay(YESTERDAY),
+    sameDayLastWeek: clubDay(shiftDate(YESTERDAY, -7)),
+    series: Array.from({ length: days }, (_, i) => clubDay(shiftDate(YESTERDAY, i - days + 1))),
+    week: {
+      startsOn: '2026-11-02',
+      board: { entries: [], total: 0 },
+      conduct: {
+        seats: 0,
+        timedOut: { seats: 0, times: 0 },
+        trustee: { seats: 0, moves: 0 },
+        illegal: { seats: 0, moves: 0 },
+      },
+      sameAddress: { total: 0, games: [] },
+      pairs: [],
+    },
+    timeZone: 'Asia/Shanghai',
+    today,
+    ...page,
   }
 }

@@ -105,6 +105,21 @@ export type BoardStanding = Omit<Entry, 'rank'>
 export type RankedBoard = Pick<Leaderboard, 'entries' | 'me' | 'moreTied'>
 
 /**
+ * Every student on a board, in any order, ranked and in rank order: ranks are shared on equal points and the ones after
+ * skip as many, students with the same points listed by student number, lowest first. Pure.
+ */
+export function rankAll(standings: readonly BoardStanding[]): Entry[] {
+  const sorted = [...standings].sort((a, b) => b.points - a.points || a.studentId - b.studentId)
+  const ranked: Entry[] = []
+  for (const [i, s] of sorted.entries()) {
+    const before = ranked[i - 1]
+    const rank = before !== undefined && before.points === s.points ? before.rank : i + 1
+    ranked.push({ rank, ...s })
+  }
+  return ranked
+}
+
+/**
  * Ranks the students on a board, in any order, and picks what the board lists of them; `studentId` is the student
  * asking. Pure.
  *
@@ -120,13 +135,7 @@ export type RankedBoard = Pick<Leaderboard, 'entries' | 'me' | 'moreTied'>
  *   tied left out), null when they are in `entries` or not on the board.
  */
 export function rankBoard(standings: readonly BoardStanding[], studentId: number): RankedBoard {
-  const sorted = [...standings].sort((a, b) => b.points - a.points || a.studentId - b.studentId)
-  const ranked: Entry[] = []
-  for (const [i, s] of sorted.entries()) {
-    const before = ranked[i - 1]
-    const rank = before !== undefined && before.points === s.points ? before.rank : i + 1
-    ranked.push({ rank, ...s })
-  }
+  const ranked = rankAll(standings)
   const qualified = ranked.filter((e) => e.rank <= LEADERBOARD_TOP_RANK)
   const entries = qualified.slice(0, LEADERBOARD_MAX_ENTRIES)
   const last = entries[entries.length - 1]
@@ -153,6 +162,18 @@ export async function doudizhuLeaderboard(
   now: Date,
 ): Promise<Leaderboard> {
   const since = weekStart(now, config.timezone)
+  return {
+    board: 'week',
+    weekStartsOn: localDate(since, config.timezone),
+    ...rankBoard(await weekStandings(db, config, since), studentId),
+  }
+}
+
+/**
+ * Everyone on the week's board that started at `since`, unranked, in no order: the current members of the club with a
+ * ranked game since then, their points and games (see `doudizhuLeaderboard`).
+ */
+export async function weekStandings(db: Kysely<Database>, config: SchoolConfig, since: Date): Promise<BoardStanding[]> {
   // Summed in SQL: one row a member, never a row a game. A current member is in a class (active or suspended).
   const rows = await currentMembers(db, 'doudizhu')
     .innerJoin('classes as c', 'c.id', 's.classId')
@@ -171,18 +192,13 @@ export async function doudizhuLeaderboard(
       sql<string>`count(*)`.as('games'),
     ])
     .execute()
-  const standings: BoardStanding[] = rows.map((r) => ({
+  return rows.map((r) => ({
     studentId: r.id,
     displayName: clubDisplayName(r),
     className: className(r.division, r.slot, r.classNo, config),
     points: Number(r.points),
     games: Number(r.games),
   }))
-  return {
-    board: 'week',
-    weekStartsOn: localDate(since, config.timezone),
-    ...rankBoard(standings, studentId),
-  }
 }
 
 /**
