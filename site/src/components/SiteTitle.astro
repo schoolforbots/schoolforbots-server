@@ -1,0 +1,56 @@
+---
+// The school's logo and name, then what this site is: the same wordmark as the
+// website's top bar, with 接口文档 after it. The logo is the favicon file, so the
+// browser fetches it once.
+const { siteTitleHref, locale } = Astro.locals.starlightRoute
+const isEn = locale === 'en'
+---
+
+<a href={siteTitleHref} class="site-title wordmark" translate="no">
+  <img class="logo" src="/favicon.svg" alt="" width="24" height="24" />
+  <span class="name">{isEn ? 'School for Bots' : '机器人网校'}</span>
+  <span class="divider" aria-hidden="true"></span>
+  <span class="section">{isEn ? 'API' : '接口文档'}</span>
+</a>
+
+<style>
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: var(--sl-color-white);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .logo {
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    transition: transform 0.3s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .wordmark:hover .logo {
+    transform: rotate(-6deg) scale(1.06);
+  }
+  .name {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .divider {
+    width: 1px;
+    height: 1rem;
+    background: var(--sl-color-gray-5);
+  }
+  .section {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+  }
+  @media (max-width: 30rem) {
+    .divider,
+    .section {
+      display: none;
+    }
+  }
+</style>

@@ -1,0 +1,457 @@
+/*
+ * The docs site in the school's colours and type (tokens.css, copied from the
+ * website), but plainer than the website: paper white (night at night), no
+ * dado, no gradients. The accent only marks links, method badges and where you are.
+ */
+:root {
+  --sl-font: var(--sfb-font-body);
+  --sl-font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --sl-color-white: var(--sfb-ink);
+  --sl-color-gray-1: var(--sfb-ink);
+  --sl-color-gray-2: color-mix(in srgb, var(--sfb-ink) 60%, var(--sfb-mute));
+  --sl-color-gray-3: var(--sfb-mute);
+  --sl-color-gray-4: color-mix(in srgb, var(--sfb-mute) 55%, var(--sfb-line));
+  --sl-color-gray-5: var(--sfb-line);
+  --sl-color-gray-6: var(--sfb-bg-soft);
+  --sl-color-gray-7: var(--sfb-bg-soft);
+  --sl-color-black: var(--sfb-bg);
+
+  --sl-color-text: var(--sfb-ink);
+  --sl-color-text-accent: var(--sfb-link);
+  --sl-color-text-invert: var(--sfb-btn-ink);
+  --sl-color-bg: var(--sfb-bg);
+  --sl-color-bg-nav: color-mix(in srgb, var(--sfb-bg) 88%, transparent);
+  --sl-color-bg-sidebar: var(--sfb-bg);
+  --sl-color-bg-inline-code: color-mix(in srgb, var(--sfb-line) 55%, var(--sfb-bg));
+  --sl-color-bg-accent: var(--sfb-btn);
+  --sl-color-hairline-light: var(--sfb-line);
+  --sl-color-hairline: var(--sfb-line);
+  --sl-color-hairline-shade: var(--sfb-line);
+
+  --sl-color-accent-low: color-mix(in srgb, var(--sfb-btn) 12%, var(--sfb-bg));
+  --sl-color-accent: var(--sfb-btn);
+  --sl-color-accent-high: var(--sfb-btn-hover);
+
+  --sl-color-blue-low: var(--sfb-bg-soft);
+  --sl-color-blue: var(--sfb-mute);
+  --sl-color-blue-high: var(--sfb-ink);
+  --sl-color-green-low: color-mix(in srgb, var(--sfb-ok) 10%, var(--sfb-bg));
+  --sl-color-green: var(--sfb-ok);
+  --sl-color-green-high: var(--sfb-live-ink);
+  --sl-color-orange-low: color-mix(in srgb, var(--sfb-highlight) 10%, var(--sfb-bg));
+  --sl-color-orange: var(--sfb-highlight);
+  --sl-color-orange-high: var(--sfb-link);
+  --sl-color-red-low: color-mix(in srgb, var(--sfb-danger) 9%, var(--sfb-bg));
+  --sl-color-red: var(--sfb-danger);
+  --sl-color-red-high: var(--sfb-danger);
+
+  --sl-shadow-sm: 0 1px 2px rgb(90 40 8 / 0.06);
+  --sl-shadow-md: 0 10px 24px -16px rgb(90 40 8 / 0.28);
+  --sl-shadow-lg: 0 24px 48px -28px rgb(90 40 8 / 0.4);
+
+  --sl-nav-height: 3.75rem;
+  --sl-content-width: 48rem;
+
+  /* Method badges: quiet tints, one hue each. */
+  --method-get: #2F6B3A;
+  --method-get-bg: #E4F1E0;
+  --method-post: #8A4B0E;
+  --method-post-bg: #FBEAD3;
+  --method-patch: #2B5B84;
+  --method-patch-bg: #E0EAF4;
+  --method-put: #5B3E86;
+  --method-put-bg: #ECE4F5;
+  --method-delete: #9B2430;
+  --method-delete-bg: #F7E0E2;
+}
+
+:root[data-theme='dark'] {
+  --sl-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --sl-shadow-md: 0 10px 24px -16px rgb(0 0 0 / 0.7);
+  --sl-shadow-lg: 0 24px 48px -28px rgb(0 0 0 / 0.85);
+  --method-get: #BFE3B0;
+  --method-get-bg: #1E2D22;
+  --method-post: #F9C27D;
+  --method-post-bg: #33261A;
+  --method-patch: #A9CBEA;
+  --method-patch-bg: #1B2733;
+  --method-put: #CDB8EC;
+  --method-put-bg: #272033;
+  --method-delete: #FF9BA0;
+  --method-delete-bg: #391E21;
+}
+
+:root,
+::backdrop {
+  --sl-color-backdrop-overlay: rgb(31 20 16 / 0.28);
+}
+:root[data-theme='dark'],
+[data-theme='dark'] ::backdrop {
+  --sl-color-backdrop-overlay: rgb(0 0 0 / 0.5);
+}
+
+html {
+  scrollbar-color: color-mix(in srgb, var(--sfb-mute) 45%, transparent) transparent;
+  caret-color: var(--sfb-highlight);
+}
+::selection {
+  background: color-mix(in srgb, var(--sfb-highlight) 24%, transparent);
+}
+:focus-visible {
+  outline: 2px solid var(--sfb-focus);
+  outline-offset: 2px;
+}
+
+/* The top bar: frosted, with a hairline. */
+header.header {
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+}
+
+/* Links: the website's highlighter band, thinner. */
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--sfb-link);
+  text-decoration: none;
+  background: linear-gradient(var(--sfb-mark), var(--sfb-mark)) 0 100% / 100% 0.3em no-repeat;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-size 0.25s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  background-size: 100% 100%;
+}
+.sl-markdown-content a code {
+  color: inherit;
+}
+
+/* Headings: plain and close-set. */
+.sl-markdown-content :is(h2, h3) {
+  width: fit-content;
+  max-width: 100%;
+  letter-spacing: 0.005em;
+}
+.sl-markdown-content h2 {
+  margin-top: 2.75rem;
+  font-size: var(--sl-text-2xl);
+}
+.sl-markdown-content h2 + * {
+  margin-top: 0.75rem;
+}
+
+/* A route heading: the method badge, then the path in mono. */
+.method {
+  display: inline-block;
+  min-width: 3.4em;
+  padding: 0.15em 0.45em;
+  border-radius: 0.35em;
+  font-family: var(--sl-font-mono);
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-align: center;
+  vertical-align: 0.18em;
+  color: var(--method-get);
+  background: var(--method-get-bg);
+}
+.method-post { color: var(--method-post); background: var(--method-post-bg); }
+.method-patch { color: var(--method-patch); background: var(--method-patch-bg); }
+.method-put { color: var(--method-put); background: var(--method-put-bg); }
+.method-delete { color: var(--method-delete); background: var(--method-delete-bg); }
+
+.sl-markdown-content .route-heading {
+  font-size: var(--sl-text-xl);
+  overflow-wrap: anywhere;
+}
+.sl-markdown-content .route-heading .route-path {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.92em;
+  font-weight: 600;
+  color: var(--sl-color-white);
+}
+.sl-markdown-content h2.route-heading {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--sl-color-hairline);
+  width: auto;
+}
+.sl-markdown-content > h2.route-heading:first-child,
+.sl-markdown-content > :first-child + h2.route-heading {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* The tags under a route heading. */
+.route-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.sl-markdown-content .route-tags {
+  margin-top: 0.6rem;
+}
+.route-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.1em 0.6em;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 999px;
+  font-size: var(--sl-text-xs);
+  color: var(--sl-color-gray-2);
+}
+.route-tag::before {
+  content: '';
+  width: 0.45em;
+  height: 0.45em;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+.route-tag-key { color: var(--method-post); border-color: color-mix(in srgb, var(--method-post) 30%, transparent); }
+.route-tag-public { color: var(--sl-color-gray-3); }
+.route-tag-cors { color: var(--method-patch); border-color: color-mix(in srgb, var(--method-patch) 30%, transparent); }
+
+/* The method badges in the table of contents are smaller and the path is mono. */
+starlight-toc .method,
+mobile-starlight-toc .method {
+  min-width: 3.2em;
+  margin-inline-end: 0.15em;
+  font-size: 0.62rem;
+  vertical-align: 0.1em;
+}
+starlight-toc .toc-path {
+  font-family: var(--sl-font-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+/* Tables: the long error tables scroll sideways on narrow screens, with the code column kept in view. */
+.sl-markdown-content table {
+  display: table;
+  width: 100%;
+  font-size: var(--sl-text-sm);
+}
+.sl-markdown-content :is(th, td) {
+  vertical-align: top;
+  /* A run of codes joined by 、 has no break in it otherwise, and would stretch the table past the column. */
+  overflow-wrap: anywhere;
+}
+.sl-markdown-content td:first-child {
+  white-space: nowrap;
+}
+@media (max-width: 50rem) {
+  .sl-markdown-content table {
+    display: block;
+    overflow-x: auto;
+  }
+  .sl-markdown-content :is(td, th):first-child {
+    position: sticky;
+    left: 0;
+    background: var(--sl-color-bg);
+  }
+}
+
+/* Sidebar: quieter group labels, the current page on a soft 麦秆 block. */
+nav.sidebar .top-level > li > details > summary .large {
+  font-size: var(--sl-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+nav.sidebar a {
+  color: var(--sl-color-gray-2);
+  transition: color 0.15s ease;
+}
+nav.sidebar a[aria-current='page'],
+nav.sidebar a[aria-current='page']:hover,
+nav.sidebar a[aria-current='page']:focus {
+  color: var(--sl-color-white);
+  background: color-mix(in srgb, var(--sfb-mark) 70%, transparent);
+  font-weight: 600;
+}
+nav.sidebar .has-sidebar-mark a[aria-current='page'] {
+  background: transparent;
+}
+nav.sidebar .has-sidebar-mark {
+  position: relative;
+  isolation: isolate;
+}
+.sidebar-mark {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--sfb-mark) 70%, transparent);
+  box-shadow: inset 2px 0 0 var(--sfb-highlight);
+  pointer-events: none;
+}
+
+/* The table of contents: the current line is marked by a gliding bar (lib/motion.ts). */
+starlight-toc nav {
+  position: relative;
+}
+starlight-toc a {
+  color: var(--sl-color-gray-3);
+  transition: color 0.2s ease;
+}
+starlight-toc a:hover {
+  color: var(--sl-color-white);
+}
+starlight-toc a[aria-current='true'] {
+  color: var(--sl-color-white);
+}
+.has-toc-marker > ul {
+  border-inline-start: 1px solid var(--sl-color-hairline);
+}
+.toc-marker {
+  position: absolute;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--sfb-highlight);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The footer: no frills. */
+.pagination-links a {
+  border-color: var(--sl-color-hairline);
+  box-shadow: none;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.pagination-links a:hover {
+  border-color: var(--sl-color-gray-4);
+}
+
+/* The homepage draws its own title (components/Home.astro); hide the page title Starlight puts above it. */
+:root:has(.home) .content-panel:has(> .sl-container > h1#_top) {
+  display: none;
+}
+/* The status column of the error tables: enough room that "400（媒体类型不对是 415…）" does not stand one word a line. */
+.sl-markdown-content tr[id] td:nth-child(2) {
+  min-width: 8em;
+}
+
+/* ---------------------------------------------------------------------------
+ * Request bodies, replies and messages, drawn from the schemas (scripts/schema-render.mjs):
+ * a quiet card that opens to a field table and an example. */
+.sl-markdown-content details.schema {
+  margin-top: 1rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.6rem;
+  background: var(--sl-color-bg);
+}
+.sl-markdown-content details.schema + details.schema {
+  margin-top: 0.5rem;
+}
+details.schema > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--sl-text-sm);
+  border-radius: 0.6rem;
+  transition: background-color 0.15s ease;
+}
+details.schema > summary::-webkit-details-marker {
+  display: none;
+}
+details.schema > summary::before {
+  content: '›';
+  flex: none;
+  width: 0.8rem;
+  color: var(--sl-color-gray-3);
+  font-size: 1.15rem;
+  line-height: 1;
+  text-align: center;
+  transition: transform 0.22s var(--ease-out, ease);
+}
+details.schema[open]:not([data-closing]) > summary::before {
+  transform: rotate(90deg);
+}
+details.schema > summary:hover {
+  background: var(--sl-color-gray-6);
+}
+.schema-label {
+  color: var(--sl-color-gray-2);
+  font-weight: 600;
+}
+details.schema > summary code {
+  font-size: 0.95em;
+}
+.schema-src {
+  margin-inline-start: auto;
+  color: var(--sl-color-gray-4);
+  font-size: var(--sl-text-xs);
+  text-decoration: none;
+}
+.schema-src:hover {
+  color: var(--sfb-link);
+}
+.schema-body {
+  padding: 0 0.85rem 0.85rem;
+  border-top: 1px solid var(--sl-color-hairline);
+}
+.sl-markdown-content .schema-body > * + * {
+  margin-top: 0.75rem;
+}
+.sl-markdown-content table.schema-table {
+  margin-top: 0.75rem;
+  font-size: var(--sl-text-xs);
+}
+.sl-markdown-content table.schema-table :is(th, td) {
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+.sl-markdown-content table.schema-table th {
+  color: var(--sl-color-gray-3);
+  font-weight: 600;
+  background: transparent;
+}
+.sl-markdown-content table.schema-table td.schema-name {
+  padding-inline-start: calc(0.6rem + var(--d, 0) * 1.1rem);
+  white-space: nowrap;
+}
+.sl-markdown-content table.schema-table tr:not([style*='--d:0']) td.schema-name code::before {
+  content: '└ ';
+  color: var(--sl-color-gray-4);
+}
+.schema-type {
+  font-family: var(--sl-font-mono);
+  color: var(--method-patch);
+}
+.schema-note {
+  color: var(--sl-color-gray-3);
+}
+.schema-req {
+  color: var(--method-post);
+  white-space: nowrap;
+}
+.schema-opt {
+  color: var(--sl-color-gray-4);
+  white-space: nowrap;
+}
+.sl-markdown-content tr.schema-variant td {
+  padding-inline-start: calc(0.6rem + var(--d, 0) * 1.1rem);
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-gray-2);
+  font-family: var(--sl-font-mono);
+  font-size: 0.95em;
+}
+.schema-ex,
+.schema-cond,
+.schema-empty {
+  color: var(--sl-color-gray-3);
+  font-size: var(--sl-text-xs);
+}

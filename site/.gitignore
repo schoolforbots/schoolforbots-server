@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.astro/
+# Written by scripts/split-api.mjs from docs/api*.md, CHANGELOG.md and protocol/; only the homepages are by hand.
+src/content/docs/*
+!src/content/docs/index.mdx
+!src/content/docs/en/
+src/content/docs/en/*
+!src/content/docs/en/index.mdx
+public/protocol/

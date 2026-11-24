@@ -1,0 +1,32 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro'
+import { version, releaseUrl, repo } from '../lib/version.mjs'
+
+const isEn = Astro.locals.starlightRoute.locale === 'en'
+---
+
+<Default><slot /></Default>
+<p class="version-line">
+  {isEn ? 'Server version ' : '对应服务器版本 '}<a href={releaseUrl}>{version}</a>
+  <span aria-hidden="true">·</span>
+  {isEn ? 'Source: ' : '源文件 '}<a href={`${repo}/blob/${version}/docs/${isEn ? 'api.en.md' : 'api.md'}`}><code>docs/{isEn ? 'api.en.md' : 'api.md'}</code></a>
+</p>
+
+<style>
+  .version-line {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+  .version-line a {
+    color: inherit;
+  }
+  .version-line a:hover {
+    color: var(--sl-color-white);
+  }
+  .version-line span {
+    margin-inline: 0.4em;
+  }
+</style>

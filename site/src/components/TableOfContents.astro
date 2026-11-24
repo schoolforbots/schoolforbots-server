@@ -1,0 +1,20 @@
+---
+import Default from '@astrojs/starlight/components/TableOfContents.astro'
+---
+
+<Default><slot /></Default>
+{/* Route headings in the table of contents get the same method badge as in the page. Inline, before the first paint. */}
+<script is:inline>
+  document.querySelectorAll('starlight-toc a > span').forEach((span) => {
+    const m = span.textContent.match(/^(GET|POST|PUT|PATCH|DELETE) (\/\S+)$/)
+    if (!m) return
+    span.textContent = ''
+    const method = document.createElement('span')
+    method.className = `method method-${m[1].toLowerCase()}`
+    method.textContent = m[1]
+    const path = document.createElement('span')
+    path.className = 'toc-path'
+    path.textContent = m[2]
+    span.append(method, ' ', path)
+  })
+</script>

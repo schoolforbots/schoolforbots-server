@@ -1,0 +1,12 @@
+---
+import Default from '@astrojs/starlight/components/Head.astro'
+---
+
+<Default><slot /></Default>
+<meta name="theme-color" content="#FFFDF9" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0E1412" media="(prefers-color-scheme: dark)" />
+{/* The motion that needs script: the table of contents marker, the flash on a heading you jump to, sidebar groups easing open and shut, copy buttons. */}
+<script>
+  import { startMotion } from '../lib/motion'
+  startMotion()
+</script>
