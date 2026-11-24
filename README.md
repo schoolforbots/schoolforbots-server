@@ -294,7 +294,16 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 
 每个容器都有内存上限（`mem_limit`）：三个 Node 服务各 512 MiB（堆上限 320 MiB，`NODE_OPTIONS`），`postgres` 512 MiB，`caddy` 1 GiB（每条 WebSocket 连接都经过它，4000 条时约用 600 MiB），`backup` 256 MiB，`watchdog` 64 MiB，上限之外不许再用交换空间。哪个服务超了，只有它被杀掉、再被拉起来，不会把整台机器的内存用光、连累数据库。三个 Node 服务都以 `init: true` 运行，启动途中收到的 TERM 也能送到；`registration` 和 `class` 的停止宽限是 20 秒。服务器内存比 2 GiB 大或者小很多时，按比例调这些数。
 
-镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每次合进 `main` 都会构建它并跑 `deploy/smoke-test.sh`，通过后推到 `ghcr.io/schoolforbots/server`；同时还会跑恢复演练（`deploy/backup/drill.sh`），但它不拦发布，演练失败只在 Actions 里看得到。推送的镜像带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。拉取请求改到了进镜像的东西或 `deploy/` 里的文件时，也会跑这两项检查。部署请用 `sha-…` 标签，这样知道跑的是哪一版；`main` 每次合并都会移动。要退回上一版，用同样的方法部署之前的 `sha-…` 标签（见下面）。GitHub 新建的包不是公开的：第一次推送之后，要在 GitHub 上这个包的设置里（“Change visibility”）把它设为公开；在此之前不登录就拉不下这个镜像。
+镜像由 `image` 工作流（`.github/workflows/image.yml`）构建和发布：每次合进 `main` 都会构建它并跑 `deploy/smoke-test.sh`，通过后推到 `ghcr.io/schoolforbots/server`；同时还会跑恢复演练（`deploy/backup/drill.sh`），但它不拦发布，演练失败只在 Actions 里看得到。推送的镜像带两个标签：`sha-<提交号前 7 位>`（固定的版本）和 `main`（最新的 main）。拉取请求改到了进镜像的东西或 `deploy/` 里的文件时，也会跑这两项检查。正式环境只部署发布过的版本，用版本标签 `vX.Y.Z`，见下面的“发布”；`main` 每次合并都会移动，不要拿它部署。要退回上一版，用同样的方法部署之前的版本标签（见下面）。GitHub 新建的包不是公开的：第一次推送之后，要在 GitHub 上这个包的设置里（“Change visibility”）把它设为公开；在此之前不登录就拉不下这个镜像。
+
+### 发布
+
+版本号按[语义化版本](https://semver.org/lang/zh-CN/)，由 `release` 工作流（`.github/workflows/release.yml`）里的 [release-please](https://github.com/googleapis/release-please) 按约定式提交算出来：`feat` 升中间一位，`fix` 和 `perf` 升最后一位，`feat!` 或 `BREAKING CHANGE` 升第一位。接口路径里的 `/v1` 是另一回事，只在接口有不兼容的改动时才升。
+
+- 每次合进 `main`，release-please 会更新一个“发布”拉取请求（标题是 `chore(main): release X.Y.Z`），里面是 `package.json` 的新版本号和 `CHANGELOG.md` 的新一段。
+- 要发布时，合并这个拉取请求：提交被打上 `vX.Y.Z` 标签，GitHub 上建一个 Release；这个提交在 `image` 工作流里构建好的 `sha-…` 镜像，也会被打上 `vX.Y.Z` 标签，不重新构建。
+- 部署用 `deploy/deploy.sh vX.Y.Z`，服务器上的 `deploy/` 用同一个标签的。
+- 工作流用组织里一个 GitHub App 的令牌开拉取请求（仓库变量 `RELEASE_APP_ID`、密钥 `RELEASE_APP_PRIVATE_KEY`，App 要有 Contents 和 Pull requests 的读写权限）：用 `GITHUB_TOKEN` 开的拉取请求不会触发其他工作流，必需的检查就不会跑。
 
 把 `deploy/env.example` 复制成 `deploy/.env`，把 `deploy/backup.env.example` 复制成 `deploy/backup.env`，都填好。`env.example` 列的是 compose 自己要的变量，和正式运行的学校要设的服务变量；其余的变量见根目录的 `.env.example` 和上面的“环境变量”。`backup.env` 放备份的设置（见下面的“备份”），只有 `backup` 服务读它，所以能删备份的存储密钥到不了面向互联网的那些服务。真实的 `school.json`、`prompts/`、`moderation/` 和社团的词表放在服务器上的一个文件夹里，`SCHOOL_PRIVATE_DIR` 指向它，它只读挂载到 `/app/private`。这两个环境变量文件和这个文件夹都不提交。
 
@@ -302,7 +311,7 @@ npm run words:tidy -- --out .sim/word-list-suggestions.md [--batch 200]
 
 部署时还要注意：
 
-- 服务器上 `deploy/` 里的文件，要和部署的镜像标签出自同一个提交（`sha-abc1234` 就是提交 `abc1234`）：compose 文件、脚本和镜像是配套的。
+- 服务器上 `deploy/` 里的文件，要和部署的镜像标签出自同一个提交（`v1.0.0` 就是打了这个标签的提交，`sha-abc1234` 就是提交 `abc1234`）：compose 文件、脚本和镜像是配套的。
 - `deploy.sh` 的最后一步让 Caddy 用上 `deploy/` 里的 `Caddyfile`：`Caddyfile` 是按单个文件挂进容器的，换成一个新文件（解压新版本、`git` 检出、有的编辑器保存时都是这样）以后，正在跑的容器看不到它，这时重建 Caddy；否则让 Caddy 重新读一次，文件没变时什么也不改，连接也不断。不跑 `deploy.sh`、只改了 `Caddyfile` 时，在 `deploy/` 里运行 `docker compose up -d --force-recreate caddy`。
 - `SCHOOL_PRIVATE_DIR` 这个文件夹和里面的所有文件，都要让 uid 1000（镜像里的 `node` 用户）读得到。
 - 第一次启动时用 `--now` 没有关系：还没有课要等。

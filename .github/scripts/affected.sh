@@ -39,6 +39,8 @@ else
       # Read by nothing in CI.
       .github/ISSUE_TEMPLATE/* | .github/pull_request_template.md | .github/CODEOWNERS | .github/dependabot.yml) ;;
       LICENSE | .env.example | admin/DESIGN.md) ;;
+      # Read by the release workflow only.
+      release-please-config.json | .release-please-manifest.json) ;;
       # Tested, and built into the image. The drill also seeds its database with src/tools/dev-seed.ts.
       src/*) backend=true image=true ;;
       # Read by the typecheck or the tests only: the tests compare protocol/ with the schemas the code exports, and
