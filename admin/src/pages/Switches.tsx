@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Checkbox, Input, TextArea } from '../ui.js'
+import { Badge, Button, Card, Checkbox, Input, TextArea, Tip } from '../ui.js'
 import { useId, useRef, useState, type RefObject } from 'react'
 import {
   MAINTENANCE_PATH,
@@ -106,17 +106,17 @@ function SwitchRow({ state, onChanged }: { state: SwitchState; onChanged: (state
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 id={titleId} className="text-sm font-medium text-gray-900">
+              <h3 id={titleId} className="text-base font-semibold text-gray-900">
                 {name}
               </h3>
               <Badge tone={state.on ? 'green' : 'gray'}>{state.on ? '现在开着' : '现在关着'}</Badge>
+              {/* What it does on and off is explained in the tip; the badge says where it stands. */}
+              <Tip about={name}>
+                <span className="block">{effects.on}</span>
+                <span className="mt-1 block">{effects.off}</span>
+              </Tip>
             </div>
-            <ul className="mt-2 space-y-1 text-sm">
-              {/* The effect in force now reads darker than the other. */}
-              <li className={state.on ? 'text-gray-900' : 'text-gray-500'}>{effects.on}</li>
-              <li className={state.on ? 'text-gray-500' : 'text-gray-900'}>{effects.off}</li>
-            </ul>
-            <p className="mt-2 text-xs text-gray-600">
+            <p className="mt-1 text-xs text-gray-600">
               {state.updatedAt === null
                 ? '还没切换过，用的是配置里的默认值。'
                 : `最近一次切换：${moment(state.updatedAt, zone)}`}
@@ -189,25 +189,25 @@ function MaintenanceRow({ read }: { read: Loaded<{ maintenance: MaintenanceState
 
   return (
     <section
-      className={'rounded-lg border p-6 ' + (under ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200 bg-white')}
+      className={'lift rounded-lg border p-5 ' + (under ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200 bg-white')}
       aria-labelledby={titleId}
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 id={titleId} className="text-base font-semibold text-gray-900">
+            <h2 id={titleId} className="text-lg font-bold text-gray-900">
               维护中
             </h2>
             {read.data !== undefined && (
               <Badge tone={under ? 'yellow' : 'gray'}>{turningOn ? '现在没在维护' : '现在维护中'}</Badge>
             )}
+            <Tip about="维护">
+              <span className="block">
+                维护中：上课服务和社团服务都不让任何人进，在线的插件都会被断开，社团里打到一半的牌局由托管替所有人打完；校历接口把说明和预计恢复时间告诉插件。
+              </span>
+              <span className="mt-1 block">没在维护：一切照常。</span>
+            </Tip>
           </div>
-          <ul className="mt-2 space-y-1 text-sm">
-            <li className={under ? 'text-gray-900' : 'text-gray-500'}>
-              维护中：上课服务和社团服务都不让任何人进，在线的插件都会被断开，社团里打到一半的牌局由托管替所有人打完；校历接口把说明和预计恢复时间告诉插件。
-            </li>
-            <li className={under ? 'text-gray-500' : 'text-gray-900'}>没在维护：一切照常。</li>
-          </ul>
         </div>
         {read.data !== undefined && (
           <div className="flex shrink-0 gap-2">

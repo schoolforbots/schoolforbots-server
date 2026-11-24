@@ -18,7 +18,7 @@ import { LessonQueue } from '../components/LessonQueue.js'
 import { Empty, Failed, Loading } from '../components/States.js'
 import { FAILURE, slotTone } from '../components/lesson/look.js'
 import { dayName, sentence, slotStatus } from '../labels.js'
-import { Badge, Card } from '../ui.js'
+import { Badge, Card, Tip } from '../ui.js'
 
 // The review page (审课): the list of the days ahead on the left, the chosen lesson on the right. It opens on the first
 // lesson awaiting review; approving one moves on to the next. The list is the layout's own (`queue`), so the count
@@ -113,41 +113,44 @@ function LessonPane({
 function MissingLesson({ date, slot, queue }: { date: string; slot: QueueSlot; queue: Queue }) {
   const titleId = useId()
   const failed = slot.generationFailed
-  let next: string
-  if (slot.locked) next = '这一天已经开课，没有课的学部那天改上了自习。'
+  // Why, and what comes next: a fixed sentence for each case, in a tip beside "这节课还没有生成".
+  let aside: string | undefined
+  if (slot.locked) aside = '这一天已经开课，没有课的学部那天改上了自习。'
   else if (date === queue.today) {
-    next =
+    aside =
       '系统只给明天以后的上学日备课，今天的课不会再自动生成了。要今天上这节课，用左边这一行的“复制提示词”和“粘贴结果”补上，' +
       '赶在开门前审过；不然这个学部今天上自习。'
   } else if (queue.mode === 'manual') {
-    next = '用左边这一行的“复制提示词”把提示词交给大模型，再点“粘贴结果”，把回复整段贴回来。'
+    aside = '用左边这一行的“复制提示词”把提示词交给大模型，再点“粘贴结果”，把回复整段贴回来。'
   } else if (aheadOfGeneration(queue, date)) {
-    next =
+    aside =
       '离上课还早：系统只给今天之后几天里的上学日自动备课（天数是学校配置里的 lessonGeneration.horizonDays，示例配置是 7 天），' +
       '等这一天进了这个范围才会生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；' +
       '也可以先给这一天定个题目，到时按题目生成。'
   } else if (failed !== null) {
-    next = '系统会接着重试；等不及的话，用左边这一行的“复制提示词”和“粘贴结果”手动补上。'
-  } else next = '系统会自动生成这节课，生成好以后出现在这里等你审。'
+    aside = '系统会接着重试；等不及的话，用左边这一行的“复制提示词”和“粘贴结果”手动补上。'
+  } else aside = '系统会自动生成这节课，生成好以后出现在这里等你审。'
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white" aria-labelledby={titleId}>
+    <section className="lift rounded-lg border border-gray-200 bg-white" aria-labelledby={titleId}>
       <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-6 py-5">
-        <h2 id={titleId} className="text-lg font-semibold text-gray-900">
+        <h2 id={titleId} className="text-lg font-bold text-gray-900">
           {dayName(date)} {slot.label}
         </h2>
         <Badge tone={slotTone(slot)}>{slotStatus(slot)}</Badge>
       </div>
       {/* HyperUI's empty state: what is not there, why, and what comes next. */}
       <div className="space-y-3 px-6 py-10 text-sm text-gray-700">
-        <p className="text-base font-medium text-gray-900">这节课还没有生成。</p>
+        <div className="flex items-center gap-2">
+          <p className="text-base font-medium text-gray-900">这节课还没有生成。</p>
+          {aside !== undefined && <Tip about="这节课">{aside}</Tip>}
+        </div>
         {slot.topic !== null && <p>这一天的题目：《{slot.topic}》，生成时会用上。</p>}
         {failed !== null && (
           <p className={FAILURE}>
             生成失败，试了 {failed.attempts} 次。最后一次的原因：{sentence(failed.lastError)}
           </p>
         )}
-        <p>{next}</p>
       </div>
     </section>
   )
@@ -166,7 +169,7 @@ function AllReviewed({ queue, focused }: { queue: Queue; focused: boolean }) {
   useEffect(() => void (focused && done.current?.focus()), [])
   return (
     // HyperUI's empty state, centred in the card.
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-gray-200 bg-white px-6 py-16 text-center">
+    <div className="flex flex-col items-center gap-3 lift rounded-lg border border-gray-200 bg-white px-6 py-16 text-center">
       <span aria-hidden="true" className="grid size-12 place-content-center rounded-full bg-green-100 text-green-700">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="size-6">
           <path d="m4.5 10.5 3.5 3.5 7.5-8" strokeLinecap="round" strokeLinejoin="round" />

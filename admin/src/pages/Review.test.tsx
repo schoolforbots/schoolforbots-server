@@ -345,11 +345,10 @@ describe('the review page', () => {
     expect(day('11 月 5 日（周四）').queryByRole('button', { name: '粘贴结果' })).toBeNull()
 
     await user.click(ahead.getAllByRole('button', { name: /^小学部/ })[0]!)
-    expect(
-      await screen.findByText(
-        '离上课还早：系统只给今天之后几天里的上学日自动备课（天数是学校配置里的 lessonGeneration.horizonDays，示例配置是 7 天），等这一天进了这个范围才会生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；也可以先给这一天定个题目，到时按题目生成。',
-      ),
-    ).toBeInTheDocument()
+    // Why it is not made yet is an explanation: in the tip beside "这节课还没有生成".
+    expect(await screen.findByRole('button', { name: '这节课的说明' })).toHaveAccessibleDescription(
+      '离上课还早：系统只给今天之后几天里的上学日自动备课（天数是学校配置里的 lessonGeneration.horizonDays，示例配置是 7 天），等这一天进了这个范围才会生成这节课。想自己定内容，现在就可以用左边这一行的“复制提示词”和“粘贴结果”补上；也可以先给这一天定个题目，到时按题目生成。',
+    )
   })
 
   it('says a lesson of today will not be made again for its new topic', async () => {

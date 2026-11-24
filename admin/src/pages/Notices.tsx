@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Input, PageActions, RadioGroup, TABLE, TBODY, TD, TH, TextArea, type Tone } from '../ui.js'
+import { Badge, Button, Card, Input, PageActions, RadioGroup, TABLE, TBODY, TD, TH, TextArea, Tip, type Tone } from '../ui.js'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import {
   createNotice,
@@ -102,15 +102,42 @@ type Action = 'save' | 'publish' | 'withdraw'
 const STATUS_TONES: Record<NoticeView['status'], Tone> = { draft: 'gray', published: 'green', withdrawn: 'yellow' }
 
 const LABEL = 'block text-sm font-medium text-gray-700'
-const HINT = 'mt-1 text-xs text-gray-600'
 
-/** One part of the form, as the settings template draws it: what it is on the left, its fields on the right. */
-function FormSection({ title, about, children }: { title: string; about: string; children: ReactNode }) {
+/** A field's label with the tip that explains the field beside it. */
+function LabelWithTip({ htmlFor, label, tip }: { htmlFor: string; label: string; tip: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className={LABEL} htmlFor={htmlFor}>
+        {label}
+      </label>
+      <Tip about={label}>{tip}</Tip>
+    </div>
+  )
+}
+
+/**
+ * One part of the form, as the settings template draws it: what it is on the left, its fields on the right. `about`
+ * explains the part, in a tip beside its title; `note` is a line that stays on the page (one that holds a value).
+ */
+function FormSection({
+  title,
+  about,
+  note,
+  children,
+}: {
+  title: string
+  about?: string
+  note?: string
+  children: ReactNode
+}) {
   return (
     <div className="grid grid-cols-3 gap-6 py-6">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-        <p className="mt-1 text-sm text-gray-600">{about}</p>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          {about !== undefined && <Tip about={title}>{about}</Tip>}
+        </div>
+        {note !== undefined && <p className="mt-1 text-sm text-gray-600">{note}</p>}
       </div>
       <div className="col-span-2 space-y-4">{children}</div>
     </div>
@@ -138,11 +165,9 @@ function NoticeEditor({
     title: useId(),
     heading: useId(),
     body: useId(),
-    bodyHint: useId(),
     starts: useId(),
     ends: useId(),
     published: useId(),
-    publishedHint: useId(),
   }
   const heading = useFocusOnMount<HTMLHeadingElement>()
   const [notice, setNotice] = useState(initial)
@@ -324,10 +349,10 @@ function NoticeEditor({
   )
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white" aria-labelledby={ids.heading}>
+    <section className="lift rounded-lg border border-gray-200 bg-white" aria-labelledby={ids.heading}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-6 py-4">
         <div className="flex items-center gap-3">
-          <h2 id={ids.heading} ref={heading} tabIndex={-1} className="text-base font-semibold text-gray-900">
+          <h2 id={ids.heading} ref={heading} tabIndex={-1} className="text-lg font-bold text-gray-900">
             {notice === null ? '写新公告' : '编辑公告'}
           </h2>
           <Badge tone={status === null ? 'gray' : STATUS_TONES[status]}>
@@ -359,7 +384,7 @@ function NoticeEditor({
             </fieldset>
           </FormSection>
           {(maintenance || wasOut) && (
-            <FormSection title="时间" about={`时间都按学校时区（${zone}）填写。`}>
+            <FormSection title="时间" note={`时间都按学校时区（${zone}）填写。`}>
               {maintenance && (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -390,40 +415,36 @@ function NoticeEditor({
               )}
               {wasOut && (
                 <div>
-                  <label className={LABEL} htmlFor={ids.published}>
-                    发布时间
-                  </label>
+                  <LabelWithTip
+                    htmlFor={ids.published}
+                    label="发布时间"
+                    tip="第一次发布的时间，撤下再发布不变。补发的公告可以改早，不能晚于现在。"
+                  />
                   <Input
                     id={ids.published}
                     type="datetime-local"
                     className="mt-1"
-                    aria-describedby={ids.publishedHint}
                     value={published}
                     onChange={(event) => setPublished(event.target.value)}
                   />
-                  <p id={ids.publishedHint} className={HINT}>
-                    第一次发布的时间，撤下再发布不变。补发的公告可以改早，不能晚于现在。
-                  </p>
                 </div>
               )}
             </FormSection>
           )}
-          <FormSection title="正文" about={`最多 ${MAX_BODY} 字。右边的预览就是网站上的样子。`}>
+          <FormSection title="正文">
             <div>
-              <label className={LABEL} htmlFor={ids.body}>
-                正文
-              </label>
+              <LabelWithTip
+                htmlFor={ids.body}
+                label="正文"
+                tip={`最多 ${MAX_BODY} 字。空一行分段；行首写“- ”是列表；**加粗**；[文字](https://…) 是链接，只认 https://，地址里的 ) 要写成 %29。别的写法照原样显示。右边的预览就是网站上的样子。`}
+              />
               <TextArea
                 id={ids.body}
                 className="mt-1"
-                aria-describedby={ids.bodyHint}
                 value={body}
                 autoSize={{ minRows: 8, maxRows: 20 }}
                 onChange={(event) => setBody(event.target.value)}
               />
-              <p id={ids.bodyHint} className={HINT}>
-                最多 {MAX_BODY} 字。空一行分段；行首写“- ”是列表；**加粗**；[文字](https://…) 是链接，只认 https://，地址里的 ) 要写成 %29。别的写法照原样显示。
-              </p>
             </div>
           </FormSection>
         </div>

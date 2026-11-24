@@ -213,7 +213,7 @@ describe('the weekly review page', () => {
     fakeServer({ [WEEK]: ok(weeklyPage({ stats: busyStats() })), [WEEKS]: ok({ weeks: [] }) })
     const { unmount } = show(<Weekly />)
     const notYet = '这一周还没有复盘，下面的数字是现在算的。大模型的两项建议，要等每周一 0 点复盘上一周时才有。'
-    expect(await screen.findByText(notYet)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '复盘的说明' })).toHaveAccessibleDescription(notYet)
     expect(section('课程').getByText('还没有复盘，没有归纳。')).toBeInTheDocument()
     expect(section('审核').getByText('还没有复盘，没有建议。')).toBeInTheDocument()
     unmount()

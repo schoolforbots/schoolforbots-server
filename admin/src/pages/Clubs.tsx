@@ -4,7 +4,7 @@ import { LineChart, type Series } from '../components/LineChart.js'
 import { Empty, Failed, Loading } from '../components/States.js'
 import { CELL, DataTable, NUM, NumberTable, ROW_HEAD } from '../components/Tables.js'
 import { clockTime, count, dayName, percent, weekdayOf, weekMoment } from '../labels.js'
-import { Badge, Button, Card, PageActions, Segmented, type Tone } from '../ui.js'
+import { Badge, Button, Card, PageActions, Segmented, Tip, type Tone } from '../ui.js'
 
 // The clubs page: a tab for each club, since each has numbers of its own. Doudizhu's: today so far and yesterday next
 // to the same day a week before, the daily curves of the last 7, 30 or 90 days up to yesterday, and this week's board
@@ -14,7 +14,7 @@ import { Badge, Button, Card, PageActions, Segmented, type Tone } from '../ui.js
 const CLUBS: { key: ClubKey; name: string }[] = [{ key: 'doudizhu', name: '斗地主社' }]
 const RANGES: StatsDays[] = [7, 30, 90]
 // The first colours of the school-data page's charts.
-const LINE_COLORS = ['#4f46e5', '#f59e0b', '#10b981']
+const LINE_COLORS = ['#167d8d', '#f59e0b', '#10b981']
 
 const compactCount = (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact' }).format(value)
 
@@ -43,7 +43,7 @@ function Tiles({ labelId, day, before, members }: { labelId: string; day: ClubDa
         return (
           <article
             key={tile.key}
-            className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5"
+            className="flex flex-col gap-3 lift rounded-lg border border-gray-200 bg-white p-5"
             role="group"
             aria-labelledby={`${labelId}-${tile.key}`}
           >
@@ -69,15 +69,17 @@ function Tiles({ labelId, day, before, members }: { labelId: string; day: ClubDa
       })}
       {members !== undefined && (
         <article
-          className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5"
+          className="flex flex-col gap-3 lift rounded-lg border border-gray-200 bg-white p-5"
           role="group"
           aria-labelledby={`${labelId}-members`}
         >
-          <strong id={`${labelId}-members`} className="block text-sm font-medium text-gray-600">
-            现在的社员
-          </strong>
+          <div className="flex items-center gap-2">
+            <strong id={`${labelId}-members`} className="block text-sm font-medium text-gray-600">
+              现在的社员
+            </strong>
+            <Tip about="现在的社员">退社会删掉记录，所以退社人数算不出来。</Tip>
+          </div>
           <span className="text-2xl font-medium text-gray-900 tabular-nums">{count(members)}</span>
-          <p className="-mt-2 text-xs text-gray-600">退社会删掉记录，所以退社人数算不出来</p>
         </article>
       )}
     </div>
@@ -93,16 +95,15 @@ function Board({ page }: { page: DoudizhuPage }) {
   return (
     <Card
       title={`本周积分榜（${dayName(page.week.startsOn)}起）`}
-      description={
-        board.total === 0
-          ? undefined
-          : `共 ${count(board.total)} 位社员本周下过没有机器人的对局${more > 0 ? `，这里列前 ${board.entries.length} 位` : ''}。名次和学生看到的榜一样：同分同名次。`
-      }
+      description="只算没有机器人的对局。名次和学生看到的榜一样：同分同名次。"
     >
       {board.total === 0 ? (
         <Empty why="本周还没有社员下过没有机器人的对局。" />
       ) : (
         <div className="mt-4">
+          <p className="mb-2 text-sm text-gray-600">
+            {`共 ${count(board.total)} 位社员本周下过没有机器人的对局${more > 0 ? `，这里列前 ${board.entries.length} 位` : ''}。`}
+          </p>
           <DataTable caption="本周积分榜" quietCaption head={['名次', '学生', '班级', '积分', '对局']} numeric={[0, 3, 4]}>
             {board.entries.map((entry) => (
               <tr key={entry.studentId}>
@@ -151,12 +152,15 @@ function SameAddress({ page }: { page: DoudizhuPage }) {
   return (
     <Card
       title="本周同一个网络地址坐了两个座位的对局"
-      description={`同一个地址可能是一家人或同一个网络，只供参考，要结合下面的同桌次数一起看；地址本身不显示。${more > 0 ? `共 ${count(sameAddress.total)} 局，这里列最近 ${sameAddress.games.length} 局。` : ''}`}
+      description="同一个地址可能是一家人或同一个网络，只供参考，要结合同桌次数一起看；地址本身不显示。"
     >
       {sameAddress.total === 0 ? (
         <Empty why="本周没有这样的对局。" />
       ) : (
         <div className="mt-4">
+          {more > 0 && (
+            <p className="mb-2 text-sm text-gray-600">{`共 ${count(sameAddress.total)} 局，这里列最近 ${sameAddress.games.length} 局。`}</p>
+          )}
           <DataTable caption="同一个网络地址的对局" quietCaption wide head={['局号', '结束时间', '机器人', '同一个地址的学生']} numeric={[0]}>
             {sameAddress.games.map((game) => (
               <tr key={game.gameId}>
@@ -264,7 +268,7 @@ function Doudizhu() {
   const shown = data.series.length
   const blank = data.series.every((day) => day.games === 0 && day.players === 0 && day.newMembers === 0)
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageActions>
         <Button type="primary" onClick={() => !page.loading && page.reload()}>
           {page.loading ? '正在更新' : '更新到现在'}
@@ -277,15 +281,17 @@ function Doudizhu() {
       )}
       <section aria-labelledby={todayId}>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 id={todayId} className="text-base font-semibold text-gray-900">
+          <h2 id={todayId} className="text-xl font-bold text-gray-900">
             今天（截至 {time}），{dayName(data.todaySoFar.date)}
           </h2>
-          <p className="text-sm text-gray-600">和上{weekday}零点到 {time} 的数字比。</p>
+          <Tip about="今天的数字" className="self-center">
+            {`从今天零点数到 ${time}，和上${weekday}零点到 ${time} 的数字比。`}
+          </Tip>
         </div>
         <Tiles labelId={todayId} day={data.todaySoFar} before={data.sameTimeLastWeek} members={data.members} />
       </section>
       <section aria-labelledby={yesterdayId}>
-        <h2 id={yesterdayId} className="text-base font-semibold text-gray-900">
+        <h2 id={yesterdayId} className="text-xl font-bold text-gray-900">
           昨天，{dayName(data.yesterday.date)}
         </h2>
         <Tiles labelId={yesterdayId} day={data.yesterday} before={data.sameDayLastWeek} />
@@ -296,7 +302,7 @@ function Doudizhu() {
       <Conduct page={data} />
       <section aria-labelledby={rangeId}>
         <div className="flex items-center justify-between gap-4">
-          <h2 id={rangeId} className="text-base font-semibold text-gray-900">
+          <h2 id={rangeId} className="text-xl font-bold text-gray-900">
             最近 {shown} 天
           </h2>
           <Segmented<StatsDays>

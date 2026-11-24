@@ -1,4 +1,4 @@
-import { Badge, Button } from '../../ui.js'
+import { Badge, Button, Tip } from '../../ui.js'
 import { useId, useRef } from 'react'
 import { approve, type LessonDetail, type QueueSlot } from '../../api.js'
 import { useFocusOnMount } from '../../focus.js'
@@ -31,8 +31,9 @@ export function Approval({ slot, onNext }: { slot: QueueSlot; onNext: () => void
     return (
       <footer className={FOOT}>
         <Button onClick={onNext}>审下一节</Button>
-        <p className="text-sm text-gray-700">
-          <Badge tone="green">已通过</Badge> 这节课已经通过。再改的话，要重新通过。
+        <p className="flex items-center gap-2 text-sm text-gray-700">
+          <Badge tone="green">已通过</Badge>
+          <Tip about="已通过">这节课已经通过。再改的话，要重新通过。</Tip>
         </p>
       </footer>
     )

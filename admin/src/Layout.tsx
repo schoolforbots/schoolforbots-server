@@ -7,22 +7,28 @@ import { Review } from './pages/Review.js'
 import { Students } from './pages/Students.js'
 import { Switches } from './pages/Switches.js'
 import { Weekly } from './pages/Weekly.js'
-import { Button, PAGE_ACTIONS_ID } from './ui.js'
+import { Button, PAGE_ACTIONS_ID, Tip } from './ui.js'
 
 // The frame of the admin pages, after HyperUI's analytics dashboard template: the school's name and the pages down a
-// white sidebar, the operator and logging out at its foot; on the right, a header with the page's name and its main
-// actions (PageActions), and the page itself on the light grey.
+// navy sidebar, the open one in teal, the operator and logging out at its foot; on the right, a header with the page's
+// name and its main actions (PageActions), and the page itself on the light grey.
 
-/** The school's name, at the top of the sidebar and over the login card. */
-export function Brand() {
+/** The school's name, at the top of the navy sidebar (`onNavy`) and over the login card. */
+export function Brand({ onNavy = false }: { onNavy?: boolean }) {
   return (
     <p className="flex items-center gap-3">
-      <span aria-hidden="true" className="grid size-10 place-content-center rounded-lg bg-gray-900 text-base font-bold text-white">
+      <span
+        aria-hidden="true"
+        className={
+          'grid size-10 place-content-center rounded-lg text-base font-bold ' +
+          (onNavy ? 'bg-accent text-white' : 'bg-gray-900 text-white')
+        }
+      >
         校
       </span>
       <span className="flex flex-col leading-tight">
-        <span className="text-sm font-semibold text-gray-900">机器人网校</span>
-        <span className="text-xs text-gray-600">运营后台</span>
+        <span className={'text-sm font-semibold ' + (onNavy ? 'text-white' : 'text-gray-900')}>机器人网校</span>
+        <span className={'text-xs ' + (onNavy ? 'text-gray-300' : 'text-gray-600')}>运营后台</span>
       </span>
     </p>
   )
@@ -87,7 +93,7 @@ function NavItem({
         }}
         className={
           'flex items-center justify-between gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ' +
-          (current ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900')
+          (current ? 'bg-accent text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white')
         }
       >
         {page.name}
@@ -141,9 +147,9 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col justify-between overflow-y-auto border-r border-gray-200 bg-white">
+      <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col justify-between overflow-y-auto nav-dark bg-gray-900">
         <div className="p-4">
-          <Brand />
+          <Brand onNavy />
           <nav aria-label="后台页面" className="mt-6">
             <ul className="space-y-1">
               {PAGES.map((one) => (
@@ -158,18 +164,18 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
             </ul>
           </nav>
         </div>
-        <div className="sticky inset-x-0 bottom-0 border-t border-gray-200 bg-white p-4">
+        <div className="sticky inset-x-0 bottom-0 border-t border-gray-800 bg-gray-900 p-4">
           <div className="flex items-center gap-2">
-            <span aria-hidden="true" className="grid size-10 place-content-center rounded-full bg-gray-100 text-sm font-medium text-gray-700">
+            <span aria-hidden="true" className="grid size-10 place-content-center rounded-full bg-gray-800 text-sm font-medium text-white">
               运
             </span>
-            <p className="min-w-0 flex-1 text-xs text-gray-900">
-              <strong className="block font-medium">运营者</strong>
-              <span className="text-gray-600">学校只有这一个后台账号</span>
+            <p className="flex min-w-0 flex-1 items-center gap-2 text-sm text-white">
+              <strong className="font-medium">运营者</strong>
+              <Tip about="运营者">学校只有这一个后台账号。</Tip>
             </p>
           </div>
           {leaveFailure !== undefined && (
-            <p className="mt-3 text-xs text-gray-700" role="alert">
+            <p className="mt-3 text-xs text-white" role="alert">
               {leaveFailure}
             </p>
           )}
@@ -179,13 +185,13 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-[69px] items-center justify-between gap-4 border-b border-gray-200 bg-white px-6 py-4">
-          <h1 id={titleId} className="text-lg font-semibold text-gray-900">
+        <header className="flex min-h-[60px] items-center justify-between gap-4 border-b border-gray-200 bg-white px-6 py-3">
+          <h1 id={titleId} className="text-2xl font-bold text-gray-900">
             {page.name}
           </h1>
           <div id={PAGE_ACTIONS_ID} className="flex flex-wrap items-center justify-end gap-2" />
         </header>
-        <main aria-labelledby={titleId} className="w-full flex-1 p-6">
+        <main aria-labelledby={titleId} className="w-full flex-1 px-6 py-5">
           <div key={tab}>{content[tab]}</div>
         </main>
       </div>
