@@ -1,4 +1,4 @@
-import { Badge, Button, Card } from '../ui.js'
+import { Badge, Button, Card, Tip } from '../ui.js'
 import { useId, useRef, useState, type ReactNode } from 'react'
 import {
   dropRule,
@@ -64,23 +64,36 @@ function quiet({ stats, suggestions }: WeeklyPage): boolean {
 const weekName = (monday: string) => `${dayName(monday)}到 ${dayName(addDays(monday, 6))}`
 
 /** A part of the review: a card named by its heading. */
-function Block({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+function Block({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: string
+  /** What the block is, in a tip beside its title. */
+  description?: string
+  children: ReactNode
+  className?: string
+}) {
   return (
-    <Card title={title} className={className}>
+    <Card title={title} description={description} className={className}>
       <div className="mt-4 space-y-4 text-sm text-gray-700">{children}</div>
     </Card>
   )
 }
 
-/** A list under its own heading, or the sentence that says why there is none. */
+/** A list under its own heading (what it is, in a tip beside it), or the sentence that says why there is none. */
 function Listed({ title, hint, children }: { title: string; hint?: string; children: (titleId: string) => ReactNode }) {
   const titleId = useId()
   return (
     <div className="border-t border-gray-200 pt-4 first:border-t-0 first:pt-0">
-      <h3 id={titleId} className="text-sm font-medium text-gray-900">
-        {title}
-      </h3>
-      {hint !== undefined && <p className="mt-0.5 text-xs text-gray-600">{hint}</p>}
+      <div className="flex items-center gap-2">
+        <h3 id={titleId} className="text-sm font-medium text-gray-900">
+          {title}
+        </h3>
+        {hint !== undefined && <Tip about={title}>{hint}</Tip>}
+      </div>
       <div className="mt-3">{children(titleId)}</div>
     </div>
   )
@@ -90,7 +103,7 @@ function Listed({ title, hint, children }: { title: string; hint?: string; child
 function Stat({ label, value, note }: { label: string; value: string; note: string }) {
   const labelId = useId()
   return (
-    <article className="flex flex-col gap-1 rounded-lg border border-gray-200 bg-white p-5" role="group" aria-labelledby={labelId}>
+    <article className="flex flex-col gap-1 lift rounded-lg border border-gray-200 bg-white p-5" role="group" aria-labelledby={labelId}>
       <strong id={labelId} className="block text-sm font-medium text-gray-600">
         {label}
       </strong>
@@ -507,10 +520,10 @@ function Cost({ stats }: { stats: WeeklyStats }) {
 function Exclusions({ page }: { page: WeeklyPage }) {
   const zone = useSchoolZone()
   return (
-    <Block title="已删的词和已停用的规则">
-      <p className="-mt-2 text-xs text-gray-600">
-        删掉的词和停用的规则存在数据库里，叠加在词库文件上生效。照着这张表改词库文件，两边就一致了。
-      </p>
+    <Block
+      title="已删的词和已停用的规则"
+      description="删掉的词和停用的规则存在数据库里，叠加在词库文件上生效。照着这张表改词库文件，两边就一致了。"
+    >
       {page.exclusions.length === 0 ? (
         <p>还没有删过词，也没有停用过规则。</p>
       ) : (
@@ -552,7 +565,7 @@ function WeekPicker({
   const notReviewed = (monday: string) => !listed.includes(monday) && !(monday === shown && reviewed)
 
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-gray-200 bg-white px-6 py-4">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lift rounded-lg border border-gray-200 bg-white px-6 py-4">
       {options.length > 0 && (
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-gray-700" htmlFor={pickerId}>
@@ -560,7 +573,7 @@ function WeekPicker({
           </label>
           <select
             id={pickerId}
-            className="w-80 rounded-md border border-edge bg-white px-3 py-2 text-sm text-gray-900 shadow-xs focus:border-gray-900 focus:outline-2 focus:outline-offset-0 focus:outline-gray-900"
+            className="w-80 rounded-md border border-edge bg-white px-3 py-2 text-sm text-gray-900 shadow-xs focus:border-accent focus:outline-2 focus:outline-offset-0 focus:outline-accent"
             value={shown}
             onChange={(event) => onPick(event.target.value)}
           >
@@ -572,6 +585,13 @@ function WeekPicker({
             ))}
           </select>
           {known && <Badge tone={reviewed ? 'green' : 'yellow'}>{reviewed ? '已复盘' : '还没复盘'}</Badge>}
+          {known && (
+            <Tip about="复盘">
+              {reviewed
+                ? '这一周已经复盘，下面的数字是复盘时算好存下的。'
+                : '这一周还没有复盘，下面的数字是现在算的。大模型的两项建议，要等每周一 0 点复盘上一周时才有。'}
+            </Tip>
+          )}
         </div>
       )}
       {weeks.error !== undefined && (
@@ -618,11 +638,6 @@ export function Weekly() {
             <Failed what="这一周的最新复盘（下面是上次读到的）" reason={page.error.message} retry={page.reload} />
           </Card>
         )}
-        <p className="text-sm text-gray-600">
-          {data.suggestions === null
-            ? '这一周还没有复盘，下面的数字是现在算的。大模型的两项建议，要等每周一 0 点复盘上一周时才有。'
-            : '这一周已经复盘，下面的数字是复盘时算好存下的。'}
-        </p>
         {quiet(data) ? (
           <Card>
             <Empty why="这一周学校没有上课，也没有花钱：可能还没开学，或者正在放假。换一周看看。" />

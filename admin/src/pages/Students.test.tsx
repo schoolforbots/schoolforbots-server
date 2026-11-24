@@ -38,6 +38,7 @@ describe('looking up a student', () => {
     show(<Students />)
 
     expect(screen.getByRole('textbox', { name: '学号' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '学号的说明' })).toHaveAccessibleDescription('学生报名时拿到的数字编号。')
     expect(screen.getByText('输入学号，查这个学生的资料、消息记录和违纪记录。')).toBeInTheDocument()
   })
 

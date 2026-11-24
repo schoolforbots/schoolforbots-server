@@ -23,10 +23,10 @@ const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boo
 type ButtonType = 'primary' | 'default' | 'danger' | 'link' | 'text'
 
 const BUTTON_LOOK: Record<ButtonType, string> = {
-  primary: 'border border-gray-900 bg-gray-900 text-white hover:bg-gray-800 active:bg-gray-700',
+  primary: 'border border-accent bg-accent text-white hover:border-accent-dark hover:bg-accent-dark active:bg-gray-800',
   default: 'border border-gray-300 bg-white text-gray-900 shadow-xs hover:bg-gray-50 active:bg-gray-100',
   danger: 'border border-red-200 bg-white text-red-700 shadow-xs hover:bg-red-50 active:bg-red-100',
-  link: 'font-medium text-gray-900 underline underline-offset-4 hover:text-gray-700',
+  link: 'font-medium text-accent-dark underline underline-offset-4 hover:text-gray-900',
   text: 'text-gray-700 hover:bg-gray-100 active:bg-gray-200',
 }
 
@@ -79,7 +79,7 @@ export function Button({
 }
 
 const FIELD =
-  'ui-field rounded-md border border-edge bg-white px-3 text-sm text-gray-900 shadow-xs placeholder:text-placeholder focus:border-gray-900 focus:outline-2 focus:outline-offset-0 focus:outline-gray-900 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-disabled'
+  'ui-field rounded-md border border-edge bg-white px-3 text-sm text-gray-900 shadow-xs placeholder:text-placeholder focus:border-accent focus:outline-2 focus:outline-offset-0 focus:outline-accent disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-disabled'
 
 /** How many characters of `max` are used, under a field that shows its count. */
 function Count({ value, max }: { value: string; max?: number }) {
@@ -242,7 +242,7 @@ export function RadioGroup<T extends string>({
       {options.map((option) => (
         <label
           key={option.value}
-          className="ui-choice inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 has-checked:border-gray-900 has-checked:text-gray-900 has-checked:ring-1 has-checked:ring-gray-900"
+          className="ui-choice inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 has-checked:border-accent has-checked:bg-accent-soft/40 has-checked:text-gray-900 has-checked:ring-1 has-checked:ring-accent"
         >
           <input
             type="radio"
@@ -278,7 +278,7 @@ export function Segmented<T extends string | number>({
       {options.map((option) => (
         <label
           key={String(option.value)}
-          className="ui-segment relative cursor-pointer rounded-sm px-2.5 py-1 text-gray-600 hover:text-gray-900 has-checked:bg-gray-100 has-checked:text-gray-900 has-focus-visible:outline-2 has-focus-visible:outline-offset-1 has-focus-visible:outline-gray-900"
+          className="ui-segment relative cursor-pointer rounded-sm px-2.5 py-1 text-gray-600 hover:text-gray-900 has-checked:bg-accent has-checked:text-white has-focus-visible:outline-2 has-focus-visible:outline-offset-1 has-focus-visible:outline-accent"
         >
           <input
             type="radio"
@@ -417,7 +417,48 @@ function ModalOpen({
 // ---------------------------------------------------------------------------------------------------------------------
 // Building blocks of the pages (HyperUI's analytics dashboard)
 
-/** A white card, `rounded-lg border border-gray-200 bg-white p-6`, with a small title and its actions on one line. */
+/** A white card, `rounded-lg border border-gray-200 bg-white p-5`, with its title and its actions on one line. */
+/**
+ * An explanation kept out of the way: a small 「?」 beside what it explains, and the words in a box that opens while the
+ * pointer is over it or the keyboard is on it, and closes with Escape. The words stay in the page (hidden until then),
+ * so the button reads them out as its description. Only for explanations: what has to be done stays on the page.
+ */
+export function Tip({ about, children, className }: { about: string; children: ReactNode; className?: string }) {
+  const tipId = useId()
+  const [open, setOpen] = useState(false)
+  return (
+    <span
+      className={cx('relative inline-flex align-middle', className)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        aria-label={`${about}的说明`}
+        aria-describedby={tipId}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setOpen(false)
+        }}
+        className="grid size-5 place-content-center rounded-full border border-gray-300 bg-white text-xs font-semibold text-gray-600 hover:border-accent hover:text-accent-dark"
+      >
+        ?
+      </button>
+      <span
+        id={tipId}
+        role="tooltip"
+        className={cx(
+          'absolute top-full left-1/2 z-30 mt-2 w-72 -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-3 text-left text-xs leading-relaxed font-normal text-gray-600 shadow-lg shadow-gray-900/15',
+          !open && 'invisible',
+        )}
+      >
+        {children}
+      </span>
+    </span>
+  )
+}
+
 export function Card({
   title,
   titleId,
@@ -440,21 +481,27 @@ export function Card({
   const headingId = titleId ?? ownId
   return (
     <section
-      className={cx('rounded-lg border border-gray-200 bg-white p-6', className)}
+      className={cx(
+        'ui-card lift rounded-lg border border-gray-200 bg-white p-5',
+        className,
+      )}
       aria-labelledby={title === undefined ? undefined : headingId}
       aria-label={title === undefined ? label : undefined}
     >
       {(title !== undefined || actions !== undefined) && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="-mx-5 -mt-1 mb-1 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-5 pb-3">
           {title !== undefined && (
-            <h2 id={headingId} className="text-sm font-medium text-gray-900">
-              {title}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 id={headingId} className="text-lg font-bold text-gray-900">
+                {title}
+              </h2>
+              {description !== undefined && <Tip about={typeof title === 'string' ? title : '这一块'}>{description}</Tip>}
+            </div>
           )}
           {actions !== undefined && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
       )}
-      {description !== undefined && <p className="mt-1 text-sm text-gray-600">{description}</p>}
+      {description !== undefined && title === undefined && <p className="mt-1 text-sm text-gray-600">{description}</p>}
       {children}
     </section>
   )
@@ -503,7 +550,7 @@ export function Detail({ label, children }: { label: string; children: ReactNode
   )
 }
 
-const SPARK = { indigo: '#4f46e5', green: '#059669', red: '#e11d48', gray: '#6b7280' }
+const SPARK = { indigo: '#167d8d', green: '#059669', red: '#e11d48', gray: '#6b7280' }
 
 /** A small line of a series under a number (the template's sparkline). It only repeats the numbers: hidden. */
 export function Sparkline({ values, tone = 'indigo' }: { values: number[]; tone?: keyof typeof SPARK }) {

@@ -1,4 +1,4 @@
-import { Badge, Button, Card, PageActions, Segmented, Sparkline, type Tone } from '../ui.js'
+import { Badge, Button, Card, PageActions, Segmented, Sparkline, Tip, type Tone } from '../ui.js'
 import { useId, useState } from 'react'
 import {
   dailyStatsPath,
@@ -37,7 +37,7 @@ import {
 
 /** The categorical colours of the charts, in this order; the green and red of the pages never draw a line. */
 // Tailwind's indigo-600, amber-500, emerald-500, sky-500, pink-500, violet-500, orange-600.
-const LINE_COLORS = ['#4f46e5', '#f59e0b', '#10b981', '#0ea5e9', '#ec4899', '#8b5cf6', '#ea580c']
+const LINE_COLORS = ['#167d8d', '#f59e0b', '#10b981', '#0ea5e9', '#ec4899', '#8b5cf6', '#ea580c']
 const RANGES: StatsDays[] = [7, 30, 90]
 
 const compactCount = (value: number) => new Intl.NumberFormat('zh-CN', { notation: 'compact' }).format(value)
@@ -116,7 +116,7 @@ function Tiles(props: {
         return (
           <article
             key={tile.key}
-            className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-5"
+            className="flex flex-col gap-3 lift rounded-lg border border-gray-200 bg-white p-5"
             role="group"
             aria-labelledby={`${labelId}-${tile.key}`}
           >
@@ -150,14 +150,17 @@ function Tiles(props: {
   )
 }
 
-/** A number of the overview: what it counts, the number, and a line under it. */
-function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+/** A number of the overview: what it counts (and how, in a tip), the number, and a line under it. */
+function Stat({ label, value, note, tip }: { label: string; value: string; note?: string; tip?: string }) {
   const id = useId()
   return (
-    <article className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white p-5" role="group" aria-labelledby={id}>
-      <strong id={id} className="block text-sm font-medium text-gray-600">
-        {label}
-      </strong>
+    <article className="flex flex-col gap-2 lift rounded-lg border border-gray-200 bg-white p-5" role="group" aria-labelledby={id}>
+      <div className="flex items-center gap-2">
+        <strong id={id} className="block text-sm font-medium text-gray-600">
+          {label}
+        </strong>
+        {tip !== undefined && <Tip about={label}>{tip}</Tip>}
+      </div>
       <span className="text-2xl font-medium text-gray-900 tabular-nums">{value}</span>
       {note !== undefined && <p className="text-xs text-gray-600">{note}</p>}
     </article>
@@ -177,7 +180,7 @@ function Seats({ overview }: { overview: SchoolOverview }) {
       description={`占名额的是等分班、在读和停课的学生；每班标准 ${overview.classSize.standard} 人，最多 ${overview.classSize.max} 人。`}
     >
       <div className="mt-4">
-        <DataTable caption="各时段的名额和班级" quietCaption wide head={['时段', '已占名额', '候补', '班级']} numeric={[1, 2]}>
+        <DataTable caption="各时段的名额和班级" quietCaption wide head={['时段', '班级', '已占名额', '候补']} numeric={[2, 3]}>
           {overview.slots.map((slot) => {
             const full = slot.capacity > 0 && slot.seated / slot.capacity >= NEARLY_FULL
             return (
@@ -185,15 +188,6 @@ function Seats({ overview }: { overview: SchoolOverview }) {
                 <th scope="row" className={ROW_HEAD}>
                   {SLOT_NAMES[slot.slot]}
                 </th>
-                <td className={NUM}>
-                  {full && (
-                    <Badge tone="red" className="mr-2">
-                      快满了
-                    </Badge>
-                  )}
-                  {count(slot.seated)} / {count(slot.capacity)}
-                </td>
-                <td className={NUM}>{count(slot.waitlisted)}</td>
                 <td className={CELL}>
                   {slot.classes.length === 0
                     ? '还没有班级'
@@ -204,6 +198,15 @@ function Seats({ overview }: { overview: SchoolOverview }) {
                         )
                         .join('；')}
                 </td>
+                <td className={NUM}>
+                  {full && (
+                    <Badge tone="red" className="mr-2">
+                      快满了
+                    </Badge>
+                  )}
+                  {count(slot.seated)} / {count(slot.capacity)}
+                </td>
+                <td className={NUM}>{count(slot.waitlisted)}</td>
               </tr>
             )
           })}
@@ -223,7 +226,7 @@ function Overview({ stats }: { stats: DailyStats }) {
     n === null ? '开学还不够久，不会有人被退学' : `${count(n)} 人（${when}都没来上课的话）`
   return (
     <section aria-labelledby={titleId} className="space-y-4">
-      <h2 id={titleId} className="text-base font-semibold text-gray-900">
+      <h2 id={titleId} className="text-xl font-bold text-gray-900">
         学校概况（截至 {clockTime(stats.asOf, stats.timeZone)}）
       </h2>
       <div className="grid grid-cols-4 gap-4">
@@ -231,7 +234,8 @@ function Overview({ stats }: { stats: DailyStats }) {
         <Stat
           label="在校学生的家长"
           value={count(owners.inSchool)}
-          note={`一个邮箱算一位；平均每位 ${perOwner} 个学生，报过名的家长一共 ${count(owners.all)} 位`}
+          note={`平均每位 ${perOwner} 个学生，报过名的家长一共 ${count(owners.all)} 位`}
+          tip="按邮箱数家长：一个邮箱算一位，不分大小写。"
         />
         <Stat
           label="等着进班"
@@ -245,7 +249,7 @@ function Overview({ stats }: { stats: DailyStats }) {
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <Card title="今天的报名">
+        <Card title="今天的报名" description="发出去的验证码比报上名的多很多，可能是验证码邮件没收到或进了垃圾箱。">
           <div className="mt-2">
             <NumberTable
               caption="今天的报名"
@@ -255,7 +259,6 @@ function Overview({ stats }: { stats: DailyStats }) {
               ]}
             />
           </div>
-          <p className="mt-2 text-xs text-gray-600">发出去的比报上的多很多，可能是验证码邮件没收到或进了垃圾箱。</p>
         </Card>
         <Card title="来上课和自动退学">
           <div className="mt-2">
@@ -314,8 +317,11 @@ function Today({ stats, reading, onUpdate }: { stats: DailyStats; reading: boole
   const { todaySoFar, sameTimeLastWeek, month } = stats
   const weekday = weekdayOf(todaySoFar.date)
   const time = clockTime(stats.asOf, stats.timeZone)
-  // Said once above the tiles, which keep the short words of yesterday's.
-  const against = sameTimeLastWeek === null ? undefined : `和上${weekday}零点到 ${time} 的数字比。`
+  // Said once, in a tip beside the heading; the tiles keep the short words of yesterday's.
+  const against =
+    sameTimeLastWeek === null
+      ? undefined
+      : `从今天零点数到 ${time}，和上${weekday}零点到 ${time} 的数字比：一节课下了课，它的数据就都在里面。`
   const why = noClass(stats.todayStatus, weekday)
   return (
     <section aria-labelledby={titleId}>
@@ -326,15 +332,15 @@ function Today({ stats, reading, onUpdate }: { stats: DailyStats; reading: boole
         </Button>
       </PageActions>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 id={titleId} className="text-base font-semibold text-gray-900">
+        <h2 id={titleId} className="text-xl font-bold text-gray-900">
           今天（截至 {time}），{dayName(todaySoFar.date)}
         </h2>
-        {(against !== undefined || why !== undefined) && (
-          <p className="text-sm text-gray-600">
+        {against !== undefined && (
+          <Tip about="今天的数字" className="self-center">
             {against}
-            {why}
-          </p>
+          </Tip>
         )}
+        {why !== undefined && <p className="text-sm text-gray-600">{why}</p>}
       </div>
       <Tiles labelId={titleId} day={todaySoFar} before={sameTimeLastWeek} month={month} series={stats.series} />
     </section>
@@ -346,7 +352,7 @@ function Yesterday({ stats }: { stats: DailyStats }) {
   const { yesterday, sameDayLastWeek } = stats
   return (
     <section aria-labelledby={titleId}>
-      <h2 id={titleId} className="text-base font-semibold text-gray-900">
+      <h2 id={titleId} className="text-xl font-bold text-gray-900">
         昨天，{dayName(yesterday.date)}
       </h2>
       <Tiles labelId={titleId} day={yesterday} before={sameDayLastWeek} />
@@ -367,11 +373,15 @@ function Reminders({ stats, onGoReview }: { stats: DailyStats; onGoReview: () =>
   const nothing = unreviewed.length === 0 && generationFailed.length === 0 && !month.overBudget
 
   return (
-    <Card title="要处理的事" label="要处理的事">
+    <Card
+      title="要处理的事"
+      label="要处理的事"
+      description="开门前要审完的课、一直生成不出来的课（只列过了一夜还没好的）、本月花费超预算，都列在这里。"
+    >
       {/* Only failures that lasted into a new day are listed: a fresh one is still being retried. */}
       {nothing && (
         <p className="mt-4 text-sm text-gray-600">
-          现在没有要处理的事：开门前要审的课都审完了，没有一直生成不出来的课，本月花费也没超预算。
+          现在没有要处理的事。
         </p>
       )}
       <ul className="mt-4 divide-y divide-gray-200">
@@ -402,10 +412,12 @@ function Reminders({ stats, onGoReview }: { stats: DailyStats; onGoReview: () =>
             <p className="text-sm text-gray-700">
               {`${dayName(failure.date)}${DIVISION_NAMES[failure.division]}的课没生成出来，试了 ${failure.attempts} 次，`}
               {`最后一次的原因：${sentence(failure.lastError)}`}
+            </p>
+            <Tip about="生成失败">
               {failure.date === stats.today
                 ? '今天的课系统不会再生成了：要今天上这节课，到审课页手动粘贴，赶在开门前审过。'
                 : '系统会接着重试；等不及的话，到审课页手动粘贴。'}
-            </p>
+            </Tip>
           </li>
         ))}
         {month.overBudget && (
@@ -413,8 +425,8 @@ function Reminders({ stats, onGoReview }: { stats: DailyStats; onGoReview: () =>
             <Badge tone="red">超预算</Badge>
             <p className="reminder-alarm text-sm">
               {`本月大模型花费 ${yuan(month.costYuan)}，超过了预算 ${yuan(month.budgetYuan)}。`}
-              大模型照常在用，不会自动停；要少花钱，到开关页关掉暂时不用的功能。
             </p>
+            <Tip about="超预算">大模型照常在用，不会自动停；要少花钱，到开关页关掉暂时不用的功能。</Tip>
           </li>
         )}
       </ul>
@@ -530,14 +542,14 @@ export function Data({ onGoReview }: { onGoReview: () => void }) {
   const data = stats.data
   const shown = data.series.length
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <Overview stats={data} />
       <Reminders stats={data} onGoReview={onGoReview} />
       <Today stats={data} reading={stats.loading} onUpdate={stats.reload} />
       <Yesterday stats={data} />
       <section aria-labelledby={rangeId}>
         <div className="flex items-center justify-between gap-4">
-          <h2 id={rangeId} className="text-base font-semibold text-gray-900">
+          <h2 id={rangeId} className="text-xl font-bold text-gray-900">
             最近 {shown} 天
           </h2>
           <Segmented<StatsDays>

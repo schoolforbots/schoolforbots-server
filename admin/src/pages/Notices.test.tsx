@@ -116,6 +116,7 @@ describe('the notices page: writing', () => {
     const user = await openNew()
 
     const body = editor().getByRole('textbox', { name: '正文' })
+    expect(editor().getByRole('button', { name: '正文的说明' })).toHaveAccessibleDescription(/^最多 .* 字。空一行分段/)
     fireEvent.change(body, {
       target: {
         value:

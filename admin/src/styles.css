@@ -6,29 +6,43 @@
    as the website shows it). Desktop only: the page keeps 1200px and scrolls sideways below that. */
 
 @theme {
-  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif;
+  /* The system fonts admin dashboards use: Segoe UI or San Francisco for Latin letters and figures, and Microsoft
+     YaHei or PingFang for Chinese, so nothing is downloaded. */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Noto Sans SC', 'Noto Sans CJK SC', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* One step larger than Tailwind's for the small sizes, which carry most of the words. */
+  --text-xs: 0.875rem;
+  --text-xs--line-height: 1.375rem;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.625rem;
   /* The school's blackboard green, as the website uses it: the links of a notice's body, shown as the website will. */
   --color-brand: #2f5d50;
   /* The red pen: review marks, and the one alarm (spend over budget). 5.34:1 on white. */
   --color-red-pen: #c8312b;
-  /* The edge of a field or a button: 3.2:1 on the page and on white, so a control is found by its outline. */
-  --color-edge: #868d97;
-  /* A disabled control's words (正在登录): 6.1:1 on its grey fill. */
-  --color-disabled: #4b5563;
-  --color-placeholder: #6b7280;
-  /* Tailwind's greys, written out so the contrast test (palette.test.tsx) reads the same values the page uses.
-     gray-500 is a shade darker than Tailwind's #6b7280, so quiet words read on a grey note too (4.5:1 or more). */
-  --color-gray-50: #f9fafb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-200: #e5e7eb;
-  --color-gray-300: #d1d5db;
-  --color-gray-400: #9ca3af;
-  --color-gray-500: #636a75;
-  --color-gray-600: #4b5563;
-  --color-gray-700: #374151;
-  --color-gray-800: #1f2937;
-  --color-gray-900: #111827;
-  --color-gray-950: #030712;
+  /* The palette of the components (colorhunt 071b2b 167d8d b9e4e8 eeeeee): the deep navy is the top of the grey
+     scale (words, the sidebar); the teal is what can be acted on and what is chosen (the primary button, the open
+     page, the focus ring); the pale aqua is a chosen row's fill; #eeeeee is the light fill (gray-100). */
+  --color-accent: #167d8d;
+  --color-accent-dark: #11636f;
+  --color-accent-soft: #b9e4e8;
+  /* The edge of a field or a button: 3:1 or more on the page and on white, so a control is found by its outline. */
+  --color-edge: #7f8b94;
+  /* A disabled control's words (正在登录): 4.5:1 or more on its grey fill. */
+  --color-disabled: #33414c;
+  --color-placeholder: #5b6872;
+  /* The grey scale: cool greys made toward the navy, the page a light cool grey of its own (gray-50). Written out so
+     the contrast test (palette.test.tsx) reads the same values the page uses. */
+  --color-gray-50: #f4f6f7;
+  --color-gray-100: #eeeeee;
+  --color-gray-200: #e1e5e8;
+  --color-gray-300: #c9d0d5;
+  --color-gray-400: #95a1aa;
+  --color-gray-500: #4a5660;
+  --color-gray-600: #33414c;
+  --color-gray-700: #1f2f3c;
+  --color-gray-800: #142939;
+  --color-gray-900: #071b2b;
+  --color-gray-950: #030e17;
   /* The badges' colours (HyperUI's green, yellow, red, indigo and blue badges), written out for the same test. */
   --color-green-100: #dcfce7;
   --color-green-800: #166534;
@@ -49,7 +63,7 @@
     min-width: 1200px;
     background: var(--color-gray-50);
     color: var(--color-gray-900);
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1.6;
   }
   /* Every control says it can be clicked; one that cannot be used says that. */
@@ -64,13 +78,34 @@
   button:disabled {
     cursor: not-allowed;
   }
-  /* The focus ring: 2px of near-black, as the template's. Never removed. */
+  /* The focus ring: 2px of the teal. Never removed. */
   :focus-visible {
-    outline: 2px solid var(--color-gray-900);
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
   table {
     border-collapse: collapse;
+  }
+}
+
+/* On the navy sidebar the focus ring is the pale aqua, so it is seen. */
+.nav-dark :focus-visible {
+  outline-color: var(--color-accent-soft);
+}
+
+/* A card lifts under the pointer: a faint navy shadow, deeper while the pointer is on it, so the card being read
+   stands out. The change is instant for those who ask for less motion. */
+.lift {
+  box-shadow: 0 1px 2px rgb(1 7 54 / 0.06);
+}
+.lift:hover {
+  box-shadow:
+    0 12px 28px -8px rgb(1 7 54 / 0.22),
+    0 4px 10px -4px rgb(1 7 54 / 0.12);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lift {
+    transition: box-shadow 150ms ease-out;
   }
 }
 
@@ -114,7 +149,7 @@
   padding: 0;
   list-style: none;
   color: var(--color-gray-600);
-  font-size: 12px;
+  font-size: 13px;
 }
 .legend-line {
   display: inline-block;
@@ -138,7 +173,7 @@
 }
 .chart-plot svg {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .chart-readout {
@@ -150,7 +185,7 @@
   border-radius: var(--radius-lg);
   background: #fff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  font-size: 12px;
+  font-size: 13px;
   pointer-events: none;
 }
 .chart-readout ul {
@@ -164,7 +199,7 @@
   gap: 6px;
 }
 .chart-readout strong {
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 .readout-date {
@@ -200,8 +235,7 @@
   z-index: 1;
 }
 
-/* The red pen. Its notes are written in a regular script (楷体) where the system has one: a teacher's hand in the
-   margin, apart from the printed lesson. */
+/* The red pen: wavy red lines under the words and red notes in the margin, in the page's own font. */
 .pen-word {
   background: none;
   color: inherit;
@@ -213,7 +247,7 @@
 .pen-margin {
   padding-left: 16px;
   border-left: 1px solid var(--color-gray-200);
-  font-size: 13px;
+  font-size: 14px;
 }
 .pen-notes {
   display: flex;
@@ -231,9 +265,6 @@
 }
 .pen-note p {
   color: var(--color-red-pen);
-  font-family: 'Kaiti SC', STKaiti, KaiTi, 'AR PL UKai CN', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC',
-    system-ui, sans-serif;
-  font-size: 15px;
 }
 .pen-none {
   color: var(--color-gray-500);
@@ -266,7 +297,7 @@
 .numbers thead th {
   border-bottom-color: var(--color-gray-300);
   color: var(--color-gray-600);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
 }

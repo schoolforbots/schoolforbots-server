@@ -179,8 +179,10 @@ describe('the school data page', () => {
     show(<Data onGoReview={vi.fn()} />)
 
     expect(await screen.findByRole('heading', { name: TODAY_TITLE })).toBeInTheDocument()
-    // What they are set against is said once, above them.
-    expect(panel(TODAY_TITLE).getByText('和上周三零点到 16:00 的数字比。')).toBeInTheDocument()
+    // What they are set against is said once, in the tip beside the heading.
+    expect(panel(TODAY_TITLE).getByRole('button', { name: '今天的数字的说明' })).toHaveAccessibleDescription(
+      '从今天零点数到 16:00，和上周三零点到 16:00 的数字比：一节课下了课，它的数据就都在里面。',
+    )
     const expected: [string, string, string][] = [
       ['来上课的学生', '64', '比上周三多 4'],
       ['聊天消息', '2,100', '和上周三一样'],
@@ -246,7 +248,7 @@ describe('the school data page', () => {
       const { unmount } = show(<Data onGoReview={vi.fn()} />)
 
       await screen.findByRole('heading', { name: TODAY_TITLE })
-      expect(panel(TODAY_TITLE).getByText(`和上周三零点到 16:00 的数字比。${why}`)).toBeInTheDocument()
+      expect(panel(TODAY_TITLE).getByText(why)).toBeInTheDocument()
       expect(tile('新报名', TODAY_TITLE).getByText('12')).toBeInTheDocument()
       unmount()
     }
@@ -257,7 +259,6 @@ describe('the school data page', () => {
     show(<Data onGoReview={vi.fn()} />)
 
     expect(await screen.findByRole('heading', { name: TODAY_TITLE })).toBeInTheDocument()
-    expect(panel(TODAY_TITLE).getByText('和上周三零点到 16:00 的数字比。')).toBeInTheDocument()
     expect(panel(TODAY_TITLE).queryByText(/不上课/)).not.toBeInTheDocument()
   })
 
@@ -276,7 +277,7 @@ describe('the school data page', () => {
     const later = '今天（截至 16:30），11 月 4 日（周三）'
     expect(await screen.findByRole('heading', { name: later })).toBeInTheDocument()
     expect(tile('聊天消息', later).getByText('250')).toBeInTheDocument()
-    expect(panel(later).getByText('和上周三零点到 16:30 的数字比。')).toBeInTheDocument()
+    expect(panel(later).getByRole('button', { name: '今天的数字的说明' })).toHaveAccessibleDescription(/和上周三零点到 16:30 的数字比/)
 
     // While it reads, the button says so and keeps the focus; a second click asks nothing more.
     answer = { pending: true }
@@ -317,14 +318,16 @@ describe('the school data page', () => {
     expect(reminders.getByText('11 月 6 日（周五）09:45 开门：高中部')).toBeInTheDocument()
     expect(
       reminders.getByText(
-        '11 月 6 日（周五）高中部的课没生成出来，试了 3 次，最后一次的原因：大模型暂时不可用（超时、网络出错或服务繁忙）。系统会接着重试；等不及的话，到审课页手动粘贴。',
+        '11 月 6 日（周五）高中部的课没生成出来，试了 3 次，最后一次的原因：大模型暂时不可用（超时、网络出错或服务繁忙）。',
       ),
     ).toBeInTheDocument()
-    expect(
-      reminders.getByText(
-        '本月大模型花费 ¥312.40，超过了预算 ¥300.00。大模型照常在用，不会自动停；要少花钱，到开关页关掉暂时不用的功能。',
-      ),
-    ).toBeInTheDocument()
+    expect(reminders.getByRole('button', { name: '生成失败的说明' })).toHaveAccessibleDescription(
+      '系统会接着重试；等不及的话，到审课页手动粘贴。',
+    )
+    expect(reminders.getByText('本月大模型花费 ¥312.40，超过了预算 ¥300.00。')).toBeInTheDocument()
+    expect(reminders.getByRole('button', { name: '超预算的说明' })).toHaveAccessibleDescription(
+      '大模型照常在用，不会自动停；要少花钱，到开关页关掉暂时不用的功能。',
+    )
 
     await user.click(reminders.getByRole('button', { name: '去审课' }))
     expect(goReview).toHaveBeenCalledTimes(1)
@@ -345,11 +348,11 @@ describe('the school data page', () => {
 
     const reminders = within(await screen.findByRole('region', { name: '要处理的事' }))
     expect(
-      reminders.getByText(
-        '11 月 4 日（周三）初中部的课没生成出来，试了 5 次，最后一次的原因：大模型的回复里没有找到 JSON。' +
-          '今天的课系统不会再生成了：要今天上这节课，到审课页手动粘贴，赶在开门前审过。',
-      ),
+      reminders.getByText('11 月 4 日（周三）初中部的课没生成出来，试了 5 次，最后一次的原因：大模型的回复里没有找到 JSON。'),
     ).toBeInTheDocument()
+    expect(reminders.getByRole('button', { name: '生成失败的说明' })).toHaveAccessibleDescription(
+      '今天的课系统不会再生成了：要今天上这节课，到审课页手动粘贴，赶在开门前审过。',
+    )
   })
 
   it('draws the lines the second layer stopped, and says when the model cost nothing', async () => {
@@ -375,10 +378,9 @@ describe('the school data page', () => {
     show(<Data onGoReview={vi.fn()} />)
 
     const reminders = within(await screen.findByRole('region', { name: '要处理的事' }))
-    expect(
-      reminders.getByText('现在没有要处理的事：开门前要审的课都审完了，没有一直生成不出来的课，本月花费也没超预算。'),
-    ).toBeInTheDocument()
-    expect(reminders.queryByRole('button')).not.toBeInTheDocument()
+    expect(reminders.getByText('现在没有要处理的事。')).toBeInTheDocument()
+    // Only the tip that says what would be listed here: nothing to act on.
+    expect(reminders.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['要处理的事的说明'])
   })
 
   it('asks for 30 days when 30 天 is picked', async () => {
@@ -586,7 +588,10 @@ describe('the school data page', () => {
     expect(stat('在校学生').getByText('1,120')).toBeInTheDocument()
     expect(stat('在校学生').getByText('在读 1,100，停课 20')).toBeInTheDocument()
     expect(stat('在校学生的家长').getByText('800')).toBeInTheDocument()
-    expect(stat('在校学生的家长').getByText('一个邮箱算一位；平均每位 1.4 个学生，报过名的家长一共 950 位')).toBeInTheDocument()
+    expect(stat('在校学生的家长').getByText('平均每位 1.4 个学生，报过名的家长一共 950 位')).toBeInTheDocument()
+    expect(stat('在校学生的家长').getByRole('button', { name: '在校学生的家长的说明' })).toHaveAccessibleDescription(
+      '按邮箱数家长：一个邮箱算一位，不分大小写。',
+    )
     expect(stat('等着进班').getByText('等今晚分班 40，名额满了在候补 10')).toBeInTheDocument()
     expect(stat('报过名的学生').getByText('已经离校 130（退学 120，开除 10）')).toBeInTheDocument()
 
@@ -602,9 +607,9 @@ describe('the school data page', () => {
     const seats = within(overview.getByRole('region', { name: '各时段的名额和班级' }))
     const rows = seats.getAllByRole('row').slice(1)
     expect(rows.map((row) => row.textContent)).toEqual([
-      '上午班300 / 4,0000还没有班级',
-      '下午班快满了3,600 / 4,00010初中部 3 个班 290 人，平均每班 97 人',
-      '晚班860 / 4,0000小学部 2 个班 201 人，平均每班 101 人；高中部 6 个班 600 人，平均每班 100 人',
+      '上午班还没有班级300 / 4,0000',
+      '下午班初中部 3 个班 290 人，平均每班 97 人快满了3,600 / 4,00010',
+      '晚班小学部 2 个班 201 人，平均每班 101 人；高中部 6 个班 600 人，平均每班 100 人860 / 4,0000',
     ])
 
     const plugins = within(overview.getByRole('region', { name: '在校学生用的插件' }))

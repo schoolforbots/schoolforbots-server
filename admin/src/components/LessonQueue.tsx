@@ -68,7 +68,7 @@ function DayList({
                 className={
                   'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors focus-visible:outline-offset-[-2px] ' +
                   (chosen
-                    ? 'bg-gray-100 text-gray-900 shadow-[inset_3px_0_0_var(--color-gray-900)]'
+                    ? 'bg-accent-soft/50 text-gray-900 shadow-[inset_3px_0_0_var(--color-accent)]'
                     : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900')
                 }
                 data-slot={key}
@@ -144,7 +144,7 @@ export function LessonQueue({
 
   return (
     <section
-      className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col rounded-lg border border-gray-200 bg-white"
+      className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col lift rounded-lg border border-gray-200 bg-white"
       aria-labelledby={titleId}
     >
       {/* The page's own action, in the header (the template's "New report"). */}
@@ -154,7 +154,7 @@ export function LessonQueue({
         </Button>
       </PageActions>
       <div className="border-b border-gray-200 px-5 py-4">
-        <h2 id={titleId} className="text-sm font-medium text-gray-900">
+        <h2 id={titleId} className="text-lg font-bold text-gray-900">
           这几天的课
         </h2>
       </div>

@@ -1,4 +1,4 @@
-import { Button, Input, Modal, RadioGroup } from '../ui.js'
+import { Button, Input, Modal, RadioGroup, Tip } from '../ui.js'
 import { useId, useState, type ReactNode } from 'react'
 import {
   putTopic,
@@ -88,10 +88,12 @@ function GivenTopics({
   }
   return (
     <section className="border-t border-gray-200 pt-4" aria-labelledby={titleId}>
-      <h3 id={titleId} className="text-sm font-medium text-gray-900">
-        已经指定的题目
-      </h3>
-      {later.length > 0 && <p className={HINT}>点一个，它会出现在上面，可以改，也可以取消。</p>}
+      <div className="flex items-center gap-2">
+        <h3 id={titleId} className="text-sm font-medium text-gray-900">
+          已经指定的题目
+        </h3>
+        {later.length > 0 && <Tip about="已经指定的题目">点一个，它会出现在上面，可以改，也可以取消。</Tip>}
+      </div>
       {body}
     </section>
   )
@@ -199,13 +201,15 @@ export function TopicDialog({
   return (
     <Modal open title="给某一天指定题目" width="max-w-xl" closable={false} destroyOnHidden onCancel={onClose} footer={footer}>
       <div className="space-y-4">
-        <p className="text-gray-600">
-          只给选中的学部定题目，其余学部照常上那天的科目。今天的课已经定了，可以选明天以后的任何一个上学日，几个月以后的也行。
-        </p>
         <div>
-          <label className={LABEL} htmlFor={ids.date}>
-            日期
-          </label>
+          <div className="flex items-center gap-2">
+            <label className={LABEL} htmlFor={ids.date}>
+              日期
+            </label>
+            <Tip about="指定题目">
+              只给选中的学部定题目，其余学部照常上那天的科目。今天的课已经定了，可以选明天以后的任何一个上学日，几个月以后的也行。
+            </Tip>
+          </div>
           <Input
             id={ids.date}
             type="date"

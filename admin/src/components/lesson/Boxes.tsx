@@ -1,4 +1,4 @@
-import { Button, TextArea } from '../../ui.js'
+import { Button, TextArea, Tip } from '../../ui.js'
 import { useId, useRef, useState, type KeyboardEvent } from 'react'
 import { editPart, restore, rewrite, type LessonPart, type PromptTarget, type RewriteTarget } from '../../api.js'
 import { CopyPrompt } from '../CopyPrompt.js'
@@ -61,7 +61,6 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
   const field = useRef<TextAreaRef>(null)
   const pasteButton = useRef<HTMLButtonElement>(null)
   const fieldId = useId()
-  const hintId = useId()
   // The model out of reach says to paste by hand instead: the way to do it comes up right here.
   const byHand = mode === 'manual' || action.error?.code === 'llm_unavailable'
   const prompt: PromptTarget = {
@@ -88,16 +87,15 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
 
   return (
     <div className={BOX} onKeyDown={closeOnEscape(writing, () => open(null))}>
-      <label className={LABEL} htmlFor={fieldId}>
-        重写的理由
-      </label>
-      <p id={hintId} className={`${HINT} mb-2`}>
-        说清楚哪里不合适、想改成什么样，大模型照着重写。理由会存下来，每周复盘时用。
-      </p>
+      <div className="mb-2 flex items-center gap-2">
+        <label className={LABEL} htmlFor={fieldId}>
+          重写的理由
+        </label>
+        <Tip about="重写的理由">说清楚哪里不合适、想改成什么样，大模型照着重写。理由会存下来，每周复盘时用。</Tip>
+      </div>
       <TextArea
         ref={field}
         id={fieldId}
-        aria-describedby={hintId}
         autoFocus
         maxLength={1000}
         showCount

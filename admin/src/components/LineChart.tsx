@@ -96,9 +96,9 @@ export function LineChart({ title, dates, series, markers, format, formatTick, c
   const several = series.length > 1
 
   return (
-    <figure className="chart rounded-lg border border-gray-200 bg-white p-6" aria-labelledby={titleId}>
-      <div className="flex items-center justify-between gap-3">
-        <h3 id={titleId} className="text-sm font-medium text-gray-900">
+    <figure className="chart lift rounded-lg border border-gray-200 bg-white p-5" aria-labelledby={titleId}>
+      <div className="-mx-5 -mt-1 mb-1 flex items-center justify-between gap-3 border-b border-gray-200 px-5 pb-3">
+        <h3 id={titleId} className="text-lg font-bold text-gray-900">
           {title}
         </h3>
         {hasData && (

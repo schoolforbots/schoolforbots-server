@@ -65,6 +65,8 @@ describe('the switches page', () => {
 
     const teacher = row('老师用大模型')
     expect(teacher.getByText('现在开着')).toBeInTheDocument()
+    // What it does on and off is in the tip beside the name.
+    expect(teacher.getByRole('button', { name: '老师用大模型的说明' })).toHaveAccessibleDescription(/^开着：.*答疑.*关着：.*模板话/)
     expect(teacher.getByText(/^开着：.*答疑.*点评/)).toBeInTheDocument()
     expect(teacher.getByText(/^关着：.*模板话/)).toBeInTheDocument()
     expect(teacher.getByText('还没切换过，用的是配置里的默认值。')).toBeInTheDocument()

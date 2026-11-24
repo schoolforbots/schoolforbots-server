@@ -1,4 +1,4 @@
-import { Button, Modal, TextArea } from '../ui.js'
+import { Button, Modal, TextArea, Tip } from '../ui.js'
 import { useId, useRef, useState } from 'react'
 import { paste, type ApiError, type LessonDetail, type PromptTarget } from '../api.js'
 import { useFocusOnMount } from '../focus.js'
@@ -48,7 +48,6 @@ export function PasteDialog({
   const [refusal, setRefusal] = useState<{ error: ApiError; n: number }>()
   const [blank, setBlank] = useState(false)
   const boxId = useId()
-  const hintId = useId()
   const box = useRef<HTMLTextAreaElement>(null)
   const making = target.kind === 'generate'
 
@@ -88,17 +87,18 @@ export function PasteDialog({
         </>
       }
     >
-      <p id={hintId} className="mb-4 text-gray-600">
-        把大模型的回复整段贴进来，前后夹着别的话也没关系：系统会从里面找出课程，检查格式、过一遍词库，
-        {making ? '然后存成待审的课。' : '然后换下这节课里要重写的部分，再回到待审。'}
-      </p>
-      <label className={`${LABEL} mb-1`} htmlFor={boxId}>
-        大模型的回复
-      </label>
+      <div className="mb-1 flex items-center gap-2">
+        <label className={LABEL} htmlFor={boxId}>
+          大模型的回复
+        </label>
+        <Tip about="大模型的回复">
+          把大模型的回复整段贴进来，前后夹着别的话也没关系：系统会从里面找出课程，检查格式、过一遍词库，
+          {making ? '然后存成待审的课。' : '然后换下这节课里要重写的部分，再回到待审。'}
+        </Tip>
+      </div>
       <TextArea
         id={boxId}
         ref={box}
-        aria-describedby={hintId}
         value={text}
         onChange={(event) => {
           setText(event.target.value)

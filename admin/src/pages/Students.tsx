@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Detail, Input, InputNumber, type Tone } from '../ui.js'
+import { Badge, Button, Card, Detail, Input, InputNumber, Tip, type Tone } from '../ui.js'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   getMessages,
@@ -193,7 +193,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
   }
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white" aria-labelledby={titleId}>
+    <section className="lift rounded-lg border border-gray-200 bg-white" aria-labelledby={titleId}>
       <div className="flex items-center gap-4 border-b border-gray-200 p-6">
         <span
           aria-hidden="true"
@@ -227,13 +227,18 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
       </div>
       {/* The actions that change the student: a red-edged card, as the template's settings page keeps its danger zone. */}
       <div className="m-6 mt-3 rounded-lg border border-red-200 p-6">
-        <h3 className="text-base font-semibold text-gray-900">手动处理</h3>
-        <p className="mt-1 text-sm text-gray-600">停课、退学和解除处罚都会改学籍，主人在学籍记录里看得到。</p>
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-bold text-gray-900">手动处理</h3>
+          <Tip about="手动处理">停课、退学和解除处罚都会改学籍，主人在学籍记录里看得到。三个操作都会先问一次，说清后果再做。</Tip>
+        </div>
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor={daysId}>
-              停课天数
-            </label>
+            <div className="mb-1 flex items-center gap-2">
+              <label className="block text-sm font-medium text-gray-700" htmlFor={daysId}>
+                停课天数
+              </label>
+              <Tip about="停课天数">{`停课天数写 1 到 ${MAX_DAYS}。`}</Tip>
+            </div>
             <InputNumber
               id={daysId}
               ref={daysField}
@@ -250,7 +255,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
                 event.preventDefault()
                 askSuspend()
               }}
-              aria-describedby={daysHintId}
+              aria-describedby={daysMissing ? daysHintId : undefined}
             />
           </div>
           <Button type="danger" ref={openers.suspend} onClick={askSuspend}>
@@ -264,13 +269,9 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
             解除处罚
           </Button>
         </div>
-        {daysMissing ? (
+        {daysMissing && (
           <p id={daysHintId} className="mt-2 text-sm font-medium text-gray-900" role="alert">
             先写停课几天，1 到 {MAX_DAYS} 天。
-          </p>
-        ) : (
-          <p id={daysHintId} className="mt-2 text-xs text-gray-600">
-            停课天数写 1 到 {MAX_DAYS}。三个操作都会先问一次，说清后果再做。
           </p>
         )}
         {done !== undefined && <Done key={done.n} text={done.text} />}
@@ -484,7 +485,7 @@ export function Students() {
   return (
     <div className="space-y-6">
       <form
-        className="rounded-lg border border-gray-200 bg-white p-6"
+        className="lift rounded-lg border border-gray-200 bg-white p-5"
         role="search"
         aria-label="查学生"
         onSubmit={lookUp}
@@ -492,9 +493,12 @@ export function Students() {
       >
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700" htmlFor={fieldId}>
-              学号
-            </label>
+            <div className="mb-1 flex items-center gap-2">
+              <label className="block text-sm font-medium text-gray-700" htmlFor={fieldId}>
+                学号
+              </label>
+              <Tip about="学号">学生报名时拿到的数字编号。</Tip>
+            </div>
             <div className="relative">
               <Input
                 id={fieldId}
@@ -504,7 +508,7 @@ export function Students() {
                 autoComplete="off"
                 placeholder="例如 12"
                 value={text}
-                aria-describedby={hintId}
+                aria-describedby={problem !== undefined ? hintId : undefined}
                 onChange={(event) => {
                   setText(event.target.value)
                   setProblem(undefined)
@@ -525,13 +529,9 @@ export function Students() {
             查这个学号
           </Button>
         </div>
-        {problem !== undefined ? (
+        {problem !== undefined && (
           <p id={hintId} className="mt-2 text-sm font-medium text-gray-900" role="alert">
             {problem}
-          </p>
-        ) : (
-          <p id={hintId} className="mt-2 text-xs text-gray-600">
-            学生报名时拿到的数字编号。
           </p>
         )}
       </form>

@@ -1,14 +1,14 @@
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { login, type ApiError } from '../api.js'
 import { Brand } from '../Layout.js'
-import { Button, Input } from '../ui.js'
+import { Button, Input, Tip } from '../ui.js'
 
 /**
  * The password and the one-time code from the authenticator app. `notice` says why the page is back, if it is.
  * `onLoggedIn` is given the school's time zone, which comes with the session.
  */
 export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) => void; notice?: string }) {
-  const ids = { password: useId(), passwordProblem: useId(), code: useId(), codeHint: useId(), codeProblem: useId() }
+  const ids = { password: useId(), passwordProblem: useId(), code: useId(), codeProblem: useId() }
   const codeField = useRef<HTMLInputElement>(null)
   const passwordField = useRef<HTMLInputElement>(null)
   const [password, setPassword] = useState('')
@@ -52,10 +52,12 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) =
           className="rounded-lg border border-gray-200 bg-white p-8 shadow-xs"
           aria-labelledby="login-title"
         >
-          <h1 id="login-title" className="text-xl font-semibold text-gray-900">
-            登录
-          </h1>
-          <p className="mt-1 text-sm text-gray-600">用后台密码和验证器 App 上的数字登录。</p>
+          <div className="flex items-center gap-2">
+            <h1 id="login-title" className="text-xl font-semibold text-gray-900">
+              登录
+            </h1>
+            <Tip about="登录">用后台密码和验证器 App 上的数字登录。</Tip>
+          </div>
           {notice !== undefined && (
             <p className="mt-4 rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-900">{notice}</p>
           )}
@@ -86,16 +88,19 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) =
               )}
             </div>
             <div>
-              <label htmlFor={ids.code} className="block text-sm font-medium text-gray-700">
-                动态验证码
-              </label>
+              <div className="flex items-center gap-2">
+                <label htmlFor={ids.code} className="block text-sm font-medium text-gray-700">
+                  动态验证码
+                </label>
+                <Tip about="动态验证码">验证器 App 里现在显示的 6 位数字。</Tip>
+              </div>
               <Input
                 id={ids.code}
                 ref={codeField}
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 value={code}
-                aria-describedby={missing.code ? `${ids.codeProblem} ${ids.codeHint}` : ids.codeHint}
+                aria-describedby={missing.code ? ids.codeProblem : undefined}
                 aria-invalid={missing.code || undefined}
                 className="mt-1 tabular-nums tracking-widest aria-invalid:border-red-400"
                 onChange={(event) => {
@@ -108,9 +113,6 @@ export function Login({ onLoggedIn, notice }: { onLoggedIn: (timeZone: string) =
                   请输入验证器上的 6 位数字
                 </p>
               )}
-              <p id={ids.codeHint} className="mt-1.5 text-xs text-gray-600">
-                验证器 App 里现在显示的 6 位数字
-              </p>
             </div>
             {refusal !== undefined && (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
