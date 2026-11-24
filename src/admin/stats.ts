@@ -13,8 +13,9 @@ import type { Database } from '../shared/schema.js'
 import { switchChanges, type SwitchName } from '../shared/switches.js'
 import type { AdminDeps } from './app.js'
 import { reviewQueue } from './lessons.js'
+import { schoolOverview, type SchoolOverview } from './overview.js'
 
-// The school-data page: today's numbers so far and yesterday's, each next to the same day a week before, the reminders,
+// The school-data page: the school as it stands (`overview.ts`), today's numbers so far and yesterday's, each next to the same day a week before, the reminders,
 // and the daily curves. Every number is of a calendar day in the school's time zone, counted in the database when the
 // page asks: one grouped query per table over the whole span, whatever its length. Today's run from its midnight up to
 // now, and are set against the same day a week before up to the same time of day, not against all of it.
@@ -57,6 +58,8 @@ export interface SeriesDay {
 }
 
 export interface DailyStats {
+  /** The school as it stands at `asOf`: not of a day, but everything so far. */
+  overview: SchoolOverview
   /** Today from its midnight up to `asOf`. */
   todaySoFar: DayNumbers
   /**
@@ -352,6 +355,7 @@ export async function dailyStats(deps: Pick<AdminDeps, 'db' | 'config' | 'clock'
   const changes = await switchChanges(db, atLocalTime(first, '00:00', tz), atLocalTime(today, '00:00', tz))
 
   return {
+    overview: await schoolOverview(db, config, now),
     todaySoFar,
     sameTimeLastWeek,
     asOf: now.toISOString(),

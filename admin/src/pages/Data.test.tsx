@@ -5,6 +5,7 @@ import type { DailyStats } from '../api.js'
 import {
   dailyStats,
   dayNumbers,
+  schoolOverview,
   fail,
   fakeServer,
   ok,
@@ -194,9 +195,14 @@ describe('the school data page', () => {
       expect(tile(name, TODAY_TITLE).getByText(value)).toBeInTheDocument()
       expect(tile(name, TODAY_TITLE).getByText(change)).toBeInTheDocument()
     }
-    // Today comes first, yesterday after it, as they were counted.
+    // The overview first, then what needs doing, today, and yesterday after it.
     const titles = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
-    expect(titles.slice(0, 2)).toEqual([TODAY_TITLE, YESTERDAY_TITLE])
+    expect(titles.filter((title) => title !== null && /^(学校概况（|要处理的事$|今天（|昨天，)/.test(title))).toEqual([
+      '学校概况（截至 16:00）',
+      '要处理的事',
+      TODAY_TITLE,
+      YESTERDAY_TITLE,
+    ])
     expect(tile('来上课的学生').getByText('128')).toBeInTheDocument()
   })
 
@@ -540,5 +546,71 @@ describe('the school data page', () => {
 
     expect(await screen.findByText('正在读取最近 30 天的数据，下面先留着最近 7 天的。')).toBeInTheDocument()
     expect(screen.getAllByRole('figure')).toHaveLength(4)
+  })
+
+  it('shows the school as it stands: students, owners, sign-ups, coming to class, seats and plugins', async () => {
+    fakeServer({
+      'GET api/stats/daily?days=7': ok(
+        dailyStats(7, {
+          overview: schoolOverview({
+            students: { total: 1300, pending: 40, waitlisted: 10, active: 1100, suspended: 20, dropped: 120, expelled: 10 },
+            owners: { inSchool: 800, all: 950 },
+            signupsToday: { started: 90, verified: 31 },
+            slots: [
+              { slot: 'morning', seated: 300, capacity: 4000, waitlisted: 0, classes: [] },
+              { slot: 'afternoon', seated: 3600, capacity: 4000, waitlisted: 10, classes: [{ division: 'junior', classes: 3, students: 290 }] },
+              {
+                slot: 'evening',
+                seated: 860,
+                capacity: 4000,
+                waitlisted: 0,
+                classes: [
+                  { division: 'primary', classes: 2, students: 201 },
+                  { division: 'senior', classes: 6, students: 600 },
+                ],
+              },
+            ],
+            activity: { active: 1100, cameThisWeek: 880, droppedTonight: 4, droppedWithinWeek: null },
+            plugins: [
+              { pluginType: 'openclaw', pluginVersion: '1.2.0', students: 900 },
+              { pluginType: 'openclaw', pluginVersion: '1.1.0', students: 220 },
+            ],
+          }),
+        }),
+      ),
+    })
+    show(<Data onGoReview={vi.fn()} />)
+    const overview = within(await screen.findByRole('region', { name: '学校概况（截至 16:00）' }))
+
+    const stat = (name: string) => within(overview.getByRole('group', { name }))
+    expect(stat('在校学生').getByText('1,120')).toBeInTheDocument()
+    expect(stat('在校学生').getByText('在读 1,100，停课 20')).toBeInTheDocument()
+    expect(stat('在校学生的家长').getByText('800')).toBeInTheDocument()
+    expect(stat('在校学生的家长').getByText('一个邮箱算一位；平均每位 1.4 个学生，报过名的家长一共 950 位')).toBeInTheDocument()
+    expect(stat('等着进班').getByText('等今晚分班 40，名额满了在候补 10')).toBeInTheDocument()
+    expect(stat('报过名的学生').getByText('已经离校 130（退学 120，开除 10）')).toBeInTheDocument()
+
+    const signups = within(overview.getByRole('region', { name: '今天的报名' }))
+    expect(signups.getByRole('row', { name: '发出验证码（开始报名） 90' })).toBeInTheDocument()
+    expect(signups.getByRole('row', { name: '填对验证码、报上了名 31' })).toBeInTheDocument()
+
+    const coming = within(overview.getByRole('region', { name: '来上课和自动退学' }))
+    expect(coming.getByRole('row', { name: '最近 7 天来上过课 880，占 80.0%' })).toBeInTheDocument()
+    expect(coming.getByRole('row', { name: '今晚会被自动退学 4 人（今天都没来上课的话）' })).toBeInTheDocument()
+    expect(coming.getByRole('row', { name: '7 天内会被自动退学 开学还不够久，不会有人被退学' })).toBeInTheDocument()
+
+    const seats = within(overview.getByRole('region', { name: '各时段的名额和班级' }))
+    const rows = seats.getAllByRole('row').slice(1)
+    expect(rows.map((row) => row.textContent)).toEqual([
+      '上午班300 / 4,0000还没有班级',
+      '下午班快满了3,600 / 4,00010初中部 3 个班 290 人，平均每班 97 人',
+      '晚班860 / 4,0000小学部 2 个班 201 人，平均每班 101 人；高中部 6 个班 600 人，平均每班 100 人',
+    ])
+
+    const plugins = within(overview.getByRole('region', { name: '在校学生用的插件' }))
+    expect(plugins.getAllByRole('row').slice(1).map((row) => row.textContent)).toEqual([
+      'openclaw1.2.090080.4%',
+      'openclaw1.1.022019.6%',
+    ])
   })
 })

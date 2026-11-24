@@ -47,7 +47,38 @@ export interface SeriesDay {
 /** Whether the school has not opened yet, is in term, or is on a break, on a given day. */
 export type SchoolState = 'not_started' | 'in_term' | 'on_break'
 
+export type StudentStatusName = 'pending' | 'waitlisted' | 'active' | 'suspended' | 'dropped' | 'expelled'
+
+/** The school as it stands, at the top of the school-data page. */
+export interface SchoolOverview {
+  students: Record<StudentStatusName, number> & { total: number }
+  /** The different email addresses: of the students in school (active or suspended), and of all. */
+  owners: { inSchool: number; all: number }
+  /** The registrations started today (each sent a code), and those verified today. */
+  signupsToday: { started: number; verified: number }
+  slots: {
+    slot: Slot
+    /** The students counted against the capacity: pending, active and suspended. */
+    seated: number
+    capacity: number
+    waitlisted: number
+    classes: { division: Division; classes: number; students: number }[]
+  }[]
+  classSize: { standard: number; max: number }
+  activity: {
+    active: number
+    /** Active students who came to a class in the last 7 days, today included. */
+    cameThisWeek: number
+    /** Null when the school has not been open long enough for the nightly job to drop anyone by then. */
+    droppedTonight: number | null
+    droppedWithinWeek: number | null
+  }
+  plugins: { pluginType: string; pluginVersion: string; students: number }[]
+}
+
 export interface DailyStats {
+  /** The school as it stands at `asOf`. */
+  overview: SchoolOverview
   /** Today from its midnight up to `asOf`. */
   todaySoFar: DayNumbers
   /** The same day last week up to the same time of day; null when that day came before the school opened. */

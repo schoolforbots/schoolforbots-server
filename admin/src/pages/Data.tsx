@@ -6,11 +6,13 @@ import {
   type DailyStats,
   type DayNumbers,
   type LlmPurpose,
+  type SchoolOverview,
   type SeriesDay,
   type StatsDays,
 } from '../api.js'
 import { LineChart, type Marker, type Series } from '../components/LineChart.js'
 import { Empty, Failed, Loading } from '../components/States.js'
+import { CELL, DataTable, NUM, NumberTable, ROW_HEAD } from '../components/Tables.js'
 import {
   BLOCK_NAMES,
   clockTime,
@@ -18,6 +20,7 @@ import {
   dayName,
   DIVISION_NAMES,
   localDay,
+  percent,
   preciseYuan,
   PURPOSE_NAMES,
   sentence,
@@ -27,7 +30,8 @@ import {
   yuan,
 } from '../labels.js'
 
-// The school data page: today's numbers so far and yesterday's, each next to the same day a week before, what needs
+// The school data page: the school as it stands (students, owners, seats, who is about to be dropped, plugins),
+// what needs doing, today's numbers so far and yesterday's, each next to the same day a week before, what needs
 // doing, and the daily curves of the last 7, 30 or 90 days up to yesterday. Every number on it comes from
 // `api/stats/daily`, and every time is read on the school's clock, in the time zone the answer names.
 
@@ -143,6 +147,152 @@ function Tiles(props: {
         )
       })}
     </div>
+  )
+}
+
+/** A number of the overview: what it counts, the number, and a line under it. */
+function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+  const id = useId()
+  return (
+    <article className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white p-5" role="group" aria-labelledby={id}>
+      <strong id={id} className="block text-sm font-medium text-gray-600">
+        {label}
+      </strong>
+      <span className="text-2xl font-medium text-gray-900 tabular-nums">{value}</span>
+      {note !== undefined && <p className="text-xs text-gray-600">{note}</p>}
+    </article>
+  )
+}
+
+/** A share in words, or nothing when there is nothing to share. */
+const shareOf = (part: number, whole: number) => (whole === 0 ? '' : `，占 ${percent(part / whole)}`)
+
+/** A slot's seats taken past this share of its capacity are flagged. */
+const NEARLY_FULL = 0.9
+
+function Seats({ overview }: { overview: SchoolOverview }) {
+  return (
+    <Card
+      title="各时段的名额和班级"
+      description={`占名额的是等分班、在读和停课的学生；每班标准 ${overview.classSize.standard} 人，最多 ${overview.classSize.max} 人。`}
+    >
+      <div className="mt-4">
+        <DataTable caption="各时段的名额和班级" quietCaption wide head={['时段', '已占名额', '候补', '班级']} numeric={[1, 2]}>
+          {overview.slots.map((slot) => {
+            const full = slot.capacity > 0 && slot.seated / slot.capacity >= NEARLY_FULL
+            return (
+              <tr key={slot.slot}>
+                <th scope="row" className={ROW_HEAD}>
+                  {SLOT_NAMES[slot.slot]}
+                </th>
+                <td className={NUM}>
+                  {full && (
+                    <Badge tone="red" className="mr-2">
+                      快满了
+                    </Badge>
+                  )}
+                  {count(slot.seated)} / {count(slot.capacity)}
+                </td>
+                <td className={NUM}>{count(slot.waitlisted)}</td>
+                <td className={CELL}>
+                  {slot.classes.length === 0
+                    ? '还没有班级'
+                    : slot.classes
+                        .map(
+                          (c) =>
+                            `${DIVISION_NAMES[c.division]} ${c.classes} 个班 ${count(c.students)} 人，平均每班 ${count(Math.round(c.students / c.classes))} 人`,
+                        )
+                        .join('；')}
+                </td>
+              </tr>
+            )
+          })}
+        </DataTable>
+      </div>
+    </Card>
+  )
+}
+
+function Overview({ stats }: { stats: DailyStats }) {
+  const titleId = useId()
+  const { students, owners, signupsToday, activity, plugins } = stats.overview
+  const inSchool = students.active + students.suspended
+  const perOwner = owners.inSchool === 0 ? 0 : Math.round((inSchool / owners.inSchool) * 100) / 100
+  const pluginTotal = plugins.reduce((sum, p) => sum + p.students, 0)
+  const drops = (n: number | null, when: string) =>
+    n === null ? '开学还不够久，不会有人被退学' : `${count(n)} 人（${when}都没来上课的话）`
+  return (
+    <section aria-labelledby={titleId} className="space-y-4">
+      <h2 id={titleId} className="text-base font-semibold text-gray-900">
+        学校概况（截至 {clockTime(stats.asOf, stats.timeZone)}）
+      </h2>
+      <div className="grid grid-cols-4 gap-4">
+        <Stat label="在校学生" value={count(inSchool)} note={`在读 ${count(students.active)}，停课 ${count(students.suspended)}`} />
+        <Stat
+          label="在校学生的家长"
+          value={count(owners.inSchool)}
+          note={`一个邮箱算一位；平均每位 ${perOwner} 个学生，报过名的家长一共 ${count(owners.all)} 位`}
+        />
+        <Stat
+          label="等着进班"
+          value={count(students.pending + students.waitlisted)}
+          note={`等今晚分班 ${count(students.pending)}，名额满了在候补 ${count(students.waitlisted)}`}
+        />
+        <Stat
+          label="报过名的学生"
+          value={count(students.total)}
+          note={`已经离校 ${count(students.dropped + students.expelled)}（退学 ${count(students.dropped)}，开除 ${count(students.expelled)}）`}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Card title="今天的报名">
+          <div className="mt-2">
+            <NumberTable
+              caption="今天的报名"
+              rows={[
+                ['发出验证码（开始报名）', count(signupsToday.started)],
+                ['填对验证码、报上了名', count(signupsToday.verified)],
+              ]}
+            />
+          </div>
+          <p className="mt-2 text-xs text-gray-600">发出去的比报上的多很多，可能是验证码邮件没收到或进了垃圾箱。</p>
+        </Card>
+        <Card title="来上课和自动退学">
+          <div className="mt-2">
+            <NumberTable
+              caption="来上课和自动退学"
+              rows={[
+                ['在读的学生', count(activity.active)],
+                ['最近 7 天来上过课', `${count(activity.cameThisWeek)}${shareOf(activity.cameThisWeek, activity.active)}`],
+                ['今晚会被自动退学', drops(activity.droppedTonight, '今天')],
+                ['7 天内会被自动退学', drops(activity.droppedWithinWeek, '这 7 天')],
+              ]}
+            />
+          </div>
+        </Card>
+      </div>
+      <Seats overview={stats.overview} />
+      <Card title="在校学生用的插件" description="版本旧的多，可以提醒家长更新。">
+        {plugins.length === 0 ? (
+          <Empty why="还没有在校的学生。" />
+        ) : (
+          <div className="mt-4">
+            <DataTable caption="在校学生用的插件" quietCaption head={['插件', '版本', '学生', '占比']} numeric={[2, 3]}>
+              {plugins.map((p) => (
+                <tr key={`${p.pluginType}@${p.pluginVersion}`}>
+                  <th scope="row" className={ROW_HEAD}>
+                    {p.pluginType}
+                  </th>
+                  <td className={CELL}>{p.pluginVersion}</td>
+                  <td className={NUM}>{count(p.students)}</td>
+                  <td className={NUM}>{percent(p.students / pluginTotal)}</td>
+                </tr>
+              ))}
+            </DataTable>
+          </div>
+        )}
+      </Card>
+    </section>
   )
 }
 
@@ -381,9 +531,10 @@ export function Data({ onGoReview }: { onGoReview: () => void }) {
   const shown = data.series.length
   return (
     <div className="space-y-8">
+      <Overview stats={data} />
+      <Reminders stats={data} onGoReview={onGoReview} />
       <Today stats={data} reading={stats.loading} onUpdate={stats.reload} />
       <Yesterday stats={data} />
-      <Reminders stats={data} onGoReview={onGoReview} />
       <section aria-labelledby={rangeId}>
         <div className="flex items-center justify-between gap-4">
           <h2 id={rangeId} className="text-base font-semibold text-gray-900">
