@@ -7,6 +7,8 @@
 
 import type {
   CallOnKind,
+  ClubDay,
+  DoudizhuPage,
   DailyStats,
   DayNumbers,
   Division,
@@ -30,7 +32,16 @@ import type {
   SwitchState,
   WeeklyPage,
 } from '../src/api.js'
-import { dayNumbers, lessonDetail, seriesDay, shiftDate, student, weeklyStats } from '../src/fixtures.js'
+import {
+  clubDay,
+  dayNumbers,
+  doudizhuPage,
+  lessonDetail,
+  seriesDay,
+  shiftDate,
+  student,
+  weeklyStats,
+} from '../src/fixtures.js'
 
 export interface MockReply {
   status: number
@@ -154,6 +165,70 @@ function dailyStats(days: number): DailyStats {
     timeZone: TIME_ZONE,
     today,
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Clubs
+
+const clubHistory = new Map<string, ClubDay>()
+function clubDayFor(date: string, share = 1): ClubDay {
+  let day = clubHistory.get(date)
+  if (day === undefined) {
+    const games = between(40, 160)
+    day = clubDay(date, { games, rankedGames: Math.round(games * 0.6), players: between(30, 90), newMembers: between(0, 12) })
+    clubHistory.set(date, day)
+  }
+  if (share === 1) return day
+  const part = (n: number) => Math.round(n * share)
+  return { ...day, games: part(day.games), rankedGames: part(day.rankedGames), players: part(day.players), newMembers: part(day.newMembers) }
+}
+
+const mockClubStudent = (studentId: number, owner: string) => ({
+  studentId,
+  displayName: `${owner}家的小鱼 #${String(studentId).padStart(4, '0')}`,
+  className: '初中部·晚班·3 班',
+})
+
+function doudizhu(days: number): DoudizhuPage {
+  const today = schoolToday()
+  const yesterday = shiftDate(today, -1)
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, hour: 'numeric' }).format(new Date()))
+  const share = Math.min(1, Math.max(0.1, hour / 22))
+  const owners = ['阿杰', '小美', '大壮', '小红', '老王', '阿强', '晓晓', '明明']
+  const board = owners.map((owner, i) => ({ ...mockClubStudent(37 + i, owner), points: 60 - i * 7 - (i === 3 ? 7 : 0), games: 20 - i }))
+  return doudizhuPage(days, {
+    members: 412,
+    todaySoFar: clubDayFor(today, share),
+    sameTimeLastWeek: clubDayFor(shiftDate(today, -7), share),
+    asOf: new Date().toISOString(),
+    yesterday: clubDayFor(yesterday),
+    sameDayLastWeek: clubDayFor(shiftDate(yesterday, -7)),
+    series: Array.from({ length: days }, (_, i) => clubDayFor(shiftDate(yesterday, i - days + 1))),
+    week: {
+      startsOn: shiftDate(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7)),
+      board: {
+        entries: board.map((entry) => ({ ...entry, rank: 1 + board.filter((other) => other.points > entry.points).length })),
+        total: 63,
+      },
+      conduct: {
+        seats: 1290,
+        timedOut: { seats: 184, times: 251 },
+        trustee: { seats: 96, moves: 803 },
+        illegal: { seats: 12, moves: 15 },
+      },
+      sameAddress: {
+        total: 2,
+        games: [
+          { gameId: 10422, endedAt: new Date().toISOString(), ranked: true, students: [mockClubStudent(37, '阿杰'), mockClubStudent(52, '阿杰妈妈')] },
+          { gameId: 10307, endedAt: new Date().toISOString(), ranked: false, students: [mockClubStudent(41, '老王'), mockClubStudent(44, '明明')] },
+        ],
+      },
+      pairs: [
+        { students: [mockClubStudent(37, '阿杰'), mockClubStudent(38, '小美')], games: 14, points: [52, -30] },
+        { students: [mockClubStudent(39, '大壮'), mockClubStudent(40, '小红')], games: 9, points: [8, 4] },
+      ],
+    },
+  })
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -663,6 +738,8 @@ export function answer(method: string, path: string, body: Record<string, unknow
       return ok({ ok: true })
     case 'GET /stats/daily':
       return ok(dailyStats(Number(url.searchParams.get('days') ?? 7)))
+    case 'GET /clubs/doudizhu':
+      return ok(doudizhu(Number(url.searchParams.get('days') ?? 7)))
 
     case 'GET /lessons/queue':
       return ok(lessonQueue())

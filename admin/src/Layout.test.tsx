@@ -5,6 +5,7 @@ import { Layout } from './Layout.js'
 import {
   dailyStats,
   dayNumbers,
+  doudizhuPage,
   fakeServer,
   lessonQueue,
   ok,
@@ -20,7 +21,7 @@ function serve(queue = lessonQueue(), stats = dailyStats(7)) {
 }
 
 describe('the layout', () => {
-  it('has the school’s name, the logout and six pages in the sidebar, the school data first and open', async () => {
+  it('has the school’s name, the logout and seven pages in the sidebar, the school data first and open', async () => {
     serve()
     show(<Layout onLoggedOut={vi.fn()} />)
 
@@ -32,6 +33,7 @@ describe('the layout', () => {
       '审课',
       '每周复盘',
       '查学生',
+      '社团',
       '开关',
       '公告',
     ])
@@ -109,7 +111,7 @@ describe('the layout', () => {
     expect(await screen.findByRole('link', { name: '审课 · 待审数没读到' })).toBeInTheDocument()
   })
 
-  it('shows the weekly review, the student lookup, the switches and the notices on their pages', async () => {
+  it('shows the weekly review, the student lookup, the clubs, the switches and the notices on their pages', async () => {
     fakeServer({
       'GET api/stats/daily?days=7': ok(dailyStats(7)),
       'GET api/lessons/queue': ok(lessonQueue()),
@@ -117,6 +119,7 @@ describe('the layout', () => {
       'GET api/weekly/weeks': ok({ weeks: [] }),
       'GET api/switches': ok(switches()),
       'GET api/notices': ok({ notices: [] }),
+      'GET api/clubs/doudizhu?days=7': ok(doudizhuPage(7)),
     })
     const user = userEvent.setup()
     show(<Layout onLoggedOut={vi.fn()} />)
@@ -126,6 +129,9 @@ describe('the layout', () => {
       .toBeInTheDocument()
     await user.click(screen.getByRole('link', { name: '查学生' }))
     expect(within(screen.getByRole('main', { name: '查学生' })).getByRole('textbox', { name: '学号' }))
+      .toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: '社团' }))
+    expect(await within(screen.getByRole('main', { name: '社团' })).findByRole('region', { name: /本周积分榜/ }))
       .toBeInTheDocument()
     await user.click(screen.getByRole('link', { name: '开关' }))
     expect(await within(screen.getByRole('main', { name: '开关' })).findByRole('region', { name: '老师用大模型' }))

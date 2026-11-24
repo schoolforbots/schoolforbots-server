@@ -19,6 +19,7 @@ import type { Database } from '../shared/schema.js'
 import type { MaintenanceWatch } from '../shared/maintenance.js'
 import type { Switches } from '../shared/switches.js'
 import { hashSessionToken, newSessionToken, verifyPassword, verifyTotp } from './auth.js'
+import { clubRoutes } from './clubs.js'
 import { lessonRoutes } from './lessons.js'
 import { maintenanceRoutes } from './maintenance.js'
 import { noticeRoutes } from './notices.js'
@@ -50,7 +51,7 @@ export interface AdminDeps {
  */
 export type AdminApiRoutes = (deps: AdminDeps) => FastifyPluginAsync
 
-const API_ROUTES: AdminApiRoutes[] = [switchRoutes, maintenanceRoutes, statsRoutes, lessonRoutes, weeklyRoutes, studentRoutes, noticeRoutes]
+const API_ROUTES: AdminApiRoutes[] = [switchRoutes, maintenanceRoutes, statsRoutes, lessonRoutes, weeklyRoutes, studentRoutes, noticeRoutes, clubRoutes]
 
 export const SESSION_COOKIE = 'sfb_admin'
 const SESSION_HOURS = 12

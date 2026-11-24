@@ -364,6 +364,68 @@ export const logout = () => request<{ ok: true }>('POST', 'api/logout', {})
 export const dailyStatsPath = (days: StatsDays) => `api/stats/daily?days=${days}`
 export const LESSON_QUEUE_PATH = 'api/lessons/queue'
 
+/** The clubs the clubs page has a tab for: each has numbers of its own, read from its own address. */
+export type ClubKey = 'doudizhu'
+export const doudizhuPath = (days: StatsDays) => `api/clubs/doudizhu?days=${days}`
+
+/** One day of the doudizhu club, as `api/clubs/doudizhu` counts it. */
+export interface ClubDay {
+  date: string
+  games: number
+  /** The games without bots. */
+  rankedGames: number
+  /** The different students who played. */
+  players: number
+  /** The current members who joined that day (one who left again is not counted). */
+  newMembers: number
+}
+
+/** A student as the clubs page names them; `className` is null once they have no class. */
+export interface ClubStudent {
+  studentId: number
+  displayName: string
+  className: string | null
+}
+
+export interface ClubBoardEntry {
+  rank: number
+  studentId: number
+  displayName: string
+  className: string
+  points: number
+  games: number
+}
+
+/** The answer of `api/clubs/doudizhu`. */
+export interface DoudizhuPage {
+  enabled: boolean
+  members: number
+  todaySoFar: ClubDay
+  sameTimeLastWeek: ClubDay
+  asOf: string
+  yesterday: ClubDay
+  sameDayLastWeek: ClubDay
+  /** The days up to yesterday, oldest first. */
+  series: ClubDay[]
+  week: {
+    startsOn: string
+    board: { entries: ClubBoardEntry[]; total: number }
+    conduct: {
+      seats: number
+      timedOut: { seats: number; times: number }
+      trustee: { seats: number; moves: number }
+      illegal: { seats: number; moves: number }
+    }
+    sameAddress: {
+      total: number
+      games: { gameId: number; endedAt: string; ranked: boolean; students: ClubStudent[] }[]
+    }
+    pairs: { students: [ClubStudent, ClubStudent]; games: number; points: [number, number] }[]
+  }
+  timeZone: string
+  today: string
+}
+
 export interface Loaded<T> {
   /** The last answer; kept while a new one is read, so a page can hold its frame. */
   data: T | undefined

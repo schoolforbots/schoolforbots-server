@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { LESSON_QUEUE_PATH, lessonsToReview, logout, useLoad, type ApiError, type LessonQueue } from './api.js'
+import { Clubs } from './pages/Clubs.js'
 import { Data } from './pages/Data.js'
 import { Notices } from './pages/Notices.js'
 import { Review } from './pages/Review.js'
@@ -33,6 +34,7 @@ const PAGES = [
   { key: 'review', name: '审课' },
   { key: 'weekly', name: '每周复盘' },
   { key: 'students', name: '查学生' },
+  { key: 'clubs', name: '社团' },
   { key: 'switches', name: '开关' },
   { key: 'notices', name: '公告' },
 ] as const
@@ -132,6 +134,7 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
     review: <Review queue={queue} />,
     weekly: <Weekly />,
     students: <Students />,
+    clubs: <Clubs />,
     switches: <Switches />,
     notices: <Notices />,
   }

@@ -262,7 +262,7 @@ async function dayUntil(db: Kysely<Database>, timeZone: string, date: string, un
  * The instant on `date` when the school's clock reads what it reads at `moment`, seconds included. Offsets are whole
  * minutes, so the seconds past the minute are the same on every clock.
  */
-function sameTimeOn(date: string, moment: Date, timeZone: string): Date {
+export function sameTimeOn(date: string, moment: Date, timeZone: string): Date {
   const minute = atLocalTime(date, localTimeOfDay(moment, timeZone), timeZone)
   return new Date(minute.getTime() + (moment.getTime() % 60_000))
 }
