@@ -2,8 +2,13 @@ name: docs-site
 
 # The API reference at docs.schoolforbots.org (site/README.md): built from the docs and schemas of a released version
 # and published to GitHub Pages. It follows releases, not main, so the site never shows what is not deployed yet.
-# release.yml publishes each release with the GitHub App's token, which does start this workflow. To publish again by
-# hand, run it from the Actions page on a v* tag; the github-pages environment accepts v* tags only.
+# release.yml publishes each release with the GitHub App's token, which does start this workflow.
+#
+# To publish again by hand, run it from the Actions page on a v* tag. It can also run by hand on main, for when the
+# site itself changed after the last release (the first deploy was such a case: v1.1.0 predates site/): it then
+# checks that main has nothing release-please would release (feat, fix, perf, revert or a breaking change) since the
+# last v* tag, so the routes on main are the released ones, and refuses otherwise. The version shown is still the
+# last release's. The github-pages environment accepts v* tags and main.
 
 on:
   release:
@@ -19,11 +24,28 @@ concurrency:
 
 jobs:
   build:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          # On main, the history back to the last tag, to see what came after it.
+          fetch-depth: ${{ github.ref == 'refs/heads/main' && '0' || '1' }}
+      - name: On main, make sure nothing unreleased would be shown
+        if: github.ref == 'refs/heads/main'
+        run: |
+          last="$(git describe --tags --abbrev=0 --match 'v*')"
+          echo "Last release: $last"
+          # A subject like feat: / fix(club): / refactor!: , or a BREAKING CHANGE footer: what release-please releases.
+          pending="$(git log --format='%h %s' "$last..HEAD" | grep -E '^[0-9a-f]+ (feat|fix|perf|revert)(\([^)]*\))?!?: |^[0-9a-f]+ [a-z]+(\([^)]*\))?!: ' || true)"
+          breaking="$(git log --format='%h %B' "$last..HEAD" | grep -E '^BREAKING[ -]CHANGE:' || true)"
+          if [ -n "$pending$breaking" ]; then
+            echo "::error::main has changes not released yet; publish from the next v* tag instead."
+            printf '%s\n' "$pending" "$breaking"
+            exit 1
+          fi
+          echo "Nothing to release since $last: the routes on main are the released ones."
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -35,6 +57,7 @@ jobs:
       - run: npm run build
         working-directory: site
         env:
+          # The tag, or main when run on main.
           SITE_REF: ${{ github.ref_name }}
       - uses: actions/upload-pages-artifact@v5
         with:
