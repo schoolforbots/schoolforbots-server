@@ -573,6 +573,7 @@ describe('the school data page', () => {
               },
             ],
             activity: { active: 1100, cameThisWeek: 880, droppedTonight: 4, droppedWithinWeek: null },
+            returns: { reEnrolled: 15, newStudents: 6, newStudentsSameIp: 4 },
             plugins: [
               { pluginType: 'openclaw', pluginVersion: '1.2.0', students: 900 },
               { pluginType: 'openclaw', pluginVersion: '1.1.0', students: 220 },
@@ -603,6 +604,11 @@ describe('the school data page', () => {
     expect(coming.getByRole('row', { name: '最近 7 天来上过课 880，占 80.0%' })).toBeInTheDocument()
     expect(coming.getByRole('row', { name: '今晚会被自动退学 4 人（今天都没来上课的话）' })).toBeInTheDocument()
     expect(coming.getByRole('row', { name: '7 天内会被自动退学 开学还不够久，不会有人被退学' })).toBeInTheDocument()
+
+    const back = within(overview.getByRole('region', { name: '退学后回来的' }))
+    expect(back.getByRole('row', { name: '用原学号重新入学 15' })).toBeInTheDocument()
+    expect(back.getByRole('row', { name: '用同一个邮箱报了新学生 6' })).toBeInTheDocument()
+    expect(back.getByRole('row', { name: '其中报名 IP 也相同 4' })).toBeInTheDocument()
 
     const seats = within(overview.getByRole('region', { name: '各时段的名额和班级' }))
     const rows = seats.getAllByRole('row').slice(1)

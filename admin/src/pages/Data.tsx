@@ -218,7 +218,7 @@ function Seats({ overview }: { overview: SchoolOverview }) {
 
 function Overview({ stats }: { stats: DailyStats }) {
   const titleId = useId()
-  const { students, owners, signupsToday, activity, plugins } = stats.overview
+  const { students, owners, signupsToday, activity, returns, plugins } = stats.overview
   const inSchool = students.active + students.suspended
   const perOwner = owners.inSchool === 0 ? 0 : Math.round((inSchool / owners.inSchool) * 100) / 100
   const pluginTotal = plugins.reduce((sum, p) => sum + p.students, 0)
@@ -248,7 +248,7 @@ function Overview({ stats }: { stats: DailyStats }) {
           note={`已经离校 ${count(students.dropped + students.expelled)}（退学 ${count(students.dropped)}，开除 ${count(students.expelled)}）`}
         />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card title="今天的报名" description="发出去的验证码比报上名的多很多，可能是验证码邮件没收到或进了垃圾箱。">
           <div className="mt-2">
             <NumberTable
@@ -269,6 +269,21 @@ function Overview({ stats }: { stats: DailyStats }) {
                 ['最近 7 天来上过课', `${count(activity.cameThisWeek)}${shareOf(activity.cameThisWeek, activity.active)}`],
                 ['今晚会被自动退学', drops(activity.droppedTonight, '今天')],
                 ['7 天内会被自动退学', drops(activity.droppedWithinWeek, '这 7 天')],
+              ]}
+            />
+          </div>
+        </Card>
+        <Card
+          title="退学后回来的"
+          description="退学或被开除以后又回来的学生，从开始记录起一共多少。用原学号重新入学的，回来几次都只算一个；用同一个邮箱报了新学生的，按新学生算，再看其中有几个和原来的学生是从同一个 IP 报的名。"
+        >
+          <div className="mt-2">
+            <NumberTable
+              caption="退学后回来的"
+              rows={[
+                ['用原学号重新入学', count(returns.reEnrolled)],
+                ['用同一个邮箱报了新学生', count(returns.newStudents)],
+                ['其中报名 IP 也相同', count(returns.newStudentsSameIp)],
               ]}
             />
           </div>

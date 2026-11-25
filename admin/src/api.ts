@@ -73,6 +73,11 @@ export interface SchoolOverview {
     droppedTonight: number | null
     droppedWithinWeek: number | null
   }
+  /**
+   * The students who came back after leaving: re-enrolled with their student number (each once), and new students
+   * registered with the email of one who had left, and how many of those from the same address.
+   */
+  returns: { reEnrolled: number; newStudents: number; newStudentsSameIp: number }
   plugins: { pluginType: string; pluginVersion: string; students: number }[]
 }
 

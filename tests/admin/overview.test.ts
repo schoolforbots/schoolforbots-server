@@ -188,4 +188,29 @@ describe('the school overview', () => {
       { pluginType: 'openclaw', pluginVersion: '1.1.0', students: 1 },
     ])
   })
+
+  test('counts the students who came back: re-enrolled once each, and new students of an email, from the same address or not', async () => {
+    await start()
+    const back = await student('pending')
+    const gone = await student('dropped')
+    const newcomer = await student('pending')
+    const another = await student('pending')
+    await t.db
+      .insertInto('studentReturns')
+      .values([
+        { studentId: back, kind: 're_enroll', at: at('2026-10-01') },
+        { studentId: back, kind: 're_enroll', at: at('2026-11-01') },
+        { studentId: newcomer, kind: 'new_student', previousStudentId: gone, sameIp: true, at: at('2026-11-02') },
+        { studentId: another, kind: 'new_student', previousStudentId: gone, sameIp: false, at: at('2026-11-03') },
+      ])
+      .execute()
+
+    expect((await overview()).returns).toEqual({ reEnrolled: 1, newStudents: 2, newStudentsSameIp: 1 })
+  })
+
+  test('counts nobody back in a school where nobody came back', async () => {
+    await start()
+    await student('dropped')
+    expect((await overview()).returns).toEqual({ reEnrolled: 0, newStudents: 0, newStudentsSameIp: 0 })
+  })
 })

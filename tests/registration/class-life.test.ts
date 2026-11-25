@@ -940,6 +940,26 @@ describe('POST /v1/me/re-enroll', () => {
     expect(await studentRow(waiting.id)).toMatchObject({ createdAt: registeredAt, queuedAt: t.clock.now() })
   })
 
+  test('each re-enroll is recorded as a return of the same student; a refused one is not', async () => {
+    const { id, key } = await insertStudent(t.db, { status: 'dropped' })
+    const returns = () =>
+      t.db.selectFrom('studentReturns').select(['studentId', 'kind', 'previousStudentId', 'sameIp', 'at']).orderBy('id').execute()
+
+    expect((await reEnroll(key)).statusCode).toBe(200)
+    const first = t.clock.now()
+    // Not dropped any more: refused, and nothing recorded.
+    expect((await reEnroll(key)).statusCode).toBe(409)
+    expect(await returns()).toEqual([{ studentId: id, kind: 're_enroll', previousStudentId: null, sameIp: null, at: first }])
+
+    await t.db.updateTable('students').set({ status: 'dropped' }).where('id', '=', id).execute()
+    t.clock.advance(DAY)
+    expect((await reEnroll(key)).statusCode).toBe(200)
+    expect((await returns()).map((r) => [r.studentId, r.at])).toEqual([
+      [id, first],
+      [id, t.clock.now()],
+    ])
+  })
+
   test('a returner waits behind students who were already on the waitlist', async () => {
     const config = { ...exampleConfig, slotCapacity: 1 }
     await useConfig({ slotCapacity: 1 })
@@ -1044,6 +1064,7 @@ describe('POST /v1/me/re-enroll', () => {
 
     const results = await Promise.all([reEnroll(key), reEnroll(key), reEnroll(key)])
     expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409, 409])
+    expect(await t.db.selectFrom('studentReturns').select('id').execute()).toHaveLength(1)
   })
 
   test('an AI id that has taken another seat meanwhile → 409 ai_has_seat', async () => {

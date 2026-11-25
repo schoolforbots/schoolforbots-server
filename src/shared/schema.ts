@@ -514,6 +514,19 @@ export interface SummariesTable {
   createdAt: Date
 }
 
+/** A student who came back after leaving school (see migration 0018). */
+export interface StudentReturnsTable {
+  id: Generated<number>
+  studentId: number
+  /** `re_enroll`: the same student re-enrolled; `new_student`: a new student with the email of one who had left. */
+  kind: 're_enroll' | 'new_student'
+  /** For a new student, the student of the same email who had left (the one who registered last); else null. */
+  previousStudentId: number | null
+  /** For a new student, whether the two registered from the same address; else null. */
+  sameIp: boolean | null
+  at: Date
+}
+
 export interface Database {
   classes: ClassesTable
   registrations: RegistrationsTable
@@ -548,4 +561,5 @@ export interface Database {
   doudizhuGames: DoudizhuGamesTable
   doudizhuGamePlayers: DoudizhuGamePlayersTable
   notices: NoticesTable
+  studentReturns: StudentReturnsTable
 }

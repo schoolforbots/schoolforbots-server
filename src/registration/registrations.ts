@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import type { FastifyBaseLogger } from 'fastify'
-import type { Kysely } from 'kysely'
+import { sql, type Kysely } from 'kysely'
 import { Type, type Static } from 'typebox'
 import { IsEmail } from 'typebox/format'
 import {
@@ -300,9 +300,39 @@ async function verifyInTransaction(
     .executeTakeFirstOrThrow()
 
   await trx.updateTable('registrations').set({ verifiedAt: now }).where('id', '=', id).execute()
+  await recordNewStudentReturn(trx, student.id, registration.email, registration.ip, now)
   // Local development only: a class now, not at midnight. The slot lock is held, as the nightly job holds it. The
   // answer still says `pending`, as it would at any other time: the student learns the class from GET /v1/me.
   if (deps.assignOnVerify && status === 'pending') await assignQueuedNow(trx, config, now, registration.division, registration.slot)
 
   return { ok: true, result: { studentId: student.id, key, status } }
+}
+
+/**
+ * A new student whose email had a student who has left school by now (dropped or expelled) came back: recorded in
+ * `student_returns`, with the one of them who registered last, and whether the two registered from the same address.
+ * Called under the email lock, so the students of the email do not change meanwhile.
+ */
+async function recordNewStudentReturn(
+  trx: Kysely<Database>,
+  studentId: number,
+  email: string,
+  ip: string,
+  now: Date,
+): Promise<void> {
+  const previous = await trx
+    .selectFrom('students')
+    .select(['id', sql<boolean>`registration_ip = ${ip}::inet`.as('sameIp')])
+    .where('email', '=', email)
+    .where('id', '<>', studentId)
+    .where('status', 'in', ['dropped', 'expelled'])
+    .orderBy('createdAt', 'desc')
+    .orderBy('id', 'desc')
+    .limit(1)
+    .executeTakeFirst()
+  if (previous === undefined) return
+  await trx
+    .insertInto('studentReturns')
+    .values({ studentId, kind: 'new_student', previousStudentId: previous.id, sameIp: previous.sameIp, at: now })
+    .execute()
 }

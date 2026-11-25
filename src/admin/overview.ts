@@ -19,6 +19,9 @@ import type { Database, StudentStatus } from '../shared/schema.js'
 // - About to be dropped: the active students the nightly job would drop if they came to no class before it: tonight's
 //   run, and the seven runs from tonight on (the last one counts every student the earlier ones would drop). The look-back skips breaks and the maintenance days on record, as the job's
 //   does; null when the school has not been open long enough for the job to drop anyone by then.
+// - Came back: the students who came back after leaving (`student_returns`): those who re-enrolled with their student
+//   number, each once however often; and the new students registered with the email of a student who had already
+//   left, with how many of them registered from the same address as that student.
 
 const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
 
@@ -42,6 +45,7 @@ export interface SchoolOverview {
     droppedTonight: number | null
     droppedWithinWeek: number | null
   }
+  returns: { reEnrolled: number; newStudents: number; newStudentsSameIp: number }
   /** The plugins of the students in school, the most used first. */
   plugins: { pluginType: string; pluginVersion: string; students: number }[]
 }
@@ -137,6 +141,15 @@ export async function schoolOverview(db: Kysely<Database>, config: SchoolConfig,
     .orderBy('pluginVersion', 'desc')
     .execute()
 
+  const returns = await db
+    .selectFrom('studentReturns')
+    .select([
+      sql<string>`count(distinct student_id) filter (where kind = 're_enroll')`.as('reEnrolled'),
+      sql<string>`count(*) filter (where kind = 'new_student')`.as('newStudents'),
+      sql<string>`count(*) filter (where kind = 'new_student' and same_ip)`.as('newStudentsSameIp'),
+    ])
+    .executeTakeFirstOrThrow()
+
   return {
     students,
     owners: { inSchool: Number(owners.inSchool), all: Number(owners.all) },
@@ -149,6 +162,11 @@ export async function schoolOverview(db: Kysely<Database>, config: SchoolConfig,
       // Tonight's run is tomorrow's (it runs at midnight); the seventh run from tonight is a week from today's.
       droppedTonight: await droppedBy(addDaysToDate(today, 1)),
       droppedWithinWeek: await droppedBy(addDaysToDate(today, 7)),
+    },
+    returns: {
+      reEnrolled: Number(returns.reEnrolled),
+      newStudents: Number(returns.newStudents),
+      newStudentsSameIp: Number(returns.newStudentsSameIp),
     },
     plugins: plugins.map((p) => ({ pluginType: p.pluginType, pluginVersion: p.pluginVersion, students: Number(p.students) })),
   }
