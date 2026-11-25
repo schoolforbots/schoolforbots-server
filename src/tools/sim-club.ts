@@ -454,8 +454,11 @@ export function createClubBot(
   /** The `at` of the last live game event, until a `your_turn` takes it as its start. */
   let lastGameEventAt: number | null = null
 
-  // Of the game being played: reset at each deal.
+  // Of the game being played: reset at each deal. Null, or -1 after a deal without it, while the bot only waits in the
+  // room for a seat: it sees the game's public events then, the over too, but the game is not its own.
   let mySeat: number | null = null
+  /** Whether the bot sits at the table, so that the game on is its own. */
+  const playing = () => mySeat !== null && mySeat >= 0
   let inTrustee = false
   let takeBackSent = false
   let closingInGame = false
@@ -664,6 +667,8 @@ export function createClubBot(
     gamesHere = 0
     botsRoom = how === 'bots'
     tally.seated[how]++
+    // Into a room with a game on, a bot waits for a seat until the game is over (the bots give up theirs then).
+    mySeat = state.seats.find((s) => s.player?.studentId === me)?.seat ?? null
     gameOn = state.game !== null && state.game.phase !== 'over'
     waitingSince = gameOn ? null : now()
     if (!gameOn) watchSeat()
@@ -863,7 +868,10 @@ export function createClubBot(
         gameOn = false
         waitingSince = now()
         const { gameId } = event.result
-        if (!tally.gameIds.has(gameId)) {
+        // A game watched while waiting for a seat counts towards moving on from the table, but it is not one of the
+        // bot's records: only a game it played is looked for in them.
+        if (!playing()) gamesHere++
+        else if (!tally.gameIds.has(gameId)) {
           tally.gameIds.add(gameId)
           tally.gamesOver++
           gamesHere++
@@ -967,7 +975,7 @@ export function createClubBot(
     const sentAway = msg.reason === 'club_closed' || msg.reason === 'maintenance' || msg.reason === 'service_stopping'
     // Only a connection that was welcomed was in the game when the school closed: one turned away at the door (back
     // from a drop, say) saw nothing of how the game it left went on. Either way the game is counted once.
-    if (sentAway && gameOn) {
+    if (sentAway && gameOn && playing()) {
       if (welcomed) {
         tally.closingWithoutOver++
         say('学校请走时这一局还没收到 over')
