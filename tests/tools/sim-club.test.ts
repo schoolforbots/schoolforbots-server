@@ -492,6 +492,54 @@ describe('against a fake school', () => {
     expect(dropped.tally).toMatchObject({ drops: 1, welcomes: 1, closingWithoutOver: 0, unexpectedDisconnects: 0, connectFailures: 0 })
   })
 
+  test('a game a bot watched while it waited for a seat is not one of its own: no record of it is looked for', async () => {
+    // Back in a room where it waits for a seat while the bots play: the game's public events reach it, the over too.
+    const bot = (seat: number) => ({ studentId: null, displayName: `陪练小${seat}`, bot: true })
+    const me = { studentId: 1, displayName: '小鱼 #0001', bot: false }
+    const playing = {
+      game: 'doudizhu', gameId: 41, phase: 'playing', firstBidder: 0, bids: [], landlord: 0, base: 1, bottom: null,
+      cardsLeft: [17, 17, 17], multiplier: 1, trick: null, history: [], trustee: [false, false, false], toAct: 1,
+      deadline: '2026-11-20T03:00:03.000Z',
+    }
+    const waitingIn = {
+      ...welcome,
+      room: {
+        roomId: 'rabcd', club: 'doudizhu', visibility: 'public', host: 1,
+        seats: [0, 1, 2].map((seat) => ({ seat, player: bot(seat), ready: true, online: true, trustee: false })),
+        waiting: [me], spectators: 0, gamesPlayed: 0, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: 5, game: playing,
+      },
+    }
+    expect(Value.Check(ClubServerMessage, waitingIn), JSON.stringify([...Value.Errors(ClubServerMessage, waitingIn)].slice(0, 3))).toBe(true)
+    const over = {
+      type: 'room.event', roomId: 'rabcd', seq: 6, replayed: false, at: new Date().toISOString(),
+      event: {
+        kind: 'game', game: 'doudizhu',
+        event: {
+          kind: 'over',
+          result: { gameId: 41, outcome: 'landlord_won', landlord: 0, base: 1, doublings: [], multiplier: 1, capped: false, scores: [2, -1, -1], hands: [[], [], []], bottom: null, ranked: false },
+        },
+      },
+    }
+    expect(Value.Check(ClubServerMessage, over), JSON.stringify([...Value.Errors(ClubServerMessage, over)].slice(0, 3))).toBe(true)
+    const url = await fakeSchool((ws, hello) => {
+      ws.send(JSON.stringify({ type: 'ack', id: hello.id, ok: true }))
+      ws.send(JSON.stringify(waitingIn))
+      ws.send(JSON.stringify(over))
+    })
+    const b = createClubBot({ studentId: 1, key: 'k1', displayName: '小鱼1' }, 'quick', { ...QUIET, url }, {
+      clock: { now: () => new Date() },
+      random: seededRandom(1),
+      timing: { retryMs: 60_000, awayMs: [10, 20], reformMs: [60_000, 60_000] },
+      print: () => {},
+    })
+    cleanups.push(() => b.stop())
+    b.start()
+    await waitUntil(() => b.tally.welcomes === 1, 'the welcome')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(b.tally.gamesOver).toBe(0)
+    expect([...b.tally.gameIds]).toEqual([])
+  })
+
   test('turned away at the door with an HTTP status, a bot counts a failure to connect and nothing else', async () => {
     const url = await fakeSchool(() => {}, () => 503)
     const bot = slowBot(url)
