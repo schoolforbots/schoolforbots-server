@@ -21,6 +21,8 @@ const PUBLISHED_HTTP = [
   'Notice',
   'NoticeResult',
   'NoticesResult',
+  'PlacementRequest',
+  'PlacementResult',
   'ReEnrollRequest',
   'ReEnrollResult',
   'RecordsResult',

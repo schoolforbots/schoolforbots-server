@@ -45,6 +45,7 @@ async function student(p: {
   lastAttendedAt?: Date | null
   suspendedUntil?: Date | null
   reinstatedAt?: Date | null
+  lastMovedAt?: Date | null
 }): Promise<number> {
   const { id } = await insertStudent(db, {
     status: p.status ?? 'active',
@@ -54,6 +55,7 @@ async function student(p: {
     lastAttendedAt: p.lastAttendedAt ?? null,
     suspendedUntil: p.suspendedUntil ?? null,
     reinstatedAt: p.reinstatedAt ?? null,
+    lastMovedAt: p.lastMovedAt ?? null,
   })
   if (p.plugin !== undefined) {
     await db
@@ -160,8 +162,12 @@ test('the week is counted number by number, Monday to Sunday in school time', as
   // Newcomers: first put in a class this week (they joined the queue once, when they registered).
   const n1 = await student({ createdAt: at('2026-10-20'), assignedAt: at(WEEK, '01:00:00') })
   const n2 = await student({ createdAt: at('2026-10-25'), assignedAt: at('2026-10-27', '00:30:00') })
-  // Not newcomers: one came back after a drop, one was seated the week before, one the Monday after.
+  // A newcomer who moved to another division in their first week is still one.
+  await student({ createdAt: at('2026-10-27'), assignedAt: at('2026-10-29', '10:00:00'), lastMovedAt: at('2026-10-29', '09:00:00') })
+  // Not newcomers: one came back after a drop, one moved to another division or slot this week, one was seated the week
+  // before, one the Monday after.
   await student({ createdAt: at('2026-09-01'), queuedAt: at('2026-10-24'), assignedAt: at(WEEK, '01:00:00') })
+  await student({ createdAt: at('2026-09-01'), assignedAt: at('2026-10-28', '14:00:00'), lastMovedAt: at('2026-10-28', '13:30:00') })
   await student({ createdAt: at('2026-10-10'), assignedAt: at('2026-10-19', '01:00:00') })
   await student({ createdAt: at('2026-10-25'), assignedAt: at(AFTER, '00:00:00') })
 
@@ -327,7 +333,7 @@ test('the week is counted number by number, Monday to Sunday in school time', as
     { messageId: shown, text: '第二层拦下的话', at: at('2026-10-27').toISOString() },
   ])
 
-  expect(stats.students).toEqual({ newcomers: 2, cameBackForSecond: 1, dropped: 2, suspended: 1, expelled: 1 })
+  expect(stats.students).toEqual({ newcomers: 3, cameBackForSecond: 1, dropped: 2, suspended: 1, expelled: 1 })
   expect(stats.cost).toEqual({
     byPurpose: {
       lesson: 0,

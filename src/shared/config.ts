@@ -267,6 +267,8 @@ export const SchoolConfigSchema = Type.Object({
   registrationsPerIpPerDay: PositiveInt,
   nameMaxChars: PositiveInt,
   renameCooldownDays: Type.Integer({ minimum: 0 }),
+  // Days between two changes of a student's division and slot. Left out: `DEFAULT_MOVE_COOLDOWN_DAYS`.
+  moveCooldownDays: Type.Optional(PositiveInt),
   inactivityDropDays: PositiveInt,
   verificationCode: Type.Object({
     ttlMinutes: PositiveInt,
@@ -428,6 +430,9 @@ export const SchoolConfigSchema = Type.Object({
 /** The window the classes' steps are spread over when the config does not say (`lesson.staggerMillis`). */
 export const DEFAULT_STAGGER_MILLIS = 2000
 
+/** Days between two changes of a student's division and slot when the config does not say. */
+export const DEFAULT_MOVE_COOLDOWN_DAYS = 1
+
 /** The lines of a student the second layer may stop in a lesson when the config does not say. */
 export const DEFAULT_SECOND_LAYER_BLOCKS_PER_STUDENT = 5
 
@@ -435,9 +440,10 @@ type RawSchoolConfig = Static<typeof SchoolConfigSchema>
 
 /**
  * The config as loaded: `wsHandshake`, `alerts` and `club` are always there, with the defaults for whatever the file
- * left out, and so are `lesson.staggerMillis` and `secondLayer.blocksPerStudentPerLesson`.
+ * left out, and so are `moveCooldownDays`, `lesson.staggerMillis` and `secondLayer.blocksPerStudentPerLesson`.
  */
-export type SchoolConfig = Omit<RawSchoolConfig, 'wsHandshake' | 'alerts' | 'club' | 'lesson' | 'secondLayer'> & {
+export type SchoolConfig = Omit<RawSchoolConfig, 'wsHandshake' | 'alerts' | 'club' | 'lesson' | 'secondLayer' | 'moveCooldownDays'> & {
+  moveCooldownDays: number
   wsHandshake: WsHandshakeConfig
   alerts: AlertsConfig
   club: ClubConfig
@@ -532,6 +538,7 @@ export function loadSchoolConfig(path: string): SchoolConfig {
   const parsed = raw as RawSchoolConfig
   const config: SchoolConfig = {
     ...parsed,
+    moveCooldownDays: parsed.moveCooldownDays ?? DEFAULT_MOVE_COOLDOWN_DAYS,
     wsHandshake: { ...DEFAULT_WS_HANDSHAKE, ...parsed.wsHandshake },
     alerts: { ...DEFAULT_ALERTS, ...parsed.alerts },
     club: clubOf(parsed.club),

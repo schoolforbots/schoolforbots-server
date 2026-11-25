@@ -84,6 +84,7 @@ export interface StudentsTable {
   assignedAt: Date | null
   lastAttendedAt: Date | null
   lastRenamedAt: Date | null
+  lastMovedAt: Date | null
   lessonsAttended: Generated<number>
   /** Until when a suspended student stays out of class; null when not suspended. */
   suspendedUntil: Date | null

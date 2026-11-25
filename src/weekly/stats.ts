@@ -347,6 +347,8 @@ async function studentStats(db: Kysely<Database>, config: SchoolConfig, w: Week)
     .where('st.assignedAt', '>=', w.from)
     .where('st.assignedAt', '<', w.to)
     .whereRef('st.queuedAt', '=', 'st.createdAt')
+    // A student who moved to another division or slot is placed again; only one who registered this week is new.
+    .where((eb) => eb.or([eb('st.lastMovedAt', 'is', null), eb('st.createdAt', '>=', w.from)]))
     .executeTakeFirstOrThrow()
 
   // The nightly job of a day drops the students last seen before its cutoff (see the daily job): those the week's

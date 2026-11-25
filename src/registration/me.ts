@@ -5,6 +5,8 @@ import {
   Admission,
   Classmates,
   Me,
+  PlacementRequest,
+  PlacementResult,
   ReEnrollRequest,
   ReEnrollResult,
   RenameRequest,
@@ -14,7 +16,7 @@ import {
 import { nextSchoolDay } from '../shared/calendar.js'
 import { MEMBER_STATUSES, SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
-import type { SchoolConfig, Slot } from '../shared/config.js'
+import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { addDaysToDate, atLocalTime } from '../shared/local-time.js'
 import type { StudentStatus } from '../shared/schema.js'
 import type { RegistrationDeps } from './app.js'
@@ -125,6 +127,12 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
       async (request) => renameStudent(deps, studentOf(request), request.body),
     )
 
+    app.patch(
+      '/v1/me/placement',
+      { preHandler: requireStudent(deps), schema: { body: PlacementRequest, response: { 200: PlacementResult } } },
+      async (request) => moveStudent(deps, studentOf(request), request.body),
+    )
+
     app.post(
       '/v1/me/re-enroll',
       { preHandler: requireStudent(deps), schema: { body: ReEnrollRequest, response: { 200: ReEnrollResult } } },
@@ -173,7 +181,8 @@ async function renameStudent(
   const now = clock.now()
 
   return db.transaction().execute(async (trx) => {
-    // The slot lock comes first (a student's slot never changes). The nightly job holds it while it reads the names
+    // The slot lock comes first (only a move changes a student's slot, and it takes the student out of the class, so a
+    // rename in a class always has the slot it locked). The nightly job holds it while it reads the names
     // in each class and places newcomers by them, so a rename cannot slip a clashing name in between. Lock order is
     // slot, then student row, then class row, the same as re-enroll's slot, then student row.
     await lock(trx, slotLockKey(current.slot))
@@ -247,6 +256,77 @@ async function renameStudent(
       })
       .execute()
     return { displayName: newDisplayName, announced: true }
+  })
+}
+
+/** The slots in the order their locks are taken, the same as the nightly job's, so two lockers never wait on each other. */
+const SLOT_LOCK_ORDER: readonly Slot[] = ['morning', 'afternoon', 'evening']
+
+/**
+ * The owner moves the AI to another division, slot or both (`PATCH /v1/me/placement`). A student in a class leaves it
+ * and waits for a class of the new division and slot, which the next assignment on the hour gives. The student number,
+ * the lessons attended, the records and the club memberships go along: `queued_at` is left as it is, so the club still
+ * counts a membership from before the move once the student is in a class again.
+ */
+async function moveStudent(
+  deps: RegistrationDeps,
+  current: StudentRow,
+  body: Static<typeof PlacementRequest>,
+): Promise<Static<typeof PlacementResult>> {
+  const { db, config, clock } = deps
+  const unchanged = (s: { division: Division; slot: Slot }) => s.division === body.division && s.slot === body.slot
+
+  return db.transaction().execute(async (trx) => {
+    // The slot locks first, the old slot's and the new one's in the fixed order, as the nightly job and the hourly
+    // assignment take them: they read who waits in each slot and seat them by it, so a move cannot slip in between.
+    for (const slot of SLOT_LOCK_ORDER) if (slot === current.slot || slot === body.slot) await lock(trx, slotLockKey(slot))
+
+    // Read again under a row lock: the assignment, a penalty or another move may have changed the student since the key
+    // was checked, and two moves by one student must not both pass the cooldown.
+    const student = await trx
+      .selectFrom('students')
+      .selectAll()
+      .where('id', '=', current.id)
+      .forUpdate()
+      .executeTakeFirstOrThrow()
+    const now = clock.now()
+
+    if (student.status === 'suspended') {
+      throw new ApiError(409, 'still_suspended', { until: runningSuspensionEnd(student, now) ?? now.toISOString() })
+    }
+    if (student.status !== 'active' && student.status !== 'pending' && student.status !== 'waitlisted') {
+      throw new ApiError(409, 'wrong_status')
+    }
+    if (unchanged(student)) return { status: student.status, division: student.division, slot: student.slot, moved: false }
+
+    if (student.lastMovedAt !== null) {
+      const allowedAt = new Date(student.lastMovedAt.getTime() + config.moveCooldownDays * DAY_MS)
+      if (now.getTime() < allowedAt.getTime()) {
+        throw new ApiError(409, 'move_cooldown', { retryAfter: dateIn(config.timezone, allowedAt) })
+      }
+    }
+    // Another move committed while this one waited for the locks would have started the cooldown above; a slot that
+    // changed without one means the locks taken are not the student's, and nothing is written under them.
+    if (student.slot !== current.slot) throw new Error('The student changed slot while their move waited for the locks')
+
+    // Within the slot the seat is kept, a place in the waitlist too. Into another slot only when it has a free seat
+    // and nobody waits for one, so a move never jumps the queue.
+    let status: 'pending' | 'waitlisted' = student.status === 'waitlisted' ? 'waitlisted' : 'pending'
+    if (body.slot !== student.slot) {
+      if ((await slotHasWaitlist(trx, body.slot)) || (await slotOccupancy(trx, body.slot)) >= config.slotCapacity) {
+        throw new ApiError(409, 'slot_full')
+      }
+      status = 'pending'
+    }
+
+    await trx
+      .updateTable('students')
+      .set({ division: body.division, slot: body.slot, status, classId: null, assignedAt: null, lastMovedAt: now })
+      .where('id', '=', student.id)
+      .execute()
+    // Local development only: a class now, not on the hour (the new slot's lock is held).
+    if (deps.assignOnVerify && status === 'pending') await assignQueuedNow(trx, config, now, body.division, body.slot)
+    return { status, division: body.division, slot: body.slot, moved: true }
   })
 }
 
