@@ -14,7 +14,8 @@ import {
 import { nextSchoolDay } from '../shared/calendar.js'
 import { MEMBER_STATUSES, SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
-import type { Slot } from '../shared/config.js'
+import type { SchoolConfig, Slot } from '../shared/config.js'
+import { addDaysToDate, atLocalTime } from '../shared/local-time.js'
 import type { StudentStatus } from '../shared/schema.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf, type StudentRow } from './auth.js'
@@ -29,6 +30,18 @@ type Classmate = Static<typeof Classmates>['classmates'][number]
 /** A moment as a `YYYY-MM-DD` date in the given timezone (the en-CA locale writes dates in that order). */
 function dateIn(timeZone: string, moment: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(moment)
+}
+
+/**
+ * The first school day a student placed at `assignedAt` comes to class: the day of the placement if it is a school day
+ * and the doors of the student's slot had not opened yet, as a session's members are fixed when its doors open;
+ * otherwise the next school day after it. Null on a break with no reopening day yet.
+ */
+export function startsOnAfter(assignedAt: Date, slot: Slot, config: SchoolConfig): string | null {
+  const day = dateIn(config.timezone, assignedAt)
+  const start = atLocalTime(day, config.slots[slot].start, config.timezone)
+  const doors = start.getTime() - config.lesson.doorsOpenMinutesBefore * 60_000
+  return nextSchoolDay(assignedAt.getTime() < doors ? day : addDaysToDate(day, 1), config)
 }
 
 export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
@@ -84,7 +97,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           classNo: row.classNo,
           className: className(row.division, row.slot, row.classNo, deps.config),
           teacher: { name: teacher?.name ?? row.teacherPersonaId },
-          startsOn: nextSchoolDay(dateIn(deps.config.timezone, student.assignedAt), deps.config),
+          startsOn: startsOnAfter(student.assignedAt, student.slot, deps.config),
           classmates: await classmatesOf(deps.db, student.classId),
           suspendedUntil: runningSuspensionEnd(student, deps.clock.now()),
         }

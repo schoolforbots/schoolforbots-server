@@ -16,10 +16,10 @@ import { startMaintenanceWatch } from '../shared/maintenance.js'
 import { startSwitches } from '../shared/switches.js'
 import { runWeeklyReview } from '../weekly/review.js'
 import { buildRegistrationApp } from './app.js'
-import { runDailyJob } from './daily-job.js'
+import { runDailyJob, runHourlyAssignment } from './daily-job.js'
 import { reportSends, startMailHealth } from './mail-health.js'
 import { ConsoleMailer, createSmtpMailer, withMailFailures, type Mailer } from './mailer.js'
-import { isWeeklyReviewDay, startDailyJob, startPeriodicJob } from './scheduler.js'
+import { isWeeklyReviewDay, startDailyJob, startHourlyJob, startPeriodicJob } from './scheduler.js'
 import { createTencentSesMailer } from './tencent-ses.js'
 
 async function main(): Promise<void> {
@@ -183,6 +183,17 @@ async function main(): Promise<void> {
     }
   }, config.timezone)
 
+  // The waiting students are placed every hour on the hour; the midnight job places them at midnight.
+  const hourlyAssignment = startHourlyJob(async () => {
+    try {
+      const report = await runHourlyAssignment({ db, config, clock: systemClock })
+      app.log.info({ report }, 'hourly assignment finished')
+    } catch (err) {
+      app.log.error({ err }, 'hourly assignment failed')
+      noteEvent('job_failed')
+    }
+  }, config.timezone)
+
   // The alert mails to the operator: checked every minute; a failed check is only logged and the next one comes.
   const alerts = startPeriodicJob(
     async () => {
@@ -205,6 +216,7 @@ async function main(): Promise<void> {
   const shutdown = createShutdown(async (signal) => {
     app.log.info({ signal }, 'shutting down')
     dailyJob.stop()
+    hourlyAssignment.stop()
     lessonGeneration.stop()
     alerts.stop()
     mailHealth.stop()

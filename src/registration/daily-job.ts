@@ -10,7 +10,10 @@ import { atLocalTime, localDate, startOfLocalDay } from '../shared/local-time.js
 import { assignClasses, type ClassState } from './assignment.js'
 import { slotOccupancy } from './capacity.js'
 
-/** Held for the whole run, so two runs (say, from two server instances at midnight) never overlap. */
+/**
+ * Held for the whole run of the nightly job and of the hourly assignment, so no two runs (say, from two server instances,
+ * or the two jobs at midnight) ever overlap.
+ */
 const DAILY_JOB_LOCK = 4242001
 
 // Fixed orders: slots are locked in this order, and classes are created in this order.
@@ -47,7 +50,7 @@ export function teacherPersonaFor(config: SchoolConfig, classesBefore: number): 
 
 /**
  * The nightly job, in one transaction: drop students who stopped coming, promote the waitlist into the freed
- * seats, put the pending students who joined the queue before today into a class, bring back the suspended
+ * seats, put every pending student into a class (as the hourly assignment does), bring back the suspended
  * students whose suspension is over, delete the chat messages past their retention and the ops records (events,
  * service starts, backup runs) older than 30 days, delete the club memberships that are no longer current
  * (the student left the school, or re-enrolled since joining), and clear the IPs of the club games past their
@@ -55,20 +58,17 @@ export function teacherPersonaFor(config: SchoolConfig, classesBefore: number): 
  *
  * The rules that count days go by today's date in the school's timezone, not by the time of the run: a run that
  * starts late, or one that makes up for a missed midnight, does what the midnight run would have done, and running
- * it again later the same day changes nothing more. Students who join the queue today wait for tomorrow's run
- * (报名当天待分班). Days on a break, and those before the opening day, do not count towards staying away.
+ * it again later the same day drops and reinstates nobody more. Placing students goes by who is waiting at the time of
+ * the run, as in the hourly assignment. Days on a break, and those before the opening day, do not count towards staying away.
  */
 export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolConfig; clock: Clock }): Promise<DailyJobReport> {
   const { db, config, clock } = deps
 
   return db.transaction().execute(async (trx) => {
-    await sql`select pg_advisory_xact_lock(${sql.lit(DAILY_JOB_LOCK)})`.execute(trx)
-    // The same slot locks verify takes, so a verify cannot push a slot over its capacity while the waitlist is promoted.
-    for (const slot of SLOTS) await lock(trx, slotLockKey(slot))
+    await takeJobLocks(trx)
 
     // Read after the locks, so a run that had to wait still uses the time it actually runs at.
     const now = clock.now()
-    const today = startOfLocalDay(now, config.timezone)
     // The day the last `inactivityDropDays` days that are not a holiday start on; none when the school has not been
     // open that many days yet, so nobody is dropped for staying away.
     // The days under maintenance are not counted either: nobody could come. The set covers every maintenance period on
@@ -77,8 +77,7 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
     const skipped = await allMaintenanceDays(trx, todayText, config)
     const cutoffDay = inactivityCutoffDay(todayText, config.inactivityDropDays, config, skipped)
     const dropped = cutoffDay === null ? 0 : await dropInactive(trx, atLocalTime(cutoffDay, '00:00', config.timezone))
-    const promoted = await promoteWaitlist(trx, config)
-    const { assigned, classesCreated } = await assignPending(trx, config, now, today)
+    const { promoted, assigned, classesCreated } = await placeWaiting(trx, config, now)
     const reinstated = await reinstateSuspended(trx, now)
     const messagesPurged = await purgeMessages(trx, startOfLocalDay(now, config.timezone, config.messageRetentionDays))
     await purgeOps(trx, new Date(now.getTime() - OPS_RETENTION_DAYS * 24 * 60 * 60_000))
@@ -89,9 +88,42 @@ export async function runDailyJob(deps: { db: Kysely<Database>; config: SchoolCo
   })
 }
 
+export interface AssignmentReport {
+  promoted: number
+  assigned: number
+  classesCreated: number
+}
+
+/**
+ * The hourly assignment, in one transaction: promote the waitlist into the seats that are free, then put every pending
+ * student into a class. The nightly job does the same after its drops, so at midnight only one of the two has anything
+ * to do. A student placed after their slot's doors opened today starts on the next school day (see the admission).
+ */
+export async function runHourlyAssignment(deps: { db: Kysely<Database>; config: SchoolConfig; clock: Clock }): Promise<AssignmentReport> {
+  const { db, config, clock } = deps
+  return db.transaction().execute(async (trx) => {
+    await takeJobLocks(trx)
+    // Read after the locks, so a run that had to wait still uses the time it actually runs at.
+    return placeWaiting(trx, config, clock.now())
+  })
+}
+
+/** The job lock, then the same slot locks verify takes, so a verify cannot push a slot over its capacity while the waitlist is promoted. */
+async function takeJobLocks(trx: Trx): Promise<void> {
+  await sql`select pg_advisory_xact_lock(${sql.lit(DAILY_JOB_LOCK)})`.execute(trx)
+  for (const slot of SLOTS) await lock(trx, slotLockKey(slot))
+}
+
+/** Promotes the waitlist, then places every student pending at `now`, those just promoted included. */
+async function placeWaiting(trx: Trx, config: SchoolConfig, now: Date): Promise<AssignmentReport> {
+  const promoted = await promoteWaitlist(trx, config)
+  const { assigned, classesCreated } = await assignPending(trx, config, now, new Date(now.getTime() + 1))
+  return { promoted, assigned, classesCreated }
+}
+
 /**
  * Local development only (`DEV_ASSIGN_ON_VERIFY=1`): put the pending students of one division and slot into a class
- * now, the newly queued ones included, instead of at the next midnight. The caller holds the slot's lock, as verify
+ * now, instead of at the next hour. The caller holds the slot's lock, as verify
  * and re-enroll do, the same lock the nightly job takes.
  */
 export async function assignQueuedNow(
@@ -152,7 +184,7 @@ async function promoteWaitlist(trx: Trx, config: SchoolConfig): Promise<number> 
 
 /**
  * Per division and slot, runs the assignment algorithm over the pending students who joined the queue before
- * `today` (the start of the local day), opening new classes as needed.
+ * `queuedBefore`, opening new classes as needed.
  */
 async function assignPending(
   trx: Trx,

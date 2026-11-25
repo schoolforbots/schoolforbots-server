@@ -31,6 +31,28 @@ export function startDailyJob(run: () => Promise<unknown>, timezone: string): { 
   return { stop: () => void cron.stop() }
 }
 
+/** Every local hour on the hour but midnight, which the daily job has: it places the waiting students too. */
+const HOURLY_BUT_MIDNIGHT = '0 1-23 * * *'
+
+/** The next local hour after `from` that the hourly assignment runs at in the given timezone. */
+export function nextHourlyRun(from: Date, timezone: string): Date {
+  const next = new Cron(HOURLY_BUT_MIDNIGHT, { timezone }).nextRun(from)
+  if (next === null) throw new Error(`No next hourly run after ${from.toISOString()} in ${timezone}`)
+  return next
+}
+
+/** Runs `run` at every local hour on the hour but midnight. A failed run is logged and the next hour still runs; it never takes the process down. */
+export function startHourlyJob(run: () => Promise<unknown>, timezone: string): { stop(): void } {
+  const cron = new Cron(HOURLY_BUT_MIDNIGHT, { timezone }, async () => {
+    try {
+      await run()
+    } catch (err) {
+      console.error('Hourly job failed', err)
+    }
+  })
+  return { stop: () => void cron.stop() }
+}
+
 /**
  * Runs `run` every `minutes` minutes, counted from the end of the last run, and at once when `runNow` is called (the
  * count starts again after that run). A failed run goes to `onError` and the next one still comes; it never takes the

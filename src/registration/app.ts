@@ -37,7 +37,7 @@ export interface RegistrationDeps {
   trustProxy: boolean
   /**
    * Local development only (`DEV_ASSIGN_ON_VERIFY=1`): a student who verifies or re-enrolls is put into a class at once,
-   * instead of at the next midnight. Unset: off.
+   * instead of at the next hour. Unset: off.
    */
   assignOnVerify?: boolean
   /** Fastify logger options; unset means no logging. Unexpected errors are logged at error level. */

@@ -691,7 +691,7 @@ export interface Env {
   /** Answers every model call with a canned reply. Only for local development; with `NODE_ENV=production` it is refused. */
   llmFake: boolean
   /**
-   * Puts a student into a class as soon as they verify (or re-enroll), instead of at the next midnight. Only for local
+   * Puts a student into a class as soon as they verify (or re-enroll), instead of at the next hour. Only for local
    * development and automated tests (`DEV_ASSIGN_ON_VERIFY=1`); with `NODE_ENV=production` it is refused.
    */
   devAssignOnVerify: boolean
