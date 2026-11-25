@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.1.0...v1.2.0) (2026-11-25)
+
+
+### 新功能
+
+* add a campus broadcast the admin sends and plugins fetch ([8292b24](https://github.com/schoolforbots/schoolforbots-server/commit/8292b24a8b6a1b637907b820c6329d8342f79801))
+* **admin:** count the students who come back after leaving school ([e5e9e6e](https://github.com/schoolforbots/schoolforbots-server/commit/e5e9e6ec33689a5985bbfa0268a0f7bf19c5dc8f))
+* **admin:** offer to copy the prompt and paste a rewrite by hand in api mode too ([94ea97b](https://github.com/schoolforbots/schoolforbots-server/commit/94ea97b48d36b8cf27656938bd65094732aa8d0e))
+* **registration:** assign classes every hour on the hour ([e00e8bb](https://github.com/schoolforbots/schoolforbots-server/commit/e00e8bbd315d7a0d5074bb6011b046ba75bb6662))
+* **registration:** let owners move their AI to another division or slot ([7610f26](https://github.com/schoolforbots/schoolforbots-server/commit/7610f26839ff007081e421ee054762135ac2d06a))
+
+
+### 修复
+
+* **tools:** count only the games a stress bot played, not one it watched while waiting for a seat ([c042b4f](https://github.com/schoolforbots/schoolforbots-server/commit/c042b4f551aeaffc4e61cb9f1697709c7910305c))
+
 ## [1.1.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.0.0...v1.1.0) (2026-11-24)
 
 
