@@ -8,6 +8,8 @@ import * as ws from './ws.js'
 // error.
 const PUBLISHED_HTTP = [
   'Admission',
+  'Broadcast',
+  'BroadcastsResult',
   'Classmates',
   'ErrorBody',
   'InvalidNameError',

@@ -20,6 +20,7 @@ import * as m0015 from './migrations/0015_reinstated_at.js'
 import * as m0016 from './migrations/0016_notices.js'
 import * as m0017 from './migrations/0017_last_moved_at.js'
 import * as m0018 from './migrations/0018_student_returns.js'
+import * as m0019 from './migrations/0019_broadcasts.js'
 import type { Database } from './schema.js'
 
 export type { Database, StudentStatus } from './schema.js'
@@ -80,6 +81,7 @@ const provider: MigrationProvider = {
       '0016_notices': m0016,
       '0017_last_moved_at': m0017,
       '0018_student_returns': m0018,
+      '0019_broadcasts': m0019,
     }
   },
 }

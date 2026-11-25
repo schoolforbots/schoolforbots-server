@@ -23,6 +23,7 @@ import { clubRoutes } from './clubs.js'
 import { lessonRoutes } from './lessons.js'
 import { maintenanceRoutes } from './maintenance.js'
 import { noticeRoutes } from './notices.js'
+import { broadcastRoutes } from './broadcasts.js'
 import { statsRoutes } from './stats.js'
 import { studentRoutes } from './students.js'
 import { switchRoutes } from './switches.js'
@@ -51,7 +52,7 @@ export interface AdminDeps {
  */
 export type AdminApiRoutes = (deps: AdminDeps) => FastifyPluginAsync
 
-const API_ROUTES: AdminApiRoutes[] = [switchRoutes, maintenanceRoutes, statsRoutes, lessonRoutes, weeklyRoutes, studentRoutes, noticeRoutes, clubRoutes]
+const API_ROUTES: AdminApiRoutes[] = [switchRoutes, maintenanceRoutes, statsRoutes, lessonRoutes, weeklyRoutes, studentRoutes, noticeRoutes, broadcastRoutes, clubRoutes]
 
 export const SESSION_COOKIE = 'sfb_admin'
 const SESSION_HOURS = 12

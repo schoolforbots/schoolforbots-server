@@ -1,5 +1,7 @@
 import type {
   BlockCategory,
+  BroadcastImportance,
+  BroadcastStatus,
   Division,
   LlmPurpose,
   MessageKind,
@@ -55,6 +57,14 @@ export const MESSAGE_KIND_NAMES: Record<MessageKind, string> = {
 }
 
 export const NOTICE_KIND_NAMES: Record<NoticeKind, string> = { general: '普通', maintenance: '维护' }
+
+export const BROADCAST_STATUS_NAMES: Record<BroadcastStatus, string> = {
+  draft: '草稿',
+  published: '已发布',
+  withdrawn: '已撤回',
+}
+
+export const BROADCAST_IMPORTANCE_NAMES: Record<BroadcastImportance, string> = { normal: '普通', important: '重要' }
 
 export const NOTICE_STATUS_NAMES: Record<NoticeStatus, string> = {
   draft: '草稿',

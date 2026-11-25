@@ -22,6 +22,9 @@ import type {
   MaintenanceState,
   NoticeContent,
   NoticeView,
+  BroadcastClass,
+  BroadcastContent,
+  BroadcastView,
   PromptTarget,
   RuleKind,
   SeriesDay,
@@ -733,6 +736,93 @@ function writeNotice(target: NoticeView | null, body: NoticeContent & { publishe
   return ok(target)
 }
 
+// Campus broadcasts
+
+const DIVISION_LABELS = { primary: '小学部', junior: '初中部', senior: '高中部' } as const
+const SLOT_LABELS = { morning: '上午班', afternoon: '下午班', evening: '晚班' } as const
+const broadcastClasses: BroadcastClass[] = [
+  { id: 1, division: 'junior', slot: 'evening', classNo: 1, name: '初中部·晚班·1 班' },
+  { id: 2, division: 'junior', slot: 'evening', classNo: 2, name: '初中部·晚班·2 班' },
+  { id: 3, division: 'senior', slot: 'morning', classNo: 1, name: '高中部·上午班·1 班' },
+]
+const broadcasts: BroadcastView[] = []
+let nextBroadcastId = 1
+let nextBroadcastSeq = 1
+
+function audienceOf(b: Pick<BroadcastView, 'divisions' | 'slots' | 'classes'>): string {
+  if (b.classes.length > 0) return b.classes.map((c) => c.name).join('、')
+  const parts = [b.divisions.map((d) => DIVISION_LABELS[d]).join('、'), b.slots.map((s) => SLOT_LABELS[s]).join('、')].filter(Boolean)
+  return parts.length === 0 ? '全校' : parts.join(' · ')
+}
+
+function setUpBroadcasts() {
+  const one = (over: Partial<BroadcastView>): BroadcastView => {
+    const b: BroadcastView = {
+      id: nextBroadcastId++,
+      title: '',
+      body: '',
+      importance: 'normal',
+      divisions: [],
+      slots: [],
+      classes: [],
+      audience: '',
+      status: 'draft',
+      seq: null,
+      publishedAt: null,
+      withdrawnAt: null,
+      expiresAt: null,
+      noticeId: null,
+      createdAt: hoursAgo(1),
+      ...over,
+    }
+    b.audience = audienceOf(b)
+    return b
+  }
+  broadcasts.push(
+    one({ title: '12 月 1 日开学', body: '机器人网校 12 月 1 日开学，第一节课晚上 19:45 开门。', importance: 'important', status: 'published', seq: nextBroadcastSeq++, publishedAt: hoursAgo(50), createdAt: hoursAgo(50), noticeId: 1 }),
+    one({ title: '今晚斗地主社有比赛', body: '晚上 9 点开始，欢迎来玩。', slots: ['evening'], status: 'published', seq: nextBroadcastSeq++, publishedAt: hoursAgo(5), createdAt: hoursAgo(6) }),
+    one({ title: '表扬初中部晚班 1 班', body: '这周出勤最好，继续保持。', classes: [broadcastClasses[0]!], createdAt: hoursAgo(1) }),
+  )
+}
+
+function broadcastOrder(a: BroadcastView, b: BroadcastView) {
+  const at = (one: BroadcastView) => one.publishedAt ?? one.createdAt
+  return at(b).localeCompare(at(a))
+}
+
+function writeBroadcast(target: BroadcastView | null, body: BroadcastContent): MockReply {
+  if (typeof body.title !== 'string' || body.title.trim() === '') return fail(400, 'invalid_request', '请求格式不正确，请检查后再试。')
+  if (target !== null && target.status !== 'draft') return fail(409, 'wrong_status', '发布过的广播不能改，只能撤回。')
+  const classes = body.classes.flatMap((c) => broadcastClasses.find((k) => k.division === c.division && k.slot === c.slot && k.classNo === c.classNo) ?? [])
+  const fields = {
+    title: body.title.trim(),
+    body: body.body,
+    importance: body.importance,
+    divisions: body.divisions,
+    slots: body.slots,
+    classes,
+    expiresAt: body.expiresAt,
+  }
+  const audience = audienceOf(fields)
+  if (target === null) {
+    const created: BroadcastView = {
+      id: nextBroadcastId++,
+      ...fields,
+      audience,
+      status: 'draft',
+      seq: null,
+      publishedAt: null,
+      withdrawnAt: null,
+      noticeId: null,
+      createdAt: new Date().toISOString(),
+    }
+    broadcasts.push(created)
+    return ok(created)
+  }
+  Object.assign(target, fields, { audience })
+  return ok(target)
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The routes
 
@@ -742,6 +832,7 @@ const session = () => ({ expiresAt: new Date(Date.now() + 12 * 3600_000).toISOSt
 setUpLessons()
 setUpStudents()
 setUpNotices()
+setUpBroadcasts()
 
 /** Answers one request of the pages: `path` is what follows `api/`, with its query. */
 export function answer(method: string, path: string, body: Record<string, unknown> = {}): MockReply {
@@ -905,8 +996,64 @@ export function answer(method: string, path: string, body: Record<string, unknow
       if (parts[2] === 'publish') {
         one.status = 'published'
         one.publishedAt ??= new Date().toISOString()
+        const importance = (body as { broadcast?: unknown } | undefined)?.broadcast
+        if (importance === 'normal' || importance === 'important') {
+          const now = new Date().toISOString()
+          broadcasts.push({
+            id: nextBroadcastId++,
+            title: one.title,
+            body: one.body,
+            importance,
+            divisions: [],
+            slots: [],
+            classes: [],
+            audience: '全校',
+            status: 'published',
+            seq: nextBroadcastSeq++,
+            publishedAt: now,
+            withdrawnAt: null,
+            expiresAt: null,
+            noticeId: one.id,
+            createdAt: now,
+          })
+        }
       } else one.status = 'withdrawn'
       return ok(one)
+    }
+
+    case 'GET /broadcasts':
+      return ok({ broadcasts: [...broadcasts].sort(broadcastOrder) })
+    case 'GET /broadcasts/classes':
+      return ok({ classes: broadcastClasses })
+    case 'POST /broadcasts':
+      return writeBroadcast(null, body as unknown as BroadcastContent)
+    case 'PUT /broadcasts/:n': {
+      const one = broadcasts.find((b) => b.id === n)
+      return one === undefined ? fail(404, 'not_found') : writeBroadcast(one, body as unknown as BroadcastContent)
+    }
+    case 'POST /broadcasts/:n/publish': {
+      const one = broadcasts.find((b) => b.id === n)
+      if (one === undefined) return fail(404, 'not_found')
+      if (one.status !== 'draft') return fail(409, 'wrong_status', '只有草稿才能发布。')
+      one.status = 'published'
+      one.seq = nextBroadcastSeq++
+      one.publishedAt = new Date().toISOString()
+      return ok(one)
+    }
+    case 'POST /broadcasts/:n/withdraw': {
+      const one = broadcasts.find((b) => b.id === n)
+      if (one === undefined) return fail(404, 'not_found')
+      if (one.status !== 'published') return fail(409, 'wrong_status', '只有已发布的广播才能撤回。')
+      one.status = 'withdrawn'
+      one.withdrawnAt = new Date().toISOString()
+      return ok(one)
+    }
+    case 'DELETE /broadcasts/:n': {
+      const at = broadcasts.findIndex((b) => b.id === n)
+      if (at < 0) return fail(404, 'not_found')
+      if (broadcasts[at]?.status !== 'draft') return fail(409, 'wrong_status', '发布过的广播不能删除，只能撤回。')
+      broadcasts.splice(at, 1)
+      return ok({ ok: true })
     }
     case 'DELETE /notices/:n': {
       const at = notices.findIndex((notice) => notice.id === n)

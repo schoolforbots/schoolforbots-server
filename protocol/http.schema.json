@@ -113,6 +113,139 @@
         }
       }
     },
+    "Broadcast": {
+      "type": "object",
+      "required": [
+        "id",
+        "seq",
+        "title",
+        "body",
+        "importance",
+        "audience",
+        "publishedAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "importance": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "normal"
+            },
+            {
+              "type": "string",
+              "const": "important"
+            }
+          ]
+        },
+        "audience": {
+          "type": "string"
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "BroadcastsResult": {
+      "type": "object",
+      "required": [
+        "broadcasts",
+        "more"
+      ],
+      "properties": {
+        "broadcasts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "seq",
+              "title",
+              "body",
+              "importance",
+              "audience",
+              "publishedAt",
+              "expiresAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "title": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              },
+              "importance": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "normal"
+                  },
+                  {
+                    "type": "string",
+                    "const": "important"
+                  }
+                ]
+              },
+              "audience": {
+                "type": "string"
+              },
+              "publishedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expiresAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "more": {
+          "type": "boolean"
+        }
+      }
+    },
     "Classmates": {
       "type": "object",
       "required": [

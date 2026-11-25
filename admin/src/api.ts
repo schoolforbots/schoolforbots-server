@@ -661,6 +661,64 @@ export const MAINTENANCE_PATH = 'api/maintenance'
 export const setMaintenance = (body: { on: boolean; message?: string; expectedBackAt?: string | null }) =>
   request<{ maintenance: MaintenanceState | null }>('PUT', MAINTENANCE_PATH, body)
 
+export type BroadcastImportance = 'normal' | 'important'
+export type BroadcastStatus = 'draft' | 'published' | 'withdrawn'
+
+/** A class a broadcast can go to, as `api/broadcasts/classes` lists them. */
+export interface BroadcastClass {
+  id: number
+  division: Division
+  slot: Slot
+  classNo: number
+  name: string
+}
+
+/** A campus broadcast as `api/broadcasts` lists it; every write to one answers with it. Times are UTC ISO strings. */
+export interface BroadcastView {
+  id: number
+  title: string
+  body: string
+  importance: BroadcastImportance
+  /** To the whole school when these three are all empty; classes go with no divisions or slots. */
+  divisions: Division[]
+  slots: Slot[]
+  classes: BroadcastClass[]
+  /** Who it goes to, in the words the students' API uses. */
+  audience: string
+  status: BroadcastStatus
+  seq: number | null
+  publishedAt: string | null
+  withdrawnAt: string | null
+  expiresAt: string | null
+  /** The notice it went out with, when it was a notice broadcast to the whole school. */
+  noticeId: number | null
+  createdAt: string
+}
+
+/** What a broadcast says and who it goes to: the whole of it is sent each time. */
+export interface BroadcastContent {
+  title: string
+  body: string
+  importance: BroadcastImportance
+  divisions: Division[]
+  slots: Slot[]
+  classes: { division: Division; slot: Slot; classNo: number }[]
+  expiresAt: string | null
+}
+
+/** Every broadcast, newest first: a draft by when it was made, any other by when it was published. */
+export const BROADCASTS_PATH = 'api/broadcasts'
+export const BROADCAST_CLASSES_PATH = 'api/broadcasts/classes'
+const broadcastPath = (id: number) => `${BROADCASTS_PATH}/${id}`
+export const createBroadcast = (content: BroadcastContent) => request<BroadcastView>('POST', BROADCASTS_PATH, content)
+/** Replaces a draft; a published broadcast is never changed. */
+export const editBroadcast = (id: number, content: BroadcastContent) => request<BroadcastView>('PUT', broadcastPath(id), content)
+export const publishBroadcast = (id: number) => request<BroadcastView>('POST', `${broadcastPath(id)}/publish`)
+/** Withdraws a published broadcast, for good. */
+export const withdrawBroadcast = (id: number) => request<BroadcastView>('POST', `${broadcastPath(id)}/withdraw`)
+/** Deletes a draft. */
+export const deleteBroadcast = (id: number) => request<{ ok: true }>('DELETE', broadcastPath(id))
+
 export type NoticeKind = 'general' | 'maintenance'
 export type NoticeStatus = 'draft' | 'published' | 'withdrawn'
 
@@ -699,7 +757,9 @@ export const createNotice = (content: NoticeContent) => request<NoticeView>('POS
 /** Replaces what a notice says; `publishedAt` corrects when one that was out was published. */
 export const editNotice = (id: number, content: NoticeContent & { publishedAt?: string }) =>
   request<NoticeView>('PUT', noticePath(id), content)
-export const publishNotice = (id: number) => request<NoticeView>('POST', `${noticePath(id)}/publish`)
+/** Publishes a notice; with an importance, it is also broadcast to the whole school, in the same step. */
+export const publishNotice = (id: number, broadcast?: BroadcastImportance) =>
+  request<NoticeView>('POST', `${noticePath(id)}/publish`, broadcast === undefined ? undefined : { broadcast })
 export const withdrawNotice = (id: number) => request<NoticeView>('POST', `${noticePath(id)}/withdraw`)
 /** Only a draft can be deleted. */
 export const deleteNotice = (id: number) => request<{ ok: true }>('DELETE', noticePath(id))

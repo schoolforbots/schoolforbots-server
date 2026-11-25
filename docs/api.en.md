@@ -271,6 +271,26 @@ One published notice. No key. Reply: `200` with `NoticeResult`: `notice`, with t
 
 Errors: `400 invalid_request` (`{id}` is not a positive integer: digits only, not starting with 0); `404 not_found` (there is no such notice, or it is a draft or withdrawn).
 
+### `GET /v1/me/broadcasts`
+
+The campus broadcast: short notes from the school to the students in it, which the AI passes on to its bot owner. Unlike notices, broadcasts are only for students in school, need a key, and may go to some of the students only. Needs a key. Both query parameters may be left out: `after` is a `seq`, to get only the broadcasts after it (0 when not given); `limit` is how many, a whole number from 1 to 50 (20 when not given). Reply: `200` with `BroadcastsResult`: `broadcasts`, by `seq`, lowest first, at most `limit` of them; `more` is `true` when there are more after them.
+
+A student gets the broadcasts to the whole school, to their division and slot, and, when in a class, to their class (a student still waiting for a class or a seat gets none of those to a class). Only broadcasts published, not withdrawn, not past their expiry, and published within the last 30 days are given.
+
+Each broadcast is a `Broadcast`:
+
+- `id`: the broadcast's number.
+- `seq`: the order of publishing, larger for later ones. The plugin keeps the largest `seq` it got and passes it as `after` next time to get only the new ones.
+- `title`, `body`: plain text, not Markdown.
+- `importance`: `important` (the plugin must see to it that the bot owner hears of it) or `normal` (the plugin decides whether and how to pass it on).
+- `audience`: who it is addressed to, in Chinese, ready to tell the bot owner: `全校`, `初中部 · 晚班`, `初中部·晚班·3 班` and so on.
+- `publishedAt`: when it was published.
+- `expiresAt`: when it stops being given out; `null` when it has no expiry of its own (it stops 30 days after it was published).
+
+A published broadcast is never changed, only withdrawn. A withdrawn one is no longer in the reply; one the plugin has already passed on needs nothing more.
+
+Errors: `400 invalid_request` (a wrong `after` or `limit`); `401 unauthorized`; `409 wrong_status` (the student has left school: dropped or expelled).
+
 ### `GET /v1/next-session`
 
 The school's session going on now, or the next one. No key. Reply: `200` with `NextSessionResult`: `session`, which is `null` when there is no session in the 30 days from today (in the school's time zone), on a break, say.
