@@ -144,9 +144,10 @@ export const Admission = Type.Object({
   className: Type.String(),
   teacher: Type.Object({ name: Type.String() }),
   /**
-   * The first school day from the day the student was assigned, as `YYYY-MM-DD` in the school's timezone: the
-   * assignment day itself when school is held that day. Null while that is not known, because the student was assigned
-   * during a break whose reopening day is not decided yet.
+   * The student's first day of lessons, as `YYYY-MM-DD` in the school's timezone: the first school day on or after the
+   * day the student was assigned when the doors of their slot had not opened yet that day, else the first school day
+   * after it. Null while that is not known, because the student was assigned during a break whose reopening day is not
+   * decided yet.
    */
   startsOn: Type.Union([DateText, Type.Null()]),
   /** Active and suspended members of the class, the student included, by student number. */

@@ -592,7 +592,7 @@ describe('the school data page', () => {
     expect(stat('在校学生的家长').getByRole('button', { name: '在校学生的家长的说明' })).toHaveAccessibleDescription(
       '按邮箱数家长：一个邮箱算一位，不分大小写。',
     )
-    expect(stat('等着进班').getByText('等今晚分班 40，名额满了在候补 10')).toBeInTheDocument()
+    expect(stat('等着进班').getByText('等分班 40，名额满了在候补 10')).toBeInTheDocument()
     expect(stat('报过名的学生').getByText('已经离校 130（退学 120，开除 10）')).toBeInTheDocument()
 
     const signups = within(overview.getByRole('region', { name: '今天的报名' }))

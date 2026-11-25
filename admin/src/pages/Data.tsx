@@ -240,7 +240,7 @@ function Overview({ stats }: { stats: DailyStats }) {
         <Stat
           label="等着进班"
           value={count(students.pending + students.waitlisted)}
-          note={`等今晚分班 ${count(students.pending)}，名额满了在候补 ${count(students.waitlisted)}`}
+          note={`等分班 ${count(students.pending)}，名额满了在候补 ${count(students.waitlisted)}`}
         />
         <Stat
           label="报过名的学生"

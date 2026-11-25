@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { sql, type Kysely } from 'kysely'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { runDailyJob } from '../../src/registration/daily-job.js'
+import { runDailyJob, runHourlyAssignment } from '../../src/registration/daily-job.js'
 import { loadSchoolConfig, type Division, type SchoolConfig, type Slot } from '../../src/shared/config.js'
 import { lock, slotLockKey } from '../../src/shared/db.js'
 import type { Database } from '../../src/shared/schema.js'
@@ -121,7 +121,7 @@ test('divisions and slots are assigned separately', async () => {
 describe('the local day', () => {
   const beijing = (local: string) => new Date(`${local}+08:00`)
 
-  test('a second run later the same local day changes nothing, even after more students registered that morning', async () => {
+  test('a second run later the same local day drops nobody more, and places only the students who registered since', async () => {
     clock.set(beijing('2026-11-03T00:00:05'))
     const classId = await insertClass(db, { classNo: 1 })
     // Last came 30 days ago at 05:00: kept today whatever the time of the run, dropped tomorrow.
@@ -138,28 +138,24 @@ describe('the local day', () => {
     clock.set(beijing('2026-11-03T09:00:00'))
     const morning: { id: number }[] = []
     for (let i = 0; i < 2; i++) morning.push(await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-03T08:00:00') }))
-    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0, clubIpsCleared: 0 })
-    expect(await classSizes('junior', 'evening')).toEqual(sizes)
+    expect(await job()).toEqual({ dropped: 0, promoted: 0, assigned: 2, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0, clubIpsCleared: 0 })
+    expect((await classSizes('junior', 'evening')).reduce((a, b) => a + b)).toBe(sizes.reduce((a, b) => a + b) + 2)
     expect(await statusOf(fading.id)).toMatchObject({ status: 'active', classId })
-    for (const { id } of morning) expect(await statusOf(id)).toMatchObject({ status: 'pending', classId: null })
+    for (const { id } of morning) expect(await statusOf(id)).toMatchObject({ status: 'active', assignedAt: clock.now() })
 
-    // The next night places this morning's students and drops the one who stopped coming.
+    // The next night drops the one who stopped coming.
     clock.set(beijing('2026-11-04T00:00:05'))
-    expect(await job()).toEqual({ dropped: 1, promoted: 0, assigned: 2, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0, clubIpsCleared: 0 })
+    expect(await job()).toEqual({ dropped: 1, promoted: 0, assigned: 0, classesCreated: 0, reinstated: 0, messagesPurged: 0, clubMembersDropped: 0, clubIpsCleared: 0 })
     expect(await statusOf(fading.id)).toMatchObject({ status: 'dropped', classId: null })
   })
 
-  test('a student who registered at 00:00:01 waits for the next night, even when that night\'s run starts late', async () => {
+  test('a run places every student pending at the time of the run, the ones who registered seconds before it too', async () => {
     const lastMinute = await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-02T23:59:59') })
     const justAfter = await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-03T00:00:01') })
 
     clock.set(beijing('2026-11-03T00:00:05'))
-    expect(await job()).toMatchObject({ assigned: 1 })
+    expect(await job()).toMatchObject({ assigned: 2 })
     expect(await statusOf(lastMinute.id)).toMatchObject({ status: 'active', assignedAt: clock.now() })
-    expect(await statusOf(justAfter.id)).toMatchObject({ status: 'pending', classId: null })
-
-    clock.set(beijing('2026-11-04T00:00:00'))
-    expect(await job()).toMatchObject({ assigned: 1 })
     expect(await statusOf(justAfter.id)).toMatchObject({ status: 'active', assignedAt: clock.now() })
   })
 
@@ -201,11 +197,64 @@ describe('the local day', () => {
     const kept = await member(new Date('2026-10-04T00:00:00-04:00'))
 
     clock.set(new Date('2026-11-03T08:00:00-05:00'))
-    expect(await job(config)).toMatchObject({ dropped: 1, assigned: 1 })
+    expect(await job(config)).toMatchObject({ dropped: 1, assigned: 2 })
     expect(await statusOf(yesterday.id)).toMatchObject({ status: 'active' })
-    expect(await statusOf(today.id)).toMatchObject({ status: 'pending' })
+    expect(await statusOf(today.id)).toMatchObject({ status: 'active' })
     expect(await statusOf(stale.id)).toMatchObject({ status: 'dropped' })
     expect(await statusOf(kept.id)).toMatchObject({ status: 'active' })
+  })
+})
+
+describe('the hourly assignment', () => {
+  const beijing = (local: string) => new Date(`${local}+08:00`)
+  const hourly = (config: SchoolConfig = exampleConfig) => runHourlyAssignment({ db, config, clock })
+
+  test('places the students who registered since the last run, into the classes that have room first', async () => {
+    const config = { ...exampleConfig, classSize: { standard: 3, max: 4 } }
+    clock.set(beijing('2026-11-03T14:00:00'))
+    const classId = await insertClass(db, { classNo: 1 })
+    await insertStudent(db, { status: 'active', classId, assignedAt: beijing('2026-11-02T00:00:00') })
+    const first = await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-03T13:59:00') })
+    const second = await insertStudent(db, { status: 'pending', createdAt: beijing('2026-11-03T13:59:30') })
+
+    expect(await hourly(config)).toEqual({ promoted: 0, assigned: 2, classesCreated: 0 })
+    expect(await statusOf(first.id)).toMatchObject({ status: 'active', classId, assignedAt: clock.now() })
+    expect(await statusOf(second.id)).toMatchObject({ status: 'active', classId, assignedAt: clock.now() })
+
+    // Nobody new: the next hour has nothing to do.
+    clock.set(beijing('2026-11-03T15:00:00'))
+    expect(await hourly(config)).toEqual({ promoted: 0, assigned: 0, classesCreated: 0 })
+  })
+
+  test('promotes the waitlist into seats freed during the day and places them at once', async () => {
+    const config = { ...exampleConfig, slotCapacity: 1 }
+    clock.set(beijing('2026-11-03T14:00:00'))
+    const classId = await insertClass(db, { classNo: 1 })
+    const leaving = await insertStudent(db, { status: 'active', classId, assignedAt: beijing('2026-11-02T00:00:00') })
+    const waiting = await insertStudent(db, { status: 'waitlisted', createdAt: beijing('2026-11-03T09:00:00') })
+
+    expect(await hourly(config)).toEqual({ promoted: 0, assigned: 0, classesCreated: 0 })
+    await db.updateTable('students').set({ status: 'dropped', classId: null }).where('id', '=', leaving.id).execute()
+
+    clock.set(beijing('2026-11-03T15:00:00'))
+    expect(await hourly(config)).toEqual({ promoted: 1, assigned: 1, classesCreated: 0 })
+    expect(await statusOf(waiting.id)).toMatchObject({ status: 'active', classId })
+  })
+
+  test('leaves dropping and reinstating to the nightly job', async () => {
+    clock.set(beijing('2026-11-03T14:00:00'))
+    const classId = await insertClass(db, { classNo: 1 })
+    const gone = await insertStudent(db, { status: 'active', classId, assignedAt: beijing('2026-09-01T00:00:00'), lastAttendedAt: null })
+    const over = await insertStudent(db, {
+      status: 'suspended',
+      classId,
+      assignedAt: beijing('2026-11-01T00:00:00'),
+      suspendedUntil: beijing('2026-11-03T00:00:00'),
+    })
+
+    expect(await hourly()).toEqual({ promoted: 0, assigned: 0, classesCreated: 0 })
+    expect(await statusOf(gone.id)).toMatchObject({ status: 'active' })
+    expect(await statusOf(over.id)).toMatchObject({ status: 'suspended' })
   })
 })
 

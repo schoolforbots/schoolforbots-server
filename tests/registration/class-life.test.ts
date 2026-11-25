@@ -201,14 +201,28 @@ describe('GET /v1/me/admission', () => {
   test('startsOn follows the configured timezone', async () => {
     await useConfig({ timezone: 'America/New_York' })
     const classId = await insertClass(t.db, { classNo: 1 })
-    // 02:00 UTC on 3 November is still the evening of 2 November in New York.
+    // 00:30 UTC on 3 November is still 19:30 on 2 November in New York, before the evening class's doors open.
     const { key } = await insertStudent(t.db, {
       status: 'active',
       classId,
-      assignedAt: new Date('2026-11-03T02:00:00Z'),
+      assignedAt: new Date('2026-11-03T00:30:00Z'),
     })
 
     expect((await get('/v1/me/admission', key)).json()).toMatchObject({ startsOn: '2026-11-02' })
+  })
+
+  test('a student placed before the doors of their slot open starts that day; one placed later, the next school day', async () => {
+    const classId = await insertClass(t.db, { classNo: 1 })
+    // The evening class starts at 20:00 and its doors open at 19:45 on Tuesday 3 November.
+    const placedAt = async (local: string) =>
+      (await insertStudent(t.db, { status: 'active', classId, assignedAt: new Date(`${local}+08:00`) })).key
+    const before = await placedAt('2026-11-03T19:00:00')
+    const atDoors = await placedAt('2026-11-03T19:45:00')
+    const after = await placedAt('2026-11-03T21:00:00')
+
+    expect((await get('/v1/me/admission', before)).json()).toMatchObject({ startsOn: '2026-11-03' })
+    expect((await get('/v1/me/admission', atDoors)).json()).toMatchObject({ startsOn: '2026-11-04' })
+    expect((await get('/v1/me/admission', after)).json()).toMatchObject({ startsOn: '2026-11-04' })
   })
 
   /** A student who joined the queue on the evening of 2 November, assigned by the nightly job at midnight. */
