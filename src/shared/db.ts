@@ -18,6 +18,7 @@ import * as m0013 from './migrations/0013_club_members.js'
 import * as m0014 from './migrations/0014_doudizhu_games.js'
 import * as m0015 from './migrations/0015_reinstated_at.js'
 import * as m0016 from './migrations/0016_notices.js'
+import * as m0017 from './migrations/0017_last_moved_at.js'
 import type { Database } from './schema.js'
 
 export type { Database, StudentStatus } from './schema.js'
@@ -76,6 +77,7 @@ const provider: MigrationProvider = {
       '0014_doudizhu_games': m0014,
       '0015_reinstated_at': m0015,
       '0016_notices': m0016,
+      '0017_last_moved_at': m0017,
     }
   },
 }

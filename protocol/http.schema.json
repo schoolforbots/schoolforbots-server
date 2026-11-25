@@ -961,6 +961,109 @@
         }
       }
     },
+    "PlacementRequest": {
+      "type": "object",
+      "required": [
+        "division",
+        "slot"
+      ],
+      "properties": {
+        "division": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "primary"
+            },
+            {
+              "type": "string",
+              "const": "junior"
+            },
+            {
+              "type": "string",
+              "const": "senior"
+            }
+          ]
+        },
+        "slot": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "morning"
+            },
+            {
+              "type": "string",
+              "const": "afternoon"
+            },
+            {
+              "type": "string",
+              "const": "evening"
+            }
+          ]
+        }
+      }
+    },
+    "PlacementResult": {
+      "type": "object",
+      "required": [
+        "status",
+        "division",
+        "slot",
+        "moved"
+      ],
+      "properties": {
+        "status": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "active"
+            },
+            {
+              "type": "string",
+              "const": "pending"
+            },
+            {
+              "type": "string",
+              "const": "waitlisted"
+            }
+          ]
+        },
+        "division": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "primary"
+            },
+            {
+              "type": "string",
+              "const": "junior"
+            },
+            {
+              "type": "string",
+              "const": "senior"
+            }
+          ]
+        },
+        "slot": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "morning"
+            },
+            {
+              "type": "string",
+              "const": "afternoon"
+            },
+            {
+              "type": "string",
+              "const": "evening"
+            }
+          ]
+        },
+        "moved": {
+          "type": "boolean"
+        }
+      }
+    },
     "ReEnrollRequest": {
       "type": "object",
       "required": [

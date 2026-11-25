@@ -6,6 +6,7 @@
   "registrationsPerIpPerDay": 5,
   "nameMaxChars": 10,
   "renameCooldownDays": 30,
+  "moveCooldownDays": 1,
   "inactivityDropDays": 30,
   "verificationCode": {
     "ttlMinutes": 10,

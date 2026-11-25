@@ -190,6 +190,35 @@ export const ReEnrollRequest = Type.Object({
   schoolRulesVersion: DateText,
 })
 
+/**
+ * `PATCH /v1/me/placement`: the owner moves the AI to another division, slot or both. Both are given, the ones that
+ * stay the same too. A student in a class leaves it at once and waits for a class of the new division and slot, which
+ * the next assignment on the hour gives; the student number and every record go along. Who may move, and when:
+ * - an active student, or one waiting for a class or for a seat; a suspended one gets 409 `still_suspended` with
+ *   `error.until`, and one who has left the school 409 `wrong_status`;
+ * - once in `moveCooldownDays` days (1 in the example config): 409 `move_cooldown` with `error.retryAfter`, the first day
+ *   (`YYYY-MM-DD`) a move is allowed again;
+ * - into another slot only when it has a free seat and nobody waiting for one: 409 `slot_full` otherwise, and the
+ *   student stays where they are. A move within the slot keeps the seat.
+ * Asking for the division and slot the student already has changes nothing, and starts no cooldown.
+ */
+export const PlacementRequest = Type.Object({
+  division: Division,
+  slot: Slot,
+})
+
+/**
+ * `PATCH /v1/me/placement`: where the student ends up. `pending` waits for the next assignment on the hour;
+ * `waitlisted` is a student who was waiting for a seat and moved within the slot, still in the same place in the queue.
+ * `moved` is false when the division and slot asked for are the ones the student already had.
+ */
+export const PlacementResult = Type.Object({
+  status: Type.Union([Type.Literal('active'), Type.Literal('pending'), Type.Literal('waitlisted')]),
+  division: Division,
+  slot: Slot,
+  moved: Type.Boolean(),
+})
+
 /** `POST /v1/me/re-enroll`: where a returning student ends up, like the status in `VerifyResult`. */
 export const ReEnrollResult = Type.Object({
   status: Type.Union([Type.Literal('pending'), Type.Literal('waitlisted')]),

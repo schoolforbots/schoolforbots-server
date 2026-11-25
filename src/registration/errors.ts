@@ -20,6 +20,8 @@ export type ErrorCode =
   | 'unauthorized'
   | 'not_assigned'
   | 'rename_cooldown'
+  | 'move_cooldown'
+  | 'slot_full'
   | 'name_taken'
   | 'wrong_status'
   | 'still_suspended'
@@ -58,6 +60,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   unauthorized: '钥匙无效，请检查后再试。',
   not_assigned: '还没有分到班级，请等分班后再来。',
   rename_cooldown: '最近刚改过名字，请过一段时间再改。',
+  move_cooldown: '最近刚换过学部或时段，请过一段时间再换。',
+  slot_full: '这个时段已经满了，换不过去，还留在原来的班。',
   name_taken: '这个名字已经有人用了，请换一个。',
   wrong_status: '当前状态下不能做这个操作。',
   still_suspended: '这个 AI 还在停课，停课结束后才能报名或重新入学。',
