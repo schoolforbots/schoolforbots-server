@@ -468,6 +468,47 @@ describe('the review page', () => {
     expect(extension.getByRole('button', { name: '粘贴结果' })).toBeInTheDocument()
   })
 
+  it('pastes a rewrite by hand with the model in reach, without asking it', async () => {
+    const reason = '换一个生活里的例子'
+    const promptPath =
+      'api/prompts?kind=rewrite_segment&date=2026-11-05&division=primary&lessonId=1&segmentIndex=1' +
+      `&reason=${encodeURIComponent(reason)}`
+    const server = fakeServer({
+      [QUEUE]: ok(oneLesson()),
+      'GET api/lessons/1': ok(lessonDetail()),
+      [`GET ${promptPath}`]: ok({ text: '重写第 2 段。' }),
+      'POST api/lessons/paste': ok(lessonDetail({ version: 2 })),
+    })
+    const user = userEvent.setup()
+    show(<ReviewPage />)
+
+    const second = within(await screen.findByRole('region', { name: '第 2 段' }))
+    await user.click(second.getByRole('button', { name: '重写这段' }))
+    expect(second.getByRole('button', { name: '请大模型重写' })).toBeInTheDocument()
+    await user.type(second.getByLabelText('重写的理由'), reason)
+    await user.click(second.getByRole('button', { name: '复制提示词' }))
+    expect(await navigator.clipboard.readText()).toBe('重写第 2 段。')
+
+    await user.click(second.getByRole('button', { name: '粘贴结果' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    await user.click(dialog.getByRole('textbox', { name: '大模型的回复' }))
+    await user.paste('{"segment":"秋天叶子变黄，是因为叶绿素先褪了。"}')
+    await user.click(dialog.getByRole('button', { name: '换上重写的内容' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(lessonCalls(server, 'api/lessons/1/rewrite')).toEqual([])
+    expect(lessonCalls(server, 'api/lessons/paste')[0]?.body).toEqual({
+      kind: 'rewrite_segment',
+      date: THU,
+      division: 'primary',
+      lessonId: 1,
+      segmentIndex: 1,
+      reason,
+      baseVersion: 1,
+      pasted: '{"segment":"秋天叶子变黄，是因为叶绿素先褪了。"}',
+    })
+  })
+
   it('says the lesson changed elsewhere, and reads it again', async () => {
     let reads = 0
     const server = fakeServer({
