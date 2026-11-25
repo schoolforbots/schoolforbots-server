@@ -78,6 +78,7 @@ export function schoolOverview(overview: Partial<SchoolOverview> = {}): SchoolOv
     slots: [slot('morning'), slot('afternoon'), slot('evening')],
     classSize: { standard: 100, max: 120 },
     activity: { active: 0, cameThisWeek: 0, droppedTonight: null, droppedWithinWeek: null },
+    returns: { reEnrolled: 0, newStudents: 0, newStudentsSameIp: 0 },
     plugins: [],
     ...overview,
   }

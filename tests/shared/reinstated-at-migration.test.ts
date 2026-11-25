@@ -17,6 +17,7 @@ import * as m0014 from '../../src/shared/migrations/0014_doudizhu_games.js'
 import * as m0015 from '../../src/shared/migrations/0015_reinstated_at.js'
 import * as m0016 from '../../src/shared/migrations/0016_notices.js'
 import * as m0017 from '../../src/shared/migrations/0017_last_moved_at.js'
+import * as m0018 from '../../src/shared/migrations/0018_student_returns.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertStudent } from '../helpers/factories.js'
 
@@ -40,6 +41,7 @@ const provider: MigrationProvider = {
       '0015_reinstated_at': m0015,
       '0016_notices': m0016,
       '0017_last_moved_at': m0017,
+      '0018_student_returns': m0018,
     }
   },
 }

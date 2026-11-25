@@ -159,6 +159,7 @@ function dailyStats(days: number): DailyStats {
         { slot: 'evening', seated: 3640, capacity: 4000, waitlisted: 0, classes: [{ division: 'junior', classes: 13, students: 1413 }] },
       ],
       activity: { active: 2410, cameThisWeek: 1974, droppedTonight: 6, droppedWithinWeek: 41 },
+      returns: { reEnrolled: 37, newStudents: 12, newStudentsSameIp: 9 },
       plugins: [
         { pluginType: 'openclaw', pluginVersion: '1.4.0', students: 1730 },
         { pluginType: 'openclaw', pluginVersion: '1.3.2', students: 512 },

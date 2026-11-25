@@ -786,6 +786,47 @@ describe('POST /v1/registrations/:id/verify', () => {
     expect(student).toEqual({ createdAt: t.clock.now(), queuedAt: t.clock.now() })
   })
 
+  describe('a new student of an email whose student has left', () => {
+    const returns = () =>
+      t.db.selectFrom('studentReturns').select(['studentId', 'kind', 'previousStudentId', 'sameIp', 'at']).orderBy('id').execute()
+    const email = 'family@example.com'
+    const before = (days: number) => new Date(t.clock.now().getTime() - days * 24 * 60 * MINUTE)
+
+    async function verifyNew(remoteAddress?: string): Promise<number> {
+      const { registrationId, code } = await registerOk({ email }, remoteAddress)
+      const res = await verify(registrationId, code)
+      expect(res.statusCode).toBe(201)
+      return res.json<{ studentId: number }>().studentId
+    }
+
+    test('is recorded as a return, with the student of the email who registered last of those who left', async () => {
+      await insertStudent(t.db, { email, status: 'expelled', createdAt: before(30) })
+      const dropped = await insertStudent(t.db, { email, status: 'dropped', createdAt: before(10) })
+      // In school: not a student who left, even if registered later.
+      await insertStudent(t.db, { email, status: 'active', createdAt: before(5) })
+
+      const id = await verifyNew()
+      expect(await returns()).toEqual([
+        { studentId: id, kind: 'new_student', previousStudentId: dropped.id, sameIp: true, at: t.clock.now() },
+      ])
+    })
+
+    test('says whether the two registered from the same address', async () => {
+      const expelled = await insertStudent(t.db, { email, status: 'expelled', createdAt: before(10) })
+      const id = await verifyNew('203.0.113.9')
+      expect(await returns()).toEqual([
+        { studentId: id, kind: 'new_student', previousStudentId: expelled.id, sameIp: false, at: t.clock.now() },
+      ])
+    })
+
+    test('is no return when no student of the email has left, or only one of another email', async () => {
+      await insertStudent(t.db, { email, status: 'active', createdAt: before(10) })
+      await insertStudent(t.db, { email: 'someone-else@example.com', status: 'dropped', createdAt: before(10) })
+      await verifyNew()
+      expect(await returns()).toEqual([])
+    })
+  })
+
   test('the student carries the version and the moment agreed to at registration, even if the rules changed since', async () => {
     // The service reads the rules once at startup; a new version arrives with a restart. Here the rules object the app
     // holds is changed in place, between the registration and the verification.

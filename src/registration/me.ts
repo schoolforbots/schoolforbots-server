@@ -407,6 +407,7 @@ async function reEnrollStudent(
         })
         .where('id', '=', student.id)
         .execute()
+      await trx.insertInto('studentReturns').values({ studentId: student.id, kind: 're_enroll', at: now }).execute()
       // Local development only: a class now, not at midnight (the slot lock is held, as for verify).
       if (deps.assignOnVerify && status === 'pending') await assignQueuedNow(trx, config, now, student.division, student.slot)
       return { status }
