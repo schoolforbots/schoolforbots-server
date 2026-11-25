@@ -10,6 +10,7 @@ import {
   useLoad,
   withdrawNotice,
   type ApiError,
+  type BroadcastImportance,
   type NoticeContent,
   type NoticeKind,
   type NoticeView,
@@ -32,7 +33,7 @@ const MAX_TITLE = 60
 const MAX_BODY = 4000
 
 /** Says what an action did; it takes the focus the button that did it had. */
-function Done({ text }: { text: string }) {
+export function Done({ text }: { text: string }) {
   const self = useFocusOnMount<HTMLParagraphElement>()
   return (
     <p
@@ -50,7 +51,7 @@ function Done({ text }: { text: string }) {
  * What stops the notice from being sent (a status: it follows the typing, so it is not read out at each key), or the
  * server's refusal (an alert). It takes the focus when it appears, so a press that was stopped is read out.
  */
-function Problems({ lines, role }: { lines: string[]; role: 'status' | 'alert' }) {
+export function Problems({ lines, role }: { lines: string[]; role: 'status' | 'alert' }) {
   const self = useFocusOnMount<HTMLDivElement>()
   return (
     <div
@@ -73,17 +74,17 @@ function Problems({ lines, role }: { lines: string[]; role: 'status' | 'alert' }
 }
 
 /** Text the server can store as it is: no NUL, and no lone half of a surrogate pair. */
-const storable = (text: string) =>
+export const storable = (text: string) =>
   !text.includes('\u0000') && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)
 
 /** Characters as the server counts them: code points. */
-const length = (text: string) => [...text].length
+export const length = (text: string) => [...text].length
 
 /**
  * A time field read on the school's clock: the instant (UTC ISO), or null when it is empty; `problem` says what is
  * wrong with it. The server takes years 2000 to 9999, counted in UTC.
  */
-function readTime(label: string, input: string, zone: string): { at: string | null; problem?: string } {
+export function readTime(label: string, input: string, zone: string): { at: string | null; problem?: string } {
   if (input === '') return { at: null }
   const outOfRange = { at: null, problem: `${label}要在 2000 年到 9999 年之间。` }
   // The year as written first: a field takes years of any number of digits.
@@ -101,10 +102,10 @@ type Action = 'save' | 'publish' | 'withdraw'
 /** The colour of a notice's status: a draft grey, out on the website green, taken down yellow. */
 const STATUS_TONES: Record<NoticeView['status'], Tone> = { draft: 'gray', published: 'green', withdrawn: 'yellow' }
 
-const LABEL = 'block text-sm font-medium text-gray-700'
+export const LABEL = 'block text-sm font-medium text-gray-700'
 
 /** A field's label with the tip that explains the field beside it. */
-function LabelWithTip({ htmlFor, label, tip }: { htmlFor: string; label: string; tip: ReactNode }) {
+export function LabelWithTip({ htmlFor, label, tip }: { htmlFor: string; label: string; tip: ReactNode }) {
   return (
     <div className="flex items-center gap-2">
       <label className={LABEL} htmlFor={htmlFor}>
@@ -119,7 +120,7 @@ function LabelWithTip({ htmlFor, label, tip }: { htmlFor: string; label: string;
  * One part of the form, as the settings template draws it: what it is on the left, its fields on the right. `about`
  * explains the part, in a tip beside its title; `note` is a line that stays on the page (one that holds a value).
  */
-function FormSection({
+export function FormSection({
   title,
   about,
   note,
@@ -180,6 +181,8 @@ function NoticeEditor({
   const [ends, setEnds] = useState(timeInput(initial?.endsAt))
   const [body, setBody] = useState(initial?.body ?? '')
   const [published, setPublished] = useState(timeInput(initial?.publishedAt))
+  // Whether to broadcast the notice to the whole school as it is published, and how important.
+  const [alsoBroadcast, setAlsoBroadcast] = useState<'none' | BroadcastImportance>('none')
   const [sending, setSending] = useState<Action>()
   // Counts the presses stopped by the checks since the last save: the checks show from the first.
   const [tried, setTried] = useState(0)
@@ -325,10 +328,13 @@ function NoticeEditor({
         return
       }
       const again = saved.status === 'withdrawn'
+      const broadcast = alsoBroadcast === 'none' ? undefined : alsoBroadcast
       try {
-        take(await publishNotice(saved.id))
+        take(await publishNotice(saved.id, broadcast))
         onChanged()
-        say(again ? '已重新发布，发布时间还是第一次发布的时间。' : '已发布。')
+        const said = again ? '已重新发布，发布时间还是第一次发布的时间。' : '已发布。'
+        say(broadcast === undefined ? said : `${said}也已广播给全校。`)
+        setAlsoBroadcast('none')
       } catch (error) {
         refuse(again ? '修改已保存，但没能重新发布：' : '草稿已保存，但没能发布：', error as ApiError, saved.id)
       }
@@ -429,6 +435,25 @@ function NoticeEditor({
                   />
                 </div>
               )}
+            </FormSection>
+          )}
+          {status !== 'published' && (
+            <FormSection
+              title="发布时广播"
+              about="发布这条公告时，同时把它作为校园广播发给全校学生，插件拿到以后转告机器人的主人。只在发布时有用，保存草稿不会广播。"
+            >
+              <fieldset>
+                <legend className="sr-only">发布时广播</legend>
+                <RadioGroup
+                  value={alsoBroadcast}
+                  onChange={(event) => setAlsoBroadcast(event.target.value)}
+                  options={[
+                    { value: 'none', label: '不广播' },
+                    { value: 'normal', label: '广播给全校（普通）' },
+                    { value: 'important', label: '广播给全校（重要）' },
+                  ]}
+                />
+              </fieldset>
             </FormSection>
           )}
           <FormSection title="正文">

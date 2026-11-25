@@ -394,6 +394,22 @@ describe('the notices page: editing and publishing', () => {
     expect(editor().getByLabelText('发布时间')).toHaveValue('2026-11-03T20:00')
   })
 
+  it('can broadcast the notice to the whole school as it publishes it', async () => {
+    const server = serve([notice()], {
+      'PUT api/notices/7': ok(notice()),
+      'POST api/notices/7/publish': ok(published),
+    })
+    const user = await open()
+
+    await user.click(editor().getByRole('radio', { name: '广播给全校（重要）' }))
+    await user.click(editor().getByRole('button', { name: '发布' }))
+
+    expect(await screen.findByText('已发布。也已广播给全校。')).toHaveFocus()
+    expect(server.calls.find((call) => call.path === 'api/notices/7/publish')?.body).toEqual({ broadcast: 'important' })
+    // Once out, there is nothing more to broadcast with it.
+    expect(editor().queryByRole('radio', { name: '不广播' })).not.toBeInTheDocument()
+  })
+
   it('publishes a new notice: makes the draft, then publishes it', async () => {
     const server = serve([], {
       'POST api/notices': ok(notice({ id: 11 })),

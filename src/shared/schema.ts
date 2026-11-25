@@ -312,6 +312,31 @@ export interface NoticesTable {
   createdAt: Date
 }
 
+export type BroadcastImportance = 'normal' | 'important'
+export type BroadcastStatus = 'draft' | 'published' | 'withdrawn'
+
+/**
+ * A campus broadcast (see migration 0019): to the whole school, to some divisions and slots (an empty list is all of
+ * them), or to some classes (`classIds`, with no divisions or slots then). `seq` and `publishedAt` are set when it is
+ * published, `withdrawnAt` when it is withdrawn. `expiresAt`, when set, is when it stops being given out.
+ */
+export interface BroadcastsTable {
+  id: Generated<number>
+  title: string
+  body: Generated<string>
+  importance: Generated<BroadcastImportance>
+  divisions: Generated<string[]>
+  slots: Generated<string[]>
+  classIds: Generated<number[]>
+  status: Generated<BroadcastStatus>
+  seq: number | null
+  publishedAt: Date | null
+  withdrawnAt: Date | null
+  expiresAt: Date | null
+  noticeId: number | null
+  createdAt: Date
+}
+
 /** A student's membership of a club, from `joinedAt` on. Leaving deletes the row. */
 export interface ClubMembersTable {
   studentId: number
@@ -562,4 +587,5 @@ export interface Database {
   doudizhuGamePlayers: DoudizhuGamePlayersTable
   notices: NoticesTable
   studentReturns: StudentReturnsTable
+  broadcasts: BroadcastsTable
 }

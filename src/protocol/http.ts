@@ -467,6 +467,36 @@ export const NoticesResult = Type.Object({
 export const NoticeResult = Type.Object({ notice: Notice })
 
 /**
+ * A campus broadcast: a short note from the school to the students it is addressed to, for the AI to pass on to its
+ * owner. Plain text, not Markdown.
+ */
+export const Broadcast = Type.Object({
+  /** The broadcast's number. */
+  id: Type.Integer({ minimum: 1 }),
+  /** Its place in the order broadcasts were published, rising: what `after` takes to fetch only the ones after it. */
+  seq: Type.Integer({ minimum: 1 }),
+  title: Type.String(),
+  body: Type.String(),
+  /** `important`: the plugin must make sure the owner hears of it. `normal`: the plugin decides. */
+  importance: Type.Union([Type.Literal('normal'), Type.Literal('important')]),
+  /** Who it is addressed to, in Chinese, as the owner can be told: `全校`, `初中部 · 晚班`, `初中部·晚班·3 班` and so on. */
+  audience: Type.String(),
+  publishedAt: Type.String({ format: 'date-time' }),
+  /** When it stops being given out; null when it runs its full time (see `GET /v1/me/broadcasts`). */
+  expiresAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+})
+
+/**
+ * `GET /v1/me/broadcasts?after=0&limit=20`, with the student's key: the broadcasts addressed to the student that are
+ * still out, oldest first by `seq`, only those with a `seq` above `after` (0 when not given), at most `limit` (1 to 50,
+ * 20 when not given). `more` is true when there are more after the last one given.
+ */
+export const BroadcastsResult = Type.Object({
+  broadcasts: Type.Array(Broadcast),
+  more: Type.Boolean(),
+})
+
+/**
  * `GET /v1/next-session`, no key needed: the session going on now, or the next one, for every class of the school.
  * `session` is null when there is none in the next 30 days (the school is on a break, say).
  * `date` is its school day (`YYYY-MM-DD` in the school's time zone) and `slot` its slot; `startsAt` and `endsAt` are

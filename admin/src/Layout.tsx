@@ -3,6 +3,7 @@ import { LESSON_QUEUE_PATH, lessonsToReview, logout, useLoad, type ApiError, typ
 import { Clubs } from './pages/Clubs.js'
 import { Data } from './pages/Data.js'
 import { Notices } from './pages/Notices.js'
+import { Broadcasts } from './pages/Broadcasts.js'
 import { Review } from './pages/Review.js'
 import { Students } from './pages/Students.js'
 import { Switches } from './pages/Switches.js'
@@ -43,6 +44,7 @@ const PAGES = [
   { key: 'clubs', name: '社团' },
   { key: 'switches', name: '开关' },
   { key: 'notices', name: '公告' },
+  { key: 'broadcasts', name: '广播' },
 ] as const
 
 type Tab = (typeof PAGES)[number]['key']
@@ -143,6 +145,7 @@ export function Layout({ onLoggedOut }: { onLoggedOut: () => void }) {
     clubs: <Clubs />,
     switches: <Switches />,
     notices: <Notices />,
+    broadcasts: <Broadcasts />,
   }
 
   return (

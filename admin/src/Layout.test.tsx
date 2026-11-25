@@ -21,7 +21,7 @@ function serve(queue = lessonQueue(), stats = dailyStats(7)) {
 }
 
 describe('the layout', () => {
-  it('has the school’s name, the logout and seven pages in the sidebar, the school data first and open', async () => {
+  it('has the school’s name, the logout and eight pages in the sidebar, the school data first and open', async () => {
     serve()
     show(<Layout onLoggedOut={vi.fn()} />)
 
@@ -36,6 +36,7 @@ describe('the layout', () => {
       '社团',
       '开关',
       '公告',
+      '广播',
     ])
     expect(nav.getByRole('link', { name: '学校数据' })).toHaveAttribute('aria-current', 'page')
     // The open page is named by the one h1, and the page itself is the main region of that name.

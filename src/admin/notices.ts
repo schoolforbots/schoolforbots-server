@@ -3,8 +3,9 @@ import type { FastifyPluginAsync } from 'fastify'
 import { type Kysely, type Selectable, sql } from 'kysely'
 import { Type, type Static } from 'typebox'
 import { ApiError } from '../registration/errors.js'
-import type { Database, NoticeKind, NoticeStatus } from '../shared/schema.js'
+import type { BroadcastImportance, Database, NoticeKind, NoticeStatus } from '../shared/schema.js'
 import type { AdminDeps } from './app.js'
+import { broadcastNotice } from './broadcasts.js'
 
 // Writing the school's notices: a draft is made, edited, published, withdrawn and published again; only a draft can
 // be deleted, so a notice that was ever out stays on record. `published_at` is set the first time it is published and
@@ -59,7 +60,7 @@ interface Content {
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/
 
 /** A time as the page sends it; absent or null is none; anything else, or a year the database cannot hold, a 400. */
-function timeOf(text: string | null | undefined): Date | null {
+export function timeOf(text: string | null | undefined): Date | null {
   if (text === undefined || text === null) return null
   if (!ISO_TIME.test(text)) throw INVALID
   const d = new Date(text)
@@ -70,7 +71,7 @@ function timeOf(text: string | null | undefined): Date | null {
 }
 
 /** Text the database can store as it is: no NUL, and no lone half of a surrogate pair (it would come back changed). */
-function storable(text: string): boolean {
+export function storable(text: string): boolean {
   return !text.includes('\u0000') && !LONE_SURROGATE.test(text)
 }
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
@@ -136,6 +137,18 @@ async function lockNotice(trx: Kysely<Database>, id: number) {
   const row = await trx.selectFrom('notices').selectAll().where('id', '=', id).forUpdate().executeTakeFirst()
   if (row === undefined) throw NOT_FOUND
   return row
+}
+
+/** The importance to broadcast a notice with as it is published, from the publish request's body; null for none. */
+function broadcastOf(body: unknown): BroadcastImportance | null {
+  if (body === undefined || body === null) return null
+  if (typeof body !== 'object' || Array.isArray(body)) throw INVALID
+  const keys = Object.keys(body)
+  if (keys.some((k) => k !== 'broadcast')) throw INVALID
+  const value = (body as { broadcast?: unknown }).broadcast
+  if (value === undefined || value === null) return null
+  if (value !== 'normal' && value !== 'important') throw INVALID
+  return value
 }
 
 function wrongStatus(message: string): ApiError {
@@ -208,16 +221,24 @@ export const noticeRoutes = (deps: AdminDeps): FastifyPluginAsync => async (inst
     })
   })
 
+  // With `{ "broadcast": "normal" | "important" }`, the notice is also broadcast to the whole school, with that
+  // importance, in the same transaction. No body, or no `broadcast`, publishes the notice alone.
   app.post('/notices/:id/publish', async (request): Promise<NoticeView> => {
     const id = noticeIdOf(request.params)
+    const broadcast = broadcastOf(request.body)
     return act(request.log, id, 'publish', async (trx, row) => {
       if (row.status === 'published') throw wrongStatus('这条公告已经发布了。')
+      const now = clock.now()
       // Published again after being withdrawn, it keeps the time it first went out.
       await trx
         .updateTable('notices')
-        .set({ status: 'published', publishedAt: row.publishedAt ?? clock.now() })
+        .set({ status: 'published', publishedAt: row.publishedAt ?? now })
         .where('id', '=', id)
         .execute()
+      if (broadcast !== null) {
+        const broadcastId = await broadcastNotice(trx, row, broadcast, now)
+        request.log.info({ broadcastId, noticeId: id, action: 'publish' }, 'broadcast')
+      }
     })
   })
 
