@@ -51,7 +51,11 @@ export function EditBox({ part, text, labelId }: { part: LessonPart; text: strin
   )
 }
 
-/** A rewrite: the reason it is for (required), then the model, or the prompt to copy and the reply to paste. */
+/**
+ * A rewrite: the reason it is for (required), then the model (in `api` mode), or the prompt to copy and the reply to
+ * paste. The way by hand is always there, not only when the model fails: the reviewer may rather have another model
+ * write it.
+ */
 export function ReasonBox({ target, what }: { target: RewriteTarget; what: string }) {
   const { lesson, mode, writing, open, onChanged } = useEditing()
   const [reason, setReason] = useState('')
@@ -61,8 +65,6 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
   const field = useRef<TextAreaRef>(null)
   const pasteButton = useRef<HTMLButtonElement>(null)
   const fieldId = useId()
-  // The model out of reach says to paste by hand instead: the way to do it comes up right here.
-  const byHand = mode === 'manual' || action.error?.code === 'llm_unavailable'
   const prompt: PromptTarget = {
     kind: target.kind,
     date: lesson.date,
@@ -91,7 +93,7 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
         <label className={LABEL} htmlFor={fieldId}>
           重写的理由
         </label>
-        <Tip about="重写的理由">说清楚哪里不合适、想改成什么样，大模型照着重写。理由会存下来，每周复盘时用。</Tip>
+        <Tip about="重写的理由">说清楚哪里不合适、想改成什么样，大模型照着重写；也可以复制提示词交给别的模型，再把回复粘贴回来。理由会存下来，每周复盘时用。</Tip>
       </div>
       <TextArea
         ref={field}
@@ -118,14 +120,10 @@ export function ReasonBox({ target, what }: { target: RewriteTarget; what: strin
             {action.busy ? '正在重写' : '请大模型重写'}
           </Button>
         )}
-        {byHand && (
-          <>
-            <CopyPrompt target={prompt} ready={ready} />
-            <Button ref={pasteButton} size="small" onClick={() => ready() && setPasting(true)} disabled={writing}>
-              粘贴结果
-            </Button>
-          </>
-        )}
+        <CopyPrompt target={prompt} ready={ready} />
+        <Button ref={pasteButton} size="small" onClick={() => ready() && setPasting(true)} disabled={writing}>
+          粘贴结果
+        </Button>
         <Button size="small" onClick={() => open(null)} disabled={writing}>
           不重写了
         </Button>
