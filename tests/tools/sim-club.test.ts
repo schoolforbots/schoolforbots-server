@@ -1239,7 +1239,10 @@ describe('a whole run', () => {
         timing: TIMING,
         log: (line) => void lines.push(line),
         error: (line) => void lines.push(line),
-        verify: { paceMs: 100, retryWaitMs: 2000, retries: 3 },
+        // The waits run SCALE times as fast as well, but the records are written in real time, in the background: a
+        // game that ends just before the run does may be written only after a short scaled wait. Each retry waits two
+        // seconds of real time, so that a slow write is not taken for a missing record.
+        verify: { paceMs: 100, retryWaitMs: 2000 * SCALE, retries: 3 },
       },
     )
     expect(code, lines.join('\n')).toBe(0)
