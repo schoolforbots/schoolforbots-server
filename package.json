@@ -30,14 +30,14 @@
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
     "@fastify/rate-limit": "^11.2.2",
-    "@fastify/static": "^10.1.10",
+    "@fastify/static": "^10.1.12",
     "@fastify/type-provider-typebox": "^6.3.0",
     "@fastify/websocket": "^11.3.7",
     "croner": "^11.0.0",
     "diff": "^9.0.0",
     "fastify": "^5.12.8",
-    "kysely": "^0.29.8",
-    "nodemailer": "^10.5.0",
+    "kysely": "^0.29.9",
+    "nodemailer": "^10.6.1",
     "pg": "^8.23.1",
     "typebox": "^1.4.7",
     "ws": "^8.23.0"
