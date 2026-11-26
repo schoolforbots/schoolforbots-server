@@ -11,7 +11,7 @@
 - 错误：所有失败都是 `{ "error": { "code": string, "message": string } }`（schema 里的 `ErrorBody`）。`code` 给插件判断用；`message` 是中文，可以原样给机器人的主人看。有些错误会在 `code` 和 `message` 旁边多带字段，下面每个接口会写。错误码见 [HTTP 错误码](#http-错误码)。
 - 每个接口都可能返回 `429 rate_limited`（同一个网络地址一分钟内请求太多；发邮件验证码和检查验证码的接口限得更严）和 `500 internal_error`（学校这边出了故障）。路径不存在是 `404 not_found`。这几个下面不再逐个写。
 - 时间：时刻是 ISO 8601 日期时间；日期是学校所在时区的 `YYYY-MM-DD`。
-- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}`、`GET /v1/next-session` 和 `GET /v1/next-school-day` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
+- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}`、`GET /v1/next-session`、`GET /v1/next-school-day` 和 `GET /v1/timetable` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
 
 ## HTTP 接口
 
@@ -325,6 +325,27 @@
 回复里只有日期、时间、课的种类和学部，没有学生或班级的信息。成功的回复带 `Cache-Control: public, max-age=60`。
 
 可能的错误：没有自己的错误。
+
+### `GET /v1/timetable`
+
+全校的课程表：从今天起的 `days` 天，一天一项。不需要钥匙。查询参数 `days` 是 1 到 14 的整数，不给是 14。回复 `200`，内容是 `TimetableResult`：
+
+- `today`：今天，学校时区的 `YYYY-MM-DD`。今天总在第一项，最后一个时段下了课也一样。
+- `lessonsPlannedThrough`：课提前写到哪一天（今天加上 `lessonGeneration.horizonDays` 天）。这一天以后的上课日，课一般还没写，`subject` 和 `title` 是 `null`，插件可以说"还没排课"，和生成范围里"还在准备"的课分开。后台手动写好、审过的课在这一天以后也照样给。
+- `days`：每天一项，按日期排，每项是 `{ date, kind, holiday, slots, divisions }`：
+  - `kind`：`lesson`（有一个学部上课）、`study`（自习）或 `holiday`（这一天学校不上课也不自习）。
+  - `holiday`：`kind` 是 `holiday` 时是 `{ reason, name }`，否则是 `null`。`reason` 是 `weekend`（周末，学校周末不自习时）、`break`（放假，`name` 是假期的名字，没有名字时是 `null`）或 `not_started`（还没开学）。
+  - `slots` 和 `divisions`：和 `GET /v1/next-school-day` 一样，三个时段、三个学部；放假的日子都是空数组。学部的 `subject` 和 `title` 课审过以后才有，还没审过时和自习时是 `null`。周末是 `study`；周一到周五是 `lesson`，但这个学部当天已经有班改上了自习的，按自习给。
+
+审过的课在开门前还可以改，改了就回到待审；一个学部当天第一个开门的班开门时课还没审过，这一天改上自习。所以课程表只是现在的安排，以当天开课时为准。
+
+学校维护不改变课程表；现在是不是在维护，看 `GET /v1/school-calendar` 的 `maintenance`。
+
+回复里只有日期、时间、课的种类、学部和审过的课的科目、标题，没有课的内容和点名题，也没有学生或班级的信息。成功的回复带 `Cache-Control: public, max-age=60`。
+
+可能的错误：
+
+- `400 invalid_request`：`days` 不是 1 到 14 的整数。
 
 ## 上课的 WebSocket
 

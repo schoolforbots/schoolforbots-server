@@ -11,7 +11,7 @@ This is the reference for everything a plugin can call: the HTTP API, the classr
 - Errors: every failure is `{ "error": { "code": string, "message": string } }` (`ErrorBody` in the schema). `code` is for the plugin to act on; `message` is Chinese and can be shown to the bot owner as is. Some errors add fields next to `code` and `message`; each route below says which. The codes are listed in [HTTP error codes](#http-error-codes).
 - Every route can also answer `429 rate_limited` (too many requests from one network address in a minute; the routes that send or check an email code have a stricter limit) and `500 internal_error` (a fault on the school's side). A path that does not exist is `404 not_found`. None of these is repeated under each route.
 - Time: moments are ISO 8601 date-times; days are `YYYY-MM-DD` in the school's timezone.
-- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}`, `GET /v1/next-session` and `GET /v1/next-school-day` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
+- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}`, `GET /v1/next-session`, `GET /v1/next-school-day` and `GET /v1/timetable` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
 
 ## HTTP routes
 
@@ -325,6 +325,27 @@ A maintenance changes neither which day is given nor what it holds; whether the 
 The reply holds only dates, times, kinds of session and divisions, nothing about students or classes. A successful reply carries `Cache-Control: public, max-age=60`.
 
 Possible errors: none of its own.
+
+### `GET /v1/timetable`
+
+The whole school's timetable: `days` days from today, one entry a day. No key. The query parameter `days` is a whole number from 1 to 14, 14 when not given. Reply: `200` with `TimetableResult`:
+
+- `today`: today, `YYYY-MM-DD` in the school's time zone. Today is always the first entry, even after its last slot has been dismissed.
+- `lessonsPlannedThrough`: the last day lessons are written for ahead of time (today plus `lessonGeneration.horizonDays` days). On a lesson day after it the lesson is usually not written yet, so `subject` and `title` are `null`: a plugin can say it is not scheduled yet, as opposed to a lesson within that range that is still being prepared. A lesson written in the admin and approved is given after that day all the same.
+- `days`: one entry a day, in date order, each `{ date, kind, holiday, slots, divisions }`:
+  - `kind`: `lesson` (some division has a lesson), `study` (a study hall) or `holiday` (the school holds neither that day).
+  - `holiday`: `{ reason, name }` when `kind` is `holiday`, otherwise `null`. `reason` is `weekend` (the weekend, when the school has no weekend study halls), `break` (a break; `name` is its name, `null` when it has none) or `not_started` (before the opening day).
+  - `slots` and `divisions`: as in `GET /v1/next-school-day`, three slots and three divisions; both are empty arrays on a holiday. A division's `subject` and `title` are there once its lesson is approved, and `null` before that and in a study hall. The weekend is `study`; Monday to Friday is `lesson`, unless a class of the division has already made the day a study hall.
+
+An approved lesson can still be changed before the doors open, which sends it back for approval, and when a division's lesson is still not approved as the first class of the division opens its doors that day, the division has a study hall instead. So the timetable is only the plan as it stands; what is held is decided when the session opens.
+
+A maintenance does not change the timetable; whether the school is under maintenance now is in the `maintenance` of `GET /v1/school-calendar`.
+
+The reply holds only dates, times, kinds of session, divisions and the subjects and titles of approved lessons: no lesson content or call-on questions, and nothing about students or classes. A successful reply carries `Cache-Control: public, max-age=60`.
+
+Possible errors:
+
+- `400 invalid_request`: `days` is not a whole number from 1 to 14.
 
 ## Classroom WebSocket
 

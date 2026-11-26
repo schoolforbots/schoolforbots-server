@@ -23,6 +23,7 @@ import { broadcastRoutes } from './broadcasts.js'
 import { recordsRoutes } from './records.js'
 import { registrationRoutes } from './registrations.js'
 import { schoolRoutes } from './school.js'
+import { timetableRoutes } from './timetable.js'
 
 export interface RegistrationDeps {
   db: Kysely<Database>
@@ -102,6 +103,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   app.register(noticeRoutes(deps))
   app.register(broadcastRoutes(deps))
   app.register(nextSessionRoutes(deps))
+  app.register(timetableRoutes(deps))
   if (deps.admin !== undefined && adminPath !== undefined) app.register(adminRoutes(deps.admin), { prefix: adminPath })
 
   return app

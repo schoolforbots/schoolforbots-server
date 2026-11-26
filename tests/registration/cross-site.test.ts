@@ -16,6 +16,7 @@ const CROSS_SITE = [
   '/v1/notices/:id',
   '/v1/next-session',
   '/v1/next-school-day',
+  '/v1/timetable',
 ]
 
 /** What a browser adds to a request a page on another site makes. */
@@ -44,8 +45,8 @@ function expectNotReadableFromAnotherSite(res: LightMyRequestResponse) {
   expect(Object.keys(res.headers).filter((name) => name.startsWith('access-control-'))).toEqual([])
 }
 
-describe('reading the school calendar, the school rules, the notices and the next session from another site', () => {
-  test('each of the eight routes allows any site', async () => {
+describe('reading the school calendar, the school rules, the notices, the next session and the timetable from another site', () => {
+  test('each of the nine routes allows any site', async () => {
     const t = await schoolApp()
     const current = t.schoolRules.current.version
     const { id } = await t.db
@@ -63,6 +64,7 @@ describe('reading the school calendar, the school rules, the notices and the nex
       `/v1/notices/${id}`,
       '/v1/next-session',
       '/v1/next-school-day',
+      '/v1/timetable',
     ]) {
       const res = await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
       expect(res.statusCode, url).toBe(200)
@@ -81,6 +83,7 @@ describe('reading the school calendar, the school rules, the notices and the nex
       ['/v1/notices?limit=0', 400],
       ['/v1/notices/x', 400],
       ['/v1/notices/1', 404],
+      ['/v1/timetable?days=0', 400],
     ] as const) {
       const res = await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
       expect(res.statusCode, url).toBe(status)
@@ -89,7 +92,7 @@ describe('reading the school calendar, the school rules, the notices and the nex
   })
 
   test('and so does the rate limit, so a page can tell it apart from a school it cannot reach', async () => {
-    for (const url of ['/v1/school-calendar', '/v1/notices', '/v1/next-session', '/v1/next-school-day']) {
+    for (const url of ['/v1/school-calendar', '/v1/notices', '/v1/next-session', '/v1/next-school-day', '/v1/timetable']) {
       const t = await schoolApp({ httpRateLimitPerMinute: 1 })
 
       await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
@@ -108,7 +111,7 @@ describe('reading the school calendar, the school rules, the notices and the nex
   test('no preflight is answered, so only a simple GET gets through', async () => {
     const t = await schoolApp()
 
-    for (const url of ['/v1/school-calendar', '/v1/school-rules', '/v1/notices', '/v1/next-session', '/v1/next-school-day']) {
+    for (const url of ['/v1/school-calendar', '/v1/school-rules', '/v1/notices', '/v1/next-session', '/v1/next-school-day', '/v1/timetable']) {
       const preflight = await t.app.inject({
         method: 'OPTIONS',
         url,
