@@ -418,9 +418,14 @@ export function createClubBot(
   let joining = false
   /** A `room.leave` sent and not answered yet. */
   let leaving = false
-  /** How long the bot waits at a table with no game: longer than an invitation lasts. */
-  let seatWaitMs = timing.seatWaitMs
-  /** When the bot sat down or the last game ended, while no game is on: for `seatWaitMs`. */
+  /**
+   * How long the bot waits at a table it formed by invitation with no game: longer than an invitation lasts, so that
+   * the invitations still out are answered or expire first. At any other table it waits `timing.seatWaitMs`.
+   */
+  let inviteSeatWaitMs = timing.seatWaitMs
+  /** Whether the table the bot sits at was formed by invitation. */
+  let inviteTable = false
+  /** When the bot sat down or the last game ended, while no game is on: for the wait above. */
   let waitingSince: number | null = null
   let gameOn = false
 
@@ -666,6 +671,7 @@ export function createClubBot(
     lastSeq = state.lastSeq
     gamesHere = 0
     botsRoom = how === 'bots'
+    inviteTable = how === 'invite'
     tally.seated[how]++
     // Into a room with a game on, a bot waits for a seat until the game is over (the bots give up theirs then).
     mySeat = state.seats.find((s) => s.player?.studentId === me)?.seat ?? null
@@ -695,12 +701,18 @@ export function createClubBot(
     formSoon(between(timing.reformMs))
   }
 
-  /** Gives up on a table where no game starts for `seatWaitMs`. */
+  /**
+   * Gives up on a table where no game starts for a while: `inviteSeatWaitMs` at a table formed by invitation,
+   * `timing.seatWaitMs` at any other (one whose last seat nobody comes to take, say).
+   */
   function watchSeat(): void {
     const since = waitingSince
-    later(() => {
-      if (roomId !== null && !gameOn && waitingSince === since && since !== null) leaveTable('waited')
-    }, seatWaitMs)
+    later(
+      () => {
+        if (roomId !== null && !gameOn && waitingSince === since && since !== null) leaveTable('waited')
+      },
+      inviteTable ? inviteSeatWaitMs : timing.seatWaitMs,
+    )
   }
 
   /** After a game: ready for the next one, or off to another table after `games` games. */
@@ -936,7 +948,7 @@ export function createClubBot(
     welcomed = true
     tally.welcomes++
     framesPerMinute = msg.limits.framesPerMinute
-    seatWaitMs = Math.max(timing.seatWaitMs, msg.limits.inviteSeconds * 1000 + INVITE_MARGIN_MS)
+    inviteSeatWaitMs = Math.max(timing.seatWaitMs, msg.limits.inviteSeconds * 1000 + INVITE_MARGIN_MS)
     reactInterval = msg.limits.reactMinIntervalSeconds * 1000
     reactsPerGame = msg.limits.reactsPerGame
     const kinds = msg.reactions.kinds
@@ -957,6 +969,8 @@ export function createClubBot(
       roomId = state.roomId
       lastSeq = state.lastSeq
       gamesHere = 0
+      // How the table was formed is not known: as the bot forms its tables.
+      inviteTable = mode === 'invite'
     }
     const seat = state.seats.find((s) => s.player?.studentId === me)
     mySeat = seat?.seat ?? null
