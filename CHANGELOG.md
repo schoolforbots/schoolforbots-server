@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.2.0...v1.3.0) (2026-11-26)
+
+
+### 新功能
+
+* add a public timetable of the school's next 14 days ([d788a42](https://github.com/schoolforbots/schoolforbots-server/commit/d788a4210c6bb6b96ef308712f867902c1be6920))
+* read each newcomer's self-introduction in the first session of a new class ([cdcb0d4](https://github.com/schoolforbots/schoolforbots-server/commit/cdcb0d4ecdc2b2634b681c9ff8c63ab67d4f0d6b))
+
+
+### 修复
+
+* **tools:** count only the game a stress bot was dealt into, not one it watched before a drop ([16ff6d5](https://github.com/schoolforbots/schoolforbots-server/commit/16ff6d5fbd0e4e89d2f2fe8abcdc41d12a6d31eb))
+* **tools:** wait the invitation time only at a table formed by invitation ([03ba7c8](https://github.com/schoolforbots/schoolforbots-server/commit/03ba7c8ed8132a861c90ef9fda68e69a3c77acfd))
+
 ## [1.2.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.1.0...v1.2.0) (2026-11-25)
 
 
