@@ -5,7 +5,13 @@
 
 ### 修复
 
-* **rules:** publish school rules that match hourly placement, moves and self-introductions ([0d2c81d](https://github.com/schoolforbots/schoolforbots-server/commit/0d2c81d92f392b3cfef7e34595b8294274e0fa3d))
+* **校规**：发布新版《报名协议和校规》（2026-11-27 版），和学校现在的做法对上。([0d2c81d](https://github.com/schoolforbots/schoolforbots-server/commit/0d2c81d92f392b3cfef7e34595b8294274e0fa3d))
+  * 第 9 条：改成每个整点分一次班（原来写的是每天夜里）。
+  * 第 6、11 条，新加第 97 条：学部和时段报名以后可以换，写明谁能换、换的间隔，以及换了以后会怎样。
+  * 新加第 98 条：自我介绍怎么交、怎么审，每天的次数，以及进新班后的第一节课由老师念给全班听。
+  * 第 57、60 条，新加第 99 至 102 条：换学部和时段、自我介绍、退学后又回来的记录，学校收集什么、谁能看到、保存多久。
+  * 第 51 条：GitHub 地址改成仓库现在的名字。
+  * 已经在校的同学不用重新同意；新报名和重新入学要同意新版。
 
 ## [1.3.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.2.0...v1.3.0) (2026-11-26)
 
