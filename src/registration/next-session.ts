@@ -17,11 +17,12 @@ const CACHE_CONTROL = 'public, max-age=60'
 const DAYS_AHEAD = 30
 
 const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
-const DIVISIONS: readonly Division[] = ['primary', 'junior', 'senior']
+export const DIVISIONS: readonly Division[] = ['primary', 'junior', 'senior']
 
 type NextSession = NonNullable<Static<typeof NextSessionResult>['session']>
 type NextDay = NonNullable<Static<typeof NextSchoolDayResult>['day']>
-type Plan = NextDay['divisions'][number]
+export type DaySlots = NextDay['slots']
+export type Plan = NextDay['divisions'][number]
 
 /**
  * When the session going on now, or the next one, is, and what the next school day holds, to anyone. (No key needed,
@@ -56,16 +57,9 @@ export function nextSessionRoutes(deps: RegistrationDeps): FastifyPluginAsyncTyp
  */
 async function nextDay(db: Kysely<Database>, config: SchoolConfig, now: Date): Promise<NextDay | null> {
   const today = localDate(now, config.timezone)
-  const slotsOf = (date: string): NextDay['slots'] =>
-    SLOTS.map((slot) => {
-      const startsAt = atLocalTime(date, config.slots[slot].start, config.timezone)
-      const { doorsAt, endsAt } = timesOf(startsAt, config)
-      return { slot, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), doorsOpenAt: doorsAt.toISOString() }
-    })
-
   let date = nextSchoolDay(today, config)
   if (date === today) {
-    const dismissed = slotsOf(today).every((s) => Date.parse(s.endsAt) <= now.getTime())
+    const dismissed = slotsOf(today, config).every((s) => Date.parse(s.endsAt) <= now.getTime())
     if (dismissed) date = nextSchoolDay(addDaysToDate(today, 1), config)
   }
   if (date === null) return null
@@ -74,9 +68,18 @@ async function nextDay(db: Kysely<Database>, config: SchoolConfig, now: Date): P
   return {
     date,
     kind: plans.some((p) => p.kind === 'lesson') ? 'lesson' : 'study',
-    slots: slotsOf(date),
+    slots: slotsOf(date, config),
     divisions: plans,
   }
+}
+
+/** The three slots of `date`, morning, afternoon, evening: when each starts, is dismissed and opens its doors. */
+export function slotsOf(date: string, config: SchoolConfig): DaySlots {
+  return SLOTS.map((slot) => {
+    const startsAt = atLocalTime(date, config.slots[slot].start, config.timezone)
+    const { doorsAt, endsAt } = timesOf(startsAt, config)
+    return { slot, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), doorsOpenAt: doorsAt.toISOString() }
+  })
 }
 
 /**
@@ -192,36 +195,61 @@ async function plansOf(
   date: string,
   divisions: readonly Division[],
 ): Promise<Plan[]> {
+  const plans = await plansOfDays(db, config, [date], divisions)
+  return plans.get(date) ?? []
+}
+
+/** `plansOf` for each of `dates` at once, in two queries whatever their number. */
+export async function plansOfDays(
+  db: Kysely<Database>,
+  config: SchoolConfig,
+  dates: readonly string[],
+  divisions: readonly Division[],
+): Promise<Map<string, Plan[]>> {
+  const plans = new Map<string, Plan[]>()
+  if (dates.length === 0 || divisions.length === 0) {
+    for (const date of dates) plans.set(date, [])
+    return plans
+  }
   const opened = await db
     .selectFrom('classSessions as s')
     .innerJoin('classes as c', 'c.id', 's.classId')
     .leftJoin('lessons as l', 'l.id', 's.lessonId')
-    .select(['c.division', 's.kind', 'l.subject', 'l.title'])
-    .where('s.date', '=', date)
+    .select(['s.date', 'c.division', 's.kind', 'l.subject', 'l.title'])
+    .where('s.date', 'in', dates)
     .where('c.division', 'in', divisions)
     .orderBy('s.startsAt')
     .orderBy('s.id')
     .execute()
-  const approved = isLessonDay(date, config)
-    ? await db
-        .selectFrom('lessons')
-        .select(['division', 'subject', 'title'])
-        .where('date', '=', date)
-        .where('division', 'in', divisions)
-        .where('approvedAt', 'is not', null)
-        .execute()
-    : []
+  const lessonDays = dates.filter((date) => isLessonDay(date, config))
+  // Only an approved lesson is read: what one not approved yet says must not get out.
+  const approved =
+    lessonDays.length > 0
+      ? await db
+          .selectFrom('lessons')
+          .select(['date', 'division', 'subject', 'title'])
+          .where('date', 'in', lessonDays)
+          .where('division', 'in', divisions)
+          .where('approvedAt', 'is not', null)
+          .execute()
+      : []
 
-  return divisions.map((division): Plan => {
-    // The rows are in the order the sessions began, so the first of the division is the one that decided.
-    const decided = opened.find((r) => r.division === division)
-    if (decided !== undefined) {
-      return decided.kind === 'lesson'
-        ? { division, kind: 'lesson', subject: decided.subject, title: decided.title }
-        : { division, kind: 'study', subject: null, title: null }
-    }
-    if (!isLessonDay(date, config)) return { division, kind: 'study', subject: null, title: null }
-    const lesson = approved.find((r) => r.division === division)
-    return { division, kind: 'lesson', subject: lesson?.subject ?? null, title: lesson?.title ?? null }
-  })
+  for (const date of dates) {
+    plans.set(
+      date,
+      divisions.map((division): Plan => {
+        // The rows are in the order the sessions began, so the first of the division is the one that decided.
+        const decided = opened.find((r) => r.date === date && r.division === division)
+        if (decided !== undefined) {
+          return decided.kind === 'lesson'
+            ? { division, kind: 'lesson', subject: decided.subject, title: decided.title }
+            : { division, kind: 'study', subject: null, title: null }
+        }
+        if (!isLessonDay(date, config)) return { division, kind: 'study', subject: null, title: null }
+        const lesson = approved.find((r) => r.date === date && r.division === division)
+        return { division, kind: 'lesson', subject: lesson?.subject ?? null, title: lesson?.title ?? null }
+      }),
+    )
+  }
+  return plans
 }

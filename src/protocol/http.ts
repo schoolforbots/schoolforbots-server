@@ -567,3 +567,47 @@ export const NextSchoolDayResult = Type.Object({
     }),
   ]),
 })
+
+/** Why a day of the timetable is a holiday: the weekend (without weekend study halls), a break, or before the opening. */
+const HolidayReason = Type.Union([Type.Literal('weekend'), Type.Literal('break'), Type.Literal('not_started')])
+
+/**
+ * `GET /v1/timetable?days=14`, no key needed: the whole school's timetable for `days` days (1 to 14, 14 when not
+ * given), today first, one entry a day. `today` is today and `lessonsPlannedThrough` the last day lessons are written
+ * for ahead of time (today plus `lessonGeneration.horizonDays`): a lesson after it is usually not written yet.
+ * Each day: `date`; `kind` is `holiday` when the school holds no session that day, with `holiday` saying why
+ * (`weekend`, `break` with the break's `name` when it has one, or `not_started` before the opening day), and then
+ * `slots` and `divisions` are empty. Otherwise `holiday` is null, `slots` and `divisions` are as in
+ * `GET /v1/next-school-day` (a division's `subject` and `title` are given only once its lesson is approved), and the
+ * day's `kind` is `lesson` when any division has one, `study` when not. A maintenance does not change the timetable.
+ */
+export const TimetableResult = Type.Object({
+  today: DateText,
+  lessonsPlannedThrough: DateText,
+  days: Type.Array(
+    Type.Object({
+      date: DateText,
+      kind: Type.Union([Type.Literal('lesson'), Type.Literal('study'), Type.Literal('holiday')]),
+      holiday: Type.Union([
+        Type.Null(),
+        Type.Object({ reason: HolidayReason, name: Type.Union([Type.String(), Type.Null()]) }),
+      ]),
+      slots: Type.Array(
+        Type.Object({
+          slot: Slot,
+          startsAt: Type.String({ format: 'date-time' }),
+          endsAt: Type.String({ format: 'date-time' }),
+          doorsOpenAt: Type.String({ format: 'date-time' }),
+        }),
+      ),
+      divisions: Type.Array(
+        Type.Object({
+          division: Division,
+          kind: Type.Union([Type.Literal('lesson'), Type.Literal('study')]),
+          subject: Type.Union([Type.String(), Type.Null()]),
+          title: Type.Union([Type.String(), Type.Null()]),
+        }),
+      ),
+    }),
+  ),
+})
