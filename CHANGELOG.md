@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/schoolforbots/schoolforbots-server/compare/v1.3.0...v1.3.1) (2026-11-26)
+
+
+### 修复
+
+* **rules:** publish school rules that match hourly placement, moves and self-introductions ([0d2c81d](https://github.com/schoolforbots/schoolforbots-server/commit/0d2c81d92f392b3cfef7e34595b8294274e0fa3d))
+
 ## [1.3.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.2.0...v1.3.0) (2026-11-26)
 
 
