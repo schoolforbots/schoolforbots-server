@@ -462,8 +462,12 @@ export function createClubBot(
   // Of the game being played: reset at each deal. Null, or -1 after a deal without it, while the bot only waits in the
   // room for a seat: it sees the game's public events then, the over too, but the game is not its own.
   let mySeat: number | null = null
-  /** Whether the bot sits at the table, so that the game on is its own. */
-  const playing = () => mySeat !== null && mySeat >= 0
+  // The game the bot was dealt into, kept until the next deal: only its over is the end of one of the bot's games.
+  // Not where the bot sits now: back from a drop, the bot may sit in a seat it took after the game it watched, whose
+  // over comes after the welcome, with the events it missed.
+  let myGame: number | null = null
+  /** Whether the game on is the bot's own. */
+  const playing = () => myGame !== null
   let inTrustee = false
   let takeBackSent = false
   let closingInGame = false
@@ -676,6 +680,7 @@ export function createClubBot(
     // Into a room with a game on, a bot waits for a seat until the game is over (the bots give up theirs then).
     mySeat = state.seats.find((s) => s.player?.studentId === me)?.seat ?? null
     gameOn = state.game !== null && state.game.phase !== 'over'
+    myGame = gameOn && mySeat !== null ? state.game!.gameId : null
     waitingSince = gameOn ? null : now()
     if (!gameOn) watchSeat()
     say(`入座 ${state.roomId}（${how}）`)
@@ -697,6 +702,7 @@ export function createClubBot(
     gameOn = false
     waitingSince = null
     mySeat = null
+    myGame = null
     inTrustee = false
     formSoon(between(timing.reformMs))
   }
@@ -860,6 +866,7 @@ export function createClubBot(
         gameOn = true
         waitingSince = null
         mySeat = event.seats.findIndex((p) => p.studentId === me)
+        myGame = mySeat >= 0 ? event.gameId : null
         inTrustee = false
         takeBackSent = false
         closingInGame = false
@@ -882,7 +889,7 @@ export function createClubBot(
         const { gameId } = event.result
         // A game watched while waiting for a seat counts towards moving on from the table, but it is not one of the
         // bot's records: only a game it played is looked for in them.
-        if (!playing()) gamesHere++
+        if (gameId !== myGame) gamesHere++
         else if (!tally.gameIds.has(gameId)) {
           tally.gameIds.add(gameId)
           tally.gamesOver++
@@ -964,7 +971,8 @@ export function createClubBot(
       return
     }
     // Back in the room it sat in: the events missed follow; or a room it did not know it was in.
-    if (state.roomId === roomId) tally.reconnects++
+    const sameRoom = state.roomId === roomId
+    if (sameRoom) tally.reconnects++
     else {
       roomId = state.roomId
       lastSeq = state.lastSeq
@@ -976,6 +984,10 @@ export function createClubBot(
     mySeat = seat?.seat ?? null
     inTrustee = seat?.trustee ?? false
     gameOn = state.game !== null && state.game.phase !== 'over'
+    // With a game on, it is the bot's own if it sits at the table. Between games, back in the same room, the over of
+    // the game it was dealt into (or watched) may still come with the events missed: it keeps the game it had.
+    if (gameOn) myGame = seat !== undefined ? state.game!.gameId : null
+    else if (!sameRoom) myGame = null
     if (gameOn) return
     waitingSince ??= now()
     watchSeat()

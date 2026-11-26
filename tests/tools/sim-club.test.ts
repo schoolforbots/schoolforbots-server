@@ -540,6 +540,80 @@ describe('against a fake school', () => {
     expect([...b.tally.gameIds]).toEqual([])
   })
 
+  test('back from a drop in a seat it took after the game it watched, a bot does not take that game for its own', async () => {
+    // It waits for a seat while the bots play, and drops. The game ends while it is away: it takes a bot's seat. Back,
+    // the welcome has it seated, and the game's over comes after it, with the events it missed.
+    const bot = (seat: number) => ({ studentId: null, displayName: `陪练小${seat}`, bot: true })
+    const me = { studentId: 1, displayName: '小鱼 #0001', bot: false }
+    const playing = {
+      game: 'doudizhu', gameId: 41, phase: 'playing', firstBidder: 0, bids: [], landlord: 0, base: 1, bottom: null,
+      cardsLeft: [17, 17, 17], multiplier: 1, trick: null, history: [], trustee: [false, false, false], toAct: 1,
+      deadline: '2026-11-20T03:00:03.000Z',
+    }
+    const room = {
+      roomId: 'rabcd', club: 'doudizhu', visibility: 'public', host: 1, spectators: 0, gamesPlayed: 0,
+      closesAt: '2026-11-20T11:45:00.000Z',
+    }
+    const waitingIn = {
+      ...welcome,
+      room: {
+        ...room,
+        seats: [0, 1, 2].map((seat) => ({ seat, player: bot(seat), ready: true, online: true, trustee: false })),
+        waiting: [me], lastSeq: 5, game: playing,
+      },
+    }
+    const pass = {
+      type: 'room.event', roomId: 'rabcd', seq: 6, replayed: false, at: new Date().toISOString(),
+      event: { kind: 'game', game: 'doudizhu', event: { kind: 'pass', turn: 3, seat: 1, auto: 'bot' } },
+    }
+    const seatedIn = {
+      ...welcome,
+      room: {
+        ...room,
+        seats: [0, 1, 2].map((seat) => ({ seat, player: seat === 1 ? me : bot(seat), ready: true, online: true, trustee: false })),
+        waiting: [], lastSeq: 9, game: null,
+      },
+    }
+    const over = {
+      type: 'room.event', roomId: 'rabcd', seq: 7, replayed: true, at: new Date().toISOString(),
+      event: {
+        kind: 'game', game: 'doudizhu',
+        event: {
+          kind: 'over',
+          result: { gameId: 41, outcome: 'landlord_won', landlord: 0, base: 1, doublings: [], multiplier: 1, capped: false, scores: [2, -1, -1], hands: [[], [], []], bottom: null, ranked: false },
+        },
+      },
+    }
+    for (const msg of [waitingIn, pass, seatedIn, over]) {
+      expect(Value.Check(ClubServerMessage, msg), JSON.stringify([...Value.Errors(ClubServerMessage, msg)].slice(0, 3))).toBe(true)
+    }
+    let connections = 0
+    const url = await fakeSchool((ws, hello) => {
+      connections++
+      ws.send(JSON.stringify({ type: 'ack', id: hello.id, ok: true }))
+      if (connections === 1) {
+        ws.send(JSON.stringify(waitingIn))
+        // Live: the bot drops on it (its drop rate is 1).
+        ws.send(JSON.stringify(pass))
+        return
+      }
+      ws.send(JSON.stringify(seatedIn))
+      ws.send(JSON.stringify(over))
+    })
+    const b = createClubBot({ studentId: 1, key: 'k1', displayName: '小鱼1' }, 'quick', { ...QUIET, url, dropRate: 1 }, {
+      clock: { now: () => new Date() },
+      random: seededRandom(1),
+      timing: { retryMs: 60_000, awayMs: [10, 20], reformMs: [60_000, 60_000] },
+      print: () => {},
+    })
+    cleanups.push(() => b.stop())
+    b.start()
+    await waitUntil(() => b.tally.welcomes === 2, 'the welcome back')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(b.tally).toMatchObject({ drops: 1, reconnects: 1, gamesOver: 0 })
+    expect([...b.tally.gameIds]).toEqual([])
+  })
+
   test('at a table it did not form by invitation, a bot waits seatWaitMs for a game, not as long as an invitation lasts', async () => {
     // Quick joined to a table whose last seat nobody comes to take: no game starts there.
     const me = { studentId: 1, displayName: '小鱼 #0001', bot: false }
