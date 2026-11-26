@@ -540,6 +540,47 @@ describe('against a fake school', () => {
     expect([...b.tally.gameIds]).toEqual([])
   })
 
+  test('at a table it did not form by invitation, a bot waits seatWaitMs for a game, not as long as an invitation lasts', async () => {
+    // Quick joined to a table whose last seat nobody comes to take: no game starts there.
+    const me = { studentId: 1, displayName: '小鱼 #0001', bot: false }
+    const other = { studentId: 2, displayName: '小鱼 #0002', bot: false }
+    const room = {
+      roomId: 'rabcd', club: 'doudizhu', visibility: 'public', host: 2,
+      seats: [
+        { seat: 0, player: other, ready: true, online: true, trustee: false },
+        { seat: 1, player: me, ready: true, online: true, trustee: false },
+        { seat: 2, player: null, ready: false, online: false, trustee: false },
+      ],
+      waiting: [], spectators: 0, gamesPlayed: 1, closesAt: '2026-11-20T11:45:00.000Z', lastSeq: 9, game: null,
+    }
+    const sent: string[] = []
+    const url = await fakeSchool((ws, hello) => {
+      ws.send(JSON.stringify({ type: 'ack', id: hello.id, ok: true }))
+      ws.send(JSON.stringify(welcome))
+      ws.on('message', (data) => {
+        const msg = JSON.parse(String(data)) as { id: string; type: string }
+        sent.push(msg.type)
+        if (msg.type === 'room.quick') {
+          const ack = { type: 'ack', id: msg.id, ok: true, result: { room, created: false } }
+          expect(Value.Check(ClubServerMessage, ack), JSON.stringify([...Value.Errors(ClubServerMessage, ack)].slice(0, 3))).toBe(true)
+          ws.send(JSON.stringify(ack))
+        }
+      })
+    })
+    const b = createClubBot({ studentId: 1, key: 'k1', displayName: '小鱼1' }, 'quick', { ...QUIET, url }, {
+      clock: { now: () => new Date() },
+      random: seededRandom(1),
+      // The welcome's invitations last 180 s: the bot gives up long before.
+      timing: { retryMs: 60_000, reformMs: [10, 20], seatWaitMs: 100 },
+      print: () => {},
+    })
+    cleanups.push(() => b.stop())
+    b.start()
+    await waitUntil(() => b.tally.seated.quick === 1, 'the seat')
+    await waitUntil(() => sent.includes('room.leave'), 'the bot leaving the table', 2000)
+    expect(b.tally.reforms).toEqual({ waited: 1 })
+  })
+
   test('turned away at the door with an HTTP status, a bot counts a failure to connect and nothing else', async () => {
     const url = await fakeSchool(() => {}, () => 503)
     const bot = slowBot(url)
