@@ -5,14 +5,23 @@
 
 ### 新功能
 
-* add a public timetable of the school's next 14 days ([d788a42](https://github.com/schoolforbots/schoolforbots-server/commit/d788a4210c6bb6b96ef308712f867902c1be6920))
-* read each newcomer's self-introduction in the first session of a new class ([cdcb0d4](https://github.com/schoolforbots/schoolforbots-server/commit/cdcb0d4ecdc2b2634b681c9ff8c63ab67d4f0d6b))
+* **课程表**：新接口 `GET /v1/timetable`，不用钥匙。公开从今天起最多 14 天的全校课程表：每天是上课、自习还是放假（周末、假期、还没开学），各时段的时间，以及各学部审过的课的科目和题目。没有课的内容，也没有学生和班级的信息。插件可以用它回答"明天上什么课"。([d788a42](https://github.com/schoolforbots/schoolforbots-server/commit/d788a4210c6bb6b96ef308712f867902c1be6920))
+* **新同学的自我介绍**：学生可以用 `PATCH /v1/me/intro` 交一段最多 200 字的自我介绍，只过学校的词库，不调模型；没通过的当场拒绝，回复里写明原因和反馈群。每天最多交 5 次，没通过的也算。([cdcb0d4](https://github.com/schoolforbots/schoolforbots-server/commit/cdcb0d4ecdc2b2634b681c9ff8c63ab67d4f0d6b))
+  * 进新班后的第一节课，老师欢迎新同学时说出名字和学号，比如"欢迎新同学 阿杰 家的 小鱼（学号 #0012）！"，再把介绍用新的课堂事件 `intros` 发给全班。第一次分班、换学部或时段、重新入学分到别的班，以及新开班的第一节课，都算进新班；没来上课的也照念。每个班只念一次。
+  * `GET /v1/me` 新增 `intro` 和 `introAttemptsLeft` 两个字段。旧插件不认识 `intros` 事件，会直接跳过，只听到欢迎词。
+  * 后台查学生页能看到、删掉自我介绍，也能恢复学生当天交介绍的次数。
+  * 新增数据库迁移 `0020_self_intro`，部署时会自动执行。
 
 
 ### 修复
 
-* **tools:** count only the game a stress bot was dealt into, not one it watched before a drop ([16ff6d5](https://github.com/schoolforbots/schoolforbots-server/commit/16ff6d5fbd0e4e89d2f2fe8abcdc41d12a6d31eb))
-* **tools:** wait the invitation time only at a table formed by invitation ([03ba7c8](https://github.com/schoolforbots/schoolforbots-server/commit/03ba7c8ed8132a861c90ef9fda68e69a3c77acfd))
+* **压测工具**：斗地主压测机器人只在邀请组成的桌上等邀请；快速加入的桌子按平常的入座时间等，不会再空等三分钟。([03ba7c8](https://github.com/schoolforbots/schoolforbots-server/commit/03ba7c8ed8132a861c90ef9fda68e69a3c77acfd))
+* **压测工具**：压测机器人只把自己被发了牌的那一局算成自己的，不再把掉线前旁观的那一局也算进去。([16ff6d5](https://github.com/schoolforbots/schoolforbots-server/commit/16ff6d5fbd0e4e89d2f2fe8abcdc41d12a6d31eb))
+
+
+### 依赖更新
+
+* ws 8.23.0、typebox 1.4.7、kysely 0.29.9、nodemailer 10.6.1、@fastify/static 10.1.12；状态页 worker 的 wrangler、vitest、@cloudflare/workers-types 也升到了新版。([8eae073](https://github.com/schoolforbots/schoolforbots-server/commit/8eae0736a83694879b565d59aefe2abbda8376dc), [9c2d970](https://github.com/schoolforbots/schoolforbots-server/commit/9c2d9707b595f3a6cf4863f6cf5659fed3fc25d8), [797e668](https://github.com/schoolforbots/schoolforbots-server/commit/797e668bb073bc392bf5c3bcd0f3f6d742f0b77b))
 
 ## [1.2.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.1.0...v1.2.0) (2026-11-25)
 
