@@ -11,6 +11,12 @@ import { DateText } from './date-text.js'
 const MAX_NAME_INPUT = 64
 const MAX_EMAIL = 254
 const MAX_PLUGIN_FIELD = 64
+// Self-introductions are checked against INTRO_MAX_CHARS after normalizing; this only bounds what is read.
+const MAX_INTRO_INPUT = 2000
+/** The longest self-introduction, in code points, after normalizing. */
+export const INTRO_MAX_CHARS = 200
+/** How many self-introductions a student may hand in a day, rejected ones included. */
+export const INTRO_ATTEMPTS_PER_DAY = 5
 const MAX_PG_INTEGER = 2_147_483_647
 
 export { DateText }
@@ -126,6 +132,10 @@ export const Me = Type.Object({
    */
   suspendedUntil: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
   schoolRulesVersion: Type.Union([DateText, Type.Null()]),
+  /** The self-introduction the teacher reads in the first session of each new class; null when there is none. */
+  intro: Type.Union([Type.String(), Type.Null()]),
+  /** How many more self-introductions the student may hand in today (see `PATCH /v1/me/intro`). */
+  introAttemptsLeft: Type.Integer({ minimum: 0 }),
 })
 
 /** A member of a class, as the admission letter, the roster and the WebSocket protocol name one. */
@@ -178,6 +188,54 @@ export const RenameResult = Type.Object({
    * class, and for a "rename" to the name the student already has, which changes nothing.
    */
   announced: Type.Boolean(),
+})
+
+/**
+ * `PATCH /v1/me/intro`: hands in, changes or deletes the self-introduction. The text is normalized first (whitespace at
+ * either end removed, every run of whitespace, line breaks included, made one space), then may have at most
+ * `INTRO_MAX_CHARS` (200) code points; empty after normalizing deletes the introduction. It is checked against the
+ * school's word list only, at once, and stored as normalized. A student may hand in `INTRO_ATTEMPTS_PER_DAY` (5) a day
+ * (school timezone), a rejected one included; deleting, a text the same as the stored one and a text too long do not
+ * count. Who may: anyone but a student who has left the school (409 `wrong_status`). The teacher reads it in the first
+ * session of each class the student joins (see the `intros` class event).
+ */
+export const IntroRequest = Type.Object({
+  intro: Type.String({ maxLength: MAX_INTRO_INPUT }),
+})
+
+export const IntroResult = Type.Object({
+  /** The stored introduction, as normalized; null after deleting it. */
+  intro: Type.Union([Type.String(), Type.Null()]),
+  attemptsLeft: Type.Integer({ minimum: 0 }),
+  /** Chinese text for the owner: what happened and how many tries are left today. */
+  message: Type.String(),
+})
+
+/**
+ * The 400 answer of `PATCH /v1/me/intro` when the text fails. `reason` is `too_long` (more than `INTRO_MAX_CHARS` code
+ * points after normalizing; not counted as a try) or `moderation` (the word list stopped it; `category` says which
+ * kind of rule). `message` is Chinese text for the owner: why, the feedback group to tell if the check was wrong, and
+ * the tries left today. What the word list matched is never sent back.
+ */
+export const InvalidIntroError = Type.Object({
+  error: Type.Object({
+    code: Type.Literal('invalid_intro'),
+    message: Type.String(),
+    reason: Type.Union([Type.Literal('too_long'), Type.Literal('moderation')]),
+    category: Type.Optional(
+      Type.Union([Type.Literal('sensitive'), Type.Literal('injection'), Type.Literal('privacy')]),
+    ),
+    attemptsLeft: Type.Integer({ minimum: 0 }),
+  }),
+})
+
+/** The 429 answer of `PATCH /v1/me/intro` when today's tries are used up: `retryAfter` is the first day (`YYYY-MM-DD`) to try again. */
+export const IntroLimitError = Type.Object({
+  error: Type.Object({
+    code: Type.Literal('intro_limit'),
+    message: Type.String(),
+    retryAfter: DateText,
+  }),
 })
 
 /**

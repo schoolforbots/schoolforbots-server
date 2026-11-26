@@ -592,6 +592,10 @@ export interface Student {
   schoolRulesVersion: string | null
   lessonsAttended: number
   lastAttendedAt: string | null
+  /** The self-introduction as stored; null when there is none. */
+  intro: string | null
+  /** How many more intros the student may hand in today. */
+  introAttemptsLeft: number
 }
 
 export type MessageKind = 'chat' | 'question' | 'answer' | 'closing'
@@ -640,6 +644,8 @@ export const getMessages = (id: number, before: number | null) =>
 export const suspend = (id: number, days: number) => request<Student>('POST', `${studentPath(id)}/suspend`, { days })
 export const withdraw = (id: number) => request<Student>('POST', `${studentPath(id)}/withdraw`)
 export const liftPenalty = (id: number) => request<Student>('POST', `${studentPath(id)}/lift`)
+export const deleteIntro = (id: number) => request<Student>('DELETE', `${studentPath(id)}/intro`)
+export const resetIntroAttempts = (id: number) => request<Student>('POST', `${studentPath(id)}/intro-attempts`)
 
 export interface SwitchState {
   name: SwitchName

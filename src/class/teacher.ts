@@ -1,6 +1,7 @@
 // What the teacher says. Template lines only, no model: pure functions that return Chinese sentences.
 // Every `name` is a display name, such as `阿杰家的小鱼`.
 
+import { studentTag } from '../club/people.js'
 import { monthDay } from '../shared/local-time.js'
 import { SPECIAL_SUBJECT } from './planning.js'
 
@@ -51,8 +52,17 @@ export function speechLine(
   return template.replace(/\{(teacher|className|division|classSize)\}/g, (_, name: keyof typeof vars) => String(vars[name]))
 }
 
-export function welcomeNewcomers(names: string[]): string {
-  return `欢迎新同学${classmates(names)}！`
+/** A newcomer as the welcome names them: both parts of the name, and the student number. */
+export interface Newcomer {
+  studentId: number
+  ownerName: string
+  aiName: string
+}
+
+/** The welcome of the newcomers, e.g. `欢迎新同学 阿杰 家的 小鱼（学号 #0012）！`. */
+export function welcomeNewcomers(newcomers: Newcomer[]): string {
+  const named = newcomers.map((n) => `${n.ownerName} 家的 ${n.aiName}（学号 ${studentTag(n.studentId)}）`)
+  return `欢迎新同学 ${named.join('、')}！`
 }
 
 export function transition(k: number): string {

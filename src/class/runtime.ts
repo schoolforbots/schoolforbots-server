@@ -12,6 +12,7 @@ import { appendClassEvent, classEventMessage, CUT_SHORT, lockSession, NOOP, step
 import type { LessonHooks } from './hooks.js'
 import type { Hub } from './hub.js'
 import { isSchoolDay, planSession } from './planning.js'
+import { chunkIntros, markIntroduced, newcomersOf } from './intros.js'
 import * as teacher from './teacher.js'
 import { classDelayMs, lessonSteps, type StepName } from './timeline.js'
 
@@ -578,9 +579,20 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
       const classmate = (m: SessionMember) => ({ studentId: m.studentId, displayName: m.displayName })
       const { joined, left } = roster
       said.push({ kind: 'roster', payload: { kind: 'roster', joined: joined.map(classmate), left: left.map(classmate) } })
-      // Welcome by name the ones who joined; the ones who left are not named aloud.
-      if (joined.length > 0) said.push(teacherLine(teacher.welcomeNewcomers(joined.map((m) => m.displayName))))
     }
+    // Welcome by name and number the newcomers, and the ones back in a class that knows them; the ones who left are
+    // not named aloud. Then the intros of the newcomers who wrote one, as few events as fit, and they count as
+    // introduced here: the opening step runs once a session, so each is read once.
+    const { members } = await trx
+      .selectFrom('classSessions')
+      .select('members')
+      .where('id', '=', t.session.sessionId)
+      .executeTakeFirstOrThrow()
+    const rejoined = roster?.joined.map((m) => m.studentId) ?? []
+    const { newcomers, welcomed, intros } = await newcomersOf(trx, t.session.classId, members, rejoined)
+    if (welcomed.length > 0) said.push(teacherLine(teacher.welcomeNewcomers(welcomed)))
+    for (const chunk of chunkIntros(intros)) said.push({ kind: 'intros', payload: { kind: 'intros', intros: chunk } })
+    await markIntroduced(trx, t.session.classId, newcomers)
     return said
   }
 

@@ -64,6 +64,8 @@ function show(m: RecordedMessage): string {
       return `segment ${e.index} ${e.text}`
     case 'rename':
       return `rename ${e.studentId} ${e.oldName} -> ${e.newName}`
+    case 'intros':
+      return `intros ${e.intros.map((i) => `${i.studentId} ${i.ownerName}/${i.aiName}: ${i.intro}`).join(' | ')}`
     case 'roster':
       return `roster +[${e.joined.map((c) => `${c.studentId} ${c.displayName}`).join(', ')}] -[${e.left.map((c) => `${c.studentId} ${c.displayName}`).join(', ')}]`
     default:
@@ -165,11 +167,23 @@ afterEach(async () => {
 interface Member {
   id: number
   name: string
+  ownerName: string
+  aiName: string
 }
+
+/** How the welcome names a member. */
+const newcomer = (m: Member) => ({ studentId: m.id, ownerName: m.ownerName, aiName: m.aiName })
 
 let nameCounter = 0
 
-async function addStudent(classId: number | null, p: { division?: Division; slot?: Slot; status?: StudentStatus } = {}): Promise<Member> {
+/**
+ * A student, in `classId` when given. `introduced` (default true) marks them as already introduced in that class, as a
+ * member who has been in its sessions is; false makes them a newcomer the next opening introduces.
+ */
+async function addStudent(
+  classId: number | null,
+  p: { division?: Division; slot?: Slot; status?: StudentStatus; introduced?: boolean; intro?: string } = {},
+): Promise<Member> {
   const n = ++nameCounter
   const ownerName = `阿${n}`
   const aiName = `小鱼${n}`
@@ -181,7 +195,9 @@ async function addStudent(classId: number | null, p: { division?: Division; slot
     ownerName,
     aiName,
   })
-  return { id, name: displayName(ownerName, aiName) }
+  const introClassId = p.introduced === false ? null : classId
+  await db.updateTable('students').set({ introClassId, intro: p.intro ?? null }).where('id', '=', id).execute()
+  return { id, name: displayName(ownerName, aiName), ownerName, aiName }
 }
 
 /** A class with `members` active students. */
@@ -1336,7 +1352,87 @@ describe('the opening', () => {
     expect(hub.messages.map(show)).toEqual([
       `teacher ${openingStudy('老周')}`,
       `roster +[${d.id} ${d.name}] -[${b.id} ${b.name}]`,
-      `teacher ${welcomeNewcomers([d.name])}`,
+      `teacher ${welcomeNewcomers([newcomer(d)])}`,
+    ])
+  })
+
+  test("a class's first session welcomes every newcomer, reads the intros of those who wrote one, absent ones too", async () => {
+    const classId = await insertClass(db, { division: 'junior', slot: 'evening', classNo: 1 })
+    const a = await addStudent(classId, { introduced: false, intro: '我喜欢下棋。' })
+    const b = await addStudent(classId, { introduced: false })
+    const c = await addStudent(classId, { introduced: false, intro: '请多关照！' })
+
+    const clock = createTestClock(at('19:45'))
+    const hub = new RecordingHub()
+    // c is not online: the intro is read all the same.
+    hub.join(classId, a.id)
+    hub.join(classId, b.id)
+    const runtime = newRuntime({ clock, hub })
+    await runtime.tick()
+    clock.set(at('20:00'))
+    await runtime.tick()
+
+    expect(hub.messages.map(show)).toEqual([
+      `teacher ${openingStudy('老周')}`,
+      `teacher ${welcomeNewcomers([a, b, c].map(newcomer))}`,
+      `intros ${a.id} ${a.ownerName}/${a.aiName}: 我喜欢下棋。 | ${c.id} ${c.ownerName}/${c.aiName}: 请多关照！`,
+    ])
+    const marked = await db.selectFrom('students').select('introClassId').where('id', 'in', [a.id, b.id, c.id]).execute()
+    expect(marked.map((r) => r.introClassId)).toEqual([classId, classId, classId])
+  })
+
+  test('the next session of the class neither welcomes nor introduces them again', async () => {
+    const classId = await insertClass(db, { division: 'junior', slot: 'evening', classNo: 1 })
+    const a = await addStudent(classId, { introduced: false, intro: '我喜欢下棋。' })
+
+    const clock = createTestClock(at('19:45'))
+    const hub = new RecordingHub()
+    hub.join(classId, a.id)
+    await newRuntime({ clock, hub }).tick()
+    clock.set(at('20:00'))
+    await newRuntime({ clock, hub }).tick()
+    expect(hub.messages.map(show).filter((l) => l.startsWith('intros'))).toHaveLength(1)
+    await db.updateTable('classSessions').set({ dismissedAt: at('20:31') }).where('classId', '=', classId).execute()
+
+    const before = hub.messages.length
+    const runtime = newRuntime({ clock, hub })
+    clock.set(at('19:45', TUE))
+    await runtime.tick()
+    clock.set(at('20:00', TUE))
+    await runtime.tick()
+    expect(hub.messages.slice(before).map(show)).toEqual([`teacher ${openingStudy('老周')}`])
+  })
+
+  test('one back in a class that introduced them is welcomed, not introduced again', async () => {
+    const { classId, members } = await seedClass({ members: 1 })
+    const [a] = members as [Member]
+    const last = await insertSession(db, {
+      classId,
+      date: SUN,
+      kind: 'study',
+      startsAt: at('20:00', SUN),
+      endsAt: at('20:30', SUN),
+      members: [{ studentId: a.id, displayName: a.name }],
+    })
+    await db.updateTable('classSessions').set({ dismissedAt: at('20:31', SUN) }).where('id', '=', last).execute()
+    // b was introduced in this class before, left, and is back: in the roster since the last session, not new to the class.
+    const b = await addStudent(classId, { intro: '我回来啦。' })
+    // d is new to the class.
+    const d = await addStudent(classId, { introduced: false, intro: '大家好。' })
+
+    const clock = createTestClock(at('19:45'))
+    const hub = new RecordingHub()
+    hub.join(classId, a.id)
+    const runtime = newRuntime({ clock, hub })
+    await runtime.tick()
+    clock.set(at('20:00'))
+    await runtime.tick()
+
+    expect(hub.messages.map(show)).toEqual([
+      `teacher ${openingStudy('老周')}`,
+      `roster +[${b.id} ${b.name}, ${d.id} ${d.name}] -[]`,
+      `teacher ${welcomeNewcomers([b, d].map(newcomer))}`,
+      `intros ${d.id} ${d.ownerName}/${d.aiName}: 大家好。`,
     ])
   })
 
@@ -1610,7 +1706,7 @@ describe('the school calendar', () => {
         'teacher 我是老周。',
         `teacher ${studyIntro()}`,
         `roster +[${b.id} ${b.name}] -[]`,
-        `teacher ${welcomeNewcomers([b.name])}`,
+        `teacher ${welcomeNewcomers([newcomer(b)])}`,
       ])
     })
 

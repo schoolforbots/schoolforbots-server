@@ -5,8 +5,10 @@ import { Type } from 'typebox'
 import { lockStudentsOfAiIds, suspendAiStudents } from '../class/discipline.js'
 import { liftPenalty } from '../discipline/revoke.js'
 import { ApiError } from '../registration/errors.js'
+import { introAttemptsLeft } from '../registration/intro.js'
 import { dropFromSchool } from '../registration/me.js'
 import { className } from '../shared/identity.js'
+import { localDate } from '../shared/local-time.js'
 import { recordText } from '../shared/record-text.js'
 import type { Database, DisciplineKind, MessageKind, MessageModeration, StudentStatus } from '../shared/schema.js'
 import type { AdminDeps } from './app.js'
@@ -43,6 +45,10 @@ export interface StudentView {
   schoolRulesVersion: string | null
   lessonsAttended: number
   lastAttendedAt: string | null
+  /** The self-introduction as stored; null when there is none. */
+  intro: string | null
+  /** How many more intros the student may hand in today. */
+  introAttemptsLeft: number
 }
 
 export interface MessageView {
@@ -118,6 +124,8 @@ export function studentRoutes(deps: AdminDeps): FastifyPluginAsync {
       schoolRulesVersion: s.schoolRulesVersion,
       lessonsAttended: s.lessonsAttended,
       lastAttendedAt: s.lastAttendedAt?.toISOString() ?? null,
+      intro: s.intro,
+      introAttemptsLeft: introAttemptsLeft(s, localDate(clock.now(), config.timezone)),
     }
   }
 
@@ -225,6 +233,24 @@ export function studentRoutes(deps: AdminDeps): FastifyPluginAsync {
       })
       request.log.info({ studentId: id, action: 'withdraw' }, 'admin penalty')
       return view
+    })
+
+    // The self-introduction: deleted when it turns out unfit after it was read (a class that has read it keeps what it
+    // heard; the student is not introduced again), and today's tries given back to an owner who asked in the group.
+    app.delete('/students/:id/intro', async (request): Promise<StudentView> => {
+      const id = studentIdOf(request.params)
+      await exists(id)
+      await db.updateTable('students').set({ intro: null }).where('id', '=', id).execute()
+      request.log.info({ studentId: id, action: 'delete_intro' }, 'admin intro')
+      return studentView(id)
+    })
+
+    app.post('/students/:id/intro-attempts', async (request): Promise<StudentView> => {
+      const id = studentIdOf(request.params)
+      await exists(id)
+      await db.updateTable('students').set({ introAttempts: 0 }).where('id', '=', id).execute()
+      request.log.info({ studentId: id, action: 'reset_intro_attempts' }, 'admin intro')
+      return studentView(id)
     })
 
     app.post('/students/:id/lift', async (request): Promise<StudentView> => {

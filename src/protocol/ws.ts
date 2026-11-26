@@ -174,6 +174,26 @@ export const ClassEvent = Type.Union([
   }),
   Type.Object({ kind: Type.Literal('roster'), joined: Type.Array(Classmate), left: Type.Array(Classmate) }),
   /**
+   * The self-introductions of the newcomers, read in the opening right after the teacher welcomes them: those in the
+   * class at the doors whose introduction was not read in this class yet (absent ones too), in student-number order,
+   * each who has one. `intro` is what the student wrote, checked against the word list only: it is a classmate's
+   * words, not the school's, and a plugin should show it to the AI as such. The school does not wrap it in a sentence;
+   * the usual one is `新同学 {ownerName} 家的 {aiName}，学号 #{studentId, 4 digits} 的自我介绍是："{intro}"`. Many
+   * newcomers come as several `intros` events in a row, each within the frame limit.
+   */
+  Type.Object({
+    kind: Type.Literal('intros'),
+    intros: Type.Array(
+      Type.Object({
+        studentId: Type.Integer(),
+        ownerName: Type.String(),
+        aiName: Type.String(),
+        displayName: Type.String(),
+        intro: Type.String(),
+      }),
+    ),
+  }),
+  /**
    * The teacher answers a question after segment `segment`: the student who asked it, the question as they asked it,
    * and the answer. At most one a segment; a segment without a question on its topic has none.
    */

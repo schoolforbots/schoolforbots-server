@@ -17,13 +17,14 @@ import { nextSchoolDay } from '../shared/calendar.js'
 import { MEMBER_STATUSES, SEAT_STATUSES, lock, slotLockKey, type Database } from '../shared/db.js'
 import { checkNames, className, displayName, nameKey } from '../shared/identity.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
-import { addDaysToDate, atLocalTime } from '../shared/local-time.js'
+import { addDaysToDate, atLocalTime, localDate } from '../shared/local-time.js'
 import type { StudentStatus } from '../shared/schema.js'
 import type { RegistrationDeps } from './app.js'
 import { requireStudent, studentOf, type StudentRow } from './auth.js'
 import { isAiSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from './capacity.js'
 import { assignQueuedNow } from './daily-job.js'
 import { ApiError, invalidNameError } from './errors.js'
+import { introAttemptsLeft } from './intro.js'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -76,6 +77,8 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           lastRenamedAt: student.lastRenamedAt?.toISOString() ?? null,
           suspendedUntil: runningSuspensionEnd(student, deps.clock.now()),
           schoolRulesVersion: student.schoolRulesVersion,
+          intro: student.intro,
+          introAttemptsLeft: introAttemptsLeft(student, localDate(deps.clock.now(), deps.config.timezone)),
         }
       },
     )
