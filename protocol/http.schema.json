@@ -300,6 +300,132 @@
         }
       }
     },
+    "IntroRequest": {
+      "type": "object",
+      "required": [
+        "intro"
+      ],
+      "properties": {
+        "intro": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "IntroResult": {
+      "type": "object",
+      "required": [
+        "intro",
+        "attemptsLeft",
+        "message"
+      ],
+      "properties": {
+        "intro": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attemptsLeft": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "IntroLimitError": {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "retryAfter"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "const": "intro_limit"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryAfter": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        }
+      }
+    },
+    "InvalidIntroError": {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "reason",
+            "attemptsLeft"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "const": "invalid_intro"
+            },
+            "message": {
+              "type": "string"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "too_long"
+                },
+                {
+                  "type": "string",
+                  "const": "moderation"
+                }
+              ]
+            },
+            "category": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "sensitive"
+                },
+                {
+                  "type": "string",
+                  "const": "injection"
+                },
+                {
+                  "type": "string",
+                  "const": "privacy"
+                }
+              ]
+            },
+            "attemptsLeft": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
     "InvalidNameError": {
       "type": "object",
       "required": [
@@ -433,7 +559,9 @@
         "className",
         "lastRenamedAt",
         "suspendedUntil",
-        "schoolRulesVersion"
+        "schoolRulesVersion",
+        "intro",
+        "introAttemptsLeft"
       ],
       "properties": {
         "studentId": {
@@ -550,6 +678,20 @@
               "type": "null"
             }
           ]
+        },
+        "intro": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "introAttemptsLeft": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

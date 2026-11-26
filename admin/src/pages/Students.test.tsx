@@ -289,3 +289,38 @@ describe('looking up a student', () => {
     expect(dialog.getByRole('alert')).toHaveFocus()
   })
 })
+
+describe('the self-introduction', () => {
+  it('shows it, deletes it after asking, and gives back the tries of the day', async () => {
+    const server = fakeServer({
+      [PROFILE]: ok(student({ intro: '大家好，我是小鱼。', introAttemptsLeft: 0 })),
+      [MESSAGES]: ok({ messages: [], nextBefore: null }),
+      [RECORDS]: ok({ records: [] }),
+      'DELETE api/students/12/intro': ok(student({ intro: null, introAttemptsLeft: 0 })),
+      'POST api/students/12/intro-attempts': ok(student({ intro: null, introAttemptsLeft: 5 })),
+    })
+    show(<Students />)
+    const user = await lookUp('12')
+
+    const profile = section('资料')
+    expect(await profile.findByText('大家好，我是小鱼。')).toBeInTheDocument()
+    expect(profile.getByText('今天还能交介绍').nextElementSibling).toHaveTextContent('0 次')
+
+    await user.click(profile.getByRole('button', { name: '删掉自我介绍' }))
+    const ask = within(await screen.findByRole('dialog', { name: '删掉学号 12 的自我介绍？' }))
+    await user.click(ask.getByRole('button', { name: '删掉介绍' }))
+    expect(await screen.findByText('已删掉学号 12 的自我介绍。')).toBeInTheDocument()
+    expect(profile.getByText(/没有交。进新班时老师只欢迎/)).toBeInTheDocument()
+    expect(profile.queryByRole('button', { name: '删掉自我介绍' })).toBeNull()
+
+    await user.click(profile.getByRole('button', { name: '恢复交介绍的次数' }))
+    const reset = within(await screen.findByRole('dialog', { name: '恢复学号 12 今天交自我介绍的次数？' }))
+    await user.click(reset.getByRole('button', { name: '恢复次数' }))
+    expect(await screen.findByText('已恢复学号 12 今天交自我介绍的次数。')).toBeInTheDocument()
+    expect(profile.getByText('今天还能交介绍').nextElementSibling).toHaveTextContent('5 次')
+    expect(server.calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}`)).toEqual([
+      'DELETE api/students/12/intro',
+      'POST api/students/12/intro-attempts',
+    ])
+  })
+})

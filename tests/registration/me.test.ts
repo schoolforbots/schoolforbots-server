@@ -91,6 +91,8 @@ describe('GET /v1/me', () => {
       suspendedUntil: null,
       // A student from before the school asked owners to agree to the rules (the factory's default) has no version.
       schoolRulesVersion: null,
+      intro: null,
+      introAttemptsLeft: 5,
     })
     expect(Value.Check(Me, res.json())).toBe(true)
   })

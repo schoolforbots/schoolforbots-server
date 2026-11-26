@@ -50,7 +50,9 @@ async function ownerRecords(key: string) {
 test('an unknown or malformed student number is a 404 on every route', async () => {
   for (const id of ['99999', 'abc', '-1', '1.5', '99999999999999999999']) {
     for (const path of ['', '/messages', '/records']) expect((await get(`api/students/${id}${path}`)).statusCode).toBe(404)
-    for (const path of ['/withdraw', '/lift']) expect((await post(`api/students/${id}${path}`)).statusCode).toBe(404)
+    for (const path of ['/withdraw', '/lift', '/intro-attempts']) expect((await post(`api/students/${id}${path}`)).statusCode).toBe(404)
+    const del = await t.app.inject({ method: 'DELETE', url: t.url(`api/students/${id}/intro`), headers: { cookie, ...CSRF } })
+    expect(del.statusCode).toBe(404)
     expect((await post(`api/students/${id}/suspend`, { days: 3 })).statusCode).toBe(404)
   }
   expect((await get('api/students/99999')).json()).toMatchObject({ error: { code: 'not_found' } })
@@ -83,6 +85,8 @@ test('the student page has the profile, the class and the attendance', async () 
     schoolRulesVersion: 'v1',
     lessonsAttended: 4,
     lastAttendedAt: '2026-11-03T12:30:00.000Z',
+    intro: null,
+    introAttemptsLeft: 5,
   })
   const unassigned = await insertStudent(t.db, { status: 'pending' })
   expect((await get(`api/students/${unassigned.id}`)).json()).toMatchObject({ classId: null, className: null })
@@ -359,4 +363,26 @@ test('the log names the student number and the action, nothing else', async () =
   expect(mine[0]).toMatchObject({ studentId: id, action: 'suspend' })
   const text = JSON.stringify(mine)
   for (const secret of ['小明', '豆豆', 'secret-owner', '127.0.0.1']) expect(text).not.toContain(secret)
+})
+
+test('the admin deletes an intro and gives back the tries of the day, logging the action, not the text', async () => {
+  const { id } = await activeStudent()
+  await t.db
+    .updateTable('students')
+    .set({ intro: '我是豆豆。', introAttempts: 5, introAttemptsOn: '2026-11-04' })
+    .where('id', '=', id)
+    .execute()
+  expect((await get(`api/students/${id}`)).json()).toMatchObject({ intro: '我是豆豆。', introAttemptsLeft: 0 })
+
+  const reset = await post(`api/students/${id}/intro-attempts`)
+  expect(reset.statusCode).toBe(200)
+  expect(reset.json()).toMatchObject({ intro: '我是豆豆。', introAttemptsLeft: 5 })
+
+  const del = await t.app.inject({ method: 'DELETE', url: t.url(`api/students/${id}/intro`), headers: { cookie, ...CSRF } })
+  expect(del.statusCode).toBe(200)
+  expect(del.json()).toMatchObject({ intro: null, introAttemptsLeft: 5 })
+  expect(await row(id)).toMatchObject({ intro: null, introAttempts: 0 })
+  const text = JSON.stringify(logs.entries())
+  expect(text).toContain('delete_intro')
+  expect(text).not.toContain('我是豆豆')
 })

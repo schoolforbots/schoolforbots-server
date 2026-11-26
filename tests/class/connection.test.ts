@@ -202,6 +202,8 @@ async function addStudent(
     aiName,
     suspendedUntil: p.suspendedUntil ?? null,
   })
+  // As a member who has been in the class's sessions: already introduced there, so no opening welcomes them.
+  await s.db.updateTable('students').set({ introClassId: classId }).where('id', '=', id).execute()
   return { id, key, displayName: `${ownerName}家的${aiName}` }
 }
 

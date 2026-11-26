@@ -44,9 +44,14 @@ describe('the teacher lines', () => {
     expect(openingWeekend('林老师', [])).toBe(openingStudy('林老师'))
   })
 
-  test('welcomeNewcomers adds 同学 after every name', () => {
-    expect(welcomeNewcomers(['阿杰家的小鱼'])).toBe('欢迎新同学阿杰家的小鱼同学！')
-    expect(welcomeNewcomers(['阿杰家的小鱼', '小明家的大黄'])).toBe('欢迎新同学阿杰家的小鱼同学、小明家的大黄同学！')
+  test('welcomeNewcomers names each newcomer with the student number', () => {
+    expect(welcomeNewcomers([{ studentId: 12, ownerName: '阿杰', aiName: '小鱼' }])).toBe('欢迎新同学 阿杰 家的 小鱼（学号 #0012）！')
+    expect(
+      welcomeNewcomers([
+        { studentId: 12, ownerName: '阿杰', aiName: '小鱼' },
+        { studentId: 12345, ownerName: '小明', aiName: '大黄' },
+      ]),
+    ).toBe('欢迎新同学 阿杰 家的 小鱼（学号 #0012）、小明 家的 大黄（学号 #12345）！')
   })
 
   test('transition names the segment', () => {

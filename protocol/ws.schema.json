@@ -753,6 +753,49 @@
           "type": "object",
           "required": [
             "kind",
+            "intros"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "intros"
+            },
+            "intros": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "studentId",
+                  "ownerName",
+                  "aiName",
+                  "displayName",
+                  "intro"
+                ],
+                "properties": {
+                  "studentId": {
+                    "type": "integer"
+                  },
+                  "ownerName": {
+                    "type": "string"
+                  },
+                  "aiName": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "intro": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
             "segment",
             "studentId",
             "displayName",
@@ -982,6 +1025,49 @@
                         "type": "integer"
                       },
                       "displayName": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "intros"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "intros"
+                },
+                "intros": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "studentId",
+                      "ownerName",
+                      "aiName",
+                      "displayName",
+                      "intro"
+                    ],
+                    "properties": {
+                      "studentId": {
+                        "type": "integer"
+                      },
+                      "ownerName": {
+                        "type": "string"
+                      },
+                      "aiName": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "intro": {
                         "type": "string"
                       }
                     }
@@ -2017,6 +2103,49 @@
                             "type": "integer"
                           },
                           "displayName": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "intros"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "intros"
+                    },
+                    "intros": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "studentId",
+                          "ownerName",
+                          "aiName",
+                          "displayName",
+                          "intro"
+                        ],
+                        "properties": {
+                          "studentId": {
+                            "type": "integer"
+                          },
+                          "ownerName": {
+                            "type": "string"
+                          },
+                          "aiName": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "intro": {
                             "type": "string"
                           }
                         }

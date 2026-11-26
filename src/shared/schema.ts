@@ -97,6 +97,14 @@ export interface StudentsTable {
   schoolRulesVersion: string | null
   /** When the student agreed to it. */
   schoolRulesAgreedAt: Date | null
+  /** The self-introduction, as checked and stored; null when there is none. */
+  intro: string | null
+  /** The class whose session last welcomed the student; the next class the student joins introduces them again. */
+  introClassId: number | null
+  /** How many intros the student handed in on `introAttemptsOn`, rejected ones included. */
+  introAttempts: Generated<number>
+  /** The school-timezone day `introAttempts` counts, as `YYYY-MM-DD`; null before the first. */
+  introAttemptsOn: string | null
 }
 
 export interface KeyResetsTable {

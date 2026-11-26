@@ -242,6 +242,8 @@ export function student(fields: Partial<Student> = {}): Student {
     schoolRulesVersion: '2026-10-01',
     lessonsAttended: 9,
     lastAttendedAt: '2026-11-03T12:30:00.000Z',
+    intro: null,
+    introAttemptsLeft: 5,
     ...fields,
   }
 }

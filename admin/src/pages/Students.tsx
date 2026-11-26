@@ -2,7 +2,9 @@ import { Badge, Button, Card, Detail, Input, InputNumber, Tip, type Tone } from 
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   getMessages,
+  deleteIntro,
   liftPenalty,
+  resetIntroAttempts,
   messagesPath,
   recordsPath,
   studentPath,
@@ -73,7 +75,12 @@ function Status({ student, zone }: { student: Student; zone: string }) {
   )
 }
 
-type Asking = { what: 'suspend'; days: number } | { what: 'withdraw' } | { what: 'lift' }
+type Asking =
+  | { what: 'suspend'; days: number }
+  | { what: 'withdraw' }
+  | { what: 'lift' }
+  | { what: 'deleteIntro' }
+  | { what: 'resetIntro' }
 
 function Profile({ student, onChanged }: { student: Student; onChanged: (student: Student) => void }) {
   const zone = useSchoolZone()
@@ -89,6 +96,8 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
     suspend: useRef<HTMLButtonElement>(null),
     withdraw: useRef<HTMLButtonElement>(null),
     lift: useRef<HTMLButtonElement>(null),
+    deleteIntro: useRef<HTMLButtonElement>(null),
+    resetIntro: useRef<HTMLButtonElement>(null),
   }
   const who = `学号 ${student.id}`
 
@@ -109,6 +118,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
       ['同意的校规', student.schoolRulesVersion === null ? '没有记录' : `${student.schoolRulesVersion} 版`],
       ['上过的课', `${count(student.lessonsAttended)} 节`],
       ['最后一次上课', student.lastAttendedAt === null ? '还没上过课' : moment(student.lastAttendedAt, zone)],
+      ['今天还能交介绍', `${student.introAttemptsLeft} 次`],
     ],
   ]
 
@@ -175,6 +185,34 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
         <p>主人在学籍记录里会看到“老师手动给我办了退学”。</p>
       </Confirm>
     )
+  } else if (asking?.what === 'deleteIntro') {
+    dialog = (
+      <Confirm
+        title={`删掉${who} 的自我介绍？`}
+        confirm="删掉介绍"
+        danger
+        busy="正在删掉"
+        cancel="先不删"
+        onCancel={close}
+        onConfirm={() => run(() => deleteIntro(student.id), () => `已删掉${who} 的自我介绍。`)}
+      >
+        <p>删掉以后，它进新班时老师只欢迎、不念介绍。已经念过的班不会撤回。</p>
+        <p>主人可以再交一段新的，照样要过词库，也照样算次数。</p>
+      </Confirm>
+    )
+  } else if (asking?.what === 'resetIntro') {
+    dialog = (
+      <Confirm
+        title={`恢复${who} 今天交自我介绍的次数？`}
+        confirm="恢复次数"
+        busy="正在恢复"
+        cancel="先不恢复"
+        onCancel={close}
+        onConfirm={() => run(() => resetIntroAttempts(student.id), () => `已恢复${who} 今天交自我介绍的次数。`)}
+      >
+        <p>今天还能再交 5 次。主人在反馈群里说词库判错了、或者次数不够用时用。</p>
+      </Confirm>
+    )
   } else if (asking?.what === 'lift') {
     dialog = (
       <Confirm
@@ -225,11 +263,17 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
           </dl>
         ))}
       </div>
+      <div className="px-6 py-3 text-sm">
+        <h3 className="font-medium text-gray-900">自我介绍</h3>
+        <p className="mt-1 whitespace-pre-wrap break-words text-gray-700">
+          {student.intro ?? '没有交。进新班时老师只欢迎，说名字和学号。'}
+        </p>
+      </div>
       {/* The actions that change the student: a red-edged card, as the template's settings page keeps its danger zone. */}
       <div className="m-6 mt-3 rounded-lg border border-red-200 p-6">
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-bold text-gray-900">手动处理</h3>
-          <Tip about="手动处理">停课、退学和解除处罚都会改学籍，主人在学籍记录里看得到。三个操作都会先问一次，说清后果再做。</Tip>
+          <Tip about="手动处理">停课、退学和解除处罚都会改学籍，主人在学籍记录里看得到。每个操作都会先问一次，说清后果再做。</Tip>
         </div>
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <div>
@@ -267,6 +311,16 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
           </Button>
           <Button ref={openers.lift} onClick={() => setAsking({ what: 'lift' })}>
             解除处罚
+          </Button>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {student.intro !== null && (
+            <Button type="danger" ref={openers.deleteIntro} onClick={() => setAsking({ what: 'deleteIntro' })}>
+              删掉自我介绍
+            </Button>
+          )}
+          <Button ref={openers.resetIntro} onClick={() => setAsking({ what: 'resetIntro' })}>
+            恢复交介绍的次数
           </Button>
         </div>
         {daysMissing && (

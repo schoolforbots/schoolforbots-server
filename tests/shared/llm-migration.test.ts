@@ -20,6 +20,7 @@ import * as m0016 from '../../src/shared/migrations/0016_notices.js'
 import * as m0017 from '../../src/shared/migrations/0017_last_moved_at.js'
 import * as m0018 from '../../src/shared/migrations/0018_student_returns.js'
 import * as m0019 from '../../src/shared/migrations/0019_broadcasts.js'
+import * as m0020 from '../../src/shared/migrations/0020_self_intro.js'
 import { createTestDb } from '../helpers/db.js'
 import { insertClass, insertLesson, insertSession, insertStudent } from '../helpers/factories.js'
 
@@ -45,6 +46,7 @@ const provider: MigrationProvider = {
       '0017_last_moved_at': m0017,
       '0018_student_returns': m0018,
       '0019_broadcasts': m0019,
+      '0020_self_intro': m0020,
     }
   },
 }

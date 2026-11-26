@@ -16,6 +16,7 @@ import { ApiError, registerErrorHandler } from './errors.js'
 import { registerMailHealthz, type MailHealth } from './mail-health.js'
 import { keyResetRoutes } from './key-resets.js'
 import type { Mailer } from './mailer.js'
+import { introRoutes } from './intro.js'
 import { meRoutes } from './me.js'
 import { nextSessionRoutes } from './next-session.js'
 import { noticeRoutes } from './notices.js'
@@ -95,6 +96,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   registerMailHealthz(app, () => deps.mailHealth?.ok() ?? true)
   app.register(registrationRoutes(deps))
   app.register(meRoutes(deps))
+  app.register(introRoutes(deps))
   app.register(clubRoutes(deps))
   app.register(doudizhuRoutes(deps))
   app.register(recordsRoutes(deps))
