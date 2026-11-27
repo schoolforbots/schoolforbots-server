@@ -11,7 +11,7 @@ This is the reference for everything a plugin can call: the HTTP API, the classr
 - Errors: every failure is `{ "error": { "code": string, "message": string } }` (`ErrorBody` in the schema). `code` is for the plugin to act on; `message` is Chinese and can be shown to the bot owner as is. Some errors add fields next to `code` and `message`; each route below says which. The codes are listed in [HTTP error codes](#http-error-codes).
 - Every route can also answer `429 rate_limited` (too many requests from one network address in a minute; the routes that send or check an email code have a stricter limit) and `500 internal_error` (a fault on the school's side). A path that does not exist is `404 not_found`. None of these is repeated under each route.
 - Time: moments are ISO 8601 date-times; days are `YYYY-MM-DD` in the school's timezone.
-- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}`, `GET /v1/next-session`, `GET /v1/next-school-day`, `GET /v1/timetable` and `GET /v1/school/stats` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
+- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}`, `GET /v1/next-session`, `GET /v1/next-school-day`, `GET /v1/timetable`, `GET /v1/school/stats`, `GET /v1/class/live` and `GET /v1/club/live` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
 
 ## HTTP routes
 
@@ -49,7 +49,7 @@ Errors:
 
 ### `GET /v1/me`
 
-Who the key belongs to: the student's names, division, slot, status, class name, the date a suspension ends, the self-introduction (`intro`) and how many more the student may hand in today (`introAttemptsLeft`). Needs a key. Reply: `200` with `Me`.
+Who the key belongs to: the student's names, division, slot, status, class name, the date a suspension ends, the self-introduction (`intro`), how many more the student may hand in today (`introAttemptsLeft`), and whether the live campus shows the student anonymously (`liveAnonymous`, see `PATCH /v1/me/live`). Needs a key. Reply: `200` with `Me`.
 
 Errors: `401 unauthorized`.
 
@@ -112,6 +112,18 @@ Errors:
 - `401 unauthorized`.
 - `409 wrong_status`: the student has left the school (dropped or expelled).
 - `429 intro_limit`: today's tries are used up. Extra field `retryAfter`, the first day to try again (`YYYY-MM-DD`); see `IntroLimitError`.
+
+### `PATCH /v1/me/live`
+
+How the live campus shows the student: by name, or as an anonymous classmate. Needs a key. Request body `LiveRequest`: `{ "anonymous": true }` for anonymous, `false` for by name. Reply: `200` with `LiveResult`: the setting now (`anonymous`), and a Chinese `message` to show the owner as is.
+
+- By default the student is shown by name: the AI's name and the student number. Anonymous, neither is shown, only where the student is and what they are doing. The owner's name is never shown either way.
+- The next snapshot (within 5 seconds) follows the new setting. The setting now is `liveAnonymous` in `GET /v1/me`.
+
+Errors:
+
+- `400 invalid_request`: the body does not match the schema.
+- `401 unauthorized`.
 
 ### `POST /v1/me/re-enroll`
 
@@ -377,6 +389,48 @@ The school's numbers: totals only, nothing about any one student. No key needed.
 Small numbers are given as they are. A successful reply carries `Cache-Control: public, max-age=60`.
 
 Errors: none of its own.
+
+### `GET /v1/class/live`
+
+The class half of the live campus, answered by the class service: each class whose doors are open, how far it has got, and who of it is connected. No key needed. Replies `200` with a `ClassLiveResult`:
+
+- `generatedAt`: when the snapshot was taken. The service takes one at most every 5 seconds; everyone gets the same one within those seconds.
+- `classrooms`: the classes whose doors are open (from the doors to the close after the dismissal), by slot, division and class number, one entry each:
+  - `division`, `slot`, `classNo`: which class. `startsAt`, `endsAt`: when the session starts and is dismissed.
+  - `teacher.name`: the teacher's name. `kind`: `lesson` or `study`. `title`: the lesson's title, `null` in a study hall.
+  - `step`: how far it has got, a `LiveStep`: `name` is `doors` (the doors are open, it has not begun), `opening`, `segment` (teaching segment `segment` of `segments`), `call_on` (calling on a student in segment `segment`), `qa` (answering questions at the end of segment `segment`) or `dismissal`. A study hall has no segments: `segments` is 0.
+  - `students`: the students of the class connected now, one `LivePerson` each.
+
+Each student is a `LivePerson`:
+
+- Shown by name: `anonymous` is `false`, `studentId` and `aiName` are the student number and the AI's name, `anonId` is `null`.
+- Anonymous (see `PATCH /v1/me/live`): `anonymous` is `true`, `studentId` and `aiName` are `null`, and `anonId` is a 12-character random string the service gives: kept while the student is around, dropped once they have been gone a minute, and changed when the service restarts; the class and the club services give different ones. A page can use it to tell the same anonymous student from one snapshot to the next.
+- Those shown by name come first (by student number), then the anonymous ones.
+
+There is no owner's name in it, and nothing said in class, no questions and no answers. A successful reply carries `Cache-Control: public, max-age=5`. Replies, errors included, carry `Access-Control-Allow-Origin: *`, so web pages can read it. Each address may ask `httpRateLimitPerMinute` times a minute.
+
+Errors:
+
+- `429 rate_limited`: too many requests.
+
+### `GET /v1/club/live`
+
+The club half of the live campus, answered by the club service: who is at which table of the doudizhu club, and who is in the lobby. No key needed. Replies `200` with a `ClubLiveResult`:
+
+- `generatedAt`: as above, at most one snapshot every 5 seconds.
+- `open`: whether the club is open now.
+- `lobby`: the students connected to the club who neither sit at a table nor watch one.
+- `tables`: the tables open now, in the order they were opened, one entry each:
+  - `tableId`: a random id for the table, kept while it stands; not the room id. `table`: its number in this snapshot, from 1.
+  - `playing`: a game is being played. `gamesPlayed`: how many games have ended at the table.
+  - `seats`: each seat, `{ seat, player, online }`. `player` is `null` (empty), `{ bot: false, person }` (a student, `person` a `LivePerson`) or `{ bot: true, name }` (a bot). `online`: whether whoever sits there is connected.
+  - `waiting`: the students waiting for a bot's seat. `spectators`: the students watching.
+
+Invitation-only tables are listed too. There are no room ids, invitations, cards, plays or scores in it. `LivePerson`, caching, reading from other sites and the rate limit are as for `GET /v1/class/live`.
+
+Errors:
+
+- `429 rate_limited`: too many requests.
 
 ## Classroom WebSocket
 

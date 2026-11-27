@@ -98,6 +98,20 @@ export interface RoomsOptions {
   readonly nextClose?: (now: Date) => Date
 }
 
+/** A room as the live campus sees it (see `Rooms.live`). */
+export interface LiveRoom {
+  readonly roomId: string
+  readonly playing: boolean
+  readonly gamesPlayed: number
+  readonly seats: (
+    | { readonly bot: true; readonly name: string; readonly online: true }
+    | { readonly bot: false; readonly studentId: number; readonly online: boolean }
+    | null
+  )[]
+  readonly waiting: number[]
+  readonly spectators: number[]
+}
+
 /** Someone in a seat. A bot is always online and ready, and has no `student`. */
 interface Occupant {
   readonly player: Person
@@ -556,6 +570,31 @@ export class Rooms {
   state(roomId: string, now: Date): RoomStateFrame | null {
     const room = this.rooms.get(roomId)
     return room === undefined ? null : this.stateOf(room, now)
+  }
+
+  /**
+   * Every room open now, in the order they were opened, as the live campus shows it (src/club/live.ts): who sits in
+   * each seat (a student by number, a bot by name) and whether they are connected, who waits for a seat, who watches,
+   * whether a game is being played and how many have ended there.
+   */
+  live(): LiveRoom[] {
+    return [...this.rooms.values()]
+      .filter((room) => !room.closed)
+      .sort((a, b) => a.opened - b.opened)
+      .map((room) => ({
+        roomId: room.id,
+        playing: room.inGame,
+        gamesPlayed: room.gamesPlayed,
+        seats: room.seats.map((occupant) =>
+          occupant === null
+            ? null
+            : occupant.player.bot
+              ? { bot: true as const, name: occupant.player.displayName, online: true }
+              : { bot: false as const, studentId: occupant.player.studentId, online: occupant.online },
+        ),
+        waiting: room.waiting.map((waiter) => waiter.player.studentId).filter((id): id is number => id !== null),
+        spectators: [...this.spectators(room.id)],
+      }))
   }
 
   /** The students seated in the room, in seat order; none when there is no such room. */

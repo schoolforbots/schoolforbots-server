@@ -79,6 +79,7 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           schoolRulesVersion: student.schoolRulesVersion,
           intro: student.intro,
           introAttemptsLeft: introAttemptsLeft(student, localDate(deps.clock.now(), deps.config.timezone)),
+          liveAnonymous: student.liveAnonymous,
         }
       },
     )

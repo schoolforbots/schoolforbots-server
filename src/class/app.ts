@@ -4,7 +4,9 @@ import type { Kysely } from 'kysely'
 import type { Moderator } from '../moderation/moderator.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
+import { ClassLiveResult } from '../protocol/http.js'
 import { databaseAlive, registerHealthz } from '../shared/healthz.js'
+import { registerLiveRoute } from '../shared/live.js'
 import type { Maintenance } from '../shared/maintenance.js'
 import { inetAddress } from '../shared/net.js'
 import { RateWindow } from '../shared/rate-window.js'
@@ -22,6 +24,7 @@ import {
 } from './connection.js'
 import type { LessonHooks } from './hooks.js'
 import type { MemoryHub } from './hub.js'
+import { classLive } from './live.js'
 import type { ClassRuntime } from './runtime.js'
 
 export interface ClassDeps {
@@ -125,6 +128,13 @@ export function buildClassApp(deps: ClassDeps): FastifyInstance {
   const students = new WeakMap<FastifyRequest, StudentRow>()
 
   registerHealthz(app, deps.healthCheck ?? (() => databaseAlive(deps.db)))
+  registerLiveRoute(app, {
+    url: '/v1/class/live',
+    schema: ClassLiveResult,
+    perMinute: deps.config.httpRateLimitPerMinute,
+    now: () => deps.clock.now().getTime(),
+    take: classLive(deps),
+  })
 
   app.register(websocket, {
     options: { maxPayload: WS_MAX_PAYLOAD },

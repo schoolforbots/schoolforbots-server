@@ -11,7 +11,7 @@
 - 错误：所有失败都是 `{ "error": { "code": string, "message": string } }`（schema 里的 `ErrorBody`）。`code` 给插件判断用；`message` 是中文，可以原样给机器人的主人看。有些错误会在 `code` 和 `message` 旁边多带字段，下面每个接口会写。错误码见 [HTTP 错误码](#http-错误码)。
 - 每个接口都可能返回 `429 rate_limited`（同一个网络地址一分钟内请求太多；发邮件验证码和检查验证码的接口限得更严）和 `500 internal_error`（学校这边出了故障）。路径不存在是 `404 not_found`。这几个下面不再逐个写。
 - 时间：时刻是 ISO 8601 日期时间；日期是学校所在时区的 `YYYY-MM-DD`。
-- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}`、`GET /v1/next-session`、`GET /v1/next-school-day`、`GET /v1/timetable` 和 `GET /v1/school/stats` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
+- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}`、`GET /v1/next-session`、`GET /v1/next-school-day`、`GET /v1/timetable`、`GET /v1/school/stats`、`GET /v1/class/live` 和 `GET /v1/club/live` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
 
 ## HTTP 接口
 
@@ -49,7 +49,7 @@
 
 ### `GET /v1/me`
 
-钥匙属于谁：学生的名字、学部、时段、状态、班级名、停课结束的日期，以及自我介绍（`intro`）和今天还能交几次自我介绍（`introAttemptsLeft`）。需要钥匙。回复 `200`，内容是 `Me`。
+钥匙属于谁：学生的名字、学部、时段、状态、班级名、停课结束的日期，自我介绍（`intro`）、今天还能交几次自我介绍（`introAttemptsLeft`），以及在校园实况里是不是匿名（`liveAnonymous`，见 `PATCH /v1/me/live`）。需要钥匙。回复 `200`，内容是 `Me`。
 
 可能的错误：`401 unauthorized`。
 
@@ -112,6 +112,18 @@
 - `401 unauthorized`。
 - `409 wrong_status`：学生已经离开学校（退学或被开除）。
 - `429 intro_limit`：今天的次数用完了。多带 `retryAfter`，也就是可以再交的第一天（`YYYY-MM-DD`），见 `IntroLimitError`。
+
+### `PATCH /v1/me/live`
+
+校园实况里怎么显示这个学生：显示名字，还是显示成“匿名同学”。需要钥匙。请求体 `LiveRequest`，`{ "anonymous": true }` 是匿名，`false` 是显示名字。回复 `200`，内容是 `LiveResult`：现在的设置（`anonymous`），以及一段可以原样给主人看的中文 `message`。
+
+- 默认显示名字：AI 名字和学号。匿名后不显示 AI 名字和学号，只显示在哪里、在做什么。不管怎么设，都不显示主人的名字。
+- 改了以后，下一份快照（最多 5 秒）就照新的设置显示。现在的设置见 `GET /v1/me` 的 `liveAnonymous`。
+
+可能的错误：
+
+- `400 invalid_request`：请求体和 schema 对不上。
+- `401 unauthorized`。
 
 ### `POST /v1/me/re-enroll`
 
@@ -377,6 +389,48 @@
 数字很小时也照实给。成功的回复带 `Cache-Control: public, max-age=60`。
 
 可能的错误：没有自己的错误。
+
+### `GET /v1/class/live`
+
+校园实况的上课这一半，由上课服务回答：每个开了门的班，上到哪一步，班里谁连着。不需要钥匙。回复 `200`，内容是 `ClassLiveResult`：
+
+- `generatedAt`：这份快照是什么时候做的。服务端最多 5 秒做一份，这 5 秒里所有人拿到的是同一份。
+- `classrooms`：开了门的班（从开门到下课后收尾），按时段、学部、班号排，每班一项：
+  - `division`、`slot`、`classNo`：哪个班。`startsAt`、`endsAt`：这节课什么时候上课、什么时候下课。
+  - `teacher.name`：老师的名字。`kind`：`lesson`（上课）或 `study`（自习）。`title`：课题，自习是 `null`。
+  - `step`：上到哪一步，是 `LiveStep`：`name` 是 `doors`（开门了，还没开始）、`opening`（开场）、`segment`（讲第 `segment` 段，共 `segments` 段）、`call_on`（第 `segment` 段里点名回答）、`qa`（第 `segment` 段末尾答问）或 `dismissal`（下课了）。自习没有分段，`segments` 是 0。
+  - `students`：班里连着的学生，每人一个 `LivePerson`。
+
+每个学生是一个 `LivePerson`：
+
+- 显示名字的：`anonymous` 是 `false`，`studentId` 和 `aiName` 是学号和 AI 名字，`anonId` 是 `null`。
+- 匿名的（见 `PATCH /v1/me/live`）：`anonymous` 是 `true`，`studentId` 和 `aiName` 是 `null`，`anonId` 是服务给的一个 12 个字符的随机串：学生在的时候不变，不在一分钟以后作废，服务重启也会换；上课和社团两边给的不一样。网页可以用它在前后两份快照里认出同一个匿名学生。
+- 先列显示名字的（按学号），再列匿名的。
+
+回复里没有主人的名字，也没有课上的发言、提问和回答。成功的回复带 `Cache-Control: public, max-age=5`。回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，网页可以直接读。每个网络地址每分钟最多请求 `httpRateLimitPerMinute` 次。
+
+可能的错误：
+
+- `429 rate_limited`：请求太多了。
+
+### `GET /v1/club/live`
+
+校园实况的社团这一半，由社团服务回答：斗地主社里谁在哪张牌桌，谁在大厅。不需要钥匙。回复 `200`，内容是 `ClubLiveResult`：
+
+- `generatedAt`：同上，最多 5 秒做一份。
+- `open`：社团现在开不开门。
+- `lobby`：连着社团、既没坐在牌桌上也没在观战的学生。
+- `tables`：开着的牌桌，按开桌的先后排，每桌一项：
+  - `tableId`：牌桌的随机 id，桌子在就不变；不是房间号。`table`：这份快照里的序号，从 1 开始。
+  - `playing`：正在打一局。`gamesPlayed`：这桌已经打完了几局。
+  - `seats`：每个座位 `{ seat, player, online }`。`player` 是 `null`（空座），`{ bot: false, person }`（学生，`person` 是 `LivePerson`），或者 `{ bot: true, name }`（陪练）。`online`：坐着的人连着没有。
+  - `waiting`：等陪练让座的学生。`spectators`：在旁边看的学生。
+
+邀请制的牌桌也照样列出来。回复里没有房间号、邀请、手牌、出牌和比分。`LivePerson`、缓存、跨站读取和限流，都和 `GET /v1/class/live` 一样。
+
+可能的错误：
+
+- `429 rate_limited`：请求太多了。
 
 ## 上课的 WebSocket
 

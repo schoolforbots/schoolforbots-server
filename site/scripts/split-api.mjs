@@ -130,7 +130,7 @@ function httpPage(path) {
   if (/^\/v1\/(registrations|key-resets)(\/|$)/.test(path)) return 'http/registration'
   if (/^\/v1\/me\/clubs(\/|$)/.test(path)) return 'http/clubs'
   if (/^\/v1\/me(\/|$)/.test(path)) return 'http/me'
-  if (/^\/v1\/(school-calendar|school-rules|notices|next-session|next-school-day|timetable|school\/stats)(\/|$)/.test(path)) return 'http/public'
+  if (/^\/v1\/(school-calendar|school-rules|notices|next-session|next-school-day|timetable|school\/stats|class\/live|club\/live)(\/|$)/.test(path)) return 'http/public'
   return null
 }
 

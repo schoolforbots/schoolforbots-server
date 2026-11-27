@@ -105,6 +105,8 @@ export interface StudentsTable {
   introAttempts: Generated<number>
   /** The school-timezone day `introAttempts` counts, as `YYYY-MM-DD`; null before the first. */
   introAttemptsOn: string | null
+  /** Whether the live campus shows the student without a name or student number (PATCH /v1/me/live). */
+  liveAnonymous: Generated<boolean>
 }
 
 export interface KeyResetsTable {

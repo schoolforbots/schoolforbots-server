@@ -65,6 +65,20 @@ export interface ClassRuntime {
   tick(): Promise<void>
   /** The class's session from its doors until its close, or null. */
   currentSession(classId: number): ActiveSession | null
+  /** Every class's session from its doors until its close (as `currentSession`), with how far it has got. */
+  openSessions(): OpenSession[]
+}
+
+/** A session open now, as the live campus shows it (see src/class/live.ts). */
+export interface OpenSession {
+  session: ActiveSession
+  /** The teacher's name. */
+  teacher: string
+  lessonId: number | null
+  /** The steps run so far, in order: none before the opening. */
+  stepsRun: StepName[]
+  /** How many segments the lesson has; 0 in a study hall. */
+  segments: number
 }
 
 export interface ClassRuntimeDeps {
@@ -800,6 +814,22 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
 
     currentSession(classId) {
       return currentOf(classId, clock.now())
+    },
+
+    openSessions() {
+      const now = clock.now()
+      const open: OpenSession[] = []
+      for (const t of tracked.values()) {
+        if (currentOf(t.session.classId, now) !== t.session) continue
+        open.push({
+          session: t.session,
+          teacher: t.teacher,
+          lessonId: t.lessonId,
+          stepsRun: t.steps.filter((s) => t.done.has(s.step)).map((s) => s.step),
+          segments: t.steps.filter((s) => s.step.startsWith('segment-')).length,
+        })
+      }
+      return open
     },
   }
 }

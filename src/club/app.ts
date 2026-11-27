@@ -1,9 +1,11 @@
 import websocket from '@fastify/websocket'
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyServerOptions } from 'fastify'
 import type { Kysely } from 'kysely'
+import { ClubLiveResult } from '../protocol/http.js'
 import type { Clock } from '../shared/clock.js'
 import type { SchoolConfig } from '../shared/config.js'
 import { databaseAlive, registerHealthz } from '../shared/healthz.js'
+import { registerLiveRoute } from '../shared/live.js'
 import type { Maintenance } from '../shared/maintenance.js'
 import { inetAddress } from '../shared/net.js'
 import { RateWindow } from '../shared/rate-window.js'
@@ -13,6 +15,7 @@ import { HANDSHAKE_RATE_LIMITED, HandshakeGuard } from '../shared/ws-handshake.j
 import { preCloseWebSockets } from '../shared/ws-close.js'
 import type { Club } from './club.js'
 import { MAX_FRAME_BYTES, RATE_WINDOW_MS, serveConnection } from './connection.js'
+import { clubLive } from './live.js'
 import type { ClubClosed } from './hours.js'
 
 export interface ClubDeps {
@@ -94,6 +97,13 @@ export function buildClubApp(deps: ClubDeps): FastifyInstance {
   })
 
   registerHealthz(app, deps.healthCheck ?? (() => databaseAlive(deps.db)))
+  registerLiveRoute(app, {
+    url: '/v1/club/live',
+    schema: ClubLiveResult,
+    perMinute: deps.config.httpRateLimitPerMinute,
+    now: () => deps.clock.now().getTime(),
+    take: clubLive(deps),
+  })
 
   app.register(websocket, {
     options: { maxPayload: WS_MAX_PAYLOAD },

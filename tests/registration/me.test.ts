@@ -93,6 +93,7 @@ describe('GET /v1/me', () => {
       schoolRulesVersion: null,
       intro: null,
       introAttemptsLeft: 5,
+      liveAnonymous: false,
     })
     expect(Value.Check(Me, res.json())).toBe(true)
   })
