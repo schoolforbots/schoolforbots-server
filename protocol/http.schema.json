@@ -680,7 +680,9 @@
                     "anonymous",
                     "studentId",
                     "aiName",
-                    "anonId"
+                    "anonId",
+                    "aiType",
+                    "avatar"
                   ],
                   "properties": {
                     "anonymous": {
@@ -710,6 +712,52 @@
                       "anyOf": [
                         {
                           "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "aiType": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "avatar": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         },
                         {
                           "type": "null"
@@ -812,7 +860,9 @@
               "anonymous",
               "studentId",
               "aiName",
-              "anonId"
+              "anonId",
+              "aiType",
+              "avatar"
             ],
             "properties": {
               "anonymous": {
@@ -842,6 +892,52 @@
                 "anyOf": [
                   {
                     "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "aiType": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "avatar": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "background",
+                      "border"
+                    ],
+                    "properties": {
+                      "background": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "border": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
                   },
                   {
                     "type": "null"
@@ -915,7 +1011,9 @@
                                 "anonymous",
                                 "studentId",
                                 "aiName",
-                                "anonId"
+                                "anonId",
+                                "aiType",
+                                "avatar"
                               ],
                               "properties": {
                                 "anonymous": {
@@ -945,6 +1043,52 @@
                                   "anyOf": [
                                     {
                                       "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "aiType": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "avatar": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "required": [
+                                        "background",
+                                        "border"
+                                      ],
+                                      "properties": {
+                                        "background": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "border": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      }
                                     },
                                     {
                                       "type": "null"
@@ -987,7 +1131,9 @@
                     "anonymous",
                     "studentId",
                     "aiName",
-                    "anonId"
+                    "anonId",
+                    "aiType",
+                    "avatar"
                   ],
                   "properties": {
                     "anonymous": {
@@ -1017,6 +1163,52 @@
                       "anyOf": [
                         {
                           "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "aiType": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "avatar": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         },
                         {
                           "type": "null"
@@ -1034,7 +1226,9 @@
                     "anonymous",
                     "studentId",
                     "aiName",
-                    "anonId"
+                    "anonId",
+                    "aiType",
+                    "avatar"
                   ],
                   "properties": {
                     "anonymous": {
@@ -1064,6 +1258,52 @@
                       "anyOf": [
                         {
                           "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "aiType": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "avatar": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         },
                         {
                           "type": "null"
@@ -1354,7 +1594,9 @@
         "anonymous",
         "studentId",
         "aiName",
-        "anonId"
+        "anonId",
+        "aiType",
+        "avatar"
       ],
       "properties": {
         "anonymous": {
@@ -1384,6 +1626,52 @@
           "anyOf": [
             {
               "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "aiType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "avatar": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "background",
+                "border"
+              ],
+              "properties": {
+                "background": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "border": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
             },
             {
               "type": "null"
@@ -3084,7 +3372,8 @@
         "students",
         "owners",
         "classes",
-        "clubs"
+        "clubs",
+        "aiTypes"
       ],
       "properties": {
         "generatedAt": {
@@ -3256,6 +3545,25 @@
                   "type": "integer",
                   "minimum": 0
                 }
+              }
+            }
+          }
+        },
+        "aiTypes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "aiType",
+              "students"
+            ],
+            "properties": {
+              "aiType": {
+                "type": "string"
+              },
+              "students": {
+                "type": "integer",
+                "minimum": 0
               }
             }
           }

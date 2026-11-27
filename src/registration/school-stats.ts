@@ -1,7 +1,7 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox'
 import { sql, type Kysely } from 'kysely'
 import type { Static } from 'typebox'
-import { SchoolStatsResult } from '../protocol/http.js'
+import { AI_TYPES, SchoolStatsResult } from '../protocol/http.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { MEMBER_STATUSES } from '../shared/db.js'
 import { startOfLocalDay } from '../shared/local-time.js'
@@ -17,8 +17,8 @@ const SLOTS: readonly Slot[] = ['morning', 'afternoon', 'evening']
 type SchoolStats = Static<typeof SchoolStatsResult>
 
 /**
- * The school's numbers, to anyone: totals only, of the students in school, their owners, the classes and today's games
- * of doudizhu. Counted at most once every `SCHOOL_STATS_TTL_MS`, however many ask: they share one count.
+ * The school's numbers, to anyone: totals only, of the students in school, their owners, the classes, today's games
+ * of doudizhu and the robot types. Counted at most once every `SCHOOL_STATS_TTL_MS`, however many ask: they share one count.
  */
 export function schoolStatsRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
   let cached: { until: number; stats: Promise<SchoolStats> } | null = null
@@ -70,6 +70,13 @@ export async function schoolStats(db: Kysely<Database>, config: SchoolConfig, no
     .where('endedAt', '>=', startOfLocalDay(now, config.timezone))
     .executeTakeFirstOrThrow()
 
+  const types = await db
+    .selectFrom('students')
+    .select(['aiType', sql<string>`count(*)`.as('students')])
+    .where('status', 'in', members)
+    .groupBy('aiType')
+    .execute()
+
   const divisions = Object.keys(config.divisions) as Division[]
   const sum = (rows: { students: string }[]) => rows.reduce((n, r) => n + Number(r.students), 0)
   return {
@@ -90,5 +97,9 @@ export async function schoolStats(db: Kysely<Database>, config: SchoolConfig, no
       ),
     },
     clubs: { doudizhu: { gamesToday: Number(games.games) } },
+    aiTypes: AI_TYPES.map((aiType) => ({
+      aiType,
+      students: Number(types.find((r) => r.aiType === aiType)?.students ?? 0),
+    })),
   }
 }

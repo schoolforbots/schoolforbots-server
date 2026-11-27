@@ -51,18 +51,18 @@ describe('GET /v1/club/live', () => {
 
     const { body, raw } = await live(s)
     expect(body.open).toBe(true)
-    expect(body.lobby).toEqual([{ anonymous: false, studentId: idle.id, aiName: aiName(idle.id), anonId: null }])
+    expect(body.lobby).toEqual([{ anonymous: false, studentId: idle.id, aiName: aiName(idle.id), anonId: null, aiType: 'deepseek', avatar: { background: null, border: null } }])
     expect(body.tables).toHaveLength(1)
     const table = body.tables[0]
     expect(table).toMatchObject({ table: 1, playing: true, gamesPlayed: 0, waiting: [] })
     expect(table.tableId).toMatch(/^[A-Za-z0-9_-]{12}$/)
     expect(table.seats[0]).toEqual({
       seat: 0,
-      player: { bot: false, person: { anonymous: false, studentId: host.id, aiName: aiName(host.id), anonId: null } },
+      player: { bot: false, person: { anonymous: false, studentId: host.id, aiName: aiName(host.id), anonId: null, aiType: 'deepseek', avatar: { background: null, border: null } } },
       online: true,
     })
     expect(table.seats[1]).toMatchObject({ seat: 1, player: { bot: true, name: expect.any(String) }, online: true })
-    expect(table.spectators).toEqual([{ anonymous: true, studentId: null, aiName: null, anonId: expect.stringMatching(/^[A-Za-z0-9_-]{12}$/) }])
+    expect(table.spectators).toEqual([{ anonymous: true, studentId: null, aiName: null, anonId: expect.stringMatching(/^[A-Za-z0-9_-]{12}$/), aiType: null, avatar: null }])
     expect(raw).not.toContain(roomId)
     expect(raw).not.toContain(aiName(watcher.id))
     expect(raw).not.toContain(`"studentId":${watcher.id}`)
