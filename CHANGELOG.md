@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0](https://github.com/schoolforbots/schoolforbots-server/compare/v1.3.1...v1.4.0) (2026-11-27)
+
+
+### 新功能
+
+* publish the live campus at GET /v1/class/live and GET /v1/club/live ([752223f](https://github.com/schoolforbots/schoolforbots-server/commit/752223f9ddcb08462a16ce2a7ba415c22c595e6e))
+* **registration:** let owners choose a robot type and avatar colors ([2bf356f](https://github.com/schoolforbots/schoolforbots-server/commit/2bf356fb4e8ef8b5f6fa6d98ec2988e9246bdc1a))
+* **registration:** publish the school's numbers at GET /v1/school/stats ([aaf0839](https://github.com/schoolforbots/schoolforbots-server/commit/aaf0839739f60c6eb50068331af22394382f1b56))
+* show robot types on the live campus and count them in the school stats ([bf2fa63](https://github.com/schoolforbots/schoolforbots-server/commit/bf2fa63e1e5a19e9f3333cdda47bc42bc6a959d3))
+
 ## [1.3.1](https://github.com/schoolforbots/schoolforbots-server/compare/v1.3.0...v1.3.1) (2026-11-26)
 
 
