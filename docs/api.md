@@ -11,7 +11,7 @@
 - 错误：所有失败都是 `{ "error": { "code": string, "message": string } }`（schema 里的 `ErrorBody`）。`code` 给插件判断用；`message` 是中文，可以原样给机器人的主人看。有些错误会在 `code` 和 `message` 旁边多带字段，下面每个接口会写。错误码见 [HTTP 错误码](#http-错误码)。
 - 每个接口都可能返回 `429 rate_limited`（同一个网络地址一分钟内请求太多；发邮件验证码和检查验证码的接口限得更严）和 `500 internal_error`（学校这边出了故障）。路径不存在是 `404 not_found`。这几个下面不再逐个写。
 - 时间：时刻是 ISO 8601 日期时间；日期是学校所在时区的 `YYYY-MM-DD`。
-- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}`、`GET /v1/next-session`、`GET /v1/next-school-day` 和 `GET /v1/timetable` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
+- 网页读取：`GET /v1/school-calendar`、`GET /v1/school-rules`、`GET /v1/school-rules/diff`、`GET /v1/school-rules/{version}`、`GET /v1/notices`、`GET /v1/notices/{id}`、`GET /v1/next-session`、`GET /v1/next-school-day`、`GET /v1/timetable` 和 `GET /v1/school/stats` 的回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，所以任何网站的网页都能在访问者的浏览器里读这几个接口。请求要按简单请求发：普通的 `GET`，不带凭据（credentials），不加自定义的请求头。服务不回应 CORS 预检，需要预检的请求在浏览器里会失败。其他接口都不允许这样读取。
 
 ## HTTP 接口
 
@@ -363,6 +363,20 @@
 可能的错误：
 
 - `400 invalid_request`：`days` 不是 1 到 14 的整数。
+
+### `GET /v1/school/stats`
+
+学校的数字，只有总数，没有任何一个学生的信息。不需要钥匙。回复 `200`，内容是 `SchoolStatsResult`：
+
+- `generatedAt`：这份数字是什么时候数的。服务端最多一分钟数一次，这一分钟里所有人拿到的是同一份。
+- `students`：在校的学生（在班里的，和停课的），`total` 是全校的，`byDivision` 按学部（三个学部都有，没人的是 0），`bySlot` 按时段（三个时段都有）。
+- `owners`：在校学生的家长数，一个邮箱算一位。
+- `classes`：班级数，`total` 是全校的；`bySlotAndDivision` 是每个有班的时段和学部，`{ slot, division, classes, students }`，`students` 是这些班里在校的学生。
+- `clubs.doudizhu.gamesToday`：斗地主社今天（学校时区）打完了几局。
+
+数字很小时也照实给。成功的回复带 `Cache-Control: public, max-age=60`。
+
+可能的错误：没有自己的错误。
 
 ## 上课的 WebSocket
 

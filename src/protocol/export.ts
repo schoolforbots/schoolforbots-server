@@ -40,6 +40,7 @@ const PUBLISHED_HTTP = [
   'SchoolRulesDiffResult',
   'SchoolRulesResult',
   'SchoolRulesVersionResult',
+  'SchoolStatsResult',
   'SummariesResult',
   'TimetableResult',
   'Summary',
