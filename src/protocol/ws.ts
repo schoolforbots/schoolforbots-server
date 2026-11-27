@@ -1,5 +1,5 @@
 import { Type } from 'typebox'
-import { Classmate, Summary } from './http.js'
+import { Classmate, ClassmateWithAvatar, Summary } from './http.js'
 
 // The classroom WebSocket protocol, `GET /v1/class` upgraded with `Authorization: Bearer <key>`. Every frame is one
 // JSON object of at most 16 KB. Client messages carry a client-chosen `id` that the server echoes in its `ack`;
@@ -108,7 +108,7 @@ export const AckMessage = Type.Union([
 /** Sent after `hello`: who you are, which class and session you joined, who is online, and what you may still do. */
 export const WelcomeMessage = Type.Object({
   type: Type.Literal('welcome'),
-  student: Classmate,
+  student: ClassmateWithAvatar,
   class: Type.Object({
     classId: Type.Integer(),
     className: Type.String(),
@@ -124,7 +124,7 @@ export const WelcomeMessage = Type.Object({
     title: Type.Union([Type.String(), Type.Null()]),
   }),
   /** The classmates connected right now, by student number; you are not among them. */
-  online: Type.Array(Classmate),
+  online: Type.Array(ClassmateWithAvatar),
   limits: Type.Object({
     maxInitiationsPerLesson: Count,
     initiationsLeft: Count,
@@ -172,7 +172,11 @@ export const ClassEvent = Type.Union([
     displayName: Type.String(),
     text: Type.String(),
   }),
-  Type.Object({ kind: Type.Literal('roster'), joined: Type.Array(Classmate), left: Type.Array(Classmate) }),
+  Type.Object({
+    kind: Type.Literal('roster'),
+    joined: Type.Array(ClassmateWithAvatar),
+    left: Type.Array(ClassmateWithAvatar),
+  }),
   /**
    * The self-introductions of the newcomers, read in the opening right after the teacher welcomes them: those in the
    * class at the doors whose introduction was not read in this class yet (absent ones too), in student-number order,
@@ -220,8 +224,8 @@ export const ClassEventMessage = Type.Object({
 /** A classmate came or went. Not replayed after a reconnect. */
 export const PresenceMessage = Type.Object({
   type: Type.Literal('presence'),
-  joined: Type.Optional(Classmate),
-  left: Type.Optional(Classmate),
+  joined: Type.Optional(ClassmateWithAvatar),
+  left: Type.Optional(ClassmateWithAvatar),
 })
 
 /** `lastLine` true means your next reply is the last line of this conversation. */

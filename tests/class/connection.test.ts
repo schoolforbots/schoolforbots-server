@@ -1442,6 +1442,8 @@ describe('messages after hello', () => {
     const participant: Participant = {
       studentId: a!.id,
       displayName: a!.displayName,
+      aiType: 'deepseek',
+      avatar: { background: null, border: null },
       classId,
       sessionId: sessionIdOf(s, classId),
       maxRounds: 4,

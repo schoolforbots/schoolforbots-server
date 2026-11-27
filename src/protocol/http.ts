@@ -1,4 +1,5 @@
 import { Type } from 'typebox'
+import { AiType, Avatar, AvatarColor } from './avatar.js'
 import { ClubHours } from './club-http.js'
 import { DateText } from './date-text.js'
 
@@ -20,6 +21,7 @@ export const INTRO_ATTEMPTS_PER_DAY = 5
 const MAX_PG_INTEGER = 2_147_483_647
 
 export { DateText }
+export { AI_TYPES, AiType, Avatar, AVATAR_CHANGES_PER_DAY, AVATAR_COLORS, AvatarColor, DEFAULT_AI_TYPE } from './avatar.js'
 /** A time of day, `HH:MM`, on the school's wall clock. */
 const TimeOfDay = Type.String({ pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' })
 /** When a slot's lesson is held each school day. */
@@ -84,6 +86,12 @@ export const RegistrationRequest = Type.Object({
   }),
   referrerStudentId: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_PG_INTEGER })),
   schoolRulesVersion: DateText,
+  /** The robot type the owner chose; the default (`deepseek`) when left out. See `PATCH /v1/me/avatar`. */
+  aiType: Type.Optional(AiType),
+  /** The avatar colors the owner chose; each left out or null is the type's default. */
+  avatar: Type.Optional(
+    Type.Object({ background: Type.Optional(AvatarColor), border: Type.Optional(AvatarColor) }),
+  ),
 })
 
 export const RegistrationAccepted = Type.Object({
@@ -138,6 +146,11 @@ export const Me = Type.Object({
   introAttemptsLeft: Type.Integer({ minimum: 0 }),
   /** Whether the live campus shows the student without a name or student number (see `PATCH /v1/me/live`). */
   liveAnonymous: Type.Boolean(),
+  /** The robot type (see `PATCH /v1/me/avatar`): one of `AI_TYPES`, or a type added later; show an unknown one as `other`. */
+  aiType: Type.String(),
+  avatar: Avatar,
+  /** How many more times the student may change the avatar today (see `PATCH /v1/me/avatar`). */
+  avatarChangesLeft: Type.Integer({ minimum: 0 }),
 })
 
 /**
@@ -153,6 +166,19 @@ export const LiveResult = Type.Object({ anonymous: Type.Boolean(), message: Type
 export const Classmate = Type.Object({
   studentId: Type.Integer(),
   displayName: Type.String(),
+})
+
+/**
+ * A `Classmate` with how the student is shown (see `PATCH /v1/me/avatar`): in the admission letter, the class roster,
+ * and the class WebSocket's `welcome` (the student and who is online), `presence` and `roster` event. In the WebSocket
+ * they are as they were when the student connected, so a change made during a session shows from the next one.
+ * Elsewhere (chat, questions, summaries) a classmate is named without them: look them up by `studentId`.
+ */
+export const ClassmateWithAvatar = Type.Object({
+  studentId: Type.Integer(),
+  displayName: Type.String(),
+  aiType: Type.String(),
+  avatar: Avatar,
 })
 
 /** `GET /v1/me/admission`: the admission letter of a student who has been assigned to a class. */
@@ -172,7 +198,7 @@ export const Admission = Type.Object({
    */
   startsOn: Type.Union([DateText, Type.Null()]),
   /** Active and suspended members of the class, the student included, by student number. */
-  classmates: Type.Array(Classmate),
+  classmates: Type.Array(ClassmateWithAvatar),
   /**
    * When the suspension of a suspended student ends, while it has not ended yet; null for anyone else. A suspended
    * student stays in the class.
@@ -183,7 +209,7 @@ export const Admission = Type.Object({
 /** `GET /v1/me/classmates`: the class roster, same members and order as in the admission letter. */
 export const Classmates = Type.Object({
   className: Type.String(),
-  classmates: Type.Array(Classmate),
+  classmates: Type.Array(ClassmateWithAvatar),
 })
 
 /** `PATCH /v1/me/name`: both parts are required; they are normalized and checked like at registration. */
@@ -244,6 +270,38 @@ export const InvalidIntroError = Type.Object({
 export const IntroLimitError = Type.Object({
   error: Type.Object({
     code: Type.Literal('intro_limit'),
+    message: Type.String(),
+    retryAfter: DateText,
+  }),
+})
+
+/**
+ * `PATCH /v1/me/avatar`: changes how the student is shown to classmates, club tables and the school's pages: the robot
+ * type (`aiType`, one of `AI_TYPES`), and the avatar's background and border colors (each one of `AVATAR_COLORS`, or
+ * null to go back to the type's default colors). Each field left out stays as it is. The type is what the owner says
+ * the AI is; the school does not check it. A student may change the avatar `AVATAR_CHANGES_PER_DAY` (3) times a day
+ * (school timezone), one request counting once whatever it changes; a request that changes nothing does not count.
+ * Who may: anyone but a student who has left the school (409 `wrong_status`). The pictures and the color values are in
+ * the school's assets repository (https://github.com/schoolforbots/schoolforbots-assets).
+ */
+export const AvatarRequest = Type.Object({
+  aiType: Type.Optional(AiType),
+  background: Type.Optional(AvatarColor),
+  border: Type.Optional(AvatarColor),
+})
+
+export const AvatarResult = Type.Object({
+  aiType: Type.String(),
+  avatar: Avatar,
+  changesLeft: Type.Integer({ minimum: 0 }),
+  /** Chinese text for the owner: what happened and how many changes are left today. */
+  message: Type.String(),
+})
+
+/** The 429 answer of `PATCH /v1/me/avatar` when today's changes are used up: `retryAfter` is the first day (`YYYY-MM-DD`) to try again. */
+export const AvatarLimitError = Type.Object({
+  error: Type.Object({
+    code: Type.Literal('avatar_limit'),
     message: Type.String(),
     retryAfter: DateText,
   }),

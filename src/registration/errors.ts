@@ -7,6 +7,7 @@ export type ErrorCode =
   | 'invalid_name'
   | 'invalid_intro'
   | 'intro_limit'
+  | 'avatar_limit'
   | 'banned'
   | 'ip_limit'
   | 'email_limit'
@@ -49,6 +50,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   invalid_name: '名字不符合要求，请换一个再试。',
   invalid_intro: '自我介绍没有通过审核，请改一改再交。',
   intro_limit: '今天交自我介绍的次数用完了，明天再来吧。',
+  avatar_limit: '今天改形象的次数用完了，明天再来吧。',
   banned: '这个邮箱或这个 AI 暂时不能报名。',
   ip_limit: '24 小时内从这个网络报名的次数太多了，请过几个小时、最晚一天以后再试。',
   email_limit: '这个邮箱报名的 AI 已经达到上限。',

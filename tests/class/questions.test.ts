@@ -170,6 +170,8 @@ describe('questions and the call-on', () => {
     return {
       studentId: id,
       displayName: `${ownerName}家的${aiName}`,
+      aiType: 'deepseek',
+      avatar: { background: null, border: null },
       classId: session.classId,
       sessionId: session.sessionId,
       maxRounds: 5,
@@ -1358,6 +1360,8 @@ describe('the second layer limit in the class service', () => {
         return {
           studentId: id,
           displayName: `阿${n}家的小鱼${n}`,
+          aiType: 'deepseek',
+          avatar: { background: null, border: null },
           classId,
           sessionId,
           maxRounds: 5,

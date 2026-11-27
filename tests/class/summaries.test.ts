@@ -408,6 +408,8 @@ describe('writeSummaries', () => {
       const from: Participant = {
         studentId: a.id,
         displayName: a.name,
+        aiType: 'deepseek',
+        avatar: { background: null, border: null },
         classId: session.classId,
         sessionId: session.sessionId,
         maxRounds: 5,
@@ -722,6 +724,8 @@ describe('after class, through the lesson hooks', () => {
         const participant: Participant = {
           studentId,
           displayName: displayName(p.ownerName, p.aiName),
+          aiType: 'deepseek',
+          avatar: { background: null, border: null },
           classId,
           sessionId: session.sessionId,
           maxRounds: 5,

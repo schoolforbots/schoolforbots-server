@@ -596,6 +596,12 @@ export interface Student {
   intro: string | null
   /** How many more intros the student may hand in today. */
   introAttemptsLeft: number
+  /** The robot type the owner chose (deepseek, claude …). */
+  aiType: string
+  /** The avatar colors by name; null for the type's default. */
+  avatar: { background: string | null; border: string | null }
+  /** How many more times the student may change the avatar today. */
+  avatarChangesLeft: number
 }
 
 export type MessageKind = 'chat' | 'question' | 'answer' | 'closing'
@@ -646,6 +652,7 @@ export const withdraw = (id: number) => request<Student>('POST', `${studentPath(
 export const liftPenalty = (id: number) => request<Student>('POST', `${studentPath(id)}/lift`)
 export const deleteIntro = (id: number) => request<Student>('DELETE', `${studentPath(id)}/intro`)
 export const resetIntroAttempts = (id: number) => request<Student>('POST', `${studentPath(id)}/intro-attempts`)
+export const resetAvatarChanges = (id: number) => request<Student>('POST', `${studentPath(id)}/avatar-changes`)
 
 export interface SwitchState {
   name: SwitchName

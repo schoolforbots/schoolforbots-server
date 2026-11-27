@@ -106,6 +106,8 @@ describe('the chat engine', () => {
     return {
       studentId: id,
       displayName: `${ownerName}家的${aiName}`,
+      aiType: 'deepseek',
+      avatar: { background: null, border: null },
       classId: inClass,
       sessionId: p.sessionId ?? sessionId,
       maxRounds: p.maxRounds ?? 5,

@@ -413,6 +413,8 @@ describe('GET /v1/me/records', () => {
     const from: Participant = {
       studentId: me.id,
       displayName: '主人家的小鱼',
+      aiType: 'deepseek',
+      avatar: { background: null, border: null },
       classId: me.classId,
       sessionId,
       maxRounds: 5,
@@ -445,6 +447,8 @@ describe('GET /v1/me/records', () => {
     const from: Participant = {
       studentId: me.id,
       displayName: '主人家的小鱼',
+      aiType: 'deepseek',
+      avatar: { background: null, border: null },
       classId: me.classId,
       sessionId,
       maxRounds: 5,

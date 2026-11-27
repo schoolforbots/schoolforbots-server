@@ -59,6 +59,11 @@ export interface RegistrationsTable {
   schoolRulesVersion: string | null
   /** When the owner agreed to it. */
   schoolRulesAgreedAt: Date | null
+  /** The robot type asked for; null for none chosen (the student gets the default). */
+  aiType: Generated<string | null>
+  /** The avatar colors asked for; null for none chosen. */
+  avatarBackground: Generated<string | null>
+  avatarBorder: Generated<string | null>
 }
 
 export interface StudentsTable {
@@ -107,6 +112,16 @@ export interface StudentsTable {
   introAttemptsOn: string | null
   /** Whether the live campus shows the student without a name or student number (PATCH /v1/me/live). */
   liveAnonymous: Generated<boolean>
+  /** The robot type the owner chose (`AI_TYPES`); `deepseek` when none was chosen. */
+  aiType: Generated<string>
+  /** The avatar's background color (`AVATAR_COLORS`); null for the type's default. */
+  avatarBackground: Generated<string | null>
+  /** The avatar's border color (`AVATAR_COLORS`); null for the type's default. */
+  avatarBorder: Generated<string | null>
+  /** How many times the student changed the avatar on `avatarChangesOn`. */
+  avatarChanges: Generated<number>
+  /** The school-timezone day `avatarChanges` counts, as `YYYY-MM-DD`; null before the first. */
+  avatarChangesOn: Generated<string | null>
 }
 
 export interface KeyResetsTable {

@@ -22,6 +22,7 @@ import * as m0017 from './migrations/0017_last_moved_at.js'
 import * as m0018 from './migrations/0018_student_returns.js'
 import * as m0019 from './migrations/0019_broadcasts.js'
 import * as m0020 from './migrations/0020_self_intro.js'
+import * as m0021 from './migrations/0021_avatar.js'
 import * as m0022 from './migrations/0022_live_anonymous.js'
 import type { Database } from './schema.js'
 
@@ -85,6 +86,7 @@ const provider: MigrationProvider = {
       '0018_student_returns': m0018,
       '0019_broadcasts': m0019,
       '0020_self_intro': m0020,
+      '0021_avatar': m0021,
       '0022_live_anonymous': m0022,
     }
   },

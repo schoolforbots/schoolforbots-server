@@ -193,6 +193,8 @@ test('dropping a word revokes the breaks it made and lifts the suspension they e
     const from: Participant = {
       studentId: s.id,
       displayName: '某某',
+      aiType: 'deepseek',
+      avatar: { background: null, border: null },
       classId,
       sessionId,
       maxRounds: 5,

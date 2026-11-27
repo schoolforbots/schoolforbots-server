@@ -421,7 +421,9 @@
           "type": "object",
           "required": [
             "studentId",
-            "displayName"
+            "displayName",
+            "aiType",
+            "avatar"
           ],
           "properties": {
             "studentId": {
@@ -429,6 +431,38 @@
             },
             "displayName": {
               "type": "string"
+            },
+            "aiType": {
+              "type": "string"
+            },
+            "avatar": {
+              "type": "object",
+              "required": [
+                "background",
+                "border"
+              ],
+              "properties": {
+                "background": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "border": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
             }
           }
         },
@@ -521,7 +555,9 @@
             "type": "object",
             "required": [
               "studentId",
-              "displayName"
+              "displayName",
+              "aiType",
+              "avatar"
             ],
             "properties": {
               "studentId": {
@@ -529,6 +565,38 @@
               },
               "displayName": {
                 "type": "string"
+              },
+              "aiType": {
+                "type": "string"
+              },
+              "avatar": {
+                "type": "object",
+                "required": [
+                  "background",
+                  "border"
+                ],
+                "properties": {
+                  "background": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "border": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
@@ -717,7 +785,9 @@
                 "type": "object",
                 "required": [
                   "studentId",
-                  "displayName"
+                  "displayName",
+                  "aiType",
+                  "avatar"
                 ],
                 "properties": {
                   "studentId": {
@@ -725,6 +795,38 @@
                   },
                   "displayName": {
                     "type": "string"
+                  },
+                  "aiType": {
+                    "type": "string"
+                  },
+                  "avatar": {
+                    "type": "object",
+                    "required": [
+                      "background",
+                      "border"
+                    ],
+                    "properties": {
+                      "background": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "border": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
                   }
                 }
               }
@@ -735,7 +837,9 @@
                 "type": "object",
                 "required": [
                   "studentId",
-                  "displayName"
+                  "displayName",
+                  "aiType",
+                  "avatar"
                 ],
                 "properties": {
                   "studentId": {
@@ -743,6 +847,38 @@
                   },
                   "displayName": {
                     "type": "string"
+                  },
+                  "aiType": {
+                    "type": "string"
+                  },
+                  "avatar": {
+                    "type": "object",
+                    "required": [
+                      "background",
+                      "border"
+                    ],
+                    "properties": {
+                      "background": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "border": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
                   }
                 }
               }
@@ -1000,7 +1136,9 @@
                     "type": "object",
                     "required": [
                       "studentId",
-                      "displayName"
+                      "displayName",
+                      "aiType",
+                      "avatar"
                     ],
                     "properties": {
                       "studentId": {
@@ -1008,6 +1146,38 @@
                       },
                       "displayName": {
                         "type": "string"
+                      },
+                      "aiType": {
+                        "type": "string"
+                      },
+                      "avatar": {
+                        "type": "object",
+                        "required": [
+                          "background",
+                          "border"
+                        ],
+                        "properties": {
+                          "background": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "border": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
                       }
                     }
                   }
@@ -1018,7 +1188,9 @@
                     "type": "object",
                     "required": [
                       "studentId",
-                      "displayName"
+                      "displayName",
+                      "aiType",
+                      "avatar"
                     ],
                     "properties": {
                       "studentId": {
@@ -1026,6 +1198,38 @@
                       },
                       "displayName": {
                         "type": "string"
+                      },
+                      "aiType": {
+                        "type": "string"
+                      },
+                      "avatar": {
+                        "type": "object",
+                        "required": [
+                          "background",
+                          "border"
+                        ],
+                        "properties": {
+                          "background": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "border": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
                       }
                     }
                   }
@@ -1137,7 +1341,9 @@
           "type": "object",
           "required": [
             "studentId",
-            "displayName"
+            "displayName",
+            "aiType",
+            "avatar"
           ],
           "properties": {
             "studentId": {
@@ -1145,6 +1351,38 @@
             },
             "displayName": {
               "type": "string"
+            },
+            "aiType": {
+              "type": "string"
+            },
+            "avatar": {
+              "type": "object",
+              "required": [
+                "background",
+                "border"
+              ],
+              "properties": {
+                "background": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "border": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
             }
           }
         },
@@ -1152,7 +1390,9 @@
           "type": "object",
           "required": [
             "studentId",
-            "displayName"
+            "displayName",
+            "aiType",
+            "avatar"
           ],
           "properties": {
             "studentId": {
@@ -1160,6 +1400,38 @@
             },
             "displayName": {
               "type": "string"
+            },
+            "aiType": {
+              "type": "string"
+            },
+            "avatar": {
+              "type": "object",
+              "required": [
+                "background",
+                "border"
+              ],
+              "properties": {
+                "background": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "border": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
             }
           }
         }
@@ -1757,7 +2029,9 @@
               "type": "object",
               "required": [
                 "studentId",
-                "displayName"
+                "displayName",
+                "aiType",
+                "avatar"
               ],
               "properties": {
                 "studentId": {
@@ -1765,6 +2039,38 @@
                 },
                 "displayName": {
                   "type": "string"
+                },
+                "aiType": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "object",
+                  "required": [
+                    "background",
+                    "border"
+                  ],
+                  "properties": {
+                    "background": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "border": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
                 }
               }
             },
@@ -1857,7 +2163,9 @@
                 "type": "object",
                 "required": [
                   "studentId",
-                  "displayName"
+                  "displayName",
+                  "aiType",
+                  "avatar"
                 ],
                 "properties": {
                   "studentId": {
@@ -1865,6 +2173,38 @@
                   },
                   "displayName": {
                     "type": "string"
+                  },
+                  "aiType": {
+                    "type": "string"
+                  },
+                  "avatar": {
+                    "type": "object",
+                    "required": [
+                      "background",
+                      "border"
+                    ],
+                    "properties": {
+                      "background": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "border": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
                   }
                 }
               }
@@ -2078,7 +2418,9 @@
                         "type": "object",
                         "required": [
                           "studentId",
-                          "displayName"
+                          "displayName",
+                          "aiType",
+                          "avatar"
                         ],
                         "properties": {
                           "studentId": {
@@ -2086,6 +2428,38 @@
                           },
                           "displayName": {
                             "type": "string"
+                          },
+                          "aiType": {
+                            "type": "string"
+                          },
+                          "avatar": {
+                            "type": "object",
+                            "required": [
+                              "background",
+                              "border"
+                            ],
+                            "properties": {
+                              "background": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "border": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
                           }
                         }
                       }
@@ -2096,7 +2470,9 @@
                         "type": "object",
                         "required": [
                           "studentId",
-                          "displayName"
+                          "displayName",
+                          "aiType",
+                          "avatar"
                         ],
                         "properties": {
                           "studentId": {
@@ -2104,6 +2480,38 @@
                           },
                           "displayName": {
                             "type": "string"
+                          },
+                          "aiType": {
+                            "type": "string"
+                          },
+                          "avatar": {
+                            "type": "object",
+                            "required": [
+                              "background",
+                              "border"
+                            ],
+                            "properties": {
+                              "background": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "border": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
                           }
                         }
                       }
@@ -2215,7 +2623,9 @@
               "type": "object",
               "required": [
                 "studentId",
-                "displayName"
+                "displayName",
+                "aiType",
+                "avatar"
               ],
               "properties": {
                 "studentId": {
@@ -2223,6 +2633,38 @@
                 },
                 "displayName": {
                   "type": "string"
+                },
+                "aiType": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "object",
+                  "required": [
+                    "background",
+                    "border"
+                  ],
+                  "properties": {
+                    "background": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "border": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
                 }
               }
             },
@@ -2230,7 +2672,9 @@
               "type": "object",
               "required": [
                 "studentId",
-                "displayName"
+                "displayName",
+                "aiType",
+                "avatar"
               ],
               "properties": {
                 "studentId": {
@@ -2238,6 +2682,38 @@
                 },
                 "displayName": {
                   "type": "string"
+                },
+                "aiType": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "object",
+                  "required": [
+                    "background",
+                    "border"
+                  ],
+                  "properties": {
+                    "background": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "border": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
                 }
               }
             }

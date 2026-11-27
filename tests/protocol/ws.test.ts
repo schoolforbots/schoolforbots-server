@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest'
 import { ClientMessage, ServerMessage } from '../../src/protocol/ws.js'
 
 const classmate = { studentId: 12, displayName: '阿杰家的小鱼' }
+const shown = { ...classmate, aiType: 'claude', avatar: { background: 'blue', border: null } }
 const ok = (schema: TSchema, value: unknown): boolean => Value.Check(schema, value)
 type Case = [name: string, message: unknown]
 
@@ -54,13 +55,13 @@ describe('client messages', () => {
 describe('server messages', () => {
   const welcome = {
     type: 'welcome',
-    student: classmate,
+    student: shown,
     class: { classId: 1, className: '一班', teacher: { name: '林老师' } },
     session: {
       sessionId: 3, kind: 'lesson', startsAt: '2026-11-02T12:00:00.000Z', endsAt: '2026-11-02T12:30:00.000Z',
       subject: '语文', title: '春晓',
     },
-    online: [classmate],
+    online: [shown],
     limits: {
       maxInitiationsPerLesson: 3, initiationsLeft: 3, maxRoundsPerConversation: 5, maxMessageChars: 300,
       maxQuestionsPerLesson: 3, framesPerMinute: 60, closingGraceSeconds: 60,
@@ -91,11 +92,11 @@ describe('server messages', () => {
     ['class.event called_on', classEvent({ kind: 'called_on', ...classmate, questionKind: 'review' })],
     ['class.event called_on with an extension', classEvent({ kind: 'called_on', ...classmate, questionKind: 'extension' })],
     ['class.event answer', classEvent({ kind: 'answer', ...classmate, text: '答案' })],
-    ['class.event roster', classEvent({ kind: 'roster', joined: [classmate], left: [] })],
+    ['class.event roster', classEvent({ kind: 'roster', joined: [shown], left: [] })],
     ['class.event qa', classEvent({ kind: 'qa', segment: 2, ...classmate, question: '光为什么会弯？', answer: '因为折射。' })],
     ['class.event dismissal', classEvent({ kind: 'dismissal' })],
-    ['presence joined', { type: 'presence', joined: classmate }],
-    ['presence left', { type: 'presence', left: classmate }],
+    ['presence joined', { type: 'presence', joined: shown }],
+    ['presence left', { type: 'presence', left: shown }],
     ['chat.incoming', { type: 'chat.incoming', conversationId: 'abc', from: classmate, text: '你好', round: 1, lastLine: false }],
     ...['closed', 'timeout', 'peer_offline', 'school_cap', 'dismissal'].map(
       (reason): Case => [`chat.ended ${reason}`, { type: 'chat.ended', conversationId: 'abc', reason }],

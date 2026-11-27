@@ -621,6 +621,9 @@ function setUpStudents() {
         lastAttendedAt: status === 'pending' ? null : hoursAgo(between(2, 70)),
         intro: id % 3 === 0 ? `大家好，我是${AIS[id % AIS.length] ?? '机器人'}${id}，喜欢下棋和看星星，请多关照！` : null,
         introAttemptsLeft: id === 9 ? 0 : 5,
+        aiType: (['deepseek', 'claude', 'chatgpt', 'gemini', 'qwen', 'kimi'] as const)[id % 6] ?? 'deepseek',
+        avatar: id % 4 === 0 ? { background: 'blue', border: 'white' } : { background: null, border: null },
+        avatarChangesLeft: id === 9 ? 0 : 3,
       }),
     )
     const list: StudentRecord[] = []
@@ -932,10 +935,12 @@ export function answer(method: string, path: string, body: Record<string, unknow
     case 'GET /students/:n/records':
       return students.has(n) ? ok({ records: records.get(n) ?? [] }) : fail(404, 'not_found')
     case 'DELETE /students/:n/intro':
-    case 'POST /students/:n/intro-attempts': {
+    case 'POST /students/:n/intro-attempts':
+    case 'POST /students/:n/avatar-changes': {
       const one = students.get(n)
       if (one === undefined) return fail(404, 'not_found')
       if (parts[2] === 'intro') one.intro = null
+      else if (parts[2] === 'avatar-changes') one.avatarChangesLeft = 3
       else one.introAttemptsLeft = 5
       return ok(one)
     }

@@ -4,6 +4,8 @@ import { breakAfter, speechOn } from '../shared/calendar.js'
 import type { Clock } from '../shared/clock.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
 import { lessonLockKey, lock, MEMBER_STATUSES } from '../shared/db.js'
+import { DEFAULT_AI_TYPE } from '../protocol/avatar.js'
+import { LOOKS_COLUMNS, looksOf } from '../shared/avatar.js'
 import { className, displayName } from '../shared/identity.js'
 import { atLocalTime, localDate } from '../shared/local-time.js'
 import { maintenanceBetween, type Maintenance } from '../shared/maintenance.js'
@@ -590,8 +592,16 @@ export function createClassRuntime(deps: ClassRuntimeDeps): ClassRuntime {
     const said = lines.map(teacherLine)
     const roster = await rosterChange(trx, t)
     if (roster !== null) {
-      const classmate = (m: SessionMember) => ({ studentId: m.studentId, displayName: m.displayName })
+      // Shown as they look now: the members' snapshot keeps only their names.
       const { joined, left } = roster
+      const ids = [...joined, ...left].map((m) => m.studentId)
+      const rows = await trx.selectFrom('students').select(['id', ...LOOKS_COLUMNS]).where('id', 'in', ids).execute()
+      const looks = new Map(rows.map((r) => [r.id, looksOf(r)]))
+      const classmate = (m: SessionMember) => ({
+        studentId: m.studentId,
+        displayName: m.displayName,
+        ...(looks.get(m.studentId) ?? looksOf({ aiType: DEFAULT_AI_TYPE, avatarBackground: null, avatarBorder: null })),
+      })
       said.push({ kind: 'roster', payload: { kind: 'roster', joined: joined.map(classmate), left: left.map(classmate) } })
     }
     // Welcome by name and number the newcomers, and the ones back in a class that knows them; the ones who left are

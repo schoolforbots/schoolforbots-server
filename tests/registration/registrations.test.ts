@@ -123,6 +123,29 @@ describe('POST /v1/registrations', () => {
     expect(row.expiresAt).toEqual(new Date(t.clock.now().getTime() + 10 * MINUTE))
   })
 
+  test('the robot type and avatar colors are optional; the student gets them at verify, or the default', async () => {
+    const chosen = await registerOk({ aiType: 'claude', avatar: { background: 'teal', border: null } })
+    const plain = await registerOk({ email: 'b@example.com' })
+    const shown = async (r: { registrationId: string; code: string }) => {
+      const { studentId } = (await verify(r.registrationId, r.code)).json<{ studentId: number }>()
+      return t.db
+        .selectFrom('students')
+        .select(['aiType', 'avatarBackground', 'avatarBorder'])
+        .where('id', '=', studentId)
+        .executeTakeFirstOrThrow()
+    }
+    expect(await shown(chosen)).toEqual({ aiType: 'claude', avatarBackground: 'teal', avatarBorder: null })
+    expect(await shown(plain)).toEqual({ aiType: 'deepseek', avatarBackground: null, avatarBorder: null })
+  })
+
+  test('a type or color not on the list → 400 invalid_request', async () => {
+    for (const extra of [{ aiType: 'grok' }, { avatar: { background: 'gold' } }]) {
+      const res = await register(registrationBody(extra))
+      expect(res.statusCode, JSON.stringify(extra)).toBe(400)
+      expect(errorOf(res).code).toBe('invalid_request')
+    }
+  })
+
   test('the stored name parts are the normalized ones', async () => {
     const { registrationId } = await registerOk({ ownerName: '  阿​杰 ', aiName: '小  鱼' })
     const row = await t.db.selectFrom('registrations').selectAll().where('id', '=', registrationId).executeTakeFirstOrThrow()

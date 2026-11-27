@@ -222,7 +222,7 @@ export function serveConnection(
     const r = await db
       .selectFrom('students as s')
       .innerJoin('classes as c', 'c.id', 's.classId')
-      .select(['s.id', 's.ownerName', 's.aiName', 's.email', 'c.division', 'c.slot', 'c.classNo'])
+      .select(['s.id', 's.ownerName', 's.aiName', 's.email', 's.aiType', 's.avatarBackground', 's.avatarBorder', 'c.division', 'c.slot', 'c.classNo'])
       .where('s.id', '=', studentId)
       .executeTakeFirst()
     if (r === undefined) return refuse(studentRefusal(GONE_STANDING, club.game, config, clock.now())!)

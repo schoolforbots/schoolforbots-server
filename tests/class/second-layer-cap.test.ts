@@ -7,6 +7,8 @@ const CLOSE_AT = new Date('2026-11-02T20:31:00+08:00')
 const student = (studentId: number, sessionId = 1, classId = 1): Participant => ({
   studentId,
   displayName: `学生${studentId}`,
+  aiType: 'deepseek',
+  avatar: { background: null, border: null },
   classId,
   sessionId,
   maxRounds: 5,
