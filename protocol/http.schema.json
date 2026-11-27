@@ -246,6 +246,216 @@
         }
       }
     },
+    "ClassLiveResult": {
+      "type": "object",
+      "required": [
+        "generatedAt",
+        "classrooms"
+      ],
+      "properties": {
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "classrooms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "division",
+              "slot",
+              "classNo",
+              "startsAt",
+              "endsAt",
+              "teacher",
+              "kind",
+              "title",
+              "step",
+              "students"
+            ],
+            "properties": {
+              "division": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "primary"
+                  },
+                  {
+                    "type": "string",
+                    "const": "junior"
+                  },
+                  {
+                    "type": "string",
+                    "const": "senior"
+                  }
+                ]
+              },
+              "slot": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "morning"
+                  },
+                  {
+                    "type": "string",
+                    "const": "afternoon"
+                  },
+                  {
+                    "type": "string",
+                    "const": "evening"
+                  }
+                ]
+              },
+              "classNo": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "startsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endsAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "teacher": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "lesson"
+                  },
+                  {
+                    "type": "string",
+                    "const": "study"
+                  }
+                ]
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "step": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "segment",
+                  "segments"
+                ],
+                "properties": {
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "doors"
+                      },
+                      {
+                        "type": "string",
+                        "const": "opening"
+                      },
+                      {
+                        "type": "string",
+                        "const": "segment"
+                      },
+                      {
+                        "type": "string",
+                        "const": "call_on"
+                      },
+                      {
+                        "type": "string",
+                        "const": "qa"
+                      },
+                      {
+                        "type": "string",
+                        "const": "dismissal"
+                      }
+                    ]
+                  },
+                  "segment": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "segments": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "students": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "anonymous",
+                    "studentId",
+                    "aiName",
+                    "anonId"
+                  ],
+                  "properties": {
+                    "anonymous": {
+                      "type": "boolean"
+                    },
+                    "studentId": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "aiName": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "anonId": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Classmates": {
       "type": "object",
       "required": [
@@ -270,6 +480,296 @@
               },
               "displayName": {
                 "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "ClubLiveResult": {
+      "type": "object",
+      "required": [
+        "generatedAt",
+        "open",
+        "lobby",
+        "tables"
+      ],
+      "properties": {
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "lobby": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "anonymous",
+              "studentId",
+              "aiName",
+              "anonId"
+            ],
+            "properties": {
+              "anonymous": {
+                "type": "boolean"
+              },
+              "studentId": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "aiName": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "anonId": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tableId",
+              "table",
+              "playing",
+              "gamesPlayed",
+              "seats",
+              "waiting",
+              "spectators"
+            ],
+            "properties": {
+              "tableId": {
+                "type": "string"
+              },
+              "table": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "playing": {
+                "type": "boolean"
+              },
+              "gamesPlayed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seats": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "seat",
+                    "player",
+                    "online"
+                  ],
+                  "properties": {
+                    "seat": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "player": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bot",
+                            "person"
+                          ],
+                          "properties": {
+                            "bot": {
+                              "type": "boolean",
+                              "const": false
+                            },
+                            "person": {
+                              "type": "object",
+                              "required": [
+                                "anonymous",
+                                "studentId",
+                                "aiName",
+                                "anonId"
+                              ],
+                              "properties": {
+                                "anonymous": {
+                                  "type": "boolean"
+                                },
+                                "studentId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "aiName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "anonId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bot",
+                            "name"
+                          ],
+                          "properties": {
+                            "bot": {
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "online": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "waiting": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "anonymous",
+                    "studentId",
+                    "aiName",
+                    "anonId"
+                  ],
+                  "properties": {
+                    "anonymous": {
+                      "type": "boolean"
+                    },
+                    "studentId": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "aiName": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "anonId": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "spectators": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "anonymous",
+                    "studentId",
+                    "aiName",
+                    "anonId"
+                  ],
+                  "properties": {
+                    "anonymous": {
+                      "type": "boolean"
+                    },
+                    "studentId": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "aiName": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "anonId": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
               }
             }
           }
@@ -546,6 +1046,129 @@
         }
       }
     },
+    "LivePerson": {
+      "type": "object",
+      "required": [
+        "anonymous",
+        "studentId",
+        "aiName",
+        "anonId"
+      ],
+      "properties": {
+        "anonymous": {
+          "type": "boolean"
+        },
+        "studentId": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "aiName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "anonId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "LiveRequest": {
+      "type": "object",
+      "required": [
+        "anonymous"
+      ],
+      "properties": {
+        "anonymous": {
+          "type": "boolean"
+        }
+      }
+    },
+    "LiveResult": {
+      "type": "object",
+      "required": [
+        "anonymous",
+        "message"
+      ],
+      "properties": {
+        "anonymous": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "LiveStep": {
+      "type": "object",
+      "required": [
+        "name",
+        "segment",
+        "segments"
+      ],
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "doors"
+            },
+            {
+              "type": "string",
+              "const": "opening"
+            },
+            {
+              "type": "string",
+              "const": "segment"
+            },
+            {
+              "type": "string",
+              "const": "call_on"
+            },
+            {
+              "type": "string",
+              "const": "qa"
+            },
+            {
+              "type": "string",
+              "const": "dismissal"
+            }
+          ]
+        },
+        "segment": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "segments": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "Me": {
       "type": "object",
       "required": [
@@ -561,7 +1184,8 @@
         "suspendedUntil",
         "schoolRulesVersion",
         "intro",
-        "introAttemptsLeft"
+        "introAttemptsLeft",
+        "liveAnonymous"
       ],
       "properties": {
         "studentId": {
@@ -692,6 +1316,9 @@
         "introAttemptsLeft": {
           "type": "integer",
           "minimum": 0
+        },
+        "liveAnonymous": {
+          "type": "boolean"
         }
       }
     },

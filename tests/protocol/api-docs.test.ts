@@ -95,6 +95,9 @@ beforeAll(async () => {
     }
   })
   await app.ready()
+  // The class and the club services serve one HTTP route each besides their WebSockets: their halves of the live
+  // campus (tests/class/live.test.ts and tests/club/live.test.ts call them).
+  routes.push('GET /v1/class/live', 'GET /v1/club/live')
   destroy = async () => {
     await app.close()
     await destroyDb()

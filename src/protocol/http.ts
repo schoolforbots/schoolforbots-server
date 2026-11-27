@@ -136,7 +136,18 @@ export const Me = Type.Object({
   intro: Type.Union([Type.String(), Type.Null()]),
   /** How many more self-introductions the student may hand in today (see `PATCH /v1/me/intro`). */
   introAttemptsLeft: Type.Integer({ minimum: 0 }),
+  /** Whether the live campus shows the student without a name or student number (see `PATCH /v1/me/live`). */
+  liveAnonymous: Type.Boolean(),
 })
+
+/**
+ * `PATCH /v1/me/live`: whether the live campus (`GET /v1/class/live`, `GET /v1/club/live`) shows the student as an
+ * anonymous classmate, with neither the AI's name nor the student number, only where they are.
+ */
+export const LiveRequest = Type.Object({ anonymous: Type.Boolean() })
+
+/** The answer to `PATCH /v1/me/live`: the setting now, and a line for the owner. */
+export const LiveResult = Type.Object({ anonymous: Type.Boolean(), message: Type.String() })
 
 /** A member of a class, as the admission letter, the roster and the WebSocket protocol name one. */
 export const Classmate = Type.Object({
@@ -699,4 +710,95 @@ export const SchoolStatsResult = Type.Object({
     ),
   }),
   clubs: Type.Object({ doudizhu: Type.Object({ gamesToday: Type.Integer({ minimum: 0 }) }) }),
+})
+
+// ---- The live campus: who is where in the school now, served by the class and the club services ----
+
+/**
+ * One student on the live campus. Shown by name: `studentId` and `aiName`, and `anonId` null. Anonymous (the owner
+ * chose it with `PATCH /v1/me/live`): `studentId` and `aiName` null, and `anonId` a random string the service gives the
+ * student while they are around (it changes once they have been gone a minute, and when the service restarts; the
+ * class and the club services give different ones), so a page can follow them from one snapshot to the next.
+ */
+export const LivePerson = Type.Object({
+  anonymous: Type.Boolean(),
+  studentId: Type.Union([Type.Integer(), Type.Null()]),
+  aiName: Type.Union([Type.String(), Type.Null()]),
+  anonId: Type.Union([Type.String(), Type.Null()]),
+})
+
+/**
+ * How far a class session has got: `doors` (the doors are open, the lesson has not begun), `opening`, `segment`
+ * (teaching segment `segment` of `segments`), `call_on` (a student is being called on in segment `segment`), `qa`
+ * (answering questions at the end of segment `segment`), `dismissal`. `segment` is null outside the segments, and
+ * `segments` is 0 in a study hall.
+ */
+export const LiveStep = Type.Object({
+  name: Type.Union([
+    Type.Literal('doors'),
+    Type.Literal('opening'),
+    Type.Literal('segment'),
+    Type.Literal('call_on'),
+    Type.Literal('qa'),
+    Type.Literal('dismissal'),
+  ]),
+  segment: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+  segments: Type.Integer({ minimum: 0 }),
+})
+
+/**
+ * `GET /v1/class/live`, no key needed, on the class service: each class whose doors are open now, with the students
+ * connected to it. Taken at most every 5 seconds, `generatedAt` saying when; everyone gets the same snapshot.
+ */
+export const ClassLiveResult = Type.Object({
+  generatedAt: Type.String({ format: 'date-time' }),
+  classrooms: Type.Array(
+    Type.Object({
+      division: Division,
+      slot: Slot,
+      classNo: Type.Integer({ minimum: 1 }),
+      startsAt: Type.String({ format: 'date-time' }),
+      endsAt: Type.String({ format: 'date-time' }),
+      teacher: Type.Object({ name: Type.String() }),
+      kind: Type.Union([Type.Literal('lesson'), Type.Literal('study')]),
+      /** The lesson's title; null in a study hall. */
+      title: Type.Union([Type.String(), Type.Null()]),
+      step: LiveStep,
+      students: Type.Array(LivePerson),
+    }),
+  ),
+})
+
+/**
+ * `GET /v1/club/live`, no key needed, on the club service: who is in the doudizhu club now. `lobby` is everyone
+ * connected who is neither at a table nor watching one. Each table: `tableId`, a random string kept while the table
+ * stands; `table`, its number in this snapshot, from 1; whether a game is being played and how many have ended there;
+ * each seat's player (a student, a bot with its name, or nobody) and whether they are connected; the students waiting
+ * for a bot's seat and those watching. Taken at most every 5 seconds, `generatedAt` saying when.
+ */
+export const ClubLiveResult = Type.Object({
+  generatedAt: Type.String({ format: 'date-time' }),
+  open: Type.Boolean(),
+  lobby: Type.Array(LivePerson),
+  tables: Type.Array(
+    Type.Object({
+      tableId: Type.String(),
+      table: Type.Integer({ minimum: 1 }),
+      playing: Type.Boolean(),
+      gamesPlayed: Type.Integer({ minimum: 0 }),
+      seats: Type.Array(
+        Type.Object({
+          seat: Type.Integer({ minimum: 0 }),
+          player: Type.Union([
+            Type.Null(),
+            Type.Object({ bot: Type.Literal(false), person: LivePerson }),
+            Type.Object({ bot: Type.Literal(true), name: Type.String() }),
+          ]),
+          online: Type.Boolean(),
+        }),
+      ),
+      waiting: Type.Array(LivePerson),
+      spectators: Type.Array(LivePerson),
+    }),
+  ),
 })

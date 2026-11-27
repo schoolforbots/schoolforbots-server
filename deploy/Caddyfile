@@ -20,6 +20,11 @@
 		reverse_proxy class:8081
 	}
 
+	# The class service's half of the live campus, to anyone.
+	handle /v1/class/live {
+		reverse_proxy class:8081
+	}
+
 	# What an outside check asks the class service.
 	handle /healthz/class {
 		rewrite * /healthz
@@ -28,6 +33,11 @@
 
 	# The club connection (WebSocket).
 	handle /v1/club {
+		reverse_proxy club:8082
+	}
+
+	# The club service's half of the live campus, to anyone.
+	handle /v1/club/live {
 		reverse_proxy club:8082
 	}
 

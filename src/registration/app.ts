@@ -24,6 +24,7 @@ import { broadcastRoutes } from './broadcasts.js'
 import { recordsRoutes } from './records.js'
 import { registrationRoutes } from './registrations.js'
 import { schoolRoutes } from './school.js'
+import { liveSettingRoutes } from './live-setting.js'
 import { schoolStatsRoutes } from './school-stats.js'
 import { timetableRoutes } from './timetable.js'
 
@@ -98,6 +99,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   app.register(registrationRoutes(deps))
   app.register(meRoutes(deps))
   app.register(introRoutes(deps))
+  app.register(liveSettingRoutes(deps))
   app.register(clubRoutes(deps))
   app.register(doudizhuRoutes(deps))
   app.register(recordsRoutes(deps))

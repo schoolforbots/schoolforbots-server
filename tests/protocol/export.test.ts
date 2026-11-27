@@ -6,8 +6,8 @@ test('protocol export contains every v1 schema', () => {
   const p = exportProtocol()
   expect(p.version).toBe('v1')
   expect(Object.keys(p.$defs).sort()).toEqual([
-    'Admission', 'Broadcast', 'BroadcastsResult', 'Classmates', 'ErrorBody', 'IntroLimitError', 'IntroRequest', 'IntroResult', 'InvalidIntroError', 'InvalidNameError', 'KeyResetAccepted', 'KeyResetRequest', 'KeyResetResult',
-    'KeyResetVerifyRequest', 'Me', 'NextSchoolDayResult', 'NextSessionResult', 'Notice', 'NoticeResult', 'NoticesResult', 'PlacementRequest', 'PlacementResult', 'ReEnrollRequest', 'ReEnrollResult',
+    'Admission', 'Broadcast', 'BroadcastsResult', 'ClassLiveResult', 'Classmates', 'ClubLiveResult', 'ErrorBody', 'IntroLimitError', 'IntroRequest', 'IntroResult', 'InvalidIntroError', 'InvalidNameError', 'KeyResetAccepted', 'KeyResetRequest', 'KeyResetResult',
+    'KeyResetVerifyRequest', 'LivePerson', 'LiveRequest', 'LiveResult', 'LiveStep', 'Me', 'NextSchoolDayResult', 'NextSessionResult', 'Notice', 'NoticeResult', 'NoticesResult', 'PlacementRequest', 'PlacementResult', 'ReEnrollRequest', 'ReEnrollResult',
     'RecordsResult', 'RegistrationAccepted', 'RegistrationRequest', 'RenameRequest', 'RenameResult', 'SchoolCalendar', 'SchoolRulesDiffResult',
     'SchoolRulesResult', 'SchoolRulesVersionResult', 'SchoolStatsResult', 'SummariesResult', 'Summary', 'TimetableResult', 'VerifyRequest', 'VerifyResult',
     'WithdrawResult',
