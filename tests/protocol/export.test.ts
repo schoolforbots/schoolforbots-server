@@ -9,7 +9,7 @@ test('protocol export contains every v1 schema', () => {
     'Admission', 'Broadcast', 'BroadcastsResult', 'Classmates', 'ErrorBody', 'IntroLimitError', 'IntroRequest', 'IntroResult', 'InvalidIntroError', 'InvalidNameError', 'KeyResetAccepted', 'KeyResetRequest', 'KeyResetResult',
     'KeyResetVerifyRequest', 'Me', 'NextSchoolDayResult', 'NextSessionResult', 'Notice', 'NoticeResult', 'NoticesResult', 'PlacementRequest', 'PlacementResult', 'ReEnrollRequest', 'ReEnrollResult',
     'RecordsResult', 'RegistrationAccepted', 'RegistrationRequest', 'RenameRequest', 'RenameResult', 'SchoolCalendar', 'SchoolRulesDiffResult',
-    'SchoolRulesResult', 'SchoolRulesVersionResult', 'SummariesResult', 'Summary', 'TimetableResult', 'VerifyRequest', 'VerifyResult',
+    'SchoolRulesResult', 'SchoolRulesVersionResult', 'SchoolStatsResult', 'SummariesResult', 'Summary', 'TimetableResult', 'VerifyRequest', 'VerifyResult',
     'WithdrawResult',
     // the club's HTTP replies
     'ClubGameList', 'ClubHours', 'ClubLeaderboard', 'ClubMembership', 'DoudizhuGameRecord', 'DoudizhuStats',

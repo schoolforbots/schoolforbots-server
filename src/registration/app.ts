@@ -24,6 +24,7 @@ import { broadcastRoutes } from './broadcasts.js'
 import { recordsRoutes } from './records.js'
 import { registrationRoutes } from './registrations.js'
 import { schoolRoutes } from './school.js'
+import { schoolStatsRoutes } from './school-stats.js'
 import { timetableRoutes } from './timetable.js'
 
 export interface RegistrationDeps {
@@ -106,6 +107,7 @@ export function buildRegistrationApp(deps: RegistrationDeps): FastifyInstance {
   app.register(broadcastRoutes(deps))
   app.register(nextSessionRoutes(deps))
   app.register(timetableRoutes(deps))
+  app.register(schoolStatsRoutes(deps))
   if (deps.admin !== undefined && adminPath !== undefined) app.register(adminRoutes(deps.admin), { prefix: adminPath })
 
   return app

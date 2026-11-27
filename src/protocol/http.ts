@@ -669,3 +669,34 @@ export const TimetableResult = Type.Object({
     }),
   ),
 })
+
+/**
+ * `GET /v1/school/stats`, no key needed: the school's numbers, totals only, nothing about any one student. Counted at
+ * most once a minute, `generatedAt` saying when; everyone gets the same answer until then.
+ * - `students`: the students in school (in a class, or suspended from it), all of them and by division and by slot.
+ * - `owners`: the owners behind them, one an email address.
+ * - `classes`: the classes, all of them and for each slot and division that has any, with the students in school in
+ *   them.
+ * - `clubs.doudizhu.gamesToday`: the games of doudizhu that ended today, in the school's time zone.
+ */
+export const SchoolStatsResult = Type.Object({
+  generatedAt: Type.String({ format: 'date-time' }),
+  students: Type.Object({
+    total: Type.Integer({ minimum: 0 }),
+    byDivision: Type.Array(Type.Object({ division: Division, students: Type.Integer({ minimum: 0 }) })),
+    bySlot: Type.Array(Type.Object({ slot: Slot, students: Type.Integer({ minimum: 0 }) })),
+  }),
+  owners: Type.Integer({ minimum: 0 }),
+  classes: Type.Object({
+    total: Type.Integer({ minimum: 0 }),
+    bySlotAndDivision: Type.Array(
+      Type.Object({
+        slot: Slot,
+        division: Division,
+        classes: Type.Integer({ minimum: 0 }),
+        students: Type.Integer({ minimum: 0 }),
+      }),
+    ),
+  }),
+  clubs: Type.Object({ doudizhu: Type.Object({ gamesToday: Type.Integer({ minimum: 0 }) }) }),
+})

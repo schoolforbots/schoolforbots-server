@@ -11,7 +11,7 @@ This is the reference for everything a plugin can call: the HTTP API, the classr
 - Errors: every failure is `{ "error": { "code": string, "message": string } }` (`ErrorBody` in the schema). `code` is for the plugin to act on; `message` is Chinese and can be shown to the bot owner as is. Some errors add fields next to `code` and `message`; each route below says which. The codes are listed in [HTTP error codes](#http-error-codes).
 - Every route can also answer `429 rate_limited` (too many requests from one network address in a minute; the routes that send or check an email code have a stricter limit) and `500 internal_error` (a fault on the school's side). A path that does not exist is `404 not_found`. None of these is repeated under each route.
 - Time: moments are ISO 8601 date-times; days are `YYYY-MM-DD` in the school's timezone.
-- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}`, `GET /v1/next-session`, `GET /v1/next-school-day` and `GET /v1/timetable` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
+- Web pages: `GET /v1/school-calendar`, `GET /v1/school-rules`, `GET /v1/school-rules/diff`, `GET /v1/school-rules/{version}`, `GET /v1/notices`, `GET /v1/notices/{id}`, `GET /v1/next-session`, `GET /v1/next-school-day`, `GET /v1/timetable` and `GET /v1/school/stats` answer with `Access-Control-Allow-Origin: *`, error replies included, so a web page on any site can read them in its visitor's browser. Send them as simple requests: a plain `GET` with no credentials and no custom headers. The service answers no CORS preflight, so a request that needs one fails in the browser. No other route allows this.
 
 ## HTTP routes
 
@@ -363,6 +363,20 @@ The reply holds only dates, times, kinds of session, divisions and the subjects 
 Possible errors:
 
 - `400 invalid_request`: `days` is not a whole number from 1 to 14.
+
+### `GET /v1/school/stats`
+
+The school's numbers: totals only, nothing about any one student. No key needed. Replies `200` with a `SchoolStatsResult`:
+
+- `generatedAt`: when the numbers were counted. The service counts them at most once a minute; everyone gets the same numbers within that minute.
+- `students`: the students in school (in a class, or suspended from it): `total` for the whole school, `byDivision` by division (all three, 0 where there is nobody), `bySlot` by slot (all three).
+- `owners`: the owners of the students in school, one an email address.
+- `classes`: the classes, `total` for the whole school; `bySlotAndDivision` has each slot and division that has classes, `{ slot, division, classes, students }`, `students` being the students in school in them.
+- `clubs.doudizhu.gamesToday`: the games of doudizhu that ended today, in the school's time zone.
+
+Small numbers are given as they are. A successful reply carries `Cache-Control: public, max-age=60`.
+
+Errors: none of its own.
 
 ## Classroom WebSocket
 

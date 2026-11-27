@@ -1954,6 +1954,191 @@
         }
       }
     },
+    "SchoolStatsResult": {
+      "type": "object",
+      "required": [
+        "generatedAt",
+        "students",
+        "owners",
+        "classes",
+        "clubs"
+      ],
+      "properties": {
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "students": {
+          "type": "object",
+          "required": [
+            "total",
+            "byDivision",
+            "bySlot"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "byDivision": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "division",
+                  "students"
+                ],
+                "properties": {
+                  "division": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "primary"
+                      },
+                      {
+                        "type": "string",
+                        "const": "junior"
+                      },
+                      {
+                        "type": "string",
+                        "const": "senior"
+                      }
+                    ]
+                  },
+                  "students": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "bySlot": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "slot",
+                  "students"
+                ],
+                "properties": {
+                  "slot": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "morning"
+                      },
+                      {
+                        "type": "string",
+                        "const": "afternoon"
+                      },
+                      {
+                        "type": "string",
+                        "const": "evening"
+                      }
+                    ]
+                  },
+                  "students": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "owners": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "classes": {
+          "type": "object",
+          "required": [
+            "total",
+            "bySlotAndDivision"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "bySlotAndDivision": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "slot",
+                  "division",
+                  "classes",
+                  "students"
+                ],
+                "properties": {
+                  "slot": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "morning"
+                      },
+                      {
+                        "type": "string",
+                        "const": "afternoon"
+                      },
+                      {
+                        "type": "string",
+                        "const": "evening"
+                      }
+                    ]
+                  },
+                  "division": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "const": "primary"
+                      },
+                      {
+                        "type": "string",
+                        "const": "junior"
+                      },
+                      {
+                        "type": "string",
+                        "const": "senior"
+                      }
+                    ]
+                  },
+                  "classes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "students": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "clubs": {
+          "type": "object",
+          "required": [
+            "doudizhu"
+          ],
+          "properties": {
+            "doudizhu": {
+              "type": "object",
+              "required": [
+                "gamesToday"
+              ],
+              "properties": {
+                "gamesToday": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "SummariesResult": {
       "type": "object",
       "required": [

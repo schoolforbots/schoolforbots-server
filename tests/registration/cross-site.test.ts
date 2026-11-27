@@ -17,6 +17,7 @@ const CROSS_SITE = [
   '/v1/next-session',
   '/v1/next-school-day',
   '/v1/timetable',
+  '/v1/school/stats',
 ]
 
 /** What a browser adds to a request a page on another site makes. */
@@ -45,8 +46,8 @@ function expectNotReadableFromAnotherSite(res: LightMyRequestResponse) {
   expect(Object.keys(res.headers).filter((name) => name.startsWith('access-control-'))).toEqual([])
 }
 
-describe('reading the school calendar, the school rules, the notices, the next session and the timetable from another site', () => {
-  test('each of the nine routes allows any site', async () => {
+describe('reading the school calendar, the school rules, the notices, the next session, the timetable and the school numbers from another site', () => {
+  test('each of the ten routes allows any site', async () => {
     const t = await schoolApp()
     const current = t.schoolRules.current.version
     const { id } = await t.db
@@ -65,6 +66,7 @@ describe('reading the school calendar, the school rules, the notices, the next s
       '/v1/next-session',
       '/v1/next-school-day',
       '/v1/timetable',
+      '/v1/school/stats',
     ]) {
       const res = await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
       expect(res.statusCode, url).toBe(200)
@@ -92,7 +94,7 @@ describe('reading the school calendar, the school rules, the notices, the next s
   })
 
   test('and so does the rate limit, so a page can tell it apart from a school it cannot reach', async () => {
-    for (const url of ['/v1/school-calendar', '/v1/notices', '/v1/next-session', '/v1/next-school-day', '/v1/timetable']) {
+    for (const url of ['/v1/school-calendar', '/v1/notices', '/v1/next-session', '/v1/next-school-day', '/v1/timetable', '/v1/school/stats']) {
       const t = await schoolApp({ httpRateLimitPerMinute: 1 })
 
       await t.app.inject({ method: 'GET', url, headers: FROM_ANOTHER_SITE })
@@ -111,7 +113,7 @@ describe('reading the school calendar, the school rules, the notices, the next s
   test('no preflight is answered, so only a simple GET gets through', async () => {
     const t = await schoolApp()
 
-    for (const url of ['/v1/school-calendar', '/v1/school-rules', '/v1/notices', '/v1/next-session', '/v1/next-school-day', '/v1/timetable']) {
+    for (const url of ['/v1/school-calendar', '/v1/school-rules', '/v1/notices', '/v1/next-session', '/v1/next-school-day', '/v1/timetable', '/v1/school/stats']) {
       const preflight = await t.app.inject({
         method: 'OPTIONS',
         url,
