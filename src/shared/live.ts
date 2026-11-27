@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import type { Kysely } from 'kysely'
 import type { Static } from 'typebox'
 import type { LivePerson } from '../protocol/http.js'
+import { LOOKS_COLUMNS, looksOf } from './avatar.js'
 import type { Database } from './schema.js'
 
 // What the class and the club services share for the live campus (`GET /v1/class/live`, `GET /v1/club/live`): the
@@ -50,8 +51,8 @@ export function byShownOrder(a: Person, b: Person): number {
 }
 
 /**
- * How each of `studentIds` is shown: by name, or anonymously (`students.live_anonymous`), read at each snapshot so a
- * change shows at the next one. A student number not found is left out.
+ * How each of `studentIds` is shown: by name, with the robot type and avatar colors, or anonymously, with none of them
+ * (`students.live_anonymous`), read at each snapshot so a change shows at the next one. A student number not found is left out.
  */
 export async function livePeople(
   db: Kysely<Database>,
@@ -64,15 +65,15 @@ export async function livePeople(
   if (ids.length > 0) {
     const rows = await db
       .selectFrom('students')
-      .select(['id', 'aiName', 'liveAnonymous'])
+      .select(['id', 'aiName', 'liveAnonymous', ...LOOKS_COLUMNS])
       .where('id', 'in', ids)
       .execute()
     for (const r of rows) {
       people.set(
         r.id,
         r.liveAnonymous
-          ? { anonymous: true, studentId: null, aiName: null, anonId: anonIds.idOf(r.id, now) }
-          : { anonymous: false, studentId: r.id, aiName: r.aiName, anonId: null },
+          ? { anonymous: true, studentId: null, aiName: null, anonId: anonIds.idOf(r.id, now), aiType: null, avatar: null }
+          : { anonymous: false, studentId: r.id, aiName: r.aiName, anonId: null, ...looksOf(r) },
       )
     }
   }

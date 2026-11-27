@@ -403,6 +403,7 @@
 - `owners`：在校学生的家长数，一个邮箱算一位。
 - `classes`：班级数，`total` 是全校的；`bySlotAndDivision` 是每个有班的时段和学部，`{ slot, division, classes, students }`，`students` 是这些班里在校的学生。
 - `clubs.doudizhu.gamesToday`：斗地主社今天（学校时区）打完了几局。
+- `aiTypes`：在校学生按机器人类型分的人数，`{ aiType, students }`，`AI_TYPES` 里每一种都列出来，按那里的顺序，没人的是 0。
 
 数字很小时也照实给。成功的回复带 `Cache-Control: public, max-age=60`。
 
@@ -421,8 +422,8 @@
 
 每个学生是一个 `LivePerson`：
 
-- 显示名字的：`anonymous` 是 `false`，`studentId` 和 `aiName` 是学号和 AI 名字，`anonId` 是 `null`。
-- 匿名的（见 `PATCH /v1/me/live`）：`anonymous` 是 `true`，`studentId` 和 `aiName` 是 `null`，`anonId` 是服务给的一个 12 个字符的随机串：学生在的时候不变，不在一分钟以后作废，服务重启也会换；上课和社团两边给的不一样。网页可以用它在前后两份快照里认出同一个匿名学生。
+- 显示名字的：`anonymous` 是 `false`，`studentId` 和 `aiName` 是学号和 AI 名字，`anonId` 是 `null`，`aiType` 和 `avatar` 是机器人类型和头像颜色（和 `GET /v1/me` 里的一样，见 `PATCH /v1/me/avatar`）。
+- 匿名的（见 `PATCH /v1/me/live`）：`anonymous` 是 `true`，`studentId` 和 `aiName` 是 `null`，`anonId` 是服务给的一个 12 个字符的随机串：学生在的时候不变，不在一分钟以后作废，服务重启也会换；上课和社团两边给的不一样。网页可以用它在前后两份快照里认出同一个匿名学生。`aiType` 和 `avatar` 也是 `null`：类型加上颜色很容易认出是谁，网页给所有匿名学生画同一个形象。
 - 先列显示名字的（按学号），再列匿名的。
 
 回复里没有主人的名字，也没有课上的发言、提问和回答。成功的回复带 `Cache-Control: public, max-age=5`。回复带 `Access-Control-Allow-Origin: *`，出错的回复也带，网页可以直接读。每个网络地址每分钟最多请求 `httpRateLimitPerMinute` 次。

@@ -63,7 +63,13 @@ describe('GET /v1/class/live', () => {
     const named = await insertStudent(s.db, { classId, status: 'active', aiName: '小鱼' })
     const hidden = await insertStudent(s.db, { classId, status: 'active', aiName: '小虾' })
     await insertStudent(s.db, { classId, status: 'active', aiName: '小蟹' })
-    await s.db.updateTable('students').set({ liveAnonymous: true }).where('id', '=', hidden.id).execute()
+    // Each chose a type and colors: the anonymous student's are not shown.
+    await s.db.updateTable('students').set({ aiType: 'claude', avatarBackground: 'blue' }).where('id', '=', named.id).execute()
+    await s.db
+      .updateTable('students')
+      .set({ liveAnonymous: true, aiType: 'kimi', avatarBackground: 'pink', avatarBorder: 'teal' })
+      .where('id', '=', hidden.id)
+      .execute()
 
     s.clock.set(at('19:50:00'))
     await s.runtime.tick()
@@ -85,13 +91,15 @@ describe('GET /v1/class/live', () => {
     })
     expect(room.teacher.name).toEqual(expect.any(String))
     expect(room.students).toEqual([
-      { anonymous: false, studentId: named.id, aiName: '小鱼', anonId: null },
-      { anonymous: true, studentId: null, aiName: null, anonId: expect.stringMatching(/^[A-Za-z0-9_-]{12}$/) },
+      { anonymous: false, studentId: named.id, aiName: '小鱼', anonId: null, aiType: 'claude', avatar: { background: 'blue', border: null } },
+      { anonymous: true, studentId: null, aiName: null, anonId: expect.stringMatching(/^[A-Za-z0-9_-]{12}$/), aiType: null, avatar: null },
     ])
     const anonId = room.students[1].anonId
     expect(JSON.stringify(first.body)).not.toContain('小虾')
     expect(JSON.stringify(first.body)).not.toContain(`"studentId":${hidden.id}`)
     expect(JSON.stringify(first.body)).not.toContain('小蟹')
+    expect(JSON.stringify(first.body)).not.toContain('kimi')
+    expect(JSON.stringify(first.body)).not.toContain('pink')
 
     // Into the first segment: the anonymous student keeps the same id.
     s.clock.set(at('20:06:00'))

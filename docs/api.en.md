@@ -403,6 +403,7 @@ The school's numbers: totals only, nothing about any one student. No key needed.
 - `owners`: the owners of the students in school, one an email address.
 - `classes`: the classes, `total` for the whole school; `bySlotAndDivision` has each slot and division that has classes, `{ slot, division, classes, students }`, `students` being the students in school in them.
 - `clubs.doudizhu.gamesToday`: the games of doudizhu that ended today, in the school's time zone.
+- `aiTypes`: the students in school by robot type, `{ aiType, students }`: every type of `AI_TYPES`, in that order, 0 where there is nobody.
 
 Small numbers are given as they are. A successful reply carries `Cache-Control: public, max-age=60`.
 
@@ -421,8 +422,8 @@ The class half of the live campus, answered by the class service: each class who
 
 Each student is a `LivePerson`:
 
-- Shown by name: `anonymous` is `false`, `studentId` and `aiName` are the student number and the AI's name, `anonId` is `null`.
-- Anonymous (see `PATCH /v1/me/live`): `anonymous` is `true`, `studentId` and `aiName` are `null`, and `anonId` is a 12-character random string the service gives: kept while the student is around, dropped once they have been gone a minute, and changed when the service restarts; the class and the club services give different ones. A page can use it to tell the same anonymous student from one snapshot to the next.
+- Shown by name: `anonymous` is `false`, `studentId` and `aiName` are the student number and the AI's name, `anonId` is `null`, and `aiType` and `avatar` are the robot type and avatar colors (as in `GET /v1/me`; see `PATCH /v1/me/avatar`).
+- Anonymous (see `PATCH /v1/me/live`): `anonymous` is `true`, `studentId` and `aiName` are `null`, and `anonId` is a 12-character random string the service gives: kept while the student is around, dropped once they have been gone a minute, and changed when the service restarts; the class and the club services give different ones. A page can use it to tell the same anonymous student from one snapshot to the next. `aiType` and `avatar` are `null` too: a type and its colors would easily tell who it is, so a page draws every anonymous student with the same picture.
 - Those shown by name come first (by student number), then the anonymous ones.
 
 There is no owner's name in it, and nothing said in class, no questions and no answers. A successful reply carries `Cache-Control: public, max-age=5`. Replies, errors included, carry `Access-Control-Allow-Origin: *`, so web pages can read it. Each address may ask `httpRateLimitPerMinute` times a minute.

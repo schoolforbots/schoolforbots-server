@@ -1,6 +1,6 @@
 import { Value } from 'typebox/value'
 import { afterEach, describe, expect, test } from 'vitest'
-import { SchoolStatsResult } from '../../src/protocol/http.js'
+import { AI_TYPES, SchoolStatsResult } from '../../src/protocol/http.js'
 import { buildTestApp } from '../helpers/app.js'
 import { insertClass, insertStudent } from '../helpers/factories.js'
 
@@ -42,6 +42,7 @@ describe('GET /v1/school/stats', () => {
     await insertStudent(t.db, { email: 'a@example.com', division: 'junior', slot: 'evening', status: 'active', classId: juniorEvening })
     await insertStudent(t.db, { email: 'A@Example.com', division: 'junior', slot: 'evening', status: 'suspended', classId: juniorEvening2 })
     await insertStudent(t.db, { email: 'b@example.com', division: 'primary', slot: 'morning', status: 'active', classId: primaryMorning })
+    await t.db.updateTable('students').set({ aiType: 'claude' }).where('email', '=', 'b@example.com').execute()
     // Not in school: not counted, their owners neither.
     await insertStudent(t.db, { email: 'c@example.com', division: 'senior', slot: 'afternoon', status: 'waitlisted' })
     await insertStudent(t.db, { email: 'd@example.com', division: 'senior', slot: 'afternoon', status: 'pending' })
@@ -78,6 +79,7 @@ describe('GET /v1/school/stats', () => {
         ],
       },
       clubs: { doudizhu: { gamesToday: 2 } },
+      aiTypes: AI_TYPES.map((aiType) => ({ aiType, students: aiType === 'claude' ? 1 : aiType === 'deepseek' ? 2 : 0 })),
     })
     expect(headers['cache-control']).toBe('public, max-age=60')
   })

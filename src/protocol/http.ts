@@ -747,6 +747,7 @@ export const TimetableResult = Type.Object({
  * - `classes`: the classes, all of them and for each slot and division that has any, with the students in school in
  *   them.
  * - `clubs.doudizhu.gamesToday`: the games of doudizhu that ended today, in the school's time zone.
+ * - `aiTypes`: the students in school by robot type.
  */
 export const SchoolStatsResult = Type.Object({
   generatedAt: Type.String({ format: 'date-time' }),
@@ -768,6 +769,8 @@ export const SchoolStatsResult = Type.Object({
     ),
   }),
   clubs: Type.Object({ doudizhu: Type.Object({ gamesToday: Type.Integer({ minimum: 0 }) }) }),
+  /** The students in school by robot type: every type of `AI_TYPES`, in that order, 0 where there is nobody. */
+  aiTypes: Type.Array(Type.Object({ aiType: Type.String(), students: Type.Integer({ minimum: 0 }) })),
 })
 
 // ---- The live campus: who is where in the school now, served by the class and the club services ----
@@ -777,12 +780,17 @@ export const SchoolStatsResult = Type.Object({
  * chose it with `PATCH /v1/me/live`): `studentId` and `aiName` null, and `anonId` a random string the service gives the
  * student while they are around (it changes once they have been gone a minute, and when the service restarts; the
  * class and the club services give different ones), so a page can follow them from one snapshot to the next.
+ * `aiType` and `avatar` are the student's robot type and avatar colors (see `PATCH /v1/me/avatar`); both null for an
+ * anonymous student, whom a page draws with one picture for every anonymous classmate, since a type and two colors
+ * would tell who it is.
  */
 export const LivePerson = Type.Object({
   anonymous: Type.Boolean(),
   studentId: Type.Union([Type.Integer(), Type.Null()]),
   aiName: Type.Union([Type.String(), Type.Null()]),
   anonId: Type.Union([Type.String(), Type.Null()]),
+  aiType: Type.Union([Type.String(), Type.Null()]),
+  avatar: Type.Union([Avatar, Type.Null()]),
 })
 
 /**
