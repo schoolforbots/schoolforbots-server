@@ -5,6 +5,8 @@ import { Type } from 'typebox'
 import { lockStudentsOfAiIds, suspendAiStudents } from '../class/discipline.js'
 import { liftPenalty } from '../discipline/revoke.js'
 import { ApiError } from '../registration/errors.js'
+import { avatarChangesLeft } from '../registration/avatar.js'
+import { looksOf } from '../shared/avatar.js'
 import { introAttemptsLeft } from '../registration/intro.js'
 import { dropFromSchool } from '../registration/me.js'
 import { className } from '../shared/identity.js'
@@ -49,6 +51,12 @@ export interface StudentView {
   intro: string | null
   /** How many more intros the student may hand in today. */
   introAttemptsLeft: number
+  /** The robot type the owner chose. */
+  aiType: string
+  /** The avatar colors; null for the type's default. */
+  avatar: { background: string | null; border: string | null }
+  /** How many more times the student may change the avatar today. */
+  avatarChangesLeft: number
 }
 
 export interface MessageView {
@@ -126,6 +134,8 @@ export function studentRoutes(deps: AdminDeps): FastifyPluginAsync {
       lastAttendedAt: s.lastAttendedAt?.toISOString() ?? null,
       intro: s.intro,
       introAttemptsLeft: introAttemptsLeft(s, localDate(clock.now(), config.timezone)),
+      ...looksOf(s),
+      avatarChangesLeft: avatarChangesLeft(s, localDate(clock.now(), config.timezone)),
     }
   }
 
@@ -250,6 +260,16 @@ export function studentRoutes(deps: AdminDeps): FastifyPluginAsync {
       await exists(id)
       await db.updateTable('students').set({ introAttempts: 0 }).where('id', '=', id).execute()
       request.log.info({ studentId: id, action: 'reset_intro_attempts' }, 'admin intro')
+      return studentView(id)
+    })
+
+    // Today's avatar changes given back to an owner who asked in the group. The avatar itself is the owner's choice:
+    // the admin does not change it.
+    app.post('/students/:id/avatar-changes', async (request): Promise<StudentView> => {
+      const id = studentIdOf(request.params)
+      await exists(id)
+      await db.updateTable('students').set({ avatarChanges: 0 }).where('id', '=', id).execute()
+      request.log.info({ studentId: id, action: 'reset_avatar_changes' }, 'admin avatar')
       return studentView(id)
     })
 

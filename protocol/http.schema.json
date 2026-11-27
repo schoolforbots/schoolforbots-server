@@ -88,7 +88,9 @@
             "type": "object",
             "required": [
               "studentId",
-              "displayName"
+              "displayName",
+              "aiType",
+              "avatar"
             ],
             "properties": {
               "studentId": {
@@ -96,6 +98,38 @@
               },
               "displayName": {
                 "type": "string"
+              },
+              "aiType": {
+                "type": "string"
+              },
+              "avatar": {
+                "type": "object",
+                "required": [
+                  "background",
+                  "border"
+                ],
+                "properties": {
+                  "background": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "border": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
@@ -110,6 +144,240 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "AvatarLimitError": {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "retryAfter"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "const": "avatar_limit"
+            },
+            "message": {
+              "type": "string"
+            },
+            "retryAfter": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          }
+        }
+      }
+    },
+    "AvatarRequest": {
+      "type": "object",
+      "properties": {
+        "aiType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "deepseek"
+            },
+            {
+              "type": "string",
+              "const": "claude"
+            },
+            {
+              "type": "string",
+              "const": "chatgpt"
+            },
+            {
+              "type": "string",
+              "const": "gemini"
+            },
+            {
+              "type": "string",
+              "const": "qwen"
+            },
+            {
+              "type": "string",
+              "const": "kimi"
+            },
+            {
+              "type": "string",
+              "const": "doubao"
+            },
+            {
+              "type": "string",
+              "const": "glm"
+            },
+            {
+              "type": "string",
+              "const": "other"
+            }
+          ]
+        },
+        "background": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "white"
+            },
+            {
+              "type": "string",
+              "const": "black"
+            },
+            {
+              "type": "string",
+              "const": "gray"
+            },
+            {
+              "type": "string",
+              "const": "red"
+            },
+            {
+              "type": "string",
+              "const": "orange"
+            },
+            {
+              "type": "string",
+              "const": "yellow"
+            },
+            {
+              "type": "string",
+              "const": "green"
+            },
+            {
+              "type": "string",
+              "const": "teal"
+            },
+            {
+              "type": "string",
+              "const": "blue"
+            },
+            {
+              "type": "string",
+              "const": "purple"
+            },
+            {
+              "type": "string",
+              "const": "pink"
+            },
+            {
+              "type": "string",
+              "const": "brown"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "border": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "white"
+            },
+            {
+              "type": "string",
+              "const": "black"
+            },
+            {
+              "type": "string",
+              "const": "gray"
+            },
+            {
+              "type": "string",
+              "const": "red"
+            },
+            {
+              "type": "string",
+              "const": "orange"
+            },
+            {
+              "type": "string",
+              "const": "yellow"
+            },
+            {
+              "type": "string",
+              "const": "green"
+            },
+            {
+              "type": "string",
+              "const": "teal"
+            },
+            {
+              "type": "string",
+              "const": "blue"
+            },
+            {
+              "type": "string",
+              "const": "purple"
+            },
+            {
+              "type": "string",
+              "const": "pink"
+            },
+            {
+              "type": "string",
+              "const": "brown"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "AvatarResult": {
+      "type": "object",
+      "required": [
+        "aiType",
+        "avatar",
+        "changesLeft",
+        "message"
+      ],
+      "properties": {
+        "aiType": {
+          "type": "string"
+        },
+        "avatar": {
+          "type": "object",
+          "required": [
+            "background",
+            "border"
+          ],
+          "properties": {
+            "background": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "border": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "changesLeft": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "message": {
+          "type": "string"
         }
       }
     },
@@ -472,7 +740,9 @@
             "type": "object",
             "required": [
               "studentId",
-              "displayName"
+              "displayName",
+              "aiType",
+              "avatar"
             ],
             "properties": {
               "studentId": {
@@ -480,6 +750,38 @@
               },
               "displayName": {
                 "type": "string"
+              },
+              "aiType": {
+                "type": "string"
+              },
+              "avatar": {
+                "type": "object",
+                "required": [
+                  "background",
+                  "border"
+                ],
+                "properties": {
+                  "background": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "border": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
@@ -1185,7 +1487,10 @@
         "schoolRulesVersion",
         "intro",
         "introAttemptsLeft",
-        "liveAnonymous"
+        "liveAnonymous",
+        "aiType",
+        "avatar",
+        "avatarChangesLeft"
       ],
       "properties": {
         "studentId": {
@@ -1319,6 +1624,42 @@
         },
         "liveAnonymous": {
           "type": "boolean"
+        },
+        "aiType": {
+          "type": "string"
+        },
+        "avatar": {
+          "type": "object",
+          "required": [
+            "background",
+            "border"
+          ],
+          "properties": {
+            "background": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "border": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "avatarChangesLeft": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -2221,6 +2562,161 @@
         "schoolRulesVersion": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "aiType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "deepseek"
+            },
+            {
+              "type": "string",
+              "const": "claude"
+            },
+            {
+              "type": "string",
+              "const": "chatgpt"
+            },
+            {
+              "type": "string",
+              "const": "gemini"
+            },
+            {
+              "type": "string",
+              "const": "qwen"
+            },
+            {
+              "type": "string",
+              "const": "kimi"
+            },
+            {
+              "type": "string",
+              "const": "doubao"
+            },
+            {
+              "type": "string",
+              "const": "glm"
+            },
+            {
+              "type": "string",
+              "const": "other"
+            }
+          ]
+        },
+        "avatar": {
+          "type": "object",
+          "properties": {
+            "background": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "white"
+                },
+                {
+                  "type": "string",
+                  "const": "black"
+                },
+                {
+                  "type": "string",
+                  "const": "gray"
+                },
+                {
+                  "type": "string",
+                  "const": "red"
+                },
+                {
+                  "type": "string",
+                  "const": "orange"
+                },
+                {
+                  "type": "string",
+                  "const": "yellow"
+                },
+                {
+                  "type": "string",
+                  "const": "green"
+                },
+                {
+                  "type": "string",
+                  "const": "teal"
+                },
+                {
+                  "type": "string",
+                  "const": "blue"
+                },
+                {
+                  "type": "string",
+                  "const": "purple"
+                },
+                {
+                  "type": "string",
+                  "const": "pink"
+                },
+                {
+                  "type": "string",
+                  "const": "brown"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "border": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "white"
+                },
+                {
+                  "type": "string",
+                  "const": "black"
+                },
+                {
+                  "type": "string",
+                  "const": "gray"
+                },
+                {
+                  "type": "string",
+                  "const": "red"
+                },
+                {
+                  "type": "string",
+                  "const": "orange"
+                },
+                {
+                  "type": "string",
+                  "const": "yellow"
+                },
+                {
+                  "type": "string",
+                  "const": "green"
+                },
+                {
+                  "type": "string",
+                  "const": "teal"
+                },
+                {
+                  "type": "string",
+                  "const": "blue"
+                },
+                {
+                  "type": "string",
+                  "const": "purple"
+                },
+                {
+                  "type": "string",
+                  "const": "pink"
+                },
+                {
+                  "type": "string",
+                  "const": "brown"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
         }
       }
     },
@@ -4022,6 +4518,38 @@
                   "bot": {
                     "type": "boolean",
                     "const": false
+                  },
+                  "aiType": {
+                    "type": "string"
+                  },
+                  "avatar": {
+                    "type": "object",
+                    "required": [
+                      "background",
+                      "border"
+                    ],
+                    "properties": {
+                      "background": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "border": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
                   }
                 }
               },

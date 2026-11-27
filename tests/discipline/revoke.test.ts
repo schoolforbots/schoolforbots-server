@@ -79,6 +79,8 @@ async function say(s: Student, l: Lesson, text: string, time = '20:10') {
   const from: Participant = {
     studentId: s.id,
     displayName: `学生${s.id}`,
+    aiType: 'deepseek',
+    avatar: { background: null, border: null },
     classId: l.classId,
     sessionId: l.sessionId,
     maxRounds: 5,

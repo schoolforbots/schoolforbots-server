@@ -4,6 +4,7 @@ import { sql, type Kysely } from 'kysely'
 import { Type, type Static } from 'typebox'
 import { IsEmail } from 'typebox/format'
 import {
+  DEFAULT_AI_TYPE,
   RegistrationAccepted,
   RegistrationRequest,
   VerifyRequest,
@@ -179,6 +180,9 @@ async function createRegistration(
         verifiedAt: null,
         schoolRulesVersion: body.schoolRulesVersion,
         schoolRulesAgreedAt: now,
+        aiType: body.aiType ?? null,
+        avatarBackground: body.avatar?.background ?? null,
+        avatarBorder: body.avatar?.border ?? null,
       })
       .returning('id')
       .executeTakeFirstOrThrow()
@@ -295,6 +299,10 @@ async function verifyInTransaction(
       // What the owner agreed to when registering, whatever the rules say by now.
       schoolRulesVersion: registration.schoolRulesVersion,
       schoolRulesAgreedAt: registration.schoolRulesAgreedAt,
+      // How the owner asked for the AI to be shown; the default type when none was chosen.
+      aiType: registration.aiType ?? DEFAULT_AI_TYPE,
+      avatarBackground: registration.avatarBackground,
+      avatarBorder: registration.avatarBorder,
     })
     .returning('id')
     .executeTakeFirstOrThrow()

@@ -22,6 +22,38 @@
             "bot": {
               "type": "boolean",
               "const": false
+            },
+            "aiType": {
+              "type": "string"
+            },
+            "avatar": {
+              "type": "object",
+              "required": [
+                "background",
+                "border"
+              ],
+              "properties": {
+                "background": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "border": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
             }
           }
         },
@@ -69,6 +101,38 @@
             "bot": {
               "type": "boolean",
               "const": false
+            },
+            "aiType": {
+              "type": "string"
+            },
+            "avatar": {
+              "type": "object",
+              "required": [
+                "background",
+                "border"
+              ],
+              "properties": {
+                "background": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "border": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
             },
             "className": {
               "type": "string"
@@ -1859,6 +1923,38 @@
                           "bot": {
                             "type": "boolean",
                             "const": false
+                          },
+                          "aiType": {
+                            "type": "string"
+                          },
+                          "avatar": {
+                            "type": "object",
+                            "required": [
+                              "background",
+                              "border"
+                            ],
+                            "properties": {
+                              "background": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "border": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
                           }
                         }
                       },
@@ -1925,6 +2021,38 @@
                   "bot": {
                     "type": "boolean",
                     "const": false
+                  },
+                  "aiType": {
+                    "type": "string"
+                  },
+                  "avatar": {
+                    "type": "object",
+                    "required": [
+                      "background",
+                      "border"
+                    ],
+                    "properties": {
+                      "background": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "border": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
                   }
                 }
               },
@@ -2754,6 +2882,38 @@
                     "bot": {
                       "type": "boolean",
                       "const": false
+                    },
+                    "aiType": {
+                      "type": "string"
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "required": [
+                        "background",
+                        "border"
+                      ],
+                      "properties": {
+                        "background": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "border": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
                     }
                   }
                 },
@@ -2820,6 +2980,38 @@
                     "bot": {
                       "type": "boolean",
                       "const": false
+                    },
+                    "aiType": {
+                      "type": "string"
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "required": [
+                        "background",
+                        "border"
+                      ],
+                      "properties": {
+                        "background": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "border": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
                     }
                   }
                 },
@@ -2948,6 +3140,38 @@
                       "bot": {
                         "type": "boolean",
                         "const": false
+                      },
+                      "aiType": {
+                        "type": "string"
+                      },
+                      "avatar": {
+                        "type": "object",
+                        "required": [
+                          "background",
+                          "border"
+                        ],
+                        "properties": {
+                          "background": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "border": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
                       }
                     }
                   },
@@ -3032,6 +3256,38 @@
                     "bot": {
                       "type": "boolean",
                       "const": false
+                    },
+                    "aiType": {
+                      "type": "string"
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "required": [
+                        "background",
+                        "border"
+                      ],
+                      "properties": {
+                        "background": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "border": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
                     }
                   }
                 },
@@ -3080,6 +3336,38 @@
                         "bot": {
                           "type": "boolean",
                           "const": false
+                        },
+                        "aiType": {
+                          "type": "string"
+                        },
+                        "avatar": {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     },
@@ -3261,6 +3549,38 @@
                               "bot": {
                                 "type": "boolean",
                                 "const": false
+                              },
+                              "aiType": {
+                                "type": "string"
+                              },
+                              "avatar": {
+                                "type": "object",
+                                "required": [
+                                  "background",
+                                  "border"
+                                ],
+                                "properties": {
+                                  "background": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "border": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                }
                               }
                             }
                           },
@@ -5126,6 +5446,38 @@
                       "bot": {
                         "type": "boolean",
                         "const": false
+                      },
+                      "aiType": {
+                        "type": "string"
+                      },
+                      "avatar": {
+                        "type": "object",
+                        "required": [
+                          "background",
+                          "border"
+                        ],
+                        "properties": {
+                          "background": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "border": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
                       }
                     }
                   },
@@ -6679,6 +7031,38 @@
                               "bot": {
                                 "type": "boolean",
                                 "const": false
+                              },
+                              "aiType": {
+                                "type": "string"
+                              },
+                              "avatar": {
+                                "type": "object",
+                                "required": [
+                                  "background",
+                                  "border"
+                                ],
+                                "properties": {
+                                  "background": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "border": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                }
                               }
                             }
                           },
@@ -6745,6 +7129,38 @@
                       "bot": {
                         "type": "boolean",
                         "const": false
+                      },
+                      "aiType": {
+                        "type": "string"
+                      },
+                      "avatar": {
+                        "type": "object",
+                        "required": [
+                          "background",
+                          "border"
+                        ],
+                        "properties": {
+                          "background": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "border": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
                       }
                     }
                   },
@@ -7624,6 +8040,38 @@
                               "bot": {
                                 "type": "boolean",
                                 "const": false
+                              },
+                              "aiType": {
+                                "type": "string"
+                              },
+                              "avatar": {
+                                "type": "object",
+                                "required": [
+                                  "background",
+                                  "border"
+                                ],
+                                "properties": {
+                                  "background": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "border": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                }
                               }
                             }
                           },
@@ -7690,6 +8138,38 @@
                       "bot": {
                         "type": "boolean",
                         "const": false
+                      },
+                      "aiType": {
+                        "type": "string"
+                      },
+                      "avatar": {
+                        "type": "object",
+                        "required": [
+                          "background",
+                          "border"
+                        ],
+                        "properties": {
+                          "background": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "border": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
                       }
                     }
                   },
@@ -8608,6 +9088,38 @@
                                           "bot": {
                                             "type": "boolean",
                                             "const": false
+                                          },
+                                          "aiType": {
+                                            "type": "string"
+                                          },
+                                          "avatar": {
+                                            "type": "object",
+                                            "required": [
+                                              "background",
+                                              "border"
+                                            ],
+                                            "properties": {
+                                              "background": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "border": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            }
                                           }
                                         }
                                       },
@@ -8674,6 +9186,38 @@
                                   "bot": {
                                     "type": "boolean",
                                     "const": false
+                                  },
+                                  "aiType": {
+                                    "type": "string"
+                                  },
+                                  "avatar": {
+                                    "type": "object",
+                                    "required": [
+                                      "background",
+                                      "border"
+                                    ],
+                                    "properties": {
+                                      "background": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "border": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      }
+                                    }
                                   }
                                 }
                               },
@@ -9553,6 +10097,38 @@
                                           "bot": {
                                             "type": "boolean",
                                             "const": false
+                                          },
+                                          "aiType": {
+                                            "type": "string"
+                                          },
+                                          "avatar": {
+                                            "type": "object",
+                                            "required": [
+                                              "background",
+                                              "border"
+                                            ],
+                                            "properties": {
+                                              "background": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "border": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            }
                                           }
                                         }
                                       },
@@ -9619,6 +10195,38 @@
                                   "bot": {
                                     "type": "boolean",
                                     "const": false
+                                  },
+                                  "aiType": {
+                                    "type": "string"
+                                  },
+                                  "avatar": {
+                                    "type": "object",
+                                    "required": [
+                                      "background",
+                                      "border"
+                                    ],
+                                    "properties": {
+                                      "background": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "border": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      }
+                                    }
                                   }
                                 }
                               },
@@ -10965,6 +11573,38 @@
                   "type": "boolean",
                   "const": false
                 },
+                "aiType": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "object",
+                  "required": [
+                    "background",
+                    "border"
+                  ],
+                  "properties": {
+                    "background": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "border": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                },
                 "className": {
                   "type": "string"
                 }
@@ -11314,6 +11954,38 @@
                                   "bot": {
                                     "type": "boolean",
                                     "const": false
+                                  },
+                                  "aiType": {
+                                    "type": "string"
+                                  },
+                                  "avatar": {
+                                    "type": "object",
+                                    "required": [
+                                      "background",
+                                      "border"
+                                    ],
+                                    "properties": {
+                                      "background": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "border": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      }
+                                    }
                                   }
                                 }
                               },
@@ -11380,6 +12052,38 @@
                           "bot": {
                             "type": "boolean",
                             "const": false
+                          },
+                          "aiType": {
+                            "type": "string"
+                          },
+                          "avatar": {
+                            "type": "object",
+                            "required": [
+                              "background",
+                              "border"
+                            ],
+                            "properties": {
+                              "background": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "border": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
                           }
                         }
                       },
@@ -12228,6 +12932,38 @@
                         "type": "boolean",
                         "const": false
                       },
+                      "aiType": {
+                        "type": "string"
+                      },
+                      "avatar": {
+                        "type": "object",
+                        "required": [
+                          "background",
+                          "border"
+                        ],
+                        "properties": {
+                          "background": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "border": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
                       "className": {
                         "type": "string"
                       }
@@ -12327,6 +13063,38 @@
                 "bot": {
                   "type": "boolean",
                   "const": false
+                },
+                "aiType": {
+                  "type": "string"
+                },
+                "avatar": {
+                  "type": "object",
+                  "required": [
+                    "background",
+                    "border"
+                  ],
+                  "properties": {
+                    "background": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "border": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
                 },
                 "className": {
                   "type": "string"
@@ -12479,6 +13247,38 @@
                         "bot": {
                           "type": "boolean",
                           "const": false
+                        },
+                        "aiType": {
+                          "type": "string"
+                        },
+                        "avatar": {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     },
@@ -12545,6 +13345,38 @@
                         "bot": {
                           "type": "boolean",
                           "const": false
+                        },
+                        "aiType": {
+                          "type": "string"
+                        },
+                        "avatar": {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     },
@@ -12673,6 +13505,38 @@
                           "bot": {
                             "type": "boolean",
                             "const": false
+                          },
+                          "aiType": {
+                            "type": "string"
+                          },
+                          "avatar": {
+                            "type": "object",
+                            "required": [
+                              "background",
+                              "border"
+                            ],
+                            "properties": {
+                              "background": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "border": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
                           }
                         }
                       },
@@ -12757,6 +13621,38 @@
                         "bot": {
                           "type": "boolean",
                           "const": false
+                        },
+                        "aiType": {
+                          "type": "string"
+                        },
+                        "avatar": {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     },
@@ -12805,6 +13701,38 @@
                             "bot": {
                               "type": "boolean",
                               "const": false
+                            },
+                            "aiType": {
+                              "type": "string"
+                            },
+                            "avatar": {
+                              "type": "object",
+                              "required": [
+                                "background",
+                                "border"
+                              ],
+                              "properties": {
+                                "background": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "border": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              }
                             }
                           }
                         },
@@ -12986,6 +13914,38 @@
                                   "bot": {
                                     "type": "boolean",
                                     "const": false
+                                  },
+                                  "aiType": {
+                                    "type": "string"
+                                  },
+                                  "avatar": {
+                                    "type": "object",
+                                    "required": [
+                                      "background",
+                                      "border"
+                                    ],
+                                    "properties": {
+                                      "background": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "border": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      }
+                                    }
                                   }
                                 }
                               },
@@ -14102,6 +15062,38 @@
                     "bot": {
                       "type": "boolean",
                       "const": false
+                    },
+                    "aiType": {
+                      "type": "string"
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "required": [
+                        "background",
+                        "border"
+                      ],
+                      "properties": {
+                        "background": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "border": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
                     }
                   }
                 },
@@ -14184,6 +15176,38 @@
                     "bot": {
                       "type": "boolean",
                       "const": false
+                    },
+                    "aiType": {
+                      "type": "string"
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "required": [
+                        "background",
+                        "border"
+                      ],
+                      "properties": {
+                        "background": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "border": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
                     }
                   }
                 },
@@ -15443,6 +16467,38 @@
                                               "bot": {
                                                 "type": "boolean",
                                                 "const": false
+                                              },
+                                              "aiType": {
+                                                "type": "string"
+                                              },
+                                              "avatar": {
+                                                "type": "object",
+                                                "required": [
+                                                  "background",
+                                                  "border"
+                                                ],
+                                                "properties": {
+                                                  "background": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  },
+                                                  "border": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  }
+                                                }
                                               }
                                             }
                                           },
@@ -15509,6 +16565,38 @@
                                       "bot": {
                                         "type": "boolean",
                                         "const": false
+                                      },
+                                      "aiType": {
+                                        "type": "string"
+                                      },
+                                      "avatar": {
+                                        "type": "object",
+                                        "required": [
+                                          "background",
+                                          "border"
+                                        ],
+                                        "properties": {
+                                          "background": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "border": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          }
+                                        }
                                       }
                                     }
                                   },
@@ -16388,6 +17476,38 @@
                                               "bot": {
                                                 "type": "boolean",
                                                 "const": false
+                                              },
+                                              "aiType": {
+                                                "type": "string"
+                                              },
+                                              "avatar": {
+                                                "type": "object",
+                                                "required": [
+                                                  "background",
+                                                  "border"
+                                                ],
+                                                "properties": {
+                                                  "background": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  },
+                                                  "border": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "string"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  }
+                                                }
                                               }
                                             }
                                           },
@@ -16454,6 +17574,38 @@
                                       "bot": {
                                         "type": "boolean",
                                         "const": false
+                                      },
+                                      "aiType": {
+                                        "type": "string"
+                                      },
+                                      "avatar": {
+                                        "type": "object",
+                                        "required": [
+                                          "background",
+                                          "border"
+                                        ],
+                                        "properties": {
+                                          "background": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "border": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          }
+                                        }
                                       }
                                     }
                                   },
@@ -17800,6 +18952,38 @@
                       "type": "boolean",
                       "const": false
                     },
+                    "aiType": {
+                      "type": "string"
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "required": [
+                        "background",
+                        "border"
+                      ],
+                      "properties": {
+                        "background": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "border": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    },
                     "className": {
                       "type": "string"
                     }
@@ -18149,6 +19333,38 @@
                                       "bot": {
                                         "type": "boolean",
                                         "const": false
+                                      },
+                                      "aiType": {
+                                        "type": "string"
+                                      },
+                                      "avatar": {
+                                        "type": "object",
+                                        "required": [
+                                          "background",
+                                          "border"
+                                        ],
+                                        "properties": {
+                                          "background": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "border": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          }
+                                        }
                                       }
                                     }
                                   },
@@ -18215,6 +19431,38 @@
                               "bot": {
                                 "type": "boolean",
                                 "const": false
+                              },
+                              "aiType": {
+                                "type": "string"
+                              },
+                              "avatar": {
+                                "type": "object",
+                                "required": [
+                                  "background",
+                                  "border"
+                                ],
+                                "properties": {
+                                  "background": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "border": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                }
                               }
                             }
                           },
@@ -19063,6 +20311,38 @@
                             "type": "boolean",
                             "const": false
                           },
+                          "aiType": {
+                            "type": "string"
+                          },
+                          "avatar": {
+                            "type": "object",
+                            "required": [
+                              "background",
+                              "border"
+                            ],
+                            "properties": {
+                              "background": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "border": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            }
+                          },
                           "className": {
                             "type": "string"
                           }
@@ -19162,6 +20442,38 @@
                     "bot": {
                       "type": "boolean",
                       "const": false
+                    },
+                    "aiType": {
+                      "type": "string"
+                    },
+                    "avatar": {
+                      "type": "object",
+                      "required": [
+                        "background",
+                        "border"
+                      ],
+                      "properties": {
+                        "background": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "border": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
                     },
                     "className": {
                       "type": "string"
@@ -19314,6 +20626,38 @@
                             "bot": {
                               "type": "boolean",
                               "const": false
+                            },
+                            "aiType": {
+                              "type": "string"
+                            },
+                            "avatar": {
+                              "type": "object",
+                              "required": [
+                                "background",
+                                "border"
+                              ],
+                              "properties": {
+                                "background": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "border": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              }
                             }
                           }
                         },
@@ -19380,6 +20724,38 @@
                             "bot": {
                               "type": "boolean",
                               "const": false
+                            },
+                            "aiType": {
+                              "type": "string"
+                            },
+                            "avatar": {
+                              "type": "object",
+                              "required": [
+                                "background",
+                                "border"
+                              ],
+                              "properties": {
+                                "background": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "border": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              }
                             }
                           }
                         },
@@ -19508,6 +20884,38 @@
                               "bot": {
                                 "type": "boolean",
                                 "const": false
+                              },
+                              "aiType": {
+                                "type": "string"
+                              },
+                              "avatar": {
+                                "type": "object",
+                                "required": [
+                                  "background",
+                                  "border"
+                                ],
+                                "properties": {
+                                  "background": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "border": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                }
                               }
                             }
                           },
@@ -19592,6 +21000,38 @@
                             "bot": {
                               "type": "boolean",
                               "const": false
+                            },
+                            "aiType": {
+                              "type": "string"
+                            },
+                            "avatar": {
+                              "type": "object",
+                              "required": [
+                                "background",
+                                "border"
+                              ],
+                              "properties": {
+                                "background": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "border": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              }
                             }
                           }
                         },
@@ -19640,6 +21080,38 @@
                                 "bot": {
                                   "type": "boolean",
                                   "const": false
+                                },
+                                "aiType": {
+                                  "type": "string"
+                                },
+                                "avatar": {
+                                  "type": "object",
+                                  "required": [
+                                    "background",
+                                    "border"
+                                  ],
+                                  "properties": {
+                                    "background": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "border": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  }
                                 }
                               }
                             },
@@ -19821,6 +21293,38 @@
                                       "bot": {
                                         "type": "boolean",
                                         "const": false
+                                      },
+                                      "aiType": {
+                                        "type": "string"
+                                      },
+                                      "avatar": {
+                                        "type": "object",
+                                        "required": [
+                                          "background",
+                                          "border"
+                                        ],
+                                        "properties": {
+                                          "background": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "border": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          }
+                                        }
                                       }
                                     }
                                   },
@@ -20937,6 +22441,38 @@
                         "bot": {
                           "type": "boolean",
                           "const": false
+                        },
+                        "aiType": {
+                          "type": "string"
+                        },
+                        "avatar": {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     },
@@ -21019,6 +22555,38 @@
                         "bot": {
                           "type": "boolean",
                           "const": false
+                        },
+                        "aiType": {
+                          "type": "string"
+                        },
+                        "avatar": {
+                          "type": "object",
+                          "required": [
+                            "background",
+                            "border"
+                          ],
+                          "properties": {
+                            "background": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "border": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     },

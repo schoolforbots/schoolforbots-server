@@ -244,6 +244,9 @@ export function student(fields: Partial<Student> = {}): Student {
     lastAttendedAt: '2026-11-03T12:30:00.000Z',
     intro: null,
     introAttemptsLeft: 5,
+    aiType: 'deepseek',
+    avatar: { background: null, border: null },
+    avatarChangesLeft: 3,
     ...fields,
   }
 }

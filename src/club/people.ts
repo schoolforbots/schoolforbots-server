@@ -1,6 +1,7 @@
 import type { Static } from 'typebox'
 import type { ClubPerson, ClubPersonWithClass } from '../protocol/club.js'
 import type { Division, SchoolConfig, Slot } from '../shared/config.js'
+import { looksOf, type LooksRow } from '../shared/avatar.js'
 import { className, displayName } from '../shared/identity.js'
 
 // The people at a club table as the protocol shows them: students, who are told apart by their student number and
@@ -43,14 +44,16 @@ export function clubDisplayName(student: StudentName): string {
   return `${displayName(student.ownerName, student.aiName)} ${studentTag(student.id)}`
 }
 
-/** A student as a `ClubPerson`. */
-export function studentPerson(student: StudentName): StudentPerson {
-  return { studentId: student.id, displayName: clubDisplayName(student), bot: false }
+/** A student as a `ClubPerson`, with how they are shown when their row is given with it. */
+export function studentPerson(student: StudentName & Partial<LooksRow>): StudentPerson {
+  const person: StudentPerson = { studentId: student.id, displayName: clubDisplayName(student), bot: false }
+  if (student.aiType === undefined) return person
+  return { ...person, ...looksOf({ aiType: student.aiType, avatarBackground: student.avatarBackground ?? null, avatarBorder: student.avatarBorder ?? null }) }
 }
 
 /** A student as a `ClubPersonWithClass`, with the class's name as everywhere else (`"初中部·晚班·3 班"`). */
 export function studentPersonWithClass(
-  student: StudentName,
+  student: StudentName & Partial<LooksRow>,
   cls: StudentClass,
   config: SchoolConfig,
 ): StudentPersonWithClass {
@@ -69,9 +72,9 @@ export function botPersonWithClass(name: string): BotPersonWithClass {
 
 /** A person with their class (null for a bot) as a `ClubPerson`. */
 export function withoutClass(person: PersonWithClass): Person {
-  return person.bot
-    ? botPerson(person.displayName)
-    : { studentId: person.studentId, displayName: person.displayName, bot: false }
+  if (person.bot) return botPerson(person.displayName)
+  const { className: _, ...student } = person
+  return student
 }
 
 /**

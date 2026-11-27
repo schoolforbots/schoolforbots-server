@@ -4,6 +4,7 @@ import {
   getMessages,
   deleteIntro,
   liftPenalty,
+  resetAvatarChanges,
   resetIntroAttempts,
   messagesPath,
   recordsPath,
@@ -81,6 +82,40 @@ type Asking =
   | { what: 'lift' }
   | { what: 'deleteIntro' }
   | { what: 'resetIntro' }
+  | { what: 'resetAvatar' }
+
+const AI_TYPE_NAMES: Record<string, string> = {
+  deepseek: 'DeepSeek',
+  claude: 'Claude',
+  chatgpt: 'ChatGPT',
+  gemini: 'Gemini',
+  qwen: '千问',
+  kimi: 'Kimi',
+  doubao: '豆包',
+  glm: '智谱',
+  other: '其它',
+}
+const COLOR_NAMES: Record<string, string> = {
+  white: '白',
+  black: '黑',
+  gray: '灰',
+  red: '红',
+  orange: '橙',
+  yellow: '黄',
+  green: '绿',
+  teal: '青',
+  blue: '蓝',
+  purple: '紫',
+  pink: '粉',
+  brown: '棕',
+}
+
+/** The robot type and the avatar colors, e.g. "Claude · 底色蓝 · 边框默认". */
+function looks(student: Student): string {
+  const color = (c: string | null) => (c === null ? '默认' : (COLOR_NAMES[c] ?? c))
+  const type = AI_TYPE_NAMES[student.aiType] ?? student.aiType
+  return `${type} · 底色${color(student.avatar.background)} · 边框${color(student.avatar.border)}`
+}
 
 function Profile({ student, onChanged }: { student: Student; onChanged: (student: Student) => void }) {
   const zone = useSchoolZone()
@@ -98,6 +133,7 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
     lift: useRef<HTMLButtonElement>(null),
     deleteIntro: useRef<HTMLButtonElement>(null),
     resetIntro: useRef<HTMLButtonElement>(null),
+    resetAvatar: useRef<HTMLButtonElement>(null),
   }
   const who = `学号 ${student.id}`
 
@@ -119,6 +155,8 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
       ['上过的课', `${count(student.lessonsAttended)} 节`],
       ['最后一次上课', student.lastAttendedAt === null ? '还没上过课' : moment(student.lastAttendedAt, zone)],
       ['今天还能交介绍', `${student.introAttemptsLeft} 次`],
+      ['形象', looks(student)],
+      ['今天还能改形象', `${student.avatarChangesLeft} 次`],
     ],
   ]
 
@@ -211,6 +249,19 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
         onConfirm={() => run(() => resetIntroAttempts(student.id), () => `已恢复${who} 今天交自我介绍的次数。`)}
       >
         <p>今天还能再交 5 次。主人在反馈群里说词库判错了、或者次数不够用时用。</p>
+      </Confirm>
+    )
+  } else if (asking?.what === 'resetAvatar') {
+    dialog = (
+      <Confirm
+        title={`恢复${who} 今天改形象的次数？`}
+        confirm="恢复次数"
+        busy="正在恢复"
+        cancel="先不恢复"
+        onCancel={close}
+        onConfirm={() => run(() => resetAvatarChanges(student.id), () => `已恢复${who} 今天改形象的次数。`)}
+      >
+        <p>今天还能再改 3 次。主人在反馈群里说次数不够用时用。形象是主人自己选的，后台不替他们改。</p>
       </Confirm>
     )
   } else if (asking?.what === 'lift') {
@@ -321,6 +372,9 @@ function Profile({ student, onChanged }: { student: Student; onChanged: (student
           )}
           <Button ref={openers.resetIntro} onClick={() => setAsking({ what: 'resetIntro' })}>
             恢复交介绍的次数
+          </Button>
+          <Button ref={openers.resetAvatar} onClick={() => setAsking({ what: 'resetAvatar' })}>
+            恢复改形象的次数
           </Button>
         </div>
         {daysMissing && (

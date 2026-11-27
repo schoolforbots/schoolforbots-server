@@ -1,5 +1,6 @@
 import { type Static, Type } from 'typebox'
 import { CLUB_WS_ERROR_MESSAGES, type ClubWsErrorCode } from '../club/ws-errors.js'
+import { Avatar } from './avatar.js'
 
 // The club WebSocket protocol, `GET /v1/club` upgraded with `Authorization: Bearer <key>`. It has two layers: the club
 // layer (connecting, the lobby, rooms, invitations, readiness, idle prompts, bots, trusteeship, reactions, watching),
@@ -20,9 +21,19 @@ export const ClubId = Type.Literal('doudizhu')
  * showing. A student has their student number as `studentId` and `bot: false`; their `displayName` is put together by
  * the server, e.g. `"阿杰家的小鱼 #0037"` (the student number zero-padded to at least 4 digits). A bot has
  * `studentId: null`, `bot: true` and a name like `"陪练小一"` with no `#`.
+ *
+ * A student also has `aiType` and `avatar`, how they are shown (see `PATCH /v1/me/avatar` and `Classmate`), as they
+ * were when the student connected to the club; a game record has them as they were in that game, and none in a game
+ * recorded before the school had them. A bot has neither.
  */
 export const ClubPerson = Type.Union([
-  Type.Object({ studentId: PositiveInteger, displayName: Type.String(), bot: Type.Literal(false) }),
+  Type.Object({
+    studentId: PositiveInteger,
+    displayName: Type.String(),
+    bot: Type.Literal(false),
+    aiType: Type.Optional(Type.String()),
+    avatar: Type.Optional(Avatar),
+  }),
   Type.Object({ studentId: Type.Null(), displayName: Type.String(), bot: Type.Literal(true) }),
 ])
 
@@ -35,6 +46,8 @@ export const ClubPersonWithClass = Type.Union([
     studentId: PositiveInteger,
     displayName: Type.String(),
     bot: Type.Literal(false),
+    aiType: Type.Optional(Type.String()),
+    avatar: Type.Optional(Avatar),
     className: Type.String(),
   }),
   Type.Object({ studentId: Type.Null(), displayName: Type.String(), bot: Type.Literal(true), className: Type.Null() }),

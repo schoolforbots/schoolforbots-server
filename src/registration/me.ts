@@ -25,6 +25,8 @@ import { isAiSeatViolation, seatsOfEmail, slotHasWaitlist, slotOccupancy } from 
 import { assignQueuedNow } from './daily-job.js'
 import { ApiError, invalidNameError } from './errors.js'
 import { introAttemptsLeft } from './intro.js'
+import { avatarChangesLeft } from './avatar.js'
+import { LOOKS_COLUMNS, looksOf } from '../shared/avatar.js'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -80,6 +82,8 @@ export function meRoutes(deps: RegistrationDeps): FastifyPluginAsyncTypebox {
           intro: student.intro,
           introAttemptsLeft: introAttemptsLeft(student, localDate(deps.clock.now(), deps.config.timezone)),
           liveAnonymous: student.liveAnonymous,
+          ...looksOf(student),
+          avatarChangesLeft: avatarChangesLeft(student, localDate(deps.clock.now(), deps.config.timezone)),
         }
       },
     )
@@ -163,12 +167,12 @@ function classRow(db: Kysely<Database>, classId: number) {
 async function classmatesOf(db: Kysely<Database>, classId: number): Promise<Classmate[]> {
   const members = await db
     .selectFrom('students')
-    .select(['id', 'ownerName', 'aiName'])
+    .select(['id', 'ownerName', 'aiName', ...LOOKS_COLUMNS])
     .where('classId', '=', classId)
     .where('status', 'in', [...MEMBER_STATUSES])
     .orderBy('id')
     .execute()
-  return members.map((m) => ({ studentId: m.id, displayName: displayName(m.ownerName, m.aiName) }))
+  return members.map((m) => ({ studentId: m.id, displayName: displayName(m.ownerName, m.aiName), ...looksOf(m) }))
 }
 
 async function renameStudent(

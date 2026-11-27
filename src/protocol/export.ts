@@ -8,6 +8,9 @@ import * as ws from './ws.js'
 // error.
 const PUBLISHED_HTTP = [
   'Admission',
+  'AvatarLimitError',
+  'AvatarRequest',
+  'AvatarResult',
   'Broadcast',
   'BroadcastsResult',
   'ClassLiveResult',

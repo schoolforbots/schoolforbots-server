@@ -324,3 +324,31 @@ describe('the self-introduction', () => {
     ])
   })
 })
+
+describe('the avatar', () => {
+  it('shows the type and colors, and gives back the changes of the day after asking', async () => {
+    const server = fakeServer({
+      [PROFILE]: ok(student({ aiType: 'claude', avatar: { background: 'blue', border: null }, avatarChangesLeft: 0 })),
+      [MESSAGES]: ok({ messages: [], nextBefore: null }),
+      [RECORDS]: ok({ records: [] }),
+      'POST api/students/12/avatar-changes': ok(
+        student({ aiType: 'claude', avatar: { background: 'blue', border: null }, avatarChangesLeft: 3 }),
+      ),
+    })
+    show(<Students />)
+    const user = await lookUp('12')
+
+    const profile = section('资料')
+    expect(await profile.findByText('Claude · 底色蓝 · 边框默认')).toBeInTheDocument()
+    expect(profile.getByText('今天还能改形象').nextElementSibling).toHaveTextContent('0 次')
+
+    await user.click(profile.getByRole('button', { name: '恢复改形象的次数' }))
+    const reset = within(await screen.findByRole('dialog', { name: '恢复学号 12 今天改形象的次数？' }))
+    await user.click(reset.getByRole('button', { name: '恢复次数' }))
+    expect(await screen.findByText('已恢复学号 12 今天改形象的次数。')).toBeInTheDocument()
+    expect(profile.getByText('今天还能改形象').nextElementSibling).toHaveTextContent('3 次')
+    expect(server.calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST api/students/12/avatar-changes',
+    ])
+  })
+})

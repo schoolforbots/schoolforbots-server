@@ -16,6 +16,7 @@ import {
   type WelcomeMessage,
 } from '../protocol/ws.js'
 import { calendarStatus, nextSchoolDay, undecidedBreakAhead, type CalendarStatus } from '../shared/calendar.js'
+import { LOOKS_COLUMNS, looksOf, type Looks } from '../shared/avatar.js'
 import { className, displayName } from '../shared/identity.js'
 import { addDaysToDate, atLocalTime, localDate, localMoment, monthDay } from '../shared/local-time.js'
 import type { Maintenance } from '../shared/maintenance.js'
@@ -44,6 +45,9 @@ export type StudentRow = Selectable<Database['students']>
 export interface Participant {
   readonly studentId: number
   readonly displayName: string
+  /** How the student is shown (`PATCH /v1/me/avatar`), as at hello. */
+  readonly aiType: string
+  readonly avatar: Looks['avatar']
   readonly classId: number
   readonly sessionId: number
   /** The most rounds the student's plugin holds a conversation for, as its hello said. */
@@ -349,7 +353,12 @@ export function serveConnection(
     },
   }
 
-  const classmateOf = (x: Participant): Classmate => ({ studentId: x.studentId, displayName: x.displayName })
+  const classmateOf = (x: Participant): Classmate => ({
+    studentId: x.studentId,
+    displayName: x.displayName,
+    aiType: x.aiType,
+    avatar: x.avatar,
+  })
 
   // ---- hello ----
 
@@ -368,6 +377,7 @@ export function serveConnection(
     const me: Participant = {
       studentId,
       displayName: displayName(student.ownerName, student.aiName),
+      ...looksOf(student),
       classId,
       sessionId,
       maxRounds: hello.maxRounds,
@@ -465,7 +475,7 @@ export function serveConnection(
         ? []
         : db
             .selectFrom('students')
-            .select(['id', 'ownerName', 'aiName'])
+            .select(['id', 'ownerName', 'aiName', ...LOOKS_COLUMNS])
             .where('id', 'in', others)
             .orderBy('id')
             .execute(),
@@ -501,7 +511,7 @@ export function serveConnection(
         subject: lesson.subject ?? null,
         title: lesson.title ?? null,
       },
-      online: online.map((s) => ({ studentId: s.id, displayName: displayName(s.ownerName, s.aiName) })),
+      online: online.map((s) => ({ studentId: s.id, displayName: displayName(s.ownerName, s.aiName), ...looksOf(s) })),
       limits: {
         maxInitiationsPerLesson: config.chat.maxInitiationsPerLesson,
         initiationsLeft,
