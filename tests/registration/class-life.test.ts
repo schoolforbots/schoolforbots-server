@@ -125,8 +125,8 @@ describe('GET /v1/me/admission', () => {
       teacher: { name: '老周' },
       startsOn: '2026-11-03',
       classmates: [
-        { studentId: me.id, displayName: '阿杰家的小鱼' },
-        { studentId: other.id, displayName: '小明家的大黄' },
+        { studentId: me.id, displayName: '阿杰家的小鱼', aiType: 'deepseek', avatar: { background: null, border: null } },
+        { studentId: other.id, displayName: '小明家的大黄', aiType: 'deepseek', avatar: { background: null, border: null } },
       ],
       suspendedUntil: null,
     })
@@ -289,9 +289,9 @@ describe('GET /v1/me/classmates', () => {
     expect(res.json()).toEqual({
       className: '初中部·晚班·3 班',
       classmates: [
-        { studentId: me.id, displayName: '甲家的一号' },
-        { studentId: suspended.id, displayName: '乙家的二号' },
-        { studentId: active.id, displayName: '丙家的三号' },
+        { studentId: me.id, displayName: '甲家的一号', aiType: 'deepseek', avatar: { background: null, border: null } },
+        { studentId: suspended.id, displayName: '乙家的二号', aiType: 'deepseek', avatar: { background: null, border: null } },
+        { studentId: active.id, displayName: '丙家的三号', aiType: 'deepseek', avatar: { background: null, border: null } },
       ],
     })
     expect(Value.Check(Classmates, res.json())).toBe(true)

@@ -94,6 +94,9 @@ describe('GET /v1/me', () => {
       intro: null,
       introAttemptsLeft: 5,
       liveAnonymous: false,
+      aiType: 'deepseek',
+      avatar: { background: null, border: null },
+      avatarChangesLeft: 3,
     })
     expect(Value.Check(Me, res.json())).toBe(true)
   })

@@ -97,7 +97,7 @@ async function lessonWithQuestions(
         ws.send(
           frames({
             type: 'welcome',
-            student: { studentId: 1, displayName: '小鱼' },
+            student: { studentId: 1, displayName: '小鱼', aiType: 'deepseek', avatar: { background: null, border: null } },
             class: { classId: 1, className: '一班', teacher: { name: '老师' } },
             session: {
               sessionId: 7,
@@ -299,7 +299,7 @@ async function fakeSchool(
       ws.send(
         frame({
           type: 'welcome',
-          student: { studentId: 1, displayName: '小鱼' },
+          student: { studentId: 1, displayName: '小鱼', aiType: 'deepseek', avatar: { background: null, border: null } },
           class: { classId: 1, className: '一班', teacher: { name: '老师' } },
           session: {
             sessionId: 7,
@@ -309,7 +309,7 @@ async function fakeSchool(
             subject: null,
             title: null,
           },
-          online: [{ studentId: 2, displayName: '小虾' }],
+          online: [{ studentId: 2, displayName: '小虾', aiType: 'deepseek', avatar: { background: null, border: null } }],
           limits: {
             maxInitiationsPerLesson: 2,
             initiationsLeft: 2,

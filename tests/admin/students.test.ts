@@ -87,6 +87,9 @@ test('the student page has the profile, the class and the attendance', async () 
     lastAttendedAt: '2026-11-03T12:30:00.000Z',
     intro: null,
     introAttemptsLeft: 5,
+    aiType: 'deepseek',
+    avatar: { background: null, border: null },
+    avatarChangesLeft: 3,
   })
   const unassigned = await insertStudent(t.db, { status: 'pending' })
   expect((await get(`api/students/${unassigned.id}`)).json()).toMatchObject({ classId: null, className: null })

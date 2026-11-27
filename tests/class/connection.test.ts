@@ -15,6 +15,8 @@ import { insertClass, insertLesson, insertSession, insertStudent } from '../help
 import { captureLogs } from '../helpers/logs.js'
 
 const MON = '2026-11-02'
+/** How a student who never chose an avatar is shown. */
+const LOOKS = { aiType: 'deepseek', avatar: { background: null, border: null } }
 /** A wall-clock time in Beijing (the example config's timezone), `HH:MM` or `HH:MM:SS`, on `date`. */
 const at = (time: string, date = MON) => new Date(`${date}T${time.length === 5 ? `${time}:00` : time}+08:00`)
 
@@ -775,11 +777,11 @@ describe('the transport', () => {
     await hello(ca)
     const cb = await connectOverTcp(b!.key, { autoPong: false })
     await hello(cb)
-    expect(await ca.next()).toEqual({ type: 'presence', joined: { studentId: b!.id, displayName: b!.displayName } })
+    expect(await ca.next()).toEqual({ type: 'presence', joined: { studentId: b!.id, displayName: b!.displayName, ...LOOKS } })
 
     // Dropped without a close frame: the connection is torn down.
     expect(await cb.closed()).toBe(1006)
-    expect(await ca.next()).toEqual({ type: 'presence', left: { studentId: b!.id, displayName: b!.displayName } })
+    expect(await ca.next()).toEqual({ type: 'presence', left: { studentId: b!.id, displayName: b!.displayName, ...LOOKS } })
     expect(s.disconnects).toEqual([b!.id])
     expect(s.hub.online(classId)).toEqual([a!.id])
     expect(s.logs.entries().filter((e) => e.msg === 'class connection stopped answering pings')).toMatchObject([
@@ -907,7 +909,7 @@ describe('the limits of a connection', () => {
 
     // b stops reading: what the service sends it piles up, first in the network's buffers, then in the service.
     cb.ws.pause()
-    const big = { type: 'presence', joined: { studentId: 1, displayName: '字'.repeat(5000) } }
+    const big = { type: 'presence', joined: { studentId: 1, displayName: '字'.repeat(5000), ...LOOKS } }
     for (let sent = 0; s.hub.online(classId).includes(b!.id); sent++) {
       if (sent > 20_000) throw new Error('Never dropped')
       s.hub.send(b!.id, big)
@@ -917,7 +919,7 @@ describe('the limits of a connection', () => {
     expect(s.disconnects).toEqual([b!.id])
     expect(s.logs.entries().filter((e) => e.msg === 'class connection fell behind')).toMatchObject([{ studentId: b!.id }])
     // Its classmate sees it leave, and stays.
-    expect(await ca.next()).toEqual({ type: 'presence', left: { studentId: b!.id, displayName: b!.displayName } })
+    expect(await ca.next()).toEqual({ type: 'presence', left: { studentId: b!.id, displayName: b!.displayName, ...LOOKS } })
     expect(s.hub.online(classId)).toEqual([a!.id])
   })
 
@@ -946,7 +948,7 @@ describe('the limits of a connection', () => {
     client.send({ id: 'h1', ...HELLO })
     await resumeStarted
 
-    s.hub.send(students[0]!.id, { type: 'presence', joined: { studentId: 1, displayName: '字'.repeat(400) } })
+    s.hub.send(students[0]!.id, { type: 'presence', joined: { studentId: 1, displayName: '字'.repeat(400), ...LOOKS } })
     await waitUntil(() => !s.hub.online(classId).includes(students[0]!.id), 'the drop')
     expect(await client.closed()).toBe(1006)
     release()
@@ -971,7 +973,7 @@ describe('joining the class', () => {
     const welcome = await hello(client)
     expect(welcome).toEqual({
       type: 'welcome',
-      student: { studentId: a!.id, displayName: a!.displayName },
+      student: { studentId: a!.id, displayName: a!.displayName, ...LOOKS },
       class: { classId, className: '初中部·晚班·1 班', teacher: { name: '林老师' } },
       session: {
         sessionId,
@@ -1167,7 +1169,7 @@ describe('who is online', () => {
     const { classId, students } = await seedClass(s, 3)
     const [a, b] = students
     await tickAt(s, at('19:50'))
-    const classmate = (x: typeof a) => ({ studentId: x!.id, displayName: x!.displayName })
+    const classmate = (x: typeof a) => ({ studentId: x!.id, displayName: x!.displayName, ...LOOKS })
 
     const ca = await connect(a!.key)
     expect((await hello(ca)).online).toEqual([])
@@ -1203,7 +1205,7 @@ describe('who is online', () => {
     }
     // Everyone goes at once: nobody is told that a classmate left.
     expect(clients[0]!.received.filter((m) => m.type === 'presence')).toEqual([
-      { type: 'presence', joined: { studentId: students[1]!.id, displayName: students[1]!.displayName } },
+      { type: 'presence', joined: { studentId: students[1]!.id, displayName: students[1]!.displayName, ...LOOKS } },
     ])
     expect(clients[1]!.received.filter((m) => m.type === 'presence')).toEqual([])
     expect(s.disconnects).toEqual(students.map((x) => x.id))
@@ -1272,7 +1274,7 @@ describe('who is online', () => {
     const [stored] = await s.db.selectFrom('classEvents').selectAll().where('seq', '=', 2).execute()
     const event = (seq: number, payload: object) =>
       ({ type: 'class.event', seq, replayed: false, at: at('20:06').toISOString(), event: payload })
-    const presence = { type: 'presence', joined: { studentId: 999, displayName: '某某家的小鱼' } }
+    const presence = { type: 'presence', joined: { studentId: 999, displayName: '某某家的小鱼', ...LOOKS } }
 
     // The moment the connection is registered, before the welcome is written: the runtime pushes event 2 (committed
     // before the replay is read, so the replay has it too), a classmate arrives, and event 3 is pushed.
@@ -1311,13 +1313,13 @@ describe('Review Focus 1: the newest connection wins', () => {
 
     const first = await connect(a!.key)
     await hello(first)
-    const asClassmate = { studentId: a!.id, displayName: a!.displayName }
+    const asClassmate = { studentId: a!.id, displayName: a!.displayName, ...LOOKS }
     expect(await watcher.next()).toEqual({ type: 'presence', joined: asClassmate })
 
     s.clock.set(at('19:55'))
     const second = await connect(a!.key)
     const welcome = await hello(second)
-    expect(welcome.online).toEqual([{ studentId: c!.id, displayName: c!.displayName }])
+    expect(welcome.online).toEqual([{ studentId: c!.id, displayName: c!.displayName, ...LOOKS }])
 
     expect(await first.next()).toEqual({
       type: 'closing',

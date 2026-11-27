@@ -46,6 +46,8 @@ describe('hello', () => {
         studentId: id,
         displayName: expect.stringMatching(new RegExp(`#${String(id).padStart(4, '0')}$`)),
         bot: false,
+        aiType: 'deepseek',
+        avatar: { background: null, border: null },
         className: '初中部·晚班·3 班',
       },
       club: { id: 'doudizhu', name: '斗地主社' },
